@@ -212,6 +212,8 @@ Status values used below:
 | SCI-001 | ROADMAP | Most Jones classes are public identity-returning stubs | 7 |
 | SCI-002 | ROADMAP | Spherical-harmonic/m-mode mode is advertised but unimplemented | 7 |
 | SCI-003 | ROADMAP | Advanced beam-physics TODOs remain | 7 |
+| SCI-006 | OPEN | RadioSim's local Stokes ``Q`` has the opposite sign to `pyuvsim`/`pyradiosky`'s for the same sky, BeamFITS feed convention (`x_orientation="east"`), and mount, discovered by the 7J `pyuvsim` cross-validation (`tests/crossvalidation/test_pyuvsim_comparison.py`, `output/crossvalidation/2026-08-02-pyuvsim-1.4.0.json`). The comparison's mapping 3 characterizes this as a local-basis axis-order swap (feed 0 bound to `data_array[0, 0]`, `pyuvdata`'s first sky-vector component) that also flips ``V``, and the preserved polarized intensity (``\|Q+iU\|`` agrees to `2.1e-3` relative after the swap) is consistent with that reading, but the comparison does not establish which convention is the intended one for an east-oriented ``x`` feed — a characterization, not an endorsement of either sign. Filed at 7J independent acceptance review, 2026-08-02, per the plan's routing of this finding to whole-tier review | 7J discovery, pre-7K disposition |
+| SCI-007 | OPEN | After the 7J cross-validation's basis-axis swap (`SCI-006`), the local linear-polarization frame still differs from `pyuvsim`'s by a fitted `-0.0576` degrees (`output/crossvalidation/2026-08-02-pyuvsim-1.4.0.json`). An independent astropy probe recorded in that artifact measures `0.200` degrees between the position angle of ICRS north and the apparent-equatorial parallactic angle at the same epoch and sources, the right order of magnitude for a reference-frame effect of this species, but the two numbers were not reconciled. This review's own independent CIRS-frame probe (ICRS-north-offset point transformed to CIRS at the crossval epoch/sources/location) measures `0.04`-`0.06` degrees per source — a different but same-order-of-magnitude quantity, confirming a real (not fabricated) sub-degree frame effect exists without closing the gap to either recorded figure. Filed at 7J independent acceptance review, 2026-08-02 | 7J discovery, pre-7K disposition |
 | DOC-001 | DOCS | `simple_simulation.py` uses stale private/result APIs | 8 |
 | DOC-002 | DOCS | README low-level baseline example is invalid | 8 |
 | DOC-003 | DOCS | Sphinx references removed Jones class names | 8 |
@@ -13535,3 +13537,217 @@ items were not independently re-derived beyond confirming their citations and
 non-goals read consistently in `beam_physics_scope.md`; they are explicitly
 out of scope for this slice. `SCI-005`'s own register row is deferred to 7K
 per Section 19.3, not filed here.
+
+### 2026-08-02 Tier 7J independent acceptance
+
+Reviewed range `2bb9c32..7d054fa` (four commits: `7b469b6` cross-validation,
+`53acb60` the documentation sweep, `bd14fc7` the four owned/forced pin flips,
+`7d054fa` a plan correction). This slice adds the Section 29 Tier-2 evidence
+against `pyuvsim 1.4.0` and closes D0/D21 with the full documentation pass
+Section 34 assigns 7J.
+
+**Cross-validation reproduced, bit for bit.** `pixi run --environment
+crossval -- python -m pytest tests/crossvalidation/ -m crossval`: 4 passed.
+The two comparison tests' internals were re-run standalone (bypassing pytest's
+assertions) to recover the raw floating-point numbers rather than trust a
+pass/fail: `test_unpolarized_point_sources_match_pyuvsim` reproduced
+`2.8065456627916864e-14` relative agreement and a `1.9544719611337873`
+control-without-mapping-1 (order unity, proving the assertion is not vacuous);
+`test_polarized_sources_with_jones_p_match_pyuvsim_up_to_the_basis_swap`
+reproduced `2.3139573996814273e-10` (total intensity), `4.0701816228520426e-11`
+(circular), `0.0020553900727602967` (linear, after the basis swap), and
+`0.615978502127489` (control, without the swap). All four measured figures
+and both controls match the committed artifact
+(`output/crossvalidation/2026-08-02-pyuvsim-1.4.0.json`) to every printed
+digit.
+
+**The three convention mappings, checked against source rather than taken on
+faith.** Mapping 1 (fringe sign): RadioSim's `core/jones/geometric.py` reads
+`exp(-2j*pi*(u*l+v*m+w*(n-1)))`, confirmed by direct inspection; `pyuvsim`'s
+installed `pyuvsim.uvsim.UVEngine.make_visibility` (read via `inspect.
+getsource` in the `crossval` environment) computes `fringe = np.exp(2j*np.pi*
+np.dot(uvw_wavelength, pos_lmn))` with `pos_lmn[2, :] = pos_n` (verified in
+`pyradiosky/skymodel.py::update_positions` — no `n - 1` term), exactly the
+`exp(+2j*pi*(u*l+v*m+w*n))` the module docstring claims. Mapping 2 (coherency
+V sign): RadioSim's `core/polarization.py` carries `(1/2)[[I+Q, U+iV],[U-iV,
+I-Q]]`, confirmed in source; the installed `pyradiosky.utils.
+stokes_to_coherency` was read directly and is exactly `0.5*[[I+Q, U-iV],
+[U+iV, I-Q]]` — the claimed mirror image. Both mappings are genuinely derived
+from the two codes' own documented behavior, not fitted: the citations check
+out character for character, and each test asserts a **control** case without
+its mapping that disagrees at order unity, which a fitted (as opposed to
+derived) sign flip could not distinguish from a coincidental match. Mapping 3
+(local basis axis order) is weaker and the module says so itself — "the two
+conventions turn out to be each other's axis swap" is an empirical
+characterization tied to a real, checkable fact (feed 0 bound to
+`data_array[0, 0]`, `pyuvdata`'s first sky-vector component; RadioSim's
+`x_orientation="east"` feed and `_feed_angles`'s `pi/2` convention, both read
+in `core/receptor.py`), not a full derivation, and the module is explicit that
+it does not endorse RadioSim's `Q` sign as correct. That honesty — leaving a
+`5e-3`-tolerance linear residual and an unreconciled `0.058`-degree rotation
+in the record rather than tuning them away — is itself evidence the mapping
+was derived and not fitted to hide a discrepancy: a fitted mapping tuned to
+match would not leave a residual it cannot explain.
+
+**Disposition of the two routed findings.** (a) The Stokes-``Q`` sign
+disagreement: filed as `SCI-006` **OPEN** in the register above rather than
+absorbed as a 7K footnote. This is an unresolved convention question about
+RadioSim's own east-feed ``Q`` definition, discovered by cross-validation
+rather than invented, and affects how linear polarization should be
+interpreted by anyone reading RadioSim's output against another code's
+convention — exactly the shape of finding the `SKY-002` precedent (filed by a
+reviewer during the SKY-001 acceptance review, not by the implementer) says
+gets a register row rather than a note buried in an acceptance record no
+future reader will search. (b) The `0.058`-degree residual rotation: filed as
+`SCI-007` **OPEN** for the same reason. This review additionally probed the
+claimed `0.200`-degree astropy figure independently (an ICRS-north-offset
+point transformed to `CIRS` at the crossval epoch/sources/location, via
+`astropy.coordinates.CIRS` and `position_angle`) and measured `0.041`-`0.063`
+degrees per source — order-of-magnitude consistent with the `0.058`-degree
+residual itself, but not with the artifact's `0.200` figure, using this
+review's own (not necessarily identical) probe methodology. This does not
+change the disposition: the artifact already discloses "the two numbers were
+not reconciled" rather than claiming closure, and this review's own
+independent number is recorded in `SCI-007` rather than silently discarded.
+
+**Doc truth, spot-checked against source.** `core/jones/__init__.py`'s
+`__all__` has exactly 19 names, confirmed by direct read, matching CLAUDE.md's
+"exactly 19 names" and `docs/api/jones.rst`'s "nineteen names". Every chain
+term's `term_status` property (`gain.py`, `bandpass.py`,
+`polarization_leakage.py`, `crosshand.py`, `delay.py` x2, `ionosphere.py`,
+`troposphere.py`, `parallactic.py`, `receptor.py` x2, `baseline_errors.py` x2)
+returns the literal string `"implemented"` unconditionally — no branch, no
+stub path — confirmed by direct read of all twelve definitions.
+`grep -rn "TODO: implement properly"`, `"Stub:"`, and `xp.eye(2` all return
+zero hits under `src/`. `src/radiosim/core/jones_terms.py`'s
+`CANONICAL_CHAIN_ORDER` is exactly `("H","G","B","Rc","Kd","X","D","C","E",
+"P","T","Z")`, matching CLAUDE.md's chain-order sentence verbatim. All 29
+`tier7j`-prefixed tests in `tests/unit/test_tier1h_documentation.py` pass,
+including the `docs/api/jones.rst` shipped-module-set residual test
+(`shipped == documented` over `src/radiosim/core/jones/*.py`). The four
+forbidden pre-slice strings ("Only K, E, C, and H implement real physics",
+"Planned terms", the beam_models.rst two-feed sentence, and the
+configuration_support.rst feed-rotation sentence) were independently
+confirmed present at `2bb9c32` (the beam_models.rst sentence only after
+whitespace-collapsing, since it wraps across a line in the source) —
+fail-before evidence is genuine, not retrofitted.
+
+**The changelog GPU-claim adjudication.** The 6I independent-acceptance
+record (this file, "Tier 6I independent acceptance") ratified
+`docs/changelog.rst`'s `0.2.0` entry's "Universal GPU acceleration via JAX
+and Numba backends" line as "routed to Tier 8, not fixed now" —
+recommended-not-required for a future one-line fix. `53acb60` did not delete
+that line; it kept the `0.2.0` entry verbatim as the historical record and
+added a `.. note::` immediately above it stating plainly that the "Universal
+GPU acceleration" and "Complete 8-term Jones chain" claims did not survive
+verification, citing `supports_gpu = False`, the CPU-only locked JAX, and
+`output/benchmarks/reference/`. **Ruling: discharged, not still open.** The
+substantive concern the 6I record raised was that a reader could be misled by
+the line, not that the exact string had to disappear; a reader of the `0.2.0`
+section now meets the correction before the false claim, with citations, in
+the same pattern the project already uses for `HERA_VSIM_ANALYSIS.md`
+("historical evidence, not shipped dependencies"). `README.md` and
+`docs/user_guide/backends.rst` were checked directly and carry no live GPU
+capability claim (only `pip install radiosim[gpu]` extras, which name an
+install target, not a measured capability) — those were already truthful
+independent of this slice. `DOC-005`'s register row is broader than this one
+changelog line and remains untouched by this ruling; not part of 7J's
+writable list and not adjudicated here beyond the specific line the 6I record
+named.
+
+**Solve-group and pin verification, programmatic.** `pixi.toml`'s
+`[environments]` table: `crossval = { features = ["py311", "jax-cpu",
+"crossval"], solve-group = "py311" }`, identical `solve-group` to `default`.
+Parsed `pixi.lock` directly (not by string count): the `default` and `py312`
+environments' resolved package sets are byte-identical (Python object
+equality, not text diff) to their `2bb9c32` versions on every platform; the
+`crossval` environment's package set is `default`'s plus exactly one entry,
+`pyuvsim-1.4.0-py3-none-any.whl`, on all three platforms (`linux-64`,
+`osx-64`, `osx-arm64`), nothing removed. `tests/unit/
+test_tier4_result_output_acceptance.py::
+test_locked_environment_and_platform_matrix_is_unchanged` and
+`tests/characterization/test_tier6_current_behavior.py::
+test_jax_is_a_cpu_only_dependency_of_every_pixi_environment` both reproduced
+directly and pass — the programmatic lock check the plan's Section 34
+correction describes. `mpi4py` confirmed genuinely absent from the `crossval`
+environment (`ModuleNotFoundError` on direct import); `pyuvsim.UVEngine` and
+`pyuvsim.uvsim.UVTask` both import and construct without it, confirming the
+driver/engine split the plan correction claims.
+
+**Bit-identity.** `git diff 2bb9c32..HEAD -- src/ configs/`: empty. This is
+stronger than a fingerprint re-hash (nothing computational changed at all,
+not merely hashed-the-same), and it is corroborated rather than substituted
+for: `test_shipped_default_config_fingerprint_is_unchanged` and
+`test_shipped_circular_receptor_config_fingerprint_is_unchanged` were
+reproduced directly and pass, so the actual `scientific_sha256` pins agree
+too. **Ruling on risk #4** (whether cube-digest-plus-empty-diff evidence is
+sufficient without an independent fingerprint reproduction): sufficient, and
+in fact the stronger of the two — an empty diff over every file `scientific_
+sha256` could depend on is a logical guarantee, not an empirical one, and this
+review confirmed both forms agree rather than relying on either alone.
+`docs/user_guide/jones_matrices.rst`, on 7J's writable list, has an empty diff
+across the whole range, matching the plan's claim that this slice found
+nothing in it to correct.
+
+**Gates.** `default`/py311, `-m "not slow"`: 5,322 passed, 1 skipped, 27
+warnings (127s, `-n auto`). `py312`, `-m "not slow"`: 5,322 passed, 1 skipped,
+41 warnings. Full suite, `default`, no `-m` filter: 5,332 passed, 1 skipped
+(`5,322 + 10` deselected-when-filtered, exactly). Under `-n 0` the same
+non-slow filter reports 2 skipped and 10 deselected rather than 1 skipped;
+traced to `--doctest-modules` (`pyproject.toml`) collecting the crossval
+module twice — once as a test module, once as a doctest source — so
+`pytest.importorskip`'s module-level skip fires twice under `-n 0`'s
+collection order and once under `-n auto`'s; both skip messages are the
+identical, correctly-worded reason string
+(`tests/crossvalidation/test_pyuvsim_comparison.py:96`), and this is a
+pre-existing `pytest`/`--doctest-modules` interaction, not a defect this slice
+introduced. `pixi run --environment crossval -- python -m pytest
+tests/crossvalidation/ -m crossval`: 4 passed. `pixi run lint`: all checks
+passed. `pixi run check-format`: 372 files already formatted. `pixi lock
+--check`: up to date. `pixi install --locked` for `default`, `py312`, and
+`crossval`: all three succeed. All four shipped YAMLs
+(`configs/*.yaml`) validate via `radiosim validate`. Laziness: 20 passed, 1
+skipped (the crossval module's own import-skip), reproduced directly.
+**Sphinx, forced full rebuild (`-b html -E`), the `docs/superpowers/`
+contamination check repeated.** In the live working tree: 18 warnings,
+carrying the same `+2 toc.not_included` entries (`docs/superpowers/plans/
+2026-06-21-core-sky-cleanup.md`, `docs/superpowers/specs/2026-06-21-core-
+sky-cleanup-design.md`) 7I's acceptance record diagnosed as a gitignored
+local-only artifact. Rebuilt in a fresh, detached `git worktree` at `7d054fa`
+(no `docs/superpowers/` present): exactly **16** warnings, matching the
+established baseline exactly — zero new Sphinx warnings from this slice.
+`git status`: clean (working tree) both before and after this review's own
+scratch work. No `Co-Authored-By` line in any of the four reviewed commits
+(checked directly, not by keyword grep alone).
+
+**Disposition. VERDICT: ACCEPTED.** No material defect: both cross-validation
+convention mappings that carry the comparison's real weight (fringe sign,
+coherency V sign) are genuinely derived from the two codes' own source and
+independently confirmed character-for-character, not fitted; the weaker third
+mapping is honestly characterized as such rather than oversold, and the two
+findings it could not close are registered (`SCI-006`, `SCI-007`) rather than
+buried; the documentation rewrite matches the shipped surface at every
+spot-checked load-bearing sentence; the solve-group and pin claims are
+programmatically verified, not merely narrated; bit-identity holds by both
+the stronger (empty diff) and the corroborating (fingerprint pin) tests; and
+the Sphinx and gate counts reproduce exactly once the same environmental
+contamination 7I already diagnosed is accounted for. Two register rows added
+directly by this review before acceptance: `SCI-006` (the `Q`-sign
+disagreement) and `SCI-007` (the residual frame rotation), both **OPEN**,
+following the `SKY-002` precedent for a reviewer-filed finding. No decision in
+`Tier7JonesSciencePlan.md` changed. Acceptance commit: `docs(jones): accept
+Tier 7J validation and docs`. Not pushed.
+
+**Unobserved items.** `linux-64` execution: not available in this
+environment; the committed crossval artifact itself discloses that only
+`osx-arm64` was exercised authoring-side, and this review's own reproduction
+is `osx-arm64` only too, matching every prior tier's acceptance record in
+this file. GPU/TPU/distributed hardware: none exercised, none claimed. `pixi
+run typecheck`: not run, per this project's standing instruction that it is
+slow and not part of the standard workflow unless explicitly requested;
+nothing in this slice touches typed public signatures. The precise mechanism
+behind the artifact's `0.200`-degree astropy figure was not reproduced exactly
+(this review's own CIRS-based probe gives `0.04`-`0.06` degrees, a related
+but different quantity); recorded in `SCI-007` rather than resolved. `SCI-004`
+(m-mode) and `SCI-005` (advanced beam physics) are not filed by this review —
+they remain 7K's per Section 33.2.

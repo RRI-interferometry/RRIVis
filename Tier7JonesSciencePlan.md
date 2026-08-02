@@ -84,8 +84,21 @@ byte-identical text, at both `ea0e98c` and `e415624`); the established 16
 baseline stands, and the 18 the implementer measured is the same
 `docs/superpowers/`-contamination artifact 7H already diagnosed for an
 in-tree build. No decision changed; see `Fix.md`'s 2026-08-02 "Tier 7I
-independent acceptance" note for the full record). Slice **7J is
-authorized**.**
+independent acceptance" note for the full record). Slice **7J is accepted**
+(2026-08-02, independent review; the cross-validation's two load-bearing
+convention mappings -- fringe sign and coherency Stokes-V sign -- were
+independently confirmed derived, character for character, against both
+codes' own installed source, and the four measured agreements plus both
+controls were reproduced bit for bit; the weaker third mapping (local basis
+axis order) was ruled honestly characterized rather than fitted-and-hidden,
+because the record leaves an unexplained residual rather than tuning it away;
+its two open findings were filed as `SCI-006` (the Stokes-`Q` sign
+disagreement) and `SCI-007` (the residual frame rotation) rather than
+absorbed as a footnote, following the `SKY-002` precedent; the 6I-routed
+changelog GPU-claim defect was ruled discharged by the historical-note
+treatment rather than left open for Tier 8; no decision changed; see
+`Fix.md`'s 2026-08-02 "Tier 7J independent acceptance" note for the full
+record). Slice **7K is authorized**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16
