@@ -48,6 +48,17 @@ docstring correction — no solver path reachable, not a Tier 8 blocker);
 `API-002` is `OPEN`, filed at 8D independent acceptance (see above); both are
 now also named in the `[0.3.0]` changelog's Known limitations section. Tier 8
 is the final tier of the remediation program defined by `Fix.md`.**
+**Tier 8 is ACCEPTED as a whole (2026-08-02, Tier 8F independent whole-tier
+acceptance): all sixteen §18 criteria re-proved from current source and fresh
+command execution, `DOC-001`..`DOC-008` flip to `DONE` in `Fix.md` §5, CI run
+`30749117742` at HEAD `ce7f525` is green on all eight jobs (the first Tier 8
+CI evidence, since nothing was pushed mid-tier), and `CI-001` stays `OPEN`
+with no red observed on this run and no Q3 adjudication triggered. See
+`Fix.md`'s "2026-08-02 Tier 8 whole-tier acceptance (Tier 8F)" note for the
+full record, and its "2026-08-02 Remediation program completion" note for the
+final disposition of every register row. The eight-tier RadioSim remediation
+programme this document and `Fix.md` define (Tiers 0 through 8) is ACCEPTED
+IN FULL. See Section 24 below for the acceptance appendix.**
 
 This document is the governing implementation specification for Tier 8,
 defined by [`Fix.md`](Fix.md) Section 17 ("Tier 8 — Documentation and release
@@ -1599,3 +1610,48 @@ Aligned to the slices; `Fix.md:1650-1655`'s four suggestions are a subset.
 - 8D `test(release): harden repository scans, close SKY-002, and cover the CLI`
 - 8E `docs(release): reconcile project truth and prepare the 0.3.0 notes`
 - 8F `docs(release): accept Tier 8 and close the remediation program`
+
+## 24. Acceptance appendix (Tier 8F, 2026-08-02)
+
+**Verdict: ACCEPTED as a whole**, and with it the eight-tier remediation
+programme (Tiers 0–8) is **ACCEPTED IN FULL**. Full record in `Fix.md`'s
+"2026-08-02 Tier 8 whole-tier acceptance (Tier 8F)" note; the register's final
+state is in the same file's "2026-08-02 Remediation program completion" note.
+
+**Method.** Every §18 criterion was re-proved from HEAD `ce7f525` by direct
+command execution or fresh reading, not by trusting any slice's own record:
+both gating environments' non-slow suites at `-n 0` (5,376/1/10, 27/41
+warnings, exact match), the full suite (5,386/1, one command), the `crossval`
+environment (4 passed), `pixi run doctest` in both environments (41/41),
+`pixi run bench` (10 passed), lint/format/typecheck, `pixi lock --check`,
+`pixi install --locked` in all three environments, a strict Sphinx build in a
+fresh detached worktree (zero warnings), all four shipped configs validated,
+the laziness gate, the example script and notebook executed directly, the
+CLI-to-artifact integration test and the repository-scan regression proof run
+in isolation, and `pixi run radiosim --version` (`0.3.0`).
+
+**CI.** Run `30749117742` at HEAD `ce7f525` (already pushed) was polled with
+`gh run view` from `in_progress` to `completed`/`success`. All eight jobs
+green: `NumPy/JAX-CPU backend parity`, `Lint, metadata, types, and docs`,
+`linux-64 / Python 3.11`, `linux-64 / Python 3.12`, `osx-64 / Python 3.11`,
+`osx-64 / Python 3.12`, `osx-arm64 / Python 3.11`, `osx-arm64 / Python 3.12`.
+This is the first Tier 8 CI evidence at any pushed Tier 8 SHA. `CI-001`'s
+evidence path (the unconditional machine-fingerprint emission and the
+characterization-artifact upload/restore) was confirmed live and firing by
+reading the `linux-64 / Python 3.11` job's raw log directly: it recorded a
+fourth distinct CPU model (`AMD EPYC 7763 64-Core Processor`) for an
+accepted-digest pass, adding evidence without resolving the discriminator. No
+red was observed, so Q3's conditional (append a digest class on a measured
+ULP-scale divergence) was not triggered; `CI-001` stays `OPEN`, register text
+unedited per the standing "open rows stay as they are" rule.
+
+**Register.** `DOC-001`..`DOC-008` flip `DOCS` → `DONE` in `Fix.md` §5, each
+re-proved rather than carried over. `PERF-001`, `SCI-004`, `SCI-005` stay
+`ROADMAP`; `SCI-006`, `SCI-007`, `CI-001`, `API-001`, `API-002` stay `OPEN` —
+all disclosed by register ID in `docs/changelog.rst`'s `[0.3.0]` "Known
+limitations" section.
+
+**Commit for this gate:** `docs(release): accept Tier 8 integration`. No
+co-author line. No branch. No push (the SHA is recorded once the local commit
+is made; per this review's mandate, pushing is the user's decision, not this
+review's).
