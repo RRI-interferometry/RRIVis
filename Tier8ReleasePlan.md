@@ -15,7 +15,13 @@ corrections were applied at 8A (`docs(release): correct Tier 8 design`,
 5.4's AGENTS.md defect count corrected to six. **8A is ACCEPTED** (2026-08-02
 independent acceptance; see `Fix.md`'s "Tier 8A independent acceptance" note).
 **8B is ACCEPTED** (2026-08-02 independent acceptance; see `Fix.md`'s "Tier 8B
-independent acceptance" note) **and 8C is authorized to begin.** Tier 7 is
+independent acceptance" note). **8C is ACCEPTED** (first independent review of
+`bd63f1c`/`8c30d37` REJECTED for a non-hermetic gitignore-guard test in
+`tests/unit/test_tier8_release_acceptance.py`; repaired by `3c10f31` and
+`f78c330`; 2026-08-02 independent re-acceptance verified both repairs from
+scratch and accepted with bounded plan corrections to Sections 8 and 17; see
+`Fix.md`'s "Tier 8C independent acceptance (re-run)" note) **and 8D is
+authorized to begin.** Tier 7 is
 accepted as a whole (Tier 7K, 2026-08-02); `SCI-001`, `SCI-002`, `SCI-003` are
 `DONE`; `SCI-004`, `SCI-005` are filed `ROADMAP`; `SCI-006`, `SCI-007` stay
 `OPEN`; `PERF-001` stays `ROADMAP`; `SKY-002` is `OPEN` and is **absorbed by
@@ -528,6 +534,29 @@ specifies both flags.
 including references into third-party inventories that `intersphinx` may or may
 not resolve depending on network availability. That would make the docs gate
 network-sensitive. Out of scope; not a Tier 8 claim.
+
+**Correction, applied at the Tier 8C independent re-acceptance (rejection
+repair round).** The paragraph above frames network-sensitivity as a
+`nitpicky`-specific risk, but `intersphinx`'s inventory fetch is unconditional
+and independent of `nitpicky`: reproduced by blocking the network
+(`http_proxy`/`https_proxy` pointed at an unreachable address) and rebuilding
+in a fresh detached worktree at `f78c330` — `make -C docs clean html` exits 2
+with "build finished with problems, 5 warnings (with warnings treated as
+errors)", one `WARNING: failed to reach any of the inventories` per mapped
+project (`python`, `numpy`, `astropy`, `scipy`, `jax`). So the `-W` gate *is*
+network-sensitive today, with or without `nitpicky`. **Ruling: acceptable,
+recorded residue, not a defect requiring a fix.** The gating environment is
+GitHub Actions (`ci.yml`'s `quality` job runs `make -C docs html` on a
+network-connected runner), so this never bites the actual gate; a contributor
+building docs in a network-blocked sandbox already has the documented escape
+hatch (`docs/Makefile`'s comment: "Override on the command line (`make -C docs
+html SPHINXOPTS=`) only to inspect a broken build; never to land one"), which
+is exactly this situation. Vendoring the five inventories was considered and
+rejected as disproportionate: it adds a maintenance burden (five files to
+refresh against upstream drift) to close a gap that only affects local
+inspection builds in an already-rare network-blocked environment, never the
+gate that actually ships. No plan or code change follows from this beyond this
+paragraph recording the ruling.
 
 **The one non-trivial fix.** `docs/migration_guide.md:617` needs
 `myst_heading_anchors` set in `docs/conf.py` (the heading it targets exists at
@@ -1116,6 +1145,26 @@ also carries a "Backend abstraction for CPU/GPU" line that 8E's Section 11
 scan 7 owns; 8C leaves it untouched, exactly as it leaves
 `src/radiosim/simulator/__init__.py:12`.
 
+**Correction, applied at the Tier 8C independent re-acceptance (rejection
+repair round).** Two further scan-7 instances exist beyond the one named
+above, both confirmed present at `f78c330` and both left untouched by 8C:
+`src/radiosim/simulator/__init__.py:65` (a `See Also` line, "`radiosim.backends
+: Backend abstraction for CPU/GPU/TPU`") and
+`src/radiosim/simulator/base.py:122-129` (`VisibilitySimulator.supports_gpu`,
+the abstract base class's concrete default — docstring "Whether the simulator
+supports GPU acceleration. ... Default is True." and the property itself
+`return`s `True`). The `base.py` instance is the more material of the two: it
+is a "Default is True" capability claim on the shared base class, the same
+defect class as the `__init__.py:12` bullet, not a bare mention. The
+`__init__.py:65` and `rime.py:132` lines are `See Also` cross-references
+naming what the `backends` module abstracts over (device targets a generic
+`ArrayBackend` interface is written against), not claims that this simulator
+has measured or achieved acceleration; scan 7's matching should target
+capability-claim language ("supports GPU", "acceleration via", "Default is
+True" beside a device name) rather than a bare "GPU"/"TPU"/"CPU" token, so
+these two do not need rewording and do not force a scan-7 false positive.
+8E's writable list is extended accordingly (see 8E's entry below).
+
 **One further correction, applied at 8C.** Section 8's "baseline discipline"
 paragraph rules that an in-tree build reporting 18 because gitignored
 `docs/superpowers/` exists "is not a regression and must not be treated as
@@ -1207,14 +1256,31 @@ slice SHA with its per-job result stated honestly.
    confirms scan 7's file set (built on the Section 12 git-scoped lister)
    actually reaches `src/**/*.py` docstrings and not only `docs/**`/`README*`,
    so this instance fails the scan before it is fixed rather than being
-   silently out of scope.
+   silently out of scope. **Two further instances, found and routed here at
+   the Tier 8C independent re-acceptance (rejection repair round)**:
+   `src/radiosim/simulator/base.py:122-129`
+   (`VisibilitySimulator.supports_gpu`'s docstring, "Whether the simulator
+   supports GPU acceleration. ... Default is True.", on a property that
+   concretely `return`s `True`) is the same defect class as the `:12` bullet —
+   a "Default is True" capability claim inconsistent with the standing rule —
+   and 8E rewords or removes it exactly as it does the `:12` bullet.
+   `src/radiosim/simulator/__init__.py:65` and `src/radiosim/simulator/rime.py`'s
+   own "Backend abstraction for CPU/GPU" `See Also` line are, by contrast,
+   scope-naming cross-references to the `backends` module (which does define a
+   device-agnostic `ArrayBackend` interface), not claims that this simulator
+   has measured or achieved acceleration; scan 7 is scoped to capability-claim
+   language ("supports GPU", "acceleration via", "Default is True" beside a
+   device name) rather than a bare "GPU"/"TPU"/"CPU" token, so these two `See
+   Also` lines are confirmed non-instances and need no edit.
 
 **Writable.** `AGENTS.md`; `CLAUDE.md`; `README.md`; `.gitignore`;
 `antenna_layout_examples/1101503312_metafits.fits`; `pyproject.toml`;
 `pixi.toml`; `src/radiosim/__about__.py`; `docs/conf.py`;
 `docs/changelog.rst`; `docs/contributing.rst` (test-directory description
 only); `src/radiosim/simulator/__init__.py` (the `:12` GPU-claim sentence
-above, only — no logic edit); `tests/unit/test_release_metadata.py`;
+above, only — no logic edit); `src/radiosim/simulator/base.py` (the
+`supports_gpu` docstring at `:122-129` only — no logic edit);
+`tests/unit/test_release_metadata.py`;
 `tests/unit/test_tier8_release_acceptance.py`;
 `tests/characterization/test_tier8_current_behavior.py`; `Fix.md`;
 `Tier8ReleasePlan.md`.

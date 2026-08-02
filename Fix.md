@@ -14750,3 +14750,201 @@ non-tautological by live probe; and the one adjacent defect this review found
 outside 8B's own diff (`API-001`, the `simulator/__init__.py:12` GPU claim) is
 disclosed and routed rather than either silently fixed out-of-grant or
 silently ignored. **Slice 8B is ACCEPTED. Slice 8C is authorized.**
+
+### 2026-08-02 Tier 8C independent acceptance (re-run)
+
+**VERDICT: ACCEPTED, with bounded plan corrections applied before
+acceptance.** Slice 8C (Sphinx strictness and API completeness) is accepted.
+Slice 8D is authorized. This is a fresh, independent re-review of the whole
+slice after a first review rejected it; every finding below was independently
+reproduced in this pass, not copied from the first review's or the repair's
+own claims, except where explicitly marked otherwise.
+
+**Scope reviewed.** `ac35159..f78c330`: `bd63f1c` (plan correction),
+`8c30d37` (8C implementation), `3c10f31` (repair: hermetic gitignore-guard
+test), `f78c330` (repair: utils facade dedup). Branch `main`, HEAD `f78c330`,
+no push, no production fix made by this review. All reproduction below ran in
+a fresh `git worktree add --detach` at `f78c330` (no local `docs/superpowers/`
+scratch content, no shared state with the long-lived working tree), with
+`.pixi` symlinked in from the existing solve to skip re-solving an unchanged
+lock file (`git diff --stat ac35159..f78c330 -- pixi.lock pixi.toml` is
+empty).
+
+**The first review's rejection, for the record.** `bd63f1c`/`8c30d37` was
+reviewed and REJECTED for one material defect and one disclosed non-blocking
+defect, neither committed to `Fix.md` at the time per the reject protocol:
+(1) `test_the_directory_excluded_from_the_docs_build_is_gitignored`
+(`tests/unit/test_tier8_release_acceptance.py`) ran `git check-ignore -q
+docs/superpowers` against a path that doesn't exist in any fresh clone,
+detached worktree, or CI runner — `git check-ignore` cannot match a
+directory-only `.gitignore` pattern against an absent path, so the guard
+answered "not ignored" and failed everywhere except the reviewer's own
+long-lived working tree, which happens to carry unrelated local scratch
+content under that path. Reproduced by the first reviewer as 1 failed, 5349
+passed (not 5350) in a fresh worktree. (2) `docs/api/utils.rst` documented the
+`radiosim.utils` facade with `:members:` (all three sibling facades use
+`:no-members:`), so 13 of its 14 `__all__` re-exports rendered twice in the
+built HTML, once under `radiosim.utils.*` and once under the defining
+submodule — real duplicate API-reference content, though no Sphinx warning
+fires since the two anchor ids differ.
+
+**Defect 1 repair, re-verified from scratch.**
+`tests/unit/test_tier8_release_acceptance.py:597-661` (as of `3c10f31`) now
+materialises a throwaway probe file under `docs/superpowers/` before asking
+`git check-ignore` about that probe's path, so the answer depends only on
+`.gitignore`, removes whatever it created (probe always; the directory only
+if the test itself created it), and additionally asserts the literal
+`docs/superpowers/` line in `.gitignore` and that `git ls-files --
+docs/superpowers` is empty. In the fresh `f78c330` worktree: the test PASSES
+with no pre-existing `docs/superpowers/` (probe-created-dir shape) and
+PASSES with a pre-existing `docs/superpowers/{notes.txt,subdir/nested.txt}`
+populated first (pre-existing-dir shape) — in both cases the probe is
+removed afterward, and in the second case `notes.txt` and `subdir/nested.txt`
+are confirmed byte-for-byte preserved. With the `docs/superpowers/` entry
+temporarily deleted from `.gitignore` (restored after), the test FAILS at the
+exact `assert ignored.returncode == 0` line in **both** shapes (probe-created
+and pre-existing), with the stated "no longer gitignored" message, then
+cleans up identically. The full non-slow suite in the same fresh worktree:
+**5350 passed, 1 skipped, 10 deselected (slow)**, matching the claimed count,
+in both `default`/py311 (140s, 27 warnings) and `py312` (161s, 41 warnings).
+The in-repo-probe design is necessary, not incidental: `git check-ignore`
+resolves patterns relative to the repository the way `cwd=REPO_ROOT` invokes
+it, and a directory-only pattern only matches a path that exists on disk, so
+the probe must be a real file under the exact ignored path — a tempfile
+elsewhere would prove nothing about this pattern.
+
+**Defect 2 repair, re-verified from scratch.** `docs/api/utils.rst` (as of
+`f78c330`) switched the facade `automodule:: radiosim.utils` to
+`:no-members: :no-special-members:`, matching the other three facades. Built
+clean in the same pristine worktree (`make -C docs clean html`, exit 0, zero
+warnings — the one "warning" substring hit in the raw log is
+`suppress_warnings=[]` inside a `myst` debug repr, not an actual warning).
+Mechanically grepped `id="radiosim\.[A-Za-z0-9_.]+"` across every file under
+`docs/_build/html/` for all 14 `radiosim.utils.__all__` symbols
+(`setup_logging`, `get_logger`, `NetworkStatus`, `is_online`,
+`check_service`, `check_all_services`, `offline_policy`,
+`set_offline_policy`, `DeviceResources`, `get_device_resources`,
+`F_21CM_HZ`, `frequency_to_redshift_21cm`, `redshift_to_frequency_21cm`,
+`add_redshift_secondary_axis`): every one resolves to **exactly one** anchor
+site-wide, always under its defining submodule
+(`radiosim.utils.{logging,network,device,cosmology}.<name>`); no
+`id="radiosim.utils.<name>"` facade-level anchor exists anywhere for any of
+the 14. `NetworkStatus.is_online` (a property) and `network.is_online` (the
+module function) are confirmed genuinely distinct symbols at distinct
+4-segment vs. 3-segment anchor ids, not a residual duplicate of the fix.
+Submodule coverage is not lost: `validation.*`, `logging.*`, `network.*`
+members all still render on the page (confirmed in the anchor dump).
+
+**The three items the first review left incomplete, now completed.**
+Section 11 scans 1/4/5 each independently fire under one injected violation
+apiece, in the fresh worktree, reverted after each: scan 1
+(`test_no_removed_name_is_documented_as_live`) fails when
+`GeometricPhaseJones` (itself a genuinely removed class — confirmed absent
+from `src/`, replaced by the module-level `geometric_phase()` per
+`docs/migration_guide.md:730` and `src/radiosim/core/jones/geometric.py`'s
+own header comment — a real, correctly-listed `REMOVED_NAMES` entry) is
+appended to `README.md` without a retirement marker; scan 4
+(`test_every_documented_relative_path_exists`) fails on an injected dead
+Markdown link; scan 5
+(`test_every_documented_radiosim_symbol_is_importable`) fails on an injected
+nonexistent `radiosim.core.result.ThisSymbolDoesNotExist` reference. All
+three clean up to a bare `.pixi`-only `git status` afterward.
+
+The intersphinx offline residue: reproduced by rebuilding with
+`http_proxy`/`https_proxy` pointed at an unreachable address (`127.0.0.1:1`)
+in the fresh worktree — `make -C docs clean html` exits 2, "build finished
+with problems, 5 warnings (with warnings treated as errors)", one `WARNING:
+failed to reach any of the inventories` per `intersphinx_mapping` entry
+(`python`, `numpy`, `astropy`, `scipy`, `jax`). **Ruling: acceptable, recorded
+residue, not a defect.** `Tier8ReleasePlan.md` Section 8's existing "why not
+`nitpicky`" paragraph attributes docs-gate network-sensitivity to `nitpicky`
+specifically; that framing is corrected in this pass (see below) because the
+sensitivity is unconditional to `intersphinx` itself. It does not block
+acceptance because (a) the actual gate runs on a network-connected GitHub
+Actions runner, (b) `docs/Makefile` already documents the exact escape hatch
+for a network-blocked local build (`SPHINXOPTS=` override, "only to inspect a
+broken build; never to land one"), and (c) vendoring five inventories to
+close a gap that never bites the real gate is disproportionate. Recorded as a
+plan correction, not a code change.
+
+The 8E scan-7 fodder: confirmed all three cited lines exist at `f78c330` —
+`src/radiosim/simulator/__init__.py:65` ("`radiosim.backends : Backend
+abstraction for CPU/GPU/TPU`", a `See Also` line), `src/radiosim/simulator/
+base.py:122-129` (`VisibilitySimulator.supports_gpu`'s docstring, "Whether the
+simulator supports GPU acceleration. ... Default is True.", on a property
+that concretely `return`s `True`), and `src/radiosim/simulator/rime.py:132`
+("Backend abstraction for CPU/GPU", already named in the 8C section's own
+writable-list-correction paragraph as owned by 8E's scan 7). Found: the plan
+as written did **not** fully reach two of these three. `rime.py`'s line was
+already attributed to scan 7 in prose but `simulator/rime.py` was never added
+to 8E's writable list; `base.py:122-129` — arguably the most material of the
+three, a "Default is True" capability claim on the shared abstract base
+class, the same defect class as the already-routed `__init__.py:12`
+bullet — was not identified by the plan at all; `__init__.py:65` was likewise
+not previously identified. Bounded correction applied (below): `base.py` is
+added to 8E's writable list and work item 7 as a new named instance; `rime.py`
+and `__init__.py:65` are confirmed non-instances (scope-naming `See Also`
+cross-references to the `backends` module, not capability claims) and scan
+7's intended matching is clarified to target capability-claim language rather
+than a bare device-name token, so 8E is not obligated to edit either.
+
+**Positive findings spot-confirmed at HEAD (not re-derived from the first
+review's numbers).** Zero-warning clean build in the fresh worktree
+(confirmed above). Gate genuinely bites: injected a duplicated
+`migration_guide` toctree entry into `docs/index.rst` — exit 2, "1 warning
+(with warnings treated as errors)"; reverted, rebuilt clean (exit 0) to
+confirm no residue. AST-identical-modulo-docstrings re-run mechanically
+(strip the first docstring `Expr` off every `Module`/`FunctionDef`/
+`AsyncFunctionDef`/`ClassDef`, compare `ast.dump()`) for all 11 files 8C's
+writable-list correction touched, this time diffing `ac35159` against
+`f78c330` (through both repair commits, not just `8c30d37`): all 11 IDENTICAL
+(`backends/{__init__,base,numpy_backend}.py`, `core/polarization.py`,
+`core/polarization_basis.py`, `core/precision.py`,
+`core/sky/combine/regrid.py`, `core/sky/io/serialization.py`,
+`simulator/base.py`, `simulator/rime.py`, `utils/logging.py`). `pixi run
+doctest`: 41 passed in **both** `default` and `py312` (the first review only
+ran one environment). Hermetic fingerprint pins
+(`test_the_machine_fingerprint_is_now_recorded_on_the_pass_path`,
+`test_pin_failures_report_a_numeric_delta_when_a_reference_cube_exists` in
+`tests/characterization/test_tier8_current_behavior.py`, instrumentation
+landed at 8A): both still PASS at `f78c330`, `git status` stays clean
+afterward. `git log -S "GPU acceleration via JAX backend" --
+src/radiosim/simulator/__init__.py` independently confirms the plan's
+`be231d2` citation for that line's origin.
+
+**Gates, both environments, fresh worktree.** `pixi run test -- -m "not
+slow"`: **5350 passed, 1 skipped, 10 deselected**, warnings **27** (default,
+140s) / **41** (py312, 161s) — exact match. `pixi run lint`: clean. `pixi run
+check-format`: clean, 374 files. All four `configs/*.yaml`
+(`config.yaml`, `hybrid_sky_example.yaml`, `realistic_foreground_example.yaml`,
+`receptor_circular_example.yaml`) validate cleanly via `pixi run radiosim
+validate`. Laziness: `pixi run test -- -k lazy` gives 20 passed, 1 skipped,
+matching the standing gate. `git status` clean throughout this review except
+the untracked `.pixi` symlink this review added for the fresh worktree
+(gitignored, never committed). No `Co-Authored-By` line in any of the four
+reviewed commits (`bd63f1c`, `8c30d37`, `3c10f31`, `f78c330`).
+
+**Corrections applied before acceptance (this commit).**
+`Tier8ReleasePlan.md`: (1) Section 8 gets a correction paragraph recording the
+intersphinx offline-residue finding and ruling; (2) the 8C writable-list-
+correction paragraph gets a correction paragraph naming the two additional
+scan-7 instances and clarifying scan 7's intended scope; (3) 8E's work item 7
+and writable list are extended to name `src/radiosim/simulator/base.py:122-129`
+as a new routed instance and grant it, docstring-only; (4) the status header
+in Section 1 is updated to record 8C's rejection→repair→acceptance cycle and
+that 8D is authorized. No decision already recorded by 8C's own commits is
+changed; no `src/` or `tests/` file is touched by this review.
+
+Tier 8C is a documentation-strictness slice whose first-pass defect was a
+test that inverted the exact hermetic-versus-environmental trap the tier's
+own design section (§12) exists to prevent, and whose second defect was
+literal duplicate content of the same class its own commit message claimed to
+have eliminated elsewhere — both now independently confirmed fixed by
+reproducing the failure mode, not by reading the fix. The three items left
+incomplete by the first review are now individually verified rather than
+inferred from the full-suite run's aggregate pass count, and the one
+substantive plan gap this review found (an additional accelerator claim on
+`VisibilitySimulator.supports_gpu` that 8E's plan did not yet reach) is
+disclosed and routed exactly as `API-001` was at 8B, rather than fixed
+out-of-grant or silently left for 8E to discover on its own. **Slice 8C is
+ACCEPTED. Slice 8D is authorized.**
