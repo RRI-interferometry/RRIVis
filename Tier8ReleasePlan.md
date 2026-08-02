@@ -120,7 +120,7 @@ All facts below were established at `95a937e` by direct read, execution, or
 
 ### 5.1 Examples surface
 
-`examples/` contains `README.md` (49 lines), `scripts/simple_simulation.py`
+`examples/` contains `README.md` (51 lines), `scripts/simple_simulation.py`
 (137 lines), `notebooks/01_basic_usage.ipynb`.
 
 - `simple_simulation.py` **executes cleanly** and uses only public API. Every
@@ -139,12 +139,12 @@ All facts below were established at `95a937e` by direct read, execution, or
   works.
 - `examples/README.md` is **wrong about that script in two ways**:
   - it documents four flags that do not exist — `--no-plot`
-    (`examples/README.md:13`, `:29`), `--save --output-dir`
+    (`examples/README.md:13`, `:30`), `--save --output-dir`
     (`examples/README.md:19-20`), `--plot --output-dir`
     (`examples/README.md:22-23`). Each documented command fails with
     `error: unrecognized arguments`.
   - it names a removed backend: "JAX and Numba can be selected"
-    (`examples/README.md:48`). The `numba` name was removed in Tier 6H;
+    (`examples/README.md:49`). The `numba` name was removed in Tier 6H;
     `get_backend("numba")` raises, and `README.md:351-352` already says so.
   - its "Shipped configurations" list (`examples/README.md:42-47`) names two of
     the four files in `configs/`.
@@ -196,7 +196,7 @@ the same artifact 7H diagnosed and 7I ratified). The 16, grouped:
 
 | # | Category | Origin | Fix cost |
 |---|---|---|---|
-| 10 | docutils docstring parse errors | `src/radiosim/backends/numpy_backend.py:251-273` (bare `*operands`/`*args` read as emphasis), `src/radiosim/backends/base.py:513` (`|x|` read as a substitution), `src/radiosim/backends/__init__.py` `get_backend` docstring (unexpected indentation / block-quote unindent), `src/radiosim/core/polarization.py:345-372` (four `|...|` substitutions in `jones_matrix_power`) | trivial docstring text |
+| 10 | docutils docstring parse errors | `src/radiosim/backends/numpy_backend.py:251-273` (bare `*operands`/`*args` read as emphasis), `src/radiosim/backends/base.py:513` (`|x|` read as a substitution), `src/radiosim/backends/__init__.py` `get_backend` docstring (unexpected indentation / block-quote unindent), `src/radiosim/core/polarization.py:345-372` (five `|...|` substitutions in `jones_matrix_power`) | trivial docstring text |
 | 1 | `toc.not_included` | `docs/HERA_VSIM_ANALYSIS.md` is tracked, in no toctree, and carries no `:orphan:` | trivial |
 | 1 | unsupported theme option | `docs/conf.py:88` `"display_version": True` | trivial |
 | 3 | `misc.highlighting_failure` | `docs/HERA_VSIM_ANALYSIS.md:243` (`csv` lexer unknown), `:364`, `:377` (data dumps annotated `python`) | trivial |
@@ -216,7 +216,7 @@ table at `docs/migration_guide.md:722-750`. `GeometricDelayJones` — the name
 `Fix.md:871-872` cites — has **zero** hits in `docs/`.
 
 **API completeness gaps.** `docs/api/` covers `backends`, `benchmarks`, eight
-`core/` modules, nine `io/` modules, fifteen `core/jones/` modules, and
+`core/` modules, nine `io/` modules, sixteen `core/jones/` modules, and
 `api.simulator.Simulator`. It has **no autodoc page** for:
 `radiosim.core.sky` (the entire subpackage — `containers/`, `loaders/`,
 `registry/`, `combine/`, `operations/`, `diagnostics/`, `recipes/`,
@@ -248,7 +248,7 @@ benchmark honesty rules. Three defects:
 
 - `CLAUDE.md:200` — "**Type checker**: MyPy (check_untyped_defs=true,
   ignore_missing_imports=true)". The repository uses **Pyright**:
-  `pixi.toml:19` runs `python tools/check_pyright_baseline.py`, which invokes
+  `pixi.toml:20` runs `python tools/check_pyright_baseline.py`, which invokes
   `python -m pyright --outputjson` (`tools/check_pyright_baseline.py:18-19`)
   against `[tool.pyright]` (`pyproject.toml:191-206`), with the version pinned
   `pyright = "==1.1.408"`. The string `mypy` appears in no build or tool file.
@@ -298,11 +298,11 @@ audience is a person or agent reading this working tree.
 is tracked, badge-linked (`README.md:5`), and demonstrably runs remotely.
 Three jobs:
 
-- `compatibility` (`ci.yml:16-73`) — six-cell matrix, linux-64 / osx-64 /
+- `compatibility` (`ci.yml:16-68`) — six-cell matrix, linux-64 / osx-64 /
   osx-arm64 × Python 3.11 / 3.12, `pixi run --environment <env> test -- -m "not slow"`.
-- `backend-parity` (`ci.yml:75-98`) — ubuntu, CPU-only-JAX assertion plus three
+- `backend-parity` (`ci.yml:69-96`) — ubuntu, CPU-only-JAX assertion plus three
   focused backend paths.
-- `quality` (`ci.yml:100-127`) — `pixi run lint`, `pixi run check-format`,
+- `quality` (`ci.yml:97-127`) — `pixi run lint`, `pixi run check-format`,
   `pytest tests/unit/test_release_metadata.py`, `pixi run typecheck`,
   `make -C docs html` (`ci.yml:127`).
 
@@ -380,7 +380,7 @@ Established facts, from the CI logs and `git log -S`:
 
 ### 5.7 Repository-scan test sites (`Fix.md` §17 item 15)
 
-`git grep -n rglob -- tests` finds **21 call sites across 12 files**. The
+`git grep -n rglob -- tests` finds **22 call sites across 13 files**. The
 hardened reference is `tests/unit/test_tier5_receptor_acceptance.py:132-160`,
 which shells out to `git ls-files --cached --others --exclude-standard -z`
 scoped to the scan roots, filters by suffix, and drops `__pycache__`.
@@ -394,10 +394,10 @@ scoped to the scan roots, filters by suffix, and drops `__pycache__`.
   `output = tmp_path / "plots"` (`:242`) — **not a repository scan, not
   vulnerable**.
 
-The true hardening set is **19 call sites in 10 files** (Section 12 gives the
+The true hardening set is **20 call sites in 11 files** (Section 12 gives the
 exact table). The demonstrated failure mode is real but latent: no
 `.ipynb_checkpoints` exists in the tree today, and the only gitignored files
-under `src/` are `src/radiosim.egg-info/*` (no `.py`), so all 19 currently
+under `src/` are `src/radiosim.egg-info/*` (no `.py`), so all 20 currently
 pass. The vulnerability is that any gitignored `*.py` under `src/` — a
 notebook checkpoint, an editor backup, a stale build copy — turns a source
 scan into a false failure.
@@ -450,11 +450,11 @@ whole-tier gate, but on verified prior-tier evidence rather than new work.
 
 | Row | `Fix.md` text | Verdict at `95a937e` | Evidence | Tier 8 work |
 |---|---|---|---|---|
-| `DOC-001` | `simple_simulation.py` uses stale private/result APIs | **Discharged** for the script; **live** for its README | script re-verified symbol by symbol and executed (§5.1); no `sim._sources`, no dict-as-float, no dict-as-array. But `examples/README.md:13,19-20,22-23,29` documents four nonexistent flags and `:48` names the removed `numba` backend | 8B: correct `examples/README.md`; add the flag-parity test; execute the example in CI |
+| `DOC-001` | `simple_simulation.py` uses stale private/result APIs | **Discharged** for the script; **live** for its README | script re-verified symbol by symbol and executed (§5.1); no `sim._sources`, no dict-as-float, no dict-as-array. But `examples/README.md:13,19-20,22-23,30` documents four nonexistent flags and `:49` names the removed `numba` backend | 8B: correct `examples/README.md`; add the flag-parity test; execute the example in CI |
 | `DOC-002` | README low-level baseline example is invalid | **Fully discharged** (Tier 2) | `generate_baselines` has zero occurrences in the repository; replaced by `generate_resolved_baselines`/`select_resolved_baselines` (`src/radiosim/core/baseline_resolution.py:113,283`). Every README and quickstart code block was executed successfully | 8F: close on evidence; 8B adds the residual scan that keeps it closed |
 | `DOC-003` | Sphinx references removed Jones class names | **Fully discharged** (Tier 7J, `53acb60`) | `GeometricDelayJones`: zero hits in `docs/`. All out-of-`__all__` `*Jones` tokens are in captioned historical contexts (§5.3) | 8F: close on evidence; 8C adds the residual scan |
 | `DOC-004` | README claims 15+ configs while two exist | **Partially discharged; still stale** | the "15+" claim is gone; `README.md:408` now says "Three shipped YAML samples" and `configs/` holds **four**. `examples/README.md:42-47` names two of four | 8B/8E: make both counts derived, not asserted, and test them |
-| `DOC-005` | README/backend documentation contradicts live backend behavior | **Discharged for `README.md`** (Tier 6I, `eea1914`); **live in two other files** | `README.md:346-380` verified claim-by-claim against the committed benchmark record (§5.2). But `examples/README.md:48` still offers "Numba", and `pyproject.toml:20,61,67,72,77` still ships `gpu`/`gpu-cuda`/`gpu-rocm`/`tpu` extras | 8B (`examples/README.md`), 8E (packaging extras) |
+| `DOC-005` | README/backend documentation contradicts live backend behavior | **Discharged for `README.md`** (Tier 6I, `eea1914`); **live in two other files** | `README.md:346-380` verified claim-by-claim against the committed benchmark record (§5.2). But `examples/README.md:49` still offers "Numba", and `pyproject.toml:20,61,67,72,77` still ships `gpu`/`gpu-cuda`/`gpu-rocm`/`tpu` extras | 8B (`examples/README.md`), 8E (packaging extras) |
 | `DOC-006` | `project.md` is stale and still describes RRIVis | **Live as a file, but it is gitignored and has never been tracked** | `git check-ignore -v project.md` → `.gitignore:125`; `git log --all -- project.md` empty; content confirmed stale (§5.4) | 8E: Decision 7 (Section 15) — the tracked surface gains an explicit statement; the untracked file's fate is gated question Q2 |
 | `DOC-007` | `AGENTS.md` describes an absent Hugging Face app | **Live**, and it is the sole surviving reference | `AGENTS.md:4`; directory removed in `3266746`; no other tracked file mentions huggingface/gradio/Spaces | 8E: remove the sentence; no restoration (Section 15.2) |
 | `DOC-008` | No tracked CI and no real integration/performance suites | **Materially discharged; three named gaps remain** | `.github/workflows/ci.yml` is tracked, badge-linked, and runs remotely on eight jobs; `tests/integration/` (2 real files, 16 tests) and `tests/performance/` (10 record-honesty tests) are real. Gaps: no CLI-to-artifact integration test, no example execution, no notebook validation, no `-W` docs gate, no doctest execution — and CI is **red at HEAD** (§5.6) | 8D: CI shape; 8B/8C: the executed surfaces; `CI-001` filed for the red |
@@ -663,7 +663,7 @@ paths. It raises a typed error if `git` is unavailable rather than silently
 falling back to `rglob` — a silent fallback would reintroduce exactly the
 pollution the helper exists to prevent.
 
-**The exact conversion set — 19 call sites in 10 files:**
+**The exact conversion set — 20 call sites in 11 files:**
 
 | File | Lines | Scan root | Convert |
 |---|---|---|---|
@@ -883,7 +883,7 @@ files**:
 | `AGENTS.md:34` | 1 | **Fix** → "RadioSim" |
 | `antenna_layout_examples/1101503312_metafits.fits` | 1 | **Fix** — the FITS `COMMENT` card "Example MWA metafits file for RRIVis testing". Cards are fixed 80-byte records, so the replacement text fits in place and the file length is unchanged. The file is the shipped `mwa_metafits` example (`antenna_layout_examples/README_antenna_formats.md:17`) and is referenced by no test, so no fixture digest moves. If in-place rewriting proves to disturb any FITS checksum card, the fallback is to leave the comment and record the exception in the acceptance module's allow-list |
 | `Tier3BeamObservabilityPlan.md:3223,3486` | 2 | **Never edited** — historical acceptance records describing a stale interpreter path observed at the time. Allow-listed |
-| `Fix.md` | 1 | **Never edited** — the register/history document. Allow-listed |
+| `Fix.md` (`:224,874,1609,6465,11624`) | 5 | **Never edited** — the register/history document. Allow-listed |
 
 Plus the untracked `project.md` (Section 15.1), outside the tracked surface.
 
@@ -1048,7 +1048,7 @@ warnings in a clean detached worktree; `pixi run test`; `pixi run lint`;
 ### 8D — Scan hardening, `SKY-002`, CI shape, and the fingerprint instrumentation
 
 **Work.**
-1. Create `tests/support/repo_scan.py` and convert all 19 sites (Section 12),
+1. Create `tests/support/repo_scan.py` and convert all 20 sites (Section 12),
    including the `.ipynb_checkpoints` regression proof.
 2. Close `SKY-002` (Section 13), including the `network_service` →
    `network_services` widening and the four tests.
@@ -1152,7 +1152,7 @@ test, or artifact:
    from `configs/`, proved by test.
 10. Every accelerator/speed sentence in tracked prose cites
     `output/benchmarks/reference/` or names `PERF-001`, proved by test.
-11. All 19 repository/package scans use the shared git-scoped lister, and a
+11. All 20 repository/package scans use the shared git-scoped lister, and a
     gitignored `src/radiosim/.ipynb_checkpoints/*.py` naming a removed class no
     longer fails any test, proved by the regression test.
 12. `get_required_services` reports both services for
