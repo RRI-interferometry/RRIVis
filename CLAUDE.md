@@ -38,7 +38,8 @@ pixi run bench                                       # Reproducible backend benc
 
 pixi run format                                      # Format (ruff format)
 pixi run fix                                         # Lint + autofix (ruff check)
-pixi run typecheck                                   # Type check (mypy)
+pixi run typecheck                                   # Type check (Pyright, against the checked-in error ceiling)
+pixi run doctest                                     # Docstring doctests, scoped to src/radiosim
 
 pixi run radiosim --config config.yaml                 # Run simulation from YAML
 pixi run radiosim validate config.yaml                 # Validate config
@@ -46,7 +47,7 @@ pixi run radiosim init                                 # Generate config templat
 pixi run radiosim simulate --antenna-layout antenna_layout_examples/hera_5.txt --frequencies 100,150,200 --telescope-name HERA --default-diameter-m 14 --latitude -30.7 --longitude 21.4 --height 1073 --start-time 2025-01-01T00:00:00
 ```
 
-Shorthand pixi tasks: `pixi run test`, `pixi run lint`, `pixi run fix`, `pixi run format`, `pixi run typecheck`.
+Shorthand pixi tasks: `pixi run test`, `pixi run lint`, `pixi run fix`, `pixi run format`, `pixi run typecheck`, `pixi run doctest`.
 
 **Note**: Do NOT run `pixi run typecheck` unless explicitly asked — it is slow and not part of the standard workflow.
 
@@ -64,7 +65,7 @@ Shorthand pixi tasks: `pixi run test`, `pixi run lint`, `pixi run fix`, `pixi ru
 └──────────────────────────────────────────────────────┘
 ```
 
-Source lives in `src/radiosim/`. Key entry points:
+Source lives in `src/radiosim/`. Tests live in `tests/` under `unit/`, `integration/`, `characterization/` (golden fingerprint pins), `performance/` (benchmark records; never gates), `crossvalidation/` (the optional `crossval` environment), plus the shared `fixtures/` and `support/` helper packages. `simulators/` is **not** package code: it holds 41 third-party simulator checkouts as git submodules for reference reading, excluded from the wheel and from Ruff. A plain `git clone` does not fetch them — they arrive only with `--recursive` or `git submodule update --init`, and cost roughly 3.9 GB checked out. Key entry points:
 
 - **`api/simulator.py`** — `Simulator` class: `from_config()`, `setup()`, `run()`, `plot()`, `save()`. Recommended entry point.
 - **`cli/main.py`** — Click-based CLI. Primary mode: `radiosim --config config.yaml`. Subcommands: `simulate`, `init`, `validate`.
@@ -176,11 +177,17 @@ To add a new Jones term: extend `JonesTerm` (or `JonesBaselineTerm`), implement 
 ### I/O (`io/`)
 
 - `config.py` — Pydantic v2 config models, top-level `RadioSimConfig`, loaded via `load_config()`
+- `config_resolution.py` — resolves a loaded document plus `SimulationOverrides` into the frozen runtime inputs
 - `instrument_config.py` — strict frozen instrument and baseline-selection inputs
+- `beam_config.py` — strict typed loader for the `beams:` config section
 - `instrument_sources.py` — strict loaders for local layouts, datasets, and known telescopes
-- `writers.py` / `readers.py` — HDF5/YAML simulation I/O
+- `hdf5.py` / `summary_json.py` / `standard_visibility.py` / `uvfits.py` — the result writers (HDF5, JSON summary, pyuvdata `UVData`, UVFITS); `readers.py` reads them back
 - `measurement_set.py` — CASA Measurement Set export (requires python-casacore)
+- `atomic_paths.py` / `result_format.py` / `workflow_artifacts.py` — atomic publication paths, `ResultFormat` selection, and the staged run directory
+- `jones_config.py` / `receptor_config.py` — strict typed loaders for the `jones:` and `receptors:` config sections
 - `fits_utils.py` — FITS file utilities
+
+There is no `io/writers.py`; each writer is its own module in the list above.
 
 ### Utilities (`utils/`)
 
@@ -197,7 +204,7 @@ To add a new Jones term: extend `JonesTerm` (or `JonesBaselineTerm`), implement 
 
 - **Formatter**: Black (88 char line length)
 - **Linter**: Ruff (E, W, F, I, B, C4, UP rules; E501 ignored)
-- **Type checker**: MyPy (check_untyped_defs=true, ignore_missing_imports=true)
+- **Type checker**: Pyright in strict mode, pinned `pyright ==1.1.408`, configured under `[tool.pyright]` in `pyproject.toml`. `pixi run typecheck` runs `python tools/check_pyright_baseline.py`, which fails only if the strict error total rises above the checked-in ceiling in `pyright-baseline.json`; `pixi run typecheck-report` prints the plain report and `pixi run typecheck-update` lowers the ceiling (it refuses to raise it). MyPy is not used anywhere in this repository
 - **Commits**: Conventional format (`feat:`, `fix:`, `refactor:`, `test:`, `chore:`). Never include co-authored-by lines.
 
 ### Git workflow
@@ -213,4 +220,4 @@ approval.
 
 YAML config is validated by the strict Pydantic `RadioSimConfig` model and resolved by `load_config()`. Its top-level sections are `instrument`, `beams`, `receptors`, `baseline_selection`, `sky_model`, `obs_time`, `obs_frequency`, `visibility`, `jones`, `execution`, and `workflow`. The `instrument` section selects exactly one typed source and owns location and diameter precedence; `baseline_selection` owns the canonical correlation, length, and axial-azimuth filters; `receptors` owns the per-antenna receptor basis, the static `feed_rotation_deg`, and the single array-wide `output_basis` that names the reported correlation labels. The optional `jones` section carries one block per enabled term (`G`, `B`, `Rc`, `Kd`, `X`, `D`, `P`, `Z`, `T`, `M`, `Q`); there is no `enabled: false` — delete the block instead — and a block resolving to the identity is rejected. See `configs/` for complete examples.
 
-TODO: Add an explicit contributor note that pre-`v1.0` API/config refactors should not preserve backward compatibility by default; prefer moving directly to the cleaner replacement unless a deprecation path is explicitly requested.
+The pre-`v1.0` policy this file opens with is written down for contributors too, in `docs/contributing.rst` ("Pre-v1 API Evolution Policy"): refactors before `v1.0` move directly to the cleaner replacement rather than preserving backward compatibility, unless a deprecation path is explicitly requested, and every breaking change still lands in `docs/changelog.rst` or `docs/migration_guide.md`.

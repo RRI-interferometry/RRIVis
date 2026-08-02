@@ -70,11 +70,32 @@ HISTORICAL_DOCUMENTS = frozenset(
 ARGPARSE_SUPPLIED_FLAGS = frozenset({"--help"})
 
 #: Documents whose stated shipped-configuration count this scan derives from
-#: the filesystem.  ``README.md`` joins this tuple at 8E, which owns its stale
-#: "Three shipped YAML samples" literal; until then that literal is pinned by
-#: ``test_readme_asserts_three_shipped_yaml_samples_against_four_files`` in the
-#: characterization module, so it is tracked rather than unwatched.
-COUNT_CLAIM_DOCUMENTS = ("examples/README.md",)
+#: the filesystem.  ``README.md`` joined this tuple at 8E, which corrected its
+#: stale "Three shipped YAML samples" literal.
+COUNT_CLAIM_DOCUMENTS = ("README.md", "examples/README.md")
+
+#: Documents that must account for every file in ``configs/`` by name, so a
+#: fifth shipped sample cannot appear undocumented.
+CONFIG_INVENTORY_DOCUMENTS = ("README.md", "examples/README.md")
+
+#: The project's pre-rename name, in every casing.  Section 11 scan 2 forbids
+#: it in any tracked file, binary included -- the FITS ``COMMENT`` card in
+#: ``antenna_layout_examples/1101503312_metafits.fits`` was the last non-prose
+#: instance and 8E rewrote it in place.
+STALE_PROJECT_NAME = re.compile(rb"rrivis", re.IGNORECASE)
+
+#: Files allowed to name the old project. The register and the tier plans are
+#: historical records that are never edited (``Tier8ReleasePlan.md`` Section
+#: 15.4 allow-lists ``Fix.md`` and ``Tier3BeamObservabilityPlan.md:3223,3486``
+#: by name); the two Tier 8 test modules have to spell the name to assert its
+#: absence.
+STALE_NAME_ALLOW_LIST = frozenset(
+    {
+        "Fix.md",
+        "tests/unit/test_tier8_release_acceptance.py",
+        "tests/characterization/test_tier8_current_behavior.py",
+    }
+)
 
 #: Documents scanned for named ``configs/<name>.yaml`` references.  Every such
 #: reference must resolve to a file that exists.
@@ -426,20 +447,22 @@ def test_every_named_shipped_configuration_exists(document: str) -> None:
     )
 
 
-def test_examples_readme_describes_every_shipped_configuration() -> None:
-    """``examples/README.md`` must account for all four shipped documents.
+@pytest.mark.parametrize("document", CONFIG_INVENTORY_DOCUMENTS)
+def test_the_document_describes_every_shipped_configuration(document: str) -> None:
+    """The inventory documents must account for every shipped sample by name.
 
-    Before 8B it listed two of four, so a reader had no way to learn that the
-    hybrid and circular-receptor samples exist.  The list is checked against the
+    Before 8B ``examples/README.md`` listed two of four, and before 8E
+    ``README.md`` said "Three shipped YAML samples" against a directory holding
+    four -- so a reader had no way to learn that the hybrid and
+    circular-receptor samples exist.  Both lists are checked against the
     directory rather than against a literal, so adding a fifth document to
-    ``configs/`` fails this test until the document describes it.
+    ``configs/`` fails this test until both documents describe it.
     """
-    text = EXAMPLES_README.read_text(encoding="utf-8")
+    text = _read(document)
     unlisted = [name for name in _shipped_config_names() if name not in text]
     assert not unlisted, (
-        f"examples/README.md does not mention {unlisted}. Every file in "
-        f"configs/ needs one accurate line in the 'Shipped configurations' "
-        f"section."
+        f"{document} does not mention {unlisted}. Every file in configs/ needs "
+        f"one accurate line in that document's shipped-configuration list."
     )
 
 
@@ -508,6 +531,51 @@ def test_no_removed_name_is_documented_as_live() -> None:
         + "\nEither delete the reference, or state on the same line that the "
         "name was removed, renamed, replaced, or is rejected -- the migration "
         "guide and the changelog are the documents allowed to name it freely."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 11 item 2 -- no stale project naming (DOC-006)
+# ---------------------------------------------------------------------------
+
+
+def _allowed_to_name_the_old_project(relative: str) -> bool:
+    """Return whether a file may spell the pre-rename project name.
+
+    Two kinds qualify: the historical records (``Fix.md`` and the tier plans,
+    which describe what was observed at the time and are never edited), and the
+    two Tier 8 test modules, which have to write the name down to assert that
+    nothing else does.
+    """
+    return relative in STALE_NAME_ALLOW_LIST or bool(
+        re.fullmatch(r"Tier\w*Plan\.md", relative)
+    )
+
+
+def test_no_tracked_file_carries_the_pre_rename_project_name() -> None:
+    """The old project name survives only in the historical records.
+
+    Deliberately a *byte* scan over every tracked-or-unignored file, not a
+    prose scan: the last non-prose instance was a FITS ``COMMENT`` card inside
+    ``antenna_layout_examples/1101503312_metafits.fits``, which no
+    text-file-only scan would have seen. 8E rewrote that card in place (an
+    80-byte record replaced by an 80-byte record, so the file length and every
+    other card are unchanged) and corrected ``AGENTS.md``'s API-evolution
+    sentence, which was the last prose instance.
+    """
+    offenders: list[str] = []
+    for path in iter_tracked_files():
+        relative = _relative(path)
+        if _allowed_to_name_the_old_project(relative):
+            continue
+        if STALE_PROJECT_NAME.search(path.read_bytes()):
+            offenders.append(relative)
+    assert not offenders, (
+        "The pre-rename project name appears in:\n  "
+        + "\n  ".join(sorted(offenders))
+        + "\nThe project is RadioSim. Only Fix.md, the tier plans, and the two "
+        "Tier 8 test modules may spell the old name, and they do it to record "
+        "history rather than to describe the package."
     )
 
 

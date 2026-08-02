@@ -122,6 +122,10 @@ AGENTS.md
 .roomodes
 .claude
 RadioSim.md
+# project.md predates this package's rename to RadioSim. It has never
+# been tracked, ships in nothing, and is superseded by CLAUDE.md, README.md and
+# docs/. A local copy is a historical artifact only: do not read it as current,
+# and do not restore it as a second architecture surface.
 project.md
 
 # mkdocs documentation

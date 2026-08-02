@@ -86,6 +86,23 @@ and lock metadata with:
 Testing
 -------
 
+``tests/`` has five suites and two helper packages:
+
+- ``tests/unit/`` - the bulk of the suite, one directory per package area.
+- ``tests/integration/`` - end-to-end runs: the hybrid sky path, the Jones
+  terms, and the CLI driven to an on-disk artifact. These gate.
+- ``tests/characterization/`` - golden fingerprint and current-behavior pins,
+  one module per tier. These gate.
+- ``tests/performance/`` - benchmark-record honesty checks, marked
+  ``performance`` and ``slow``; run them with ``pixi run bench``. These never
+  gate.
+- ``tests/crossvalidation/`` - the ``pyuvsim`` comparison, marked ``crossval``
+  and ``slow``, and runnable only in the optional ``crossval`` environment.
+  This never gates.
+- ``tests/fixtures/`` and ``tests/support/`` are shared helper packages, not
+  suites; ``tests/support/repo_scan.py`` is the git-scoped file lister every
+  repository scan uses instead of ``Path.rglob``.
+
 Write tests for all new functionality:
 
 .. code-block:: bash

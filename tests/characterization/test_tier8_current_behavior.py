@@ -361,17 +361,24 @@ def test_examples_readme_lists_all_four_shipped_configurations() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_readme_asserts_three_shipped_yaml_samples_against_four_files() -> None:
-    """Pins the stale, asserted-rather-than-derived configuration count.
+def test_readme_states_the_real_shipped_configuration_count_and_names() -> None:
+    """FLIPPED AT 8E.  Was ``..._asserts_three_shipped_yaml_samples_...``.
 
-    ``DOC-004``'s original "15+" claim is long gone; what survives is an
-    understated literal that no test derives from the filesystem.
-
-    FLIPPED BY: Tier 8E (make the count derived) and the Section 11 scan 3
-    acceptance test that keeps it derived.
+    ``DOC-004``'s original "15+" claim was long gone by 8A; what survived was an
+    understated "Three shipped YAML samples" literal against a directory holding
+    four, which no test derived from the filesystem.  8E restates it and names
+    every shipped document, and the count is now parsed out of the prose and
+    compared with ``configs/`` by
+    ``tests/unit/test_tier8_release_acceptance.py`` (Section 11 scan 3), which
+    is what stops it drifting again -- this pin only records that the literal
+    moved.
     """
-    assert "[Three shipped YAML samples](configs/)" in _read("README.md")
+    text = _read("README.md")
+    assert "[Three shipped YAML samples](configs/)" not in text
+    assert "Four shipped YAML samples" in text
     assert len(_shipped_config_names()) == 4
+    unnamed = [name for name in _shipped_config_names() if name not in text]
+    assert not unnamed, f"README.md no longer names {unnamed}"
 
 
 # ---------------------------------------------------------------------------
@@ -613,61 +620,80 @@ def test_ci_surfaces_the_ci_001_evidence_that_the_runner_would_discard() -> None
 # ---------------------------------------------------------------------------
 
 
-def test_agents_md_carries_its_six_documented_defects() -> None:
-    """Pins every live defect in ``AGENTS.md``.
+def test_agents_md_carries_none_of_its_six_documented_defects() -> None:
+    """FLIPPED AT 8E.  Was ``..._carries_its_six_documented_defects``.
 
-    ``Tier8ReleasePlan.md`` Section 5.4 heads this list "five live defects" and
-    then enumerates six bullets; the six are what the file actually carries and
-    what 8E must fix, and the plan's summary count was corrected to six when
-    this pin was written.  The Hugging Face sentence is ``DOC-007`` and is the
-    only surviving reference to a directory removed in ``3266746``; the RRIVis
-    naming is the only live one in a tracked prose file outside the historical
-    records.
-
-    FLIPPED BY: Tier 8E (all six, plus the ``simulators/`` submodule note).
+    ``Tier8ReleasePlan.md`` Section 5.4 heads the list "five live defects" and
+    then enumerates six bullets; the six are what the file carried, and the
+    plan's summary count was corrected to six when this pin was written at 8A.
+    All six are fixed here: the removed ``numba`` backend name, the
+    three-of-seven test-directory list, the Hugging Face sentence (``DOC-007``,
+    the last surviving reference to a directory removed in ``3266746``), the
+    "doctest collection enabled" claim against an inert flag, the ``RRIVis``
+    naming, and the ``TODO`` that ``docs/contributing.rst:46-50`` discharged in
+    Tier 0.  The ``simulators/`` sentence Section 17 item 1 asks for is here
+    too, because 41 unfetched submodules are the single most surprising fact
+    about this working tree.
     """
     text = _read("AGENTS.md")
-    assert "`backends/` for NumPy/JAX/Numba execution" in text
-    assert "with `unit/`, `integration/`, and `performance/` splits" in text
-    assert "The Hugging Face app is isolated in `huggingface_space/`." in text
+    assert "Numba" not in text
+    assert "`backends/` for NumPy/JAX/Dask execution" in text
+    for directory in ("unit/", "integration/", "characterization/", "performance/"):
+        assert f"`{directory}`" in text
+    assert "crossvalidation/" in text
+    assert "huggingface" not in text.lower()
     assert not (REPO_ROOT / "huggingface_space").exists()
-    assert "doctest collection enabled" in text
-    assert "`crossval`" not in text
-    assert "Until RRIVis reaches a major stable release" in text
-    assert text.rstrip().endswith(
-        "prefer moving directly to the cleaner replacement unless a deprecation "
-        "path is explicitly requested."
-    )
+    assert "doctest collection enabled" not in text
+    assert "pixi run doctest" in text
+    assert "`crossval`" in text
+    assert "RRIVis" not in text
+    assert "Until RadioSim reaches a major stable release" in text
+    assert "TODO:" not in text
     assert "Pre-v1 API Evolution Policy" in _read("docs/contributing.rst")
-    assert "simulators/" not in text
+    assert "simulators/" in text
+    assert "does not fetch them" in text
 
 
-def test_claude_md_carries_its_three_documented_defects() -> None:
-    """Pins every live defect in ``CLAUDE.md``.
+def test_claude_md_carries_none_of_its_three_documented_defects() -> None:
+    """FLIPPED AT 8E.  Was ``..._carries_its_three_documented_defects``.
 
-    The type-checker sentence names MyPy while every build and tool file names
-    Pyright; the ``io/`` module list names a ``writers.py`` that does not exist
-    and omits five modules that do; and the trailing ``TODO`` asks for a
-    contributor note that Tier 0 already added.
+    The type-checker sentence named MyPy while every build and tool file names
+    Pyright; the ``io/`` module list named a ``writers.py`` that does not exist
+    and omitted five modules that do; and the trailing ``TODO`` asked for a
+    contributor note Tier 0 had already added.  All three are fixed, and the
+    ``simulators/`` note Section 17 item 2 asks for is here as well.
 
-    FLIPPED BY: Tier 8E.
+    The ``io/`` half is checked against the directory rather than against a
+    literal, so a future module that the list omits fails this pin.
     """
     text = _read("CLAUDE.md")
-    assert "**Type checker**: MyPy" in text
+    assert "**Type checker**: MyPy" not in text
+    assert "Type check (mypy)" not in text
+    #: MyPy is still *named* once, to say it is not used -- the same
+    #: retirement-marker escape the acceptance module's removed-name scan
+    #: grants.  What must not return is a sentence presenting it as the
+    #: repository's checker.
+    assert "MyPy is not used anywhere in this repository" in text
+    assert "Pyright in strict mode" in text
+    assert "tools/check_pyright_baseline.py" in text
     assert "mypy" not in _read("pixi.toml").lower()
     assert "check_pyright_baseline.py" in _read("pixi.toml")
 
-    assert "`writers.py` / `readers.py` — HDF5/YAML simulation I/O" in text
+    assert "`writers.py` / `readers.py` — HDF5/YAML simulation I/O" not in text
+    assert "There is no `io/writers.py`" in text
     io_root = REPO_ROOT / "src" / "radiosim" / "io"
     assert not (io_root / "writers.py").exists()
-    for present in ("hdf5.py", "summary_json.py", "standard_visibility.py"):
-        assert (io_root / present).is_file()
+    private = {"__init__.py", "model_base.py", "result_errors.py"}
+    for module in sorted(io_root.glob("*.py")):
+        if module.name in private:
+            continue
+        assert f"`{module.name}`" in text or f"/ `{module.name}`" in text, (
+            f"CLAUDE.md's io/ list omits {module.name}"
+        )
 
-    assert text.rstrip().endswith(
-        "prefer moving directly to the cleaner replacement unless a deprecation "
-        "path is explicitly requested."
-    )
-    assert "simulators/" not in text
+    assert "TODO:" not in text
+    assert "simulators/" in text
+    assert "does not fetch them" in text
 
 
 # ---------------------------------------------------------------------------

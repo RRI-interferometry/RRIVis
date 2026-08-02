@@ -405,18 +405,50 @@ separate simulation engine or backend.
 - [Migration guide](docs/migration_guide.md)
 - [Python example](examples/scripts/simple_simulation.py)
 - [Basic notebook](examples/notebooks/01_basic_usage.ipynb)
-- [Three shipped YAML samples](configs/), including
+- Four shipped YAML samples in [`configs/`](configs/):
+  [`configs/config.yaml`](configs/config.yaml) (the offline smoke sample),
+  [`configs/hybrid_sky_example.yaml`](configs/hybrid_sky_example.yaml),
+  [`configs/realistic_foreground_example.yaml`](configs/realistic_foreground_example.yaml)
+  (needs network access at simulation time), and
   [`configs/receptor_circular_example.yaml`](configs/receptor_circular_example.yaml)
 - [Antenna layout formats](antenna_layout_examples/README_antenna_formats.md)
+
+## Repository layout
+
+| Path | What it holds |
+|---|---|
+| `src/radiosim/` | the package: `core/` physics, `backends/`, `io/`, `api/`, `cli/`, `simulator/`, `benchmarks/`, `visualization/`, `utils/` |
+| `tests/` | `unit/`, `integration/`, `characterization/` (golden fingerprint pins), `performance/` (benchmark records, never gating), `crossvalidation/` (the optional `crossval` environment), plus the shared `fixtures/` and `support/` helper packages |
+| `configs/`, `antenna_layout_examples/` | shipped sample configurations and antenna layout formats |
+| `examples/`, `docs/` | the runnable script and notebook, and the Sphinx site |
+| `output/benchmarks/reference/` | the committed backend benchmark records every performance sentence on this page cites |
+| `output/crossvalidation/` | the committed `pyuvsim 1.4.0` comparison record |
+| `simulators/` | 41 third-party simulator checkouts, as git submodules, for reference reading only |
+
+`simulators/` is not part of the package: it is excluded from the wheel and
+from Ruff, and a plain `git clone` does not fetch it. The submodules arrive
+only with `--recursive` or an explicit `git submodule update --init`, and cost
+roughly 3.9 GB checked out.
 
 ## Tests
 
 ```bash
-pixi run test
+pixi run test          # the full suite (pytest-xdist; add `-- -n 0` to serialize)
+pixi run doctest       # docstring doctests, scoped to src/radiosim
 pixi run lint
 pixi run check-format
 pixi run typecheck
 make -C docs clean html
+```
+
+`pixi run test` collects `tests/` in full, including the `integration/` suite
+(the hybrid, Jones, and CLI-to-artifact end-to-end runs) and the
+`characterization/` fingerprint pins, which gate. Two suites are marked `slow`
+and are therefore outside the default gate:
+
+```bash
+pixi run bench                                       # tests/performance/, writes a benchmark record
+pixi run --environment crossval test -- -m crossval  # tests/crossvalidation/, needs pyuvsim
 ```
 
 Use direct pytest for a focused path; the Pixi `test` task already prepends
