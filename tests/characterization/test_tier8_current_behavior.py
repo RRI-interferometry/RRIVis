@@ -216,6 +216,33 @@ nothing to read.  No digest table grew or shrank by a character at 8D, and
 ``CI-001`` stays ``OPEN`` exactly as the plan requires when the measurement has
 not been taken.  On a ~38% per-run recurrence rate, three green runs is
 unremarkable and is not evidence the divergence is gone.
+
+Tier 8E addendum -- the four residual pins, and what the bump did not move
+=========================================================================
+
+The pins this module was created to carry are now all flipped.  8E took the
+last four: ``README.md``'s "Three shipped YAML samples" against a directory of
+four, ``AGENTS.md``'s six defects, ``CLAUDE.md``'s three, and the four
+accelerator extras in ``pyproject.toml``.  Each flipped test names what it used
+to assert, so the transition stays readable after the drift is gone, and each
+rule that keeps the corrected state true lives in
+``tests/unit/test_tier8_release_acceptance.py`` (Section 11 scans 2, 3, 7 and
+8) or in ``tests/unit/test_release_metadata.py``, not here.
+
+**The version bump moved provenance and nothing else, measured rather than
+argued.**  ``Tier8ReleasePlan.md`` Section 16 verified by reading
+``core/result.py`` that the package version is hashed into
+``provenance_sha256`` (``:857``) and never into ``scientific_sha256``
+(``:789-841``).  8E ran all three hermetic shipped configurations immediately
+before and immediately after changing the five metadata sources, on one
+machine in one environment.  ``scientific_sha256`` is byte-identical across the
+bump for all three -- ``config.yaml``
+``4bbb7403...b947f2b``, ``receptor_circular_example.yaml``
+``be1e86fb...d042203``, ``hybrid_sky_example.yaml`` ``65777dee...ec3808a`` --
+and all three ``provenance_sha256`` values changed.  That is the intended
+asymmetry: a release-metadata change must be invisible to the scientific
+fingerprint and visible to the provenance one, and no characterization pin in
+this suite moved.
 """
 
 from __future__ import annotations

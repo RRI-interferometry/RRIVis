@@ -9,7 +9,11 @@ derived from the filesystem, and every named configuration exists) and **6**
 defines, and vice versa).  8C added scans **1** (no removed name is documented
 as live), **4** (every documented relative path resolves) and **5** (every
 documented ``radiosim.``-rooted symbol imports), plus the one guard the ``-W``
-docs gate depends on; 8D and 8E add the rest.
+docs gate depends on.  8E closed the set with scans **2** (the pre-rename
+project name appears in no tracked file, binary included), **7** (no
+accelerator or speed claim without a citation, over the prose *and* the
+package's own docstrings) and **8** (every documented ``pixi run`` task
+exists), and extended scan 3 to ``README.md``.
 
 The prose file set is listed through ``git ls-files --cached --others
 --exclude-standard``, not ``Path.rglob``, for the reason
