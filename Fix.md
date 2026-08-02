@@ -14073,3 +14073,152 @@ plan's status header and an acceptance appendix are updated in
 `Tier7JonesSciencePlan.md` to record whole-tier acceptance and to name Tier 8
 design as the next authorized roadmap item. Acceptance commit:
 `docs(jones): accept Tier 7 integration`. Not pushed.
+
+### 2026-08-02 Tier 8 documentation and release reconciliation design gate
+
+Tier 7 remains independently accepted as a whole and `SCI-001`, `SCI-002`,
+`SCI-003` remain **DONE**. `SCI-004`, `SCI-005` and `PERF-001` remain
+**ROADMAP** and `SCI-006`, `SCI-007` remain **OPEN**, all exactly as filed;
+Tier 8 does not absorb any of them, and its only obligation to them is
+disclosure. `SKY-002` is **absorbed by Tier 8** and is specified to close in
+slice 8D. The Tier 8 design gate is complete.
+[`Tier8ReleasePlan.md`](Tier8ReleasePlan.md) is the governing implementation
+specification for the documentation, example, CI, repository-scan, and release
+surfaces, and it closes or re-dispositions `DOC-001` through `DOC-008`.
+
+The design was authored from source on clean `main` at `95a937e`
+(`docs(jones): accept Tier 7 integration`). Every characterization statement in
+the plan's Sections 5 through 7 is cited to a file and line true at that
+commit, or to a named CI run.
+
+**Four of the eight `DOC` rows are wholly or largely discharged by earlier
+tiers, and the plan says so rather than inventing work.** `DOC-002` is fully
+discharged: `generate_baselines` — the invalid call the roadmap cites — has
+zero occurrences anywhere in the repository, having been replaced in Tier 2 by
+`generate_resolved_baselines`/`select_resolved_baselines`
+(`src/radiosim/core/baseline_resolution.py:113,283`); every `README.md` and
+`docs/quickstart.rst` code block was executed successfully during
+characterization. `DOC-003` is fully discharged by Tier 7J (`53acb60`):
+`GeometricDelayJones` has zero hits in `docs/`, and every `*Jones` token in
+`docs/` outside the 19-name `__all__` sits in an explicitly captioned
+historical context (`docs/api/jones.rst:27`, `docs/changelog.rst:65-67`,
+`docs/development/beam_physics_scope.md:186`, the 26-row removal table at
+`docs/migration_guide.md:722-750`). `DOC-001` is discharged for the script
+itself — `examples/scripts/simple_simulation.py` uses only public API, has no
+`sim._sources`, formats no dictionary as a float, calls `.shape` on nothing but
+real arrays, and executes cleanly. `DOC-005` is discharged for `README.md` by
+Tier 6I (`eea1914`): every numeric backend claim at `README.md:346-380` was
+re-verified against `output/benchmarks/reference/20260731T104303Z-darwin-arm64.json`,
+including the `1.7280399333685637e-11` deviation, the `3.01x` ratio, and
+`accelerator: "none"` in all eight records.
+
+**The live residue is small, precisely bounded, and in four cases not where the
+roadmap looked.** `examples/README.md` documents four flags the script does not
+have (`:13,19-20,22-23,29` versus the three defined at
+`examples/scripts/simple_simulation.py:14-37`), still offers the removed
+"Numba" backend (`:48`), and lists two of the four shipped configs.
+`README.md:408` says "Three shipped YAML samples" while `configs/` holds four.
+`AGENTS.md` carries five defects, including the sole surviving Hugging Face
+sentence (`:4`, `DOC-007`) and the sole surviving live RRIVis naming (`:34`).
+`CLAUDE.md`, verified current on every Tier 7 fact, carries three: it names
+MyPy as the type checker (`:200`) where the repository runs Pyright
+(`pixi.toml:19`, `tools/check_pyright_baseline.py:18-19`,
+`pyproject.toml:191-206`), it lists a `writers.py` that does not exist
+(`:181`), and it retains a `TODO:` (`:216`) discharged by Tier 0 at
+`docs/contributing.rst:46-50`. `pyproject.toml` still ships `gpu`, `gpu-cuda`,
+`gpu-rocm` and `tpu` extras (`:20,61,67,72,77`) advertising accelerator support
+`PERF-001` explicitly disclaims.
+
+**`DOC-006` is materially different from its register text.** `project.md` is
+**gitignored** (`git check-ignore -v project.md` → `.gitignore:125`) and has
+never been tracked (`git log --all -- project.md` is empty). It ships in no
+sdist, wheel, or docs site, so it makes no public claim; the plan therefore
+neither rewrites nor tracks it, adds an explanatory line to the ignore entry,
+and routes the local file's fate to a gated question rather than deleting a
+file from the user's working tree unasked.
+
+**`DOC-008` is materially discharged, with three named gaps.**
+`.github/workflows/ci.yml` is tracked, badge-linked (`README.md:5`), and
+demonstrably runs remotely across eight jobs; `tests/integration/` holds two
+real end-to-end files (16 tests) and `tests/performance/` ten record-honesty
+tests that never gate by design. The gaps are that no CI step executes
+`examples/scripts/simple_simulation.py`, no notebook validation exists, the
+docs build is not `-W` (`docs/Makefile:5` has an empty `SPHINXOPTS ?=`), no
+doctest runs anywhere (`--doctest-modules` at `pyproject.toml:144` is inert
+because `testpaths = ["tests"]` at `:137`, so `--collect-only` reports zero
+doctest items despite 299 `>>>` lines in `src/`), and no integration test
+drives the **CLI** to an on-disk artifact.
+
+**A new defect was found that no register row covers, and it is filed rather
+than absorbed.** CI run `30726145633` at `95a937e` is **red** on
+`linux-64 / Python 3.11` with five characterization fingerprint failures, while
+run `30725507865` at `47df8fc` — a byte-identical source tree, since `95a937e`
+changed only `Fix.md` and `Tier7JonesSciencePlan.md` — is green on all eight
+jobs. The measured digests are byte-stable across three CI runs and three CPU
+models from two vendors, so this is a second reproducible class, not a race;
+and the discriminator the module's own prose asserts (the dispatched vector
+feature set, `tests/characterization/test_tier6_current_behavior.py:226-246`)
+is falsified by the logs, because the originally recorded `linux-64-py311`
+value was measured on the same AMD EPYC 9V74 part that now produces the new
+class. Source regression, xdist presence and worker count, test ordering,
+dependency drift under `locked: true`, astropy IERS behavior, `PYTHONHASHSEED`
+and thread counts were each ruled out with evidence. Of the last 25 CI runs, 11
+failed and all 11 are this same pin family; the established response has been
+to append another accepted digest (`e3f1987`, `1c90d81`, `e5b20d1`, `0ce72e4`,
+four commits in four days). The plan directs that `CI-001` be filed as an
+`OPEN` row at 8A, that `_machine_fingerprint()` emit unconditionally so a
+passing runner's identity is recorded at all — today no record exists of what
+any green `linux-64-py311` runner was — and that pin failures report a numeric
+delta, because `scientific_sha256` hashes raw little-endian array bytes
+(`src/radiosim/core/result.py:467-475,789-841`) and the gate cannot presently
+distinguish one ULP from one hundred percent. A fifth reflex append is refused;
+whether to append once the numeric evidence exists is a gated question.
+
+**`Fix.md` §17 item 15's site list is corrected by two entries.** Of 21 `rglob`
+call sites across 12 test files, 19 in 10 files scan the repository or the
+package and are converted to a shared git-scoped helper extracted from
+`tests/unit/test_tier5_receptor_acceptance.py:132-160`.
+`tests/unit/test_io/test_output_atomicity.py:330` and
+`tests/unit/test_visualization/test_result_plots.py:247` are **excluded**: both
+walk `tmp_path`-derived directories created inside the test, so no repository
+artifact can enter them and converting them would add a `git` dependency for no
+benefit.
+
+**Two further undisclosed facts about the live tree were found and are routed
+to the sweep.** `simulators/` contains 41 git submodules of third-party
+simulators (~3.9 GB when checked out), named in no tracked prose file, so a
+contributor cloning `--recursive` receives them unwarned; and
+`antenna_layout_examples/1101503312_metafits.fits` — the shipped `mwa_metafits`
+example — carries the FITS card `COMMENT Example MWA metafits file for RRIVis
+testing`, the only stale-naming hit outside prose.
+
+**The plan decides a version bump.** It recommends `0.2.0` → `0.3.0` in the
+five tested metadata sources plus a dated `[0.3.0]` changelog section replacing
+`[Unreleased]`, on the grounds that `Fix.md:1664`'s "the release notes disclose
+breaking changes" cannot be satisfied by an `[Unreleased]` heading, and that
+keeping the string `0.2.0` makes the remediated package share a version with
+the changelog entry whose GPU and Jones claims `docs/changelog.rst:97-108`
+formally retracts. It is verified safe: the package version feeds
+`provenance_sha256` only (`src/radiosim/core/result.py:857`, inside
+`_provenance_hash`), never `scientific_sha256` (`:789-841`), and no test pins a
+literal provenance digest, so no characterization pin can move. Nothing is
+tagged, released, or published; the bump is metadata and notes only, and it is
+gated on the user's answer.
+
+The plan's governing discipline is that every documented statement must be in
+exactly one of four states — executed, scanned, cited, or absent — the
+documentation form of §4.2, enforced by one new acceptance module carrying
+eight residual scans. Six slices are specified with exhaustive writable lists:
+8A characterization and `CI-001`; 8B examples and doctests; 8C Sphinx
+strictness and API completeness; 8D scan hardening, `SKY-002`, CI shape and
+the fingerprint instrumentation; 8E the final sweep, agent-facing truth,
+changelog and release metadata; 8F the whole-tier gate closing `DOC-001`
+through `DOC-008`. Sixteen whole-tier criteria and a ten-row risk register are
+recorded, the largest risk being that new `docs/api/` coverage for the
+never-rendered `core.sky` surface will surface more Sphinx warnings than the 16
+the `-W` gate starts from. Five gated questions are open: the version bump, the
+untracked `project.md`, the conditional digest append, the doctest debt
+appetite, and whether the notebook is executed in CI.
+
+No source, test, configuration, documentation, or CI file was changed by this
+gate. Design commit: `docs(release): plan Tier 8 reconciliation`. Not pushed.
