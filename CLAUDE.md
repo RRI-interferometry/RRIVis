@@ -6,7 +6,7 @@ NOTE: Never think about backward compatibility in the code when doing edits, or 
 
 ## Project Overview
 
-**RadioSim** is a Python package for simulating radio interferometer visibilities using the RIME (Radio Interferometer Measurement Equation) with full polarization support and multiple sky models. Version 0.2.0 (Beta), Python 3.11+. Both solvers route their array work through a selectable NumPy/JAX/Dask backend and one kernel is compiled under JAX, but no accelerator has ever been measured — see Implementation Status below.
+**RadioSim** is a Python package for simulating radio interferometer visibilities using the RIME (Radio Interferometer Measurement Equation) with full polarization support and multiple sky models. Version 0.3.0 (Beta), Python 3.11+. Both solvers route their array work through a selectable NumPy/JAX/Dask backend and one kernel is compiled under JAX, but no accelerator has ever been measured — see Implementation Status below.
 
 ## Implementation Status (read this first)
 

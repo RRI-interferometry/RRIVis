@@ -790,3 +790,32 @@ which carries the horizontal and equatorial descriptions of one `(time,
 frequency)` step. A subclass that implemented the old methods will fail to
 instantiate rather than silently do nothing: both batched methods are
 `@abstractmethod`.
+
+## Sky-loader network declarations (2026-08-02)
+
+### `LoaderDefinition.network_service` became `network_services`
+
+A loader used to declare at most one network service, as
+`network_service: str | None`. That was not expressible for a composite recipe:
+`realistic_foreground` dispatches to a diffuse loader **and** a catalog loader,
+reaches two services, and could therefore declare neither — so
+`get_required_services()` returned nothing for the shipped
+`configs/realistic_foreground_example.yaml` and the pre-flight printed
+"Network: offline (no network-dependent models)" for a run that then made two
+real network calls.
+
+The field is now a tuple, and every loader that can reach the network declares
+the union of what it reaches. There is no compatibility shim: the singular
+spelling is gone from the package.
+
+| Removed | Replacement |
+| --- | --- |
+| `LoaderDefinition.network_service: str \| None` | `LoaderDefinition.network_services: tuple[str, ...]` |
+| `register_loader(..., network_service="vizier")` | `register_loader(..., network_services=("vizier",))` |
+| `definition.metadata()["network_service"]` | `definition.metadata()["network_services"]`, a list |
+| a loader declaring nothing | `network_services=()`, which is the default and means "purely local" |
+
+Read the value with `get_required_services(sky_model_config)`, which returns
+the set of services a configuration will actually reach. A custom loader that
+imports a network client and declares no service is now a test failure, not a
+silent one.

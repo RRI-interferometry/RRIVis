@@ -6,6 +6,21 @@ All notable changes to RadioSim are documented here.
 [Unreleased]
 ------------
 
+Nothing yet.
+
+[0.3.0] - 2026-08-02
+--------------------
+
+The result of an eight-tier remediation programme. Every section below is a
+breaking change against ``0.2.0`` unless it says otherwise: RadioSim is
+pre-v1.0, and under the policy in :doc:`contributing` a misleading API is
+replaced rather than aliased. :doc:`migration_guide` gives the per-symbol and
+per-key replacement for all of it.
+
+Read the "Known limitations" section at the end before reading the capability
+list: it names, with register identifiers, everything this release does *not*
+do.
+
 Added
 ^^^^^
 
@@ -41,6 +56,53 @@ Added
 - **Cross-implementation validation against** ``pyuvsim 1.4.0``, in an
   optional ``crossval`` pixi environment that no gate runs, with the measured
   comparison committed under ``output/crossvalidation/``.
+- **One strict configuration contract.** A single Pydantic ``RadioSimConfig``
+  with the sections ``instrument``, ``beams``, ``receptors``,
+  ``baseline_selection``, ``sky_model``, ``obs_time``, ``obs_frequency``,
+  ``visibility``, ``jones``, ``execution`` and ``workflow``; ``load_config()``,
+  ``resolve_config()`` and ``dump_config()`` as the entry points; source-aware
+  relative-path resolution; and a pre-flight validator that reports every
+  error at once instead of the first.
+- **One typed instrument source** with canonical identity, location, antenna
+  positions, per-antenna diameters and deterministic provenance, plus typed
+  baseline selection (``correlations``, ``length_filter``,
+  ``azimuth_ranges_deg``) resolved by ``generate_resolved_baselines()`` and
+  ``select_resolved_baselines()``.
+- **A canonical beam system.** One ``BeamSystem`` covering analytic apertures,
+  illumination tapers and BeamFITS handlers, with shared or per-antenna
+  assignment for heterogeneous arrays, and observability as a helper on the
+  ``Simulator`` rather than a second engine.
+- **An immutable canonical result.** ``Simulator.run()`` returns a frozen
+  ``SimulationResult`` carrying the ``(time, baseline, frequency,
+  correlation)`` cube, its correlation labels and polarization basis, and two
+  digests: ``scientific_sha256`` over the numbers and the physics inputs, and
+  ``provenance_sha256`` over the run's environment. HDF5 schema ``4.0.0``,
+  summary JSON, Measurement Set and UVFITS export, and atomic run-directory
+  publication that leaves the previous run intact on any failure.
+- **A receptor and polarization-basis contract.** A ``receptors`` section with
+  per-antenna ``basis`` and static ``feed_rotation_deg``, one array-wide
+  ``output_basis``, and ``linear_xy``/``circular_rl`` as the two canonical
+  correlation coordinate systems.
+- **Backend parity across NumPy, JAX and Dask.** Both solvers route their
+  Jones chain, geometric phase, coherency construction, contraction and
+  accumulation through the selected backend; exactly one kernel is compiled
+  (the baseline-batched per-``(time, frequency)`` contraction, under JAX).
+  Dask is bit-identical to NumPy and JAX-CPU agrees within ``rtol=1e-12``. The
+  benchmark harness, its record schema and the committed reference records
+  under ``output/benchmarks/reference/`` landed with it.
+- **A hybrid sky model.** One run may carry both point sources and a HEALPix
+  map, with first-class sparse HEALPix support, physical-disjointness checks
+  when models are combined, and NEST/RING ordering threaded end to end.
+- **Executed documentation.** ``pixi run doctest`` runs the package's
+  docstring examples, CI executes the shipped example script and the notebook,
+  the Sphinx build runs under ``-W --keep-going`` with zero warnings, and
+  ``tests/unit/test_tier8_release_acceptance.py`` scans the tracked prose for
+  removed symbols, dead paths, unresolvable ``radiosim.`` names, stale
+  configuration counts, uncited accelerator claims and non-existent
+  ``pixi run`` tasks.
+- **Declared network services.** ``get_required_services()`` reports every
+  service a configuration will reach, including through a composite recipe, so
+  the pre-flight's offline/online line is derived rather than guessed.
 
 Changed
 ^^^^^^^
@@ -56,6 +118,27 @@ Changed
   that named a tier rather than a fix. An array whose feeds rotate now
   requires ``jones.P``, and an array whose feeds do not rotate rejects it;
   both messages name the fix.
+- **The coherency matrix's Stokes** ``V`` **sign.**
+  ``B = (1/2) [[I+Q, U+iV], [U-iV, I-Q]]`` (IAU). The previous form was the
+  mirror image, so every circular-hand quantity in a run with non-zero ``V``
+  changes sign. This is a numerical change to results, not a rename.
+- **Correlation labels, the HDF5 schema and the reported basis** are data
+  carried by the result rather than constants: a circular-receptor run reports
+  ``("RR", "RL", "LR", "LL")``. HDF5 schema ``4.0.0`` and summary JSON
+  ``1.1.0`` are the current formats.
+- **Backend** ``auto`` **is a real selection strategy**: it returns JAX only
+  when JAX reports a non-CPU device, and NumPy otherwise. It never selects
+  Dask. ``RIMESimulator.supports_gpu`` is now ``False``, because no
+  accelerator run has been measured (``PERF-001``).
+- **Every FITS-beam fingerprint moved** when the beam runtime became
+  canonical: peak normalization and interpolation are now applied in one
+  place. A stored digest from ``0.2.0`` will not reproduce.
+- ``LoaderDefinition.network_service: str | None`` **became**
+  ``network_services: tuple[str, ...]``, with no compatibility shim. A
+  composite recipe declares the union of the services it dispatches to;
+  before the change it could declare neither, and the shipped
+  ``configs/realistic_foreground_example.yaml`` reported no required service
+  while making two real network calls. See :doc:`migration_guide`.
 
 Removed
 ^^^^^^^
@@ -88,6 +171,62 @@ Removed
   whose accepted values are exactly the keys of the simulator registry. A
   document that still sets the key is rejected with removed-field guidance
   naming the replacement. See :doc:`migration_guide`.
+- **The** ``numba`` **backend name and** ``NumbaBackend``. That backend never
+  compiled a kernel and its ``mode="gpu"`` path validated a CUDA device and
+  then ran NumPy; it is now ``DaskBackend``, selected as ``dask``.
+  ``get_backend("numba")`` raises.
+- **The four accelerator extras** ``gpu``, ``gpu-cuda``, ``gpu-rocm`` and
+  ``tpu``, and the ``gpu`` packaging keyword. ``pip install
+  radiosim[gpu-cuda]`` installed ``jax[cuda12]`` and delivered a package that
+  has never executed on an accelerator. The JAX stack stays installable as
+  ``pip install radiosim[jax]``; a device-named extra returns when
+  ``PERF-001`` closes with measurements.
+- **The split top-level configuration sections**: ``feeds``, ``compute``, and
+  the boolean/parallel-list baseline keys (``use_autocorrelations``,
+  ``only_selective_baseline_length``, ``trim_by_angle_ranges`` and their
+  companions). Each is rejected with a message naming its typed replacement.
+- ``generate_baselines`` **and the low-level beam classes** ``BeamJones``,
+  ``AnalyticBeamJones``, ``FITSBeamJones``, ``BeamManager``,
+  ``BeamFITSHandler`` and ``AntennaType``, together with the named beam types
+  ``airy``, ``cosine``, ``exponential`` and ``short_dipole``.
+- ``combine_models``, ``source_format`` **and** ``available_formats`` on the
+  sky model, replaced by ``prepare_sky_model()`` and ``SkyModel.formats``, and
+  ``run(n_workers=...)``, replaced by the ``execution`` worker policy.
+
+Known limitations
+^^^^^^^^^^^^^^^^^
+
+Release notes that list capabilities without listing these would be
+incomplete. Each entry is an open row in the project's defect register.
+
+- ``PERF-001`` (roadmap): accelerator performance is undemonstrated. The time
+  and frequency axes are host-side Python loops, coordinate transforms and
+  beam interpolation are host-side by design, the JAX declared by every pixi
+  environment is CPU-only, and every measured JAX-CPU run is slower than NumPy
+  (``output/benchmarks/reference/``). RadioSim publishes no GPU or TPU
+  performance number.
+- ``SCI-004`` (roadmap): there is no spherical-harmonic or m-mode solver.
+  ``execution.simulator`` accepts exactly the keys of the simulator registry,
+  which currently holds only ``rime``.
+- ``SCI-005`` (roadmap): the accepted primary beam is scalar
+  (``E = e·I2``). Polarized and cross-polar beams, beam squint, aperture
+  blockage, Zernike aberrations and the Ruze error-beam decomposition are out
+  of scope, each with its reasoning in
+  :doc:`development/beam_physics_scope`.
+- ``SCI-006`` (open): RadioSim's local Stokes ``Q`` has the opposite sign to
+  ``pyuvsim``/``pyradiosky``'s for the same sky, feed convention and mount.
+  The cross-validation characterizes it as a local-basis axis-order swap that
+  also flips ``V``; polarized intensity agrees to ``2.1e-3`` relative after
+  the swap, but which convention is right is not established.
+- ``SCI-007`` (open): after that basis swap, the local linear-polarization
+  frame still differs from ``pyuvsim``'s by a fitted ``-0.0576`` degrees,
+  unreconciled against the independent frame probes recorded beside it.
+- ``CI-001`` (open): one of the eight continuous-integration jobs
+  (``linux-64``, Python 3.11) intermittently produces a second byte-stable
+  scientific digest for the shipped configurations, with an unidentified
+  discriminator. Source regression, package drift, thread counts and test
+  ordering are ruled out with evidence. No "CI is green" claim is made while
+  it is open.
 
 [0.2.0] - 2025-12-15
 --------------------
@@ -178,4 +317,5 @@ Added
 Migration
 ---------
 
-See :doc:`migration_guide` for upgrading from v0.1.x to v0.2.0.
+See :doc:`migration_guide` for upgrading to ``0.3.0``, and for the v0.1.x to
+v0.2.0 history it also records.
