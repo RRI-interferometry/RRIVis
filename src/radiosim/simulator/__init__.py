@@ -98,12 +98,10 @@ def get_simulator(name: str = "rime") -> VisibilitySimulator:
     ----------
     name : str, optional
         Simulator name. The accepted values are exactly the keys of the
-        registry, which currently holds one:
-            - "rime": Direct RIME summation (accurate, default)
-
-        Default is "rime". Any other name raises ``ValueError`` naming the
-        registered set, so this docstring cannot drift into advertising a
-        solver that is not registered.
+        registry, which currently holds one: ``"rime"``, direct RIME
+        summation, which is also the default. Any other name raises
+        ``ValueError`` naming the registered set, so this docstring cannot
+        drift into advertising a solver that is not registered.
 
     Returns
     -------
