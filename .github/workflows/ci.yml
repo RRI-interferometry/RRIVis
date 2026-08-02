@@ -17,6 +17,11 @@ jobs:
     name: ${{ matrix.platform }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    # `actions: read` is what `gh run list`/`gh run download` need to restore
+    # the previous successful run's characterization record (CI-001).
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -61,10 +66,60 @@ jobs:
       - name: Confirm Python version
         run: pixi run --environment ${{ matrix.environment }} -- python -VV
 
+      # CI-001. The characterization pins capture a reference cube on the pass
+      # path, but only under gitignored output/, which this runner discards when
+      # the job ends. Restoring the previous successful run's record for this
+      # exact matrix cell is what lets a divergent digest report `max|dV|`
+      # against a cube that was measured while its digest still matched -- the
+      # difference between a failing log with two hex strings in it and one with
+      # a number. Best effort in every direction: a first run, a deleted
+      # artifact, or a missing token leaves the directory empty and the tests
+      # behave exactly as they did before.
+      - name: Restore the previous characterization record (CI-001)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECORD_ARTIFACT: characterization-${{ matrix.platform }}-py${{ matrix.python }}
+        run: |
+          mkdir -p output/characterization
+          previous="$(gh run list --workflow "${{ github.workflow }}" \
+            --branch main --status success --limit 1 \
+            --json databaseId --jq '.[0].databaseId' || true)"
+          if [ -n "$previous" ]; then
+            gh run download "$previous" --name "$RECORD_ARTIFACT" \
+              --dir output/characterization \
+              || echo "no $RECORD_ARTIFACT artifact on run $previous"
+          else
+            echo "no previous successful run to restore from"
+          fi
+          find output/characterization -type f | head -50
+
       - name: Run non-slow tests
         run: >-
           pixi run --environment ${{ matrix.environment }}
           test -- -m "not slow"
+
+      # CI-001. Emitted unconditionally since Tier 8A, on pass as well as fail:
+      # before this, nothing had ever been recorded about a runner that produced
+      # an *accepted* digest, which is the single largest reason the
+      # linux-64-py311 divergence is undiagnosable.
+      - name: Surface the machine fingerprint (CI-001)
+        if: always()
+        run: |
+          for record in output/characterization/machine-fingerprint-*.txt; do
+            [ -f "$record" ] || continue
+            echo "=== $record ==="
+            cat "$record"
+          done
+
+      - name: Upload the characterization record (CI-001)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: characterization-${{ matrix.platform }}-py${{ matrix.python }}
+          path: output/characterization/
+          if-no-files-found: warn
+          retention-days: 30
 
   backend-parity:
     name: NumPy/JAX-CPU backend parity
@@ -123,5 +178,27 @@ jobs:
       - name: Enforce strict Pyright error ceiling
         run: pixi run typecheck
 
+      - name: Run the package doctests
+        run: pixi run doctest
+
+      - name: Run the example script
+        run: |
+          pixi run -- python examples/scripts/simple_simulation.py --help
+          pixi run -- python examples/scripts/simple_simulation.py
+
+      - name: Execute the example notebook
+        run: >-
+          pixi run -- jupyter nbconvert --to notebook --execute --stdout
+          examples/notebooks/01_basic_usage.ipynb
+
+      # Since Tier 8C, docs/Makefile defaults SPHINXOPTS to warnings-as-errors
+      # plus keep-going, so this unchanged command *is* the strict docs gate.
+      # The workflow deliberately passes no Sphinx option of its own: the
+      # Makefile default is the single place that flag lives, and
+      # tests/characterization/test_tier8_current_behavior.py asserts this file
+      # carries none.
       - name: Build Sphinx documentation
         run: make -C docs html
+
+      - name: Confirm the working tree is unchanged by the quality steps
+        run: git diff --exit-code && test -z "$(git status --porcelain)"

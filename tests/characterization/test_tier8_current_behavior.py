@@ -174,6 +174,48 @@ docstring: a blank line before a bullet list, a table's column rules widened to
 fit its own header, ``*`` escaped, ``|...|`` made literal, and two footnotes
 cited so they stop being unreferenced.  No signature, default, branch or
 constant moved, and the ``pixi run doctest`` item count is unchanged.
+
+Tier 8D addendum -- what the scans now list, and what CI now executes
+====================================================================
+
+**Every repository scan is git-scoped.** ``tests/support/repo_scan.py`` is the
+one lister; the twenty call sites of ``Tier8ReleasePlan.md`` Section 12's table
+call it, as does this tier's acceptance module's prose lister.  The proof that
+this changed the right thing lives in
+``tests/unit/test_utils/test_repo_scan.py``: the gitignored
+``src/radiosim/.ipynb_checkpoints`` copy that ``Fix.md`` Section 17 item 15
+demonstrated could fail two Tier 7 acceptance scans is materialised, both scans
+are run against it and pass, and then *the same file* is forced into their
+lister and both fail -- so the listing, not a weakened assertion, is why they
+pass.  The two ``tmp_path`` rglobs Section 12 excludes are untouched.
+
+**``SKY-002`` is closed.** ``LoaderDefinition.network_service: str | None``
+became ``network_services: tuple[str, ...]`` with no compatibility shim, and
+``realistic_foreground`` declares both of the services it dispatches to.  The
+shipped ``configs/realistic_foreground_example.yaml`` now reports
+``Network: offline (forced) (required: pygdsm data, VizieR)``, measured by
+running it offline rather than by reading the branch.
+
+**CI executes what the documentation claims.** The ``quality`` job gained the
+doctest, example-script and notebook steps, and a working-tree-cleanliness
+check after them; the strict docs gate is inherited from ``docs/Makefile``'s
+default rather than restated in the workflow, which is why this module still
+asserts the workflow passes no Sphinx option of its own.  The
+``compatibility`` job gained the ``CI-001`` evidence path: the machine
+fingerprint is printed into the job log, ``output/characterization/`` is
+uploaded as a per-cell artifact, and the previous successful run's artifact for
+the same cell is restored before the tests, so a divergent digest can report a
+numeric delta against a cube measured while its digest still matched.
+
+**``CI-001`` at this slice: no recurrence yet, so no measured decision.**  The
+instrumentation landed at 8A (``47822a2``).  Every CI run since -- 8A's
+``30735775142``, 8B's ``30737560005`` and 8C's ``30741637024`` -- was green on
+all eight jobs, including ``linux-64 / Python 3.11``, so the divergence has not
+recurred *with* the new evidence attached and Section 14's conditional has
+nothing to read.  No digest table grew or shrank by a character at 8D, and
+``CI-001`` stays ``OPEN`` exactly as the plan requires when the measurement has
+not been taken.  On a ~38% per-run recurrence rate, three green runs is
+unremarkable and is not evidence the divergence is gone.
 """
 
 from __future__ import annotations
@@ -462,11 +504,12 @@ def test_doctests_are_a_real_scoped_invocation_and_not_a_dead_flag() -> None:
     ``doctest`` pixi task runs the real thing against the package.  The measured
     debt and how much of it 8B paid are in this module's docstring.
 
-    The CI wiring is deliberately *not* asserted here: adding the step to the
-    ``quality`` job is 8D's item 3.
+    FLIPPED AT 8D for its last clause: the ``quality`` job now runs
+    ``pixi run doctest``, so the assertion that ``ci.yml`` mentions no doctest
+    at all inverts into the assertion that it runs one.  A task nothing
+    executes is the state this whole tier exists to end.
 
-    FLIPPED BY: Tier 8D (the ``ci.yml`` clause below inverts when the step
-    lands).
+    Preserved from here on, not flipped.
     """
     pyproject = tomllib.loads(_read("pyproject.toml"))
     pytest_config = pyproject["tool"]["pytest"]["ini_options"]
@@ -485,7 +528,78 @@ def test_doctests_are_a_real_scoped_invocation_and_not_a_dead_flag() -> None:
     ).stdout.splitlines()
     assert listed, "the doctest surface is empty; the task now guards nothing"
 
-    assert "doctest" not in _read(".github/workflows/ci.yml")
+    assert "run: pixi run doctest" in _read(".github/workflows/ci.yml")
+
+
+# ---------------------------------------------------------------------------
+# CI shape (DOC-008), and the CI-001 evidence path
+# ---------------------------------------------------------------------------
+
+
+def test_ci_executes_every_documented_example_surface() -> None:
+    """FLIPPED AT 8D.  Was the ``ci.yml`` clauses of the 8A/8B pins above.
+
+    ``Tier8ReleasePlan.md`` Section 5.5 lists the gaps this closes: no CI step
+    executed ``examples/scripts/simple_simulation.py`` (``Fix.md`` Section 17
+    item 2), no notebook validation existed anywhere, and no doctest ran.  All
+    three are now steps in the ``quality`` job, which is what turns 8B's
+    "these documents execute" from a claim into a gate.  Q5 was decided at 8B:
+    the notebook is executed, because ``jupyter``/``nbconvert``/``ipykernel``
+    are already in the default environment and the notebook is fully offline.
+
+    Preserved from here on, not flipped.
+    """
+    workflow = _read(".github/workflows/ci.yml")
+    for command in (
+        "pixi run doctest",
+        "python examples/scripts/simple_simulation.py --help",
+        "python examples/scripts/simple_simulation.py\n",
+        "jupyter nbconvert --to notebook --execute --stdout",
+        "examples/notebooks/01_basic_usage.ipynb",
+        "make -C docs html",
+    ):
+        assert command in workflow, command
+
+    assert (REPO_ROOT / "examples" / "scripts" / "simple_simulation.py").is_file()
+    assert (REPO_ROOT / "examples" / "notebooks" / "01_basic_usage.ipynb").is_file()
+
+
+def test_ci_surfaces_the_ci_001_evidence_that_the_runner_would_discard() -> None:
+    """Pins the CI-side half of ``Tier8ReleasePlan.md`` Section 14 item 2.
+
+    8A made ``_machine_fingerprint()`` emit on the pass path and made a failing
+    pin report a numeric delta against a captured reference cube.  Both land
+    under gitignored ``output/characterization/``, which a GitHub Actions
+    runner throws away when the job ends -- so on CI the evidence existed and
+    was then destroyed.  The ``compatibility`` job now prints the fingerprint
+    into the job log, uploads the directory as a per-cell artifact, and
+    restores the previous successful run's artifact *before* the tests, so a
+    divergent cell has an accepted-digest cube to subtract from.
+
+    Preserved, not flipped.  ``CI-001`` narrows or closes on the evidence this
+    wiring produces; the wiring stays.
+    """
+    workflow = _read(".github/workflows/ci.yml")
+    assert "machine-fingerprint-" in workflow, "the fingerprint is never printed"
+    assert "actions/upload-artifact@v4" in workflow
+    assert "output/characterization/" in workflow
+    assert "gh run download" in workflow, "no reference cube is ever restored"
+    assert "actions: read" in workflow, "gh run download needs the actions scope"
+
+    # The artifact name must key on the same two facts the environment key
+    # does, or one cell would restore another cell's cubes.
+    assert "characterization-${{ matrix.platform }}-py${{ matrix.python }}" in workflow
+
+    from tests.characterization.test_tier6_current_behavior import (
+        _ENVIRONMENT_KEY,
+        _RECORD_DIR_ENV,
+    )
+
+    assert _RECORD_DIR_ENV not in workflow, (
+        "the record directory is left at its default, so the uploaded path and "
+        "the written path cannot drift apart"
+    )
+    assert _ENVIRONMENT_KEY.count("-py") == 1, "the artifact name mirrors this shape"
 
 
 # ---------------------------------------------------------------------------

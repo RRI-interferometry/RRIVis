@@ -1858,7 +1858,12 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
     narrowed this test's integration-directory assertion at the time; the
     assertion is kept so a stray new file in either directory is still visible
     in a diff.  Tier 7D added ``test_jones_end_to_end.py``, the one integration
-    file ``Tier7JonesSciencePlan.md`` Section 30 names.
+    file ``Tier7JonesSciencePlan.md`` Section 30 names.  Tier 8D added
+    ``test_cli_end_to_end.py``, the CLI-to-artifact test
+    ``Tier8ReleasePlan.md`` Section 17's 8D item 3 names -- the one thing this
+    directory did not do, since both older files drive the Python API rather
+    than the command line.  Each addition widens this list by exactly the file
+    its own plan names, which is what makes an unplanned one visible.
     """
     performance = sorted(
         p.name for p in (REPO_ROOT / "tests" / "performance").glob("*.py")
@@ -1869,6 +1874,7 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
     assert performance == ["__init__.py", "test_backend_benchmarks.py"]
     assert integration == [
         "__init__.py",
+        "test_cli_end_to_end.py",
         "test_hybrid_end_to_end.py",
         "test_jones_end_to_end.py",
     ]
