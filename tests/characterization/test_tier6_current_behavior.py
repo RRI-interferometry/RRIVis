@@ -274,6 +274,44 @@ and which one it is must be decided before it is written down.  Within one
 environment the pins remain independent of *where* the tree is checked out: since
 the RUN-005 fix (``fix(result): exclude filesystem transport facts from
 scientific_sha256``) those digests no longer depend on the checkout path.
+
+Tier 8A instrumentation (``CI-001``)
+====================================
+
+Axis 3's stated discriminator -- the dispatched vector feature set -- was
+**falsified** by the observations recorded in ``Fix.md``'s ``CI-001`` row: a
+second byte-stable digest class on ``linux-64-py311`` reproduces identically
+across three CI runs, two CPU vendors and three CPU models whose
+``numpy.__cpu_features__`` lists differ from one another.  The prose above is
+left standing as the record of what was believed when the pins were written;
+``CI-001`` is the correction, and it is the register row that owns the unnamed
+discriminator.
+
+Slice 8A changed exactly two things here, both on the *evidence* path and
+neither on any assertion:
+
+1. ``_record_machine_fingerprint`` writes the machine fingerprint to
+   ``output/characterization/`` **unconditionally**, on pass as well as on
+   failure.  Until now ``_machine_fingerprint()`` was reachable only from
+   ``_assert_pinned_digests``'s ``pytest.fail`` branch, so the fleet described a
+   runner only when that runner *disagreed*; nothing was ever recorded about a
+   runner that produced an accepted digest, which is the single largest reason
+   this divergence is undiagnosable.  The fingerprint itself was widened from
+   (CPU model, dispatched features) to add the thread environment and the BLAS
+   build, since the feature set alone is now known to be insufficient.
+2. ``_assert_pinned_digests`` accepts an optional fourth element per check --
+   the array the digest was taken over.  A pass captures it as a reference cube
+   for this ``(pin, environment)``; a failure reports ``max|dV|``, the maximum
+   relative delta, the differing-element count and the first differing index
+   against every captured reference, and names the nearest recorded observation.
+   The gate could not previously tell one ULP from one hundred percent, and no
+   failing log in the last twenty-five CI runs contained a single number.
+
+Both write only into ``output/`` (gitignored) and both swallow every error: a
+diagnostic that can fail a test is worse than no diagnostic.  No digest table
+grew, and 8A deliberately did **not** append the divergent ``linux-64-py311``
+class -- see ``Fix.md`` ``CI-001`` and ``Tier8ReleasePlan.md`` Section 14 for
+why appending under a falsified rationale is forbidden.
 """
 
 from __future__ import annotations
@@ -281,6 +319,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import inspect
+import os
 import platform
 import re
 import sys
@@ -410,15 +449,62 @@ _MEASURED_ENVIRONMENTS = {
 }
 
 
+def _thread_environment() -> str:
+    """Report the thread-count environment a vectorized reduction can depend on."""
+    names = (
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
+        "GOTO_NUM_THREADS",
+    )
+    settings = [f"{name}={os.environ[name]}" for name in names if name in os.environ]
+    if not settings:
+        settings = ["<none set>"]
+    return f"{' '.join(settings)} (os.cpu_count()={os.cpu_count()})"
+
+
+def _blas_build() -> str:
+    """Report the BLAS/LAPACK build NumPy is actually linked against.
+
+    ``numpy.__config__.show(mode="dicts")`` is the only machine-readable form of
+    this fact; it is a NumPy-internal shape rather than a stability guarantee, so
+    every access is defensive and any failure degrades to a marker string rather
+    than masking the pin failure this text accompanies.
+    """
+    try:
+        config = np.__config__.show(mode="dicts")  # type: ignore[call-arg]
+        libraries = config.get("Build Dependencies", {})
+        parts = []
+        for key in ("blas", "lapack"):
+            entry = libraries.get(key)
+            if isinstance(entry, dict):
+                parts.append(
+                    f"{key}={entry.get('name', '?')} {entry.get('version', '?')}"
+                    f" [openblas configuration: "
+                    f"{entry.get('openblas configuration', '?')}]"
+                )
+        if parts:
+            return " ".join(parts)
+    except Exception:  # pragma: no cover - a NumPy internal, not public API
+        pass
+    return "unavailable"
+
+
 def _machine_fingerprint() -> str:
     """Describe the machine facts a raw-cube digest is actually a function of.
 
-    Attached to every pin failure.  The whole reason the third correction to
-    Section 27 R1 exists is that a divergence was observed without any evidence
-    of *what* differed between the two runners, so the next divergence must
-    arrive with that evidence already attached.  NumPy's dispatched CPU feature
-    set is the primary suspect and the primary datum; the CPU model string is
-    recorded too, having already been proven insufficient on its own.
+    Attached to every pin failure, and -- since Tier 8A -- also written to disk
+    unconditionally by ``_record_machine_fingerprint`` on pass as well as fail.
+    The whole reason the third correction to Section 27 R1 exists is that a
+    divergence was observed without any evidence of *what* differed between the
+    two runners, so the next divergence must arrive with that evidence already
+    attached.  NumPy's dispatched CPU feature set is the primary suspect and the
+    primary datum; the CPU model string is recorded too, having already been
+    proven insufficient on its own, and Tier 8A added the thread environment and
+    the BLAS build after the CI-001 observation falsified the feature-set
+    explanation as well (``Fix.md`` register row ``CI-001``).
     """
     try:
         from numpy._core._multiarray_umath import (  # type: ignore[import-not-found]
@@ -434,7 +520,201 @@ def _machine_fingerprint() -> str:
         model = get_device_resources().cpu.model or platform.processor()
     except Exception:  # pragma: no cover - diagnostics must never mask a failure
         model = platform.processor()
-    return f"cpu model: {model!r}\nnumpy dispatched features: {features}"
+    return (
+        f"environment key: {_ENVIRONMENT_KEY}\n"
+        f"cpu model: {model!r}\n"
+        f"numpy dispatched features: {features}\n"
+        f"thread environment: {_thread_environment()}\n"
+        f"blas build: {_blas_build()}\n"
+        f"python {platform.python_version()}, numpy {np.__version__}, "
+        f"platform {platform.platform()}"
+    )
+
+
+#: Where the unconditional machine-fingerprint record and the reference cubes
+#: land.  ``output/`` is gitignored (``.gitignore:176``) apart from two named
+#: exceptions, so nothing written here can dirty a working tree or enter a
+#: commit.  Setting the environment variable to a path relocates the directory
+#: (which is how a CI job stages the record as a build artifact); setting it to
+#: the empty string disables every write.
+_RECORD_DIR_ENV = "RADIOSIM_CHARACTERIZATION_RECORD_DIR"
+
+#: Reference cubes larger than this are not captured.  The published
+#: ``configs/config.yaml`` cube is 5.8 MB; the cap exists so that a future,
+#: larger pinned workload cannot silently fill a contributor's disk.
+_MAX_REFERENCE_CUBE_BYTES = 64 * 1024 * 1024
+
+
+def _record_dir() -> Path | None:
+    """Return the diagnostics directory, or ``None`` when recording is disabled."""
+    raw = os.environ.get(_RECORD_DIR_ENV)
+    if raw is not None and not raw.strip():
+        return None
+    base = Path(raw) if raw else REPO_ROOT / "output" / "characterization"
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        return None
+    return base
+
+
+def _record_slug(what: str) -> str:
+    """Turn a pin's human description into a filesystem-safe directory name."""
+    return re.sub(r"[^A-Za-z0-9]+", "-", what).strip("-").lower()
+
+
+def _record_machine_fingerprint() -> None:
+    """Write this session's machine fingerprint, on pass as well as on failure.
+
+    Tier 8A, ``CI-001``.  Before this, ``_machine_fingerprint()`` was reachable
+    only from ``_assert_pinned_digests``'s ``pytest.fail`` branch, so the fleet
+    left a record of a runner *only when that runner disagreed*.  That is exactly
+    backwards for adjudicating a second digest class: the question "what was
+    different about the machines that produced the recorded value?" had no
+    recorded answer at all, because no passing ``linux-64-py311`` runner had ever
+    described itself.  The file is per (environment, xdist worker) so parallel
+    workers cannot clobber each other, and every failure mode is swallowed --
+    a diagnostic that can fail a test is worse than no diagnostic.
+
+    This changes no assertion, no digest, and no test outcome; it only makes the
+    pass path leave evidence behind.
+    """
+    base = _record_dir()
+    if base is None:
+        return
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+    path = base / f"machine-fingerprint-{_ENVIRONMENT_KEY}-{worker}.txt"
+    try:
+        path.write_text(
+            f"# RadioSim characterization machine fingerprint (CI-001)\n"
+            f"# written unconditionally, on pass as well as on failure\n"
+            f"recorded (UTC): {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
+            f"xdist worker: {worker}\n"
+            f"characterized as: "
+            f"{_MEASURED_ENVIRONMENTS.get(_ENVIRONMENT_KEY, 'never characterized')}\n"
+            f"{_machine_fingerprint()}\n",
+            encoding="utf-8",
+        )
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        return
+
+
+_record_machine_fingerprint()
+
+
+def _reference_cube_dir(what: str) -> Path | None:
+    """Return the directory holding reference cubes for one pin, if enabled."""
+    base = _record_dir()
+    if base is None:
+        return None
+    return base / "reference_cubes" / _record_slug(what) / _ENVIRONMENT_KEY
+
+
+def _capture_reference_cube(what: str, digest: str, cube: Any) -> None:
+    """Store a cube whose digest is a *recorded* observation, for later deltas.
+
+    Tier 8A, ``CI-001``.  A digest gate cannot tell 1 ULP from 100%: the failing
+    logs of the last 25 CI runs contain hex strings and not one number.  A
+    numeric delta needs something to subtract, and the only honest reference is a
+    cube that was measured while its digest still matched the pin -- so the
+    capture happens on the *pass* path, keyed by the digest it matched.  Writes
+    are one-shot (an existing file is never rewritten), size-capped, and entirely
+    best-effort.
+    """
+    if cube is None:
+        return
+    directory = _reference_cube_dir(what)
+    if directory is None:
+        return
+    path = directory / f"{digest}.npy"
+    if path.exists():
+        return
+    try:
+        array = np.ascontiguousarray(np.asarray(cube))
+        if array.nbytes > _MAX_REFERENCE_CUBE_BYTES:
+            return
+        directory.mkdir(parents=True, exist_ok=True)
+        np.save(path, array)
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        return
+
+
+def _cube_delta(measured: Any, reference: Any) -> str:
+    """Report ``max|dV|``, ``max relative d``, and the first differing element."""
+    left = np.ascontiguousarray(np.asarray(measured))
+    right = np.ascontiguousarray(np.asarray(reference))
+    if left.shape != right.shape:
+        return f"shape differs: measured {left.shape} vs recorded {right.shape}"
+    difference = np.abs(left - right)
+    max_absolute = float(np.max(difference)) if difference.size else 0.0
+    scale = np.maximum(np.abs(right), np.abs(left))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        relative = np.where(scale > 0.0, difference / scale, 0.0)
+    max_relative = float(np.max(relative)) if relative.size else 0.0
+    differing = np.flatnonzero(left.ravel() != right.ravel())
+    count = int(differing.size)
+    if count == 0:
+        return "identical to the byte (0 differing elements)"
+    first = tuple(int(axis) for axis in np.unravel_index(int(differing[0]), left.shape))
+    return (
+        f"max|dV| = {max_absolute!r}, max relative d = {max_relative!r}, "
+        f"{count} of {left.size} elements differ, first at index {first} "
+        f"(measured {left[first].item()!r} vs recorded {right[first].item()!r})"
+    )
+
+
+def _cube_delta_report(
+    table: dict[str, tuple[str, ...]], what: str, cube: Any
+) -> list[str]:
+    """Compare a measured cube against every recorded observation held on disk.
+
+    Tier 8A, ``CI-001``, design item 3.  The delta is reported against *each*
+    recorded observation that has a captured reference, and the nearest -- the
+    one with the smallest ``max|dV|`` -- is named, because the adjudication
+    question is "how far is this class from the class we already accepted?".
+    When nothing has been captured the report says so and states the recipe that
+    would produce one, so a reader is never left with an unexplained silence.
+    """
+    if cube is None:
+        return []
+    directory = _reference_cube_dir(what)
+    recorded = table.get(_ENVIRONMENT_KEY, ())
+    if directory is None:
+        return ["  numeric delta: recording is disabled via " + _RECORD_DIR_ENV]
+    available = [
+        (digest, directory / f"{digest}.npy")
+        for digest in recorded
+        if (directory / f"{digest}.npy").exists()
+    ]
+    if not available:
+        return [
+            "  numeric delta: unavailable -- no reference cube has been captured "
+            f"for {_ENVIRONMENT_KEY} in {directory}.  A reference is written "
+            "automatically the next time this pin *passes* on this machine; to "
+            "compare a divergent runner against an accepted one, stage that "
+            f"directory (see {_RECORD_DIR_ENV}) from a passing run.",
+        ]
+    lines = ["  numeric delta against each captured reference cube:"]
+    distances: list[tuple[float, str]] = []
+    for digest, path in available:
+        try:
+            reference = np.load(path)
+        except Exception:  # pragma: no cover - diagnostics must never fail a run
+            lines.append(f"    {digest[:16]}...: reference unreadable at {path}")
+            continue
+        lines.append(f"    {digest[:16]}...: {_cube_delta(cube, reference)}")
+        try:
+            left = np.ascontiguousarray(np.asarray(cube))
+            if left.shape == reference.shape:
+                distances.append((float(np.max(np.abs(left - reference))), digest))
+        except Exception:  # pragma: no cover - diagnostics must never fail a run
+            continue
+    if distances:
+        distance, digest = min(distances)
+        lines.append(
+            f"  nearest recorded observation: {digest} at max|dV| = {distance!r}"
+        )
+    return lines
 
 
 def _pin_problem(table: dict[str, tuple[str, ...]], what: str, measured: str) -> str:
@@ -469,7 +749,10 @@ def _pin_problem(table: dict[str, tuple[str, ...]], what: str, measured: str) ->
 
 
 def _assert_pinned_digests(
-    *checks: tuple[dict[str, tuple[str, ...]], str, str],
+    *checks: (
+        tuple[dict[str, tuple[str, ...]], str, str]
+        | tuple[dict[str, tuple[str, ...]], str, str, Any]
+    ),
 ) -> None:
     """Check every ``(table, what, measured)`` triple and report all failures at once.
 
@@ -477,8 +760,24 @@ def _assert_pinned_digests(
     ``assert`` statements, the first one to fail hid every later measurement in
     the same test, and each hidden value cost a whole CI round to harvest.  One
     run must now surface everything a reviewer needs.
+
+    Tier 8A (``CI-001``) added an **optional fourth element**: the array the
+    digest was computed over.  When it is supplied, a pass captures that cube as
+    a reference for this ``(pin, environment)`` and a failure reports a numeric
+    delta against every captured reference instead of two bare hex strings.  The
+    element is optional so that ``test_tier7_current_behavior.py``'s call sites,
+    which are outside this slice, keep working unchanged; a three-element check
+    behaves exactly as it did before.
     """
-    problems = [problem for check in checks if (problem := _pin_problem(*check))]
+    problems: list[str] = []
+    for check in checks:
+        table, what, measured = check[0], check[1], check[2]
+        cube = check[3] if len(check) == 4 else None
+        problem = _pin_problem(table, what, measured)
+        if not problem:
+            _capture_reference_cube(what, measured, cube)
+            continue
+        problems.append("\n".join([problem, *_cube_delta_report(table, what, cube)]))
     if problems:
         pytest.fail(
             "\n".join(problems)
@@ -1927,6 +2226,7 @@ def test_shipped_default_config_scientific_fingerprint(tmp_path) -> None:
             _SHIPPED_CONFIG_CUBE_DIGESTS["config.yaml"],
             "configs/config.yaml raw cube sha256",
             _raw_cube_digest(result.visibilities),
+            result.visibilities,
         ),
     )
 
@@ -1948,6 +2248,7 @@ def test_shipped_circular_receptor_config_scientific_fingerprint(tmp_path) -> No
             _SHIPPED_CONFIG_CUBE_DIGESTS["receptor_circular_example.yaml"],
             "configs/receptor_circular_example.yaml raw cube sha256",
             _raw_cube_digest(result.visibilities),
+            result.visibilities,
         ),
     )
 
@@ -2198,6 +2499,7 @@ def test_section_13_4_workload_fingerprints(tmp_path, workload: str) -> None:
             _WORKLOAD_DIGESTS[workload],
             f"Section 13.4 workload {workload!r}",
             _cube_digest(array),
+            array,
         ),
     )
 
