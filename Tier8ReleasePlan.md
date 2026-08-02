@@ -8,13 +8,18 @@ independent review, with eleven bounded citation/count corrections applied
 (`docs(release): correct Tier 8 design`, `13b59f3`) and no decision changed;
 see `Fix.md`'s 2026-08-02 "Tier 8 design acceptance" note for the full
 record, including the CI-001 adjudication and the ruling that the red run at
-`95a937e`/HEAD does not block this design-gate acceptance. No slice is
-implemented; **8A is authorized to begin.** Tier 7 is accepted as a whole
-(Tier 7K, 2026-08-02); `SCI-001`, `SCI-002`, `SCI-003` are `DONE`; `SCI-004`,
+`95a937e`/HEAD does not block this design-gate acceptance. Three further
+corrections were applied at 8A (`docs(release): correct Tier 8 design`,
+`41fabbb`): Section 14 items 2 and 3 (the instrumentation) moved from 8D to
+8A, 8D item 4 narrowed to the CI re-run and measured decision, and Section
+5.4's AGENTS.md defect count corrected to six. **8A is ACCEPTED** (2026-08-02
+independent acceptance; see `Fix.md`'s "Tier 8A independent acceptance" note)
+and **8B is authorized to begin.** Tier 7 is accepted as a whole (Tier 7K,
+2026-08-02); `SCI-001`, `SCI-002`, `SCI-003` are `DONE`; `SCI-004`,
 `SCI-005` are filed `ROADMAP`; `SCI-006`, `SCI-007` stay `OPEN`; `PERF-001`
 stays `ROADMAP`; `SKY-002` is `OPEN` and is **absorbed by this tier**
-(Section 13). Tier 8 is the final tier of the remediation program defined by
-`Fix.md`.**
+(Section 13); `CI-001` is `OPEN`, filed at 8A. Tier 8 is the final tier of
+the remediation program defined by `Fix.md`.**
 
 This document is the governing implementation specification for Tier 8,
 defined by [`Fix.md`](Fix.md) Section 17 ("Tier 8 — Documentation and release
@@ -978,7 +983,7 @@ effect is measurable, and file the CI row.
    sentence; the "Three shipped YAML samples" count against four files; the
    Sphinx 16-warning baseline (as a recorded number, not a build); the
    `--doctest-modules`-collects-zero fact; the absent `docs/api` pages for the
-   six uncovered subpackages; `AGENTS.md`'s five defects; `CLAUDE.md`'s three;
+   six uncovered subpackages; `AGENTS.md`'s six defects; `CLAUDE.md`'s three;
    `get_required_services({realistic_foreground}) == {}`.
 2. Record the clean-worktree Sphinx baseline (16) and the in-tree
    `docs/superpowers/` inflation (18) as an explicit note in the module

@@ -14430,3 +14430,137 @@ from `gh` run logs, byte-level tree diffs, and source, not taken on the
 plan's word), the SKY-002 and version-bump designs are minimal and verified
 safe, and the eleven corrections are citation-level, touching no decision,
 no slice scope, and no closure criterion. **Slice 8A is authorized.**
+
+### 2026-08-02 Tier 8A independent acceptance
+
+Independent adversarial review of `41fabbb` (`docs(release): correct Tier 8
+design`) and `47822a2` (`test(release): pin Tier 8 documentation baseline and
+file CI-001`) against `main` at `47822a2`. **Verdict: ACCEPTED, with one
+bounded plan correction applied before acceptance** (a leftover "`AGENTS.md`'s
+five defects" phrase in Section 17's 8A work item 1, missed by `41fabbb`'s
+own five→six correction to Section 5.4; fixed in place, no decision changed)
+**and the plan's status header updated. Slice 8B is authorized.**
+
+**`41fabbb` re-verified.** The three corrections it claims are exactly what it
+does: Section 17 moves Section 14 items 2 and 3 (unconditional fingerprint
+emission, numeric pin-failure delta) from 8D to 8A and adds
+`test_tier6_current_behavior.py` to 8A's writable list; 8D item 4 narrows to
+the CI re-run and measured decision; Section 5.4's header is corrected from
+"five" to "six" live `AGENTS.md` defects, matching the six bullets the section
+has always enumerated (independently re-confirmed against the live file
+below). The diff is `Tier8ReleasePlan.md` only, `+26/-8`, no register-row
+text.
+
+**`Fix.md`'s `CI-001` row: confirmed a pure append.** `git show 47822a2 --
+Fix.md` is one inserted line under `DOC-008`; zero existing rows edited. Its
+evidence — the five failing pins across three measurements, the byte-stable
+digest across three CI runs/two vendors/three CPU models, the falsified
+dispatched-feature-set discriminator, the four prior reflex-append commits,
+the refusal of a fifth — matches the design acceptance's independently
+`gh`-verified findings verbatim, and the "root cause is explicitly not Tier
+8's" disclaimer is honest: naming the discriminator needs runner access or
+instrumented dumps neither this slice nor its instrumentation produces.
+
+**Instrumentation reproduced, not just read.** `_record_machine_fingerprint()`
+is an unconditional top-level call (`test_tier6_current_behavior.py:602`);
+running the two hermetic scientific-fingerprint pins on a plain,
+non-`RECORD_DIR`-scoped invocation produced
+`output/characterization/machine-fingerprint-osx-arm64-py311-main.txt` (CPU
+model, dispatched features, thread environment, BLAS build all present) and
+two `reference_cubes/.../<digest>.npy` files whose filename hash matched an
+independently recomputed `sha256` of the loaded array's C-order bytes —
+`git status` stayed clean throughout (`output/*` is gitignored with no
+carve-out for `characterization/`). Perturbing a captured reference cube by
+one ULP and re-invoking `_assert_pinned_digests` with a non-matching digest
+produced: `max|dV| = 3.552713678800501e-15, max relative d =
+1.5105155906261537e-16, 1 of 363600 elements differ, first at index (0, 0, 0,
+0)`, plus the nearest-recorded-observation line — exactly the claimed report
+shape. `RADIOSIM_CHARACTERIZATION_RECORD_DIR=""` disabled every write with no
+exception; pointing it at a path under an unwritable parent directory also
+produced no exception (`_record_dir`'s `mkdir` failure is swallowed); a 70 MiB
+synthetic cube was silently not captured (cap is 64 MiB, checked before any
+directory is created). Diffing `397c0e1..47822a2` on the Tier 6 module and
+grepping every changed line for a 64-hex-character token: zero matches — no
+digest table entry was touched. Both new pins
+(`test_the_machine_fingerprint_is_now_recorded_on_the_pass_path`,
+`test_pin_failures_report_a_numeric_delta_when_a_reference_cube_exists`)
+reproduced red (`ImportError`, missing `_record_dir`/`_cube_delta`) in a
+detached worktree at `397c0e1` with the new test file copied in, and green at
+HEAD.
+
+**Side-effect ruling: the pass-path reference-cube write is acceptable
+instrumentation, not a test side effect that should block acceptance.** It
+writes only under gitignored `output/characterization/` (confirmed: `git
+status` clean after multiple runs), is size-capped at 64 MiB with the cap
+checked before any I/O, is one-shot (`if path.exists(): return`), swallows
+every exception so a full disk or read-only mount degrades to "no reference"
+rather than a failing test, and is disableable via
+`RADIOSIM_CHARACTERIZATION_RECORD_DIR=""`. It is also not incidental: it is
+the entire mechanism `CI-001`'s adjudication depends on — a numeric delta
+needs something to subtract, and the only honest reference is a cube
+captured while its digest still matched an accepted pin. Withholding it would
+leave the next divergence exactly as undiagnosable as this one. **Ruled
+acceptable.** The import-time per-worker fingerprint files (up to one per
+xdist worker per environment) are ruled **necessary, not noise**: they are
+the direct fix for the structural evidence gap named in `CI-001` ("nothing
+has ever been recorded about a passing `linux-64-py311` runner"), are
+similarly gitignored, capped in count by the worker count, and overwritten
+(not accumulated) on each run.
+
+**Residual baseline: 6 of 16 pins spot-verified directly against the live
+tree**, independent of the test file's own assertions —
+`examples/scripts/simple_simulation.py`'s `add_argument` calls confirmed to
+define exactly `--config`/`--backend`/`--progress`, against
+`examples/README.md`'s `--no-plot`/`--save`/`--plot`/`--output-dir`; `ls
+configs/*.yaml` confirmed four files against `README.md:408`'s "Three shipped
+YAML samples"; `pytest --collect-only` confirmed identical counts
+(5348) with and without `--doctest-modules`; `docs/api/*.rst` grepped for
+`automodule` confirmed no entry for any of the six named subpackages or nine
+named `core/` modules; `AGENTS.md` read in full confirmed all six live
+defects verbatim (Numba, the test-directory list, the Hugging Face sentence,
+the doctest/marker sentence, RRIVis naming, the discharged TODO) and the
+absence of `huggingface_space/`; `src/radiosim/core/sky/registry/core.py:202`
+confirmed `network_service: str | None` still singular. All six matched the
+pin exactly.
+
+**Deviations ratified.** The 8D→8A instrumentation move: correct, and its own
+stated reason is the strongest kind — an unconditional fingerprint emission
+only produces evidence on runs *after* it lands, so holding it to 8D would
+have thrown away 8B's and 8C's CI runs on a cell that recurs in ~38% of runs;
+8D's item 4 is confirmed narrowed consistently to just the CI re-run and
+measured decision, with no residual duplicate of the instrumentation work.
+The five→six `AGENTS.md` count fix: confirmed correct against the live file
+(six live bullets, not five) — but Section 17's own 8A work-item enumeration
+still said "five" after `41fabbb`, an inconsistency `41fabbb` should have
+caught in the same pass; corrected here as a bounded plan fix (no decision
+changed, matches the actual six-defect test and Section 5.4).
+
+**Gates, both environments (`default`=py311, `py312`).** `pixi run test -- -m
+"not slow"`: **5338 passed, 1 skipped, 10 deselected** in both, with **27**
+warnings under py311 and **41** under py312 — matching the claimed
+5322+16/1/10 and 27/41 exactly. `pixi run lint`: clean. `pixi run
+check-format`: clean (373 files already formatted). All four
+`configs/*.yaml` validated cleanly via `radiosim validate`. The
+`core.sky` laziness guard (`test_sky_core_dep_guard.py`) passed within the
+full-suite run. A Sphinx `-b html` build in a fresh detached worktree at
+`47822a2` with no `docs/superpowers/` present reported **"build succeeded, 16
+warnings"** verbatim, matching the pinned baseline exactly. `tests/
+characterization/` (193 items: 177 pre-existing + 16 new) passed in full.
+`git status` was clean before, during, and after every reproduction. No
+co-authored-by line in either `41fabbb` or `47822a2`.
+
+**Unobserved.** This review did not obtain runner access to reproduce
+`CI-001`'s `linux-64-py311` divergence itself (root cause is explicitly out of
+this slice's scope, per the plan); it did not run the actual CI workflow
+remotely, relying instead on local reproduction of both gating environments;
+and it did not exercise the xdist-worker-file-naming collision path with real
+parallel workers beyond confirming the `PYTEST_XDIST_WORKER` env-keyed
+filename scheme in source.
+
+Tier 8A is a clean, evidence-grounded characterization slice: zero production
+behavior changed, zero digest moved, the CI-001 filing is independently
+reproducible from the same evidence the design acceptance already verified,
+and the two instrumentation acts are exactly what Section 14 specifies —
+gitignored, capped, disableable, and load-bearing for the next divergence's
+adjudication rather than incidental. **Slice 8A is ACCEPTED. Slice 8B is
+authorized.**
