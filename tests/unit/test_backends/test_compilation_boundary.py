@@ -24,6 +24,7 @@ from radiosim.backends.dask_backend import DaskBackend
 from radiosim.backends.numpy_backend import NumPyBackend
 from radiosim.core.contraction import baseline_contraction, baseline_contraction_for
 from radiosim.core.precision import PrecisionConfig
+from tests.support.repo_scan import PYTHON_SUFFIXES, iter_tracked_files
 
 RTOL = 1e-12
 ATOL_SCALE = 1e-12
@@ -166,7 +167,7 @@ def test_exactly_one_kernel_is_compiled_in_the_package() -> None:
     source_root = Path(__file__).resolve().parents[3] / "src" / "radiosim"
     compile_sites: list[str] = []
     vmap_sites: list[str] = []
-    for path in sorted(source_root.rglob("*.py")):
+    for path in iter_tracked_files(source_root, suffixes=PYTHON_SUFFIXES):
         text = path.read_text(encoding="utf-8")
         relative = str(path.relative_to(source_root.parents[1]))
         if "backend.compile(" in text:

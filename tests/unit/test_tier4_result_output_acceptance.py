@@ -28,6 +28,7 @@ from radiosim.io import hdf5 as hdf5_module
 from radiosim.io import measurement_set as measurement_set_module
 from radiosim.io.config import RadioSimConfig
 from radiosim.io.result_format import ResultFormat
+from tests.support.repo_scan import iter_package_sources
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = REPOSITORY_ROOT / "src" / "radiosim"
@@ -106,7 +107,7 @@ TIER4_ACTIVE_SOURCES = (
 
 
 def _iter_package_sources() -> list[Path]:
-    return sorted(PACKAGE_ROOT.rglob("*.py"))
+    return iter_package_sources()
 
 
 # ---------------------------------------------------------------------------

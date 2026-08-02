@@ -359,6 +359,7 @@ from radiosim.io.config import ExecutionConfig, VisibilityConfig
 from radiosim.simulator.rime import RIMESimulator
 from radiosim.utils import network as network_module
 from tests.fixtures.configs import hybrid_config_mapping, valid_config_mapping
+from tests.support.repo_scan import PYTHON_SUFFIXES, iter_tracked_files
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -1513,7 +1514,9 @@ def test_no_numba_kernel_decorator_exists_in_the_package() -> None:
     pattern = re.compile(r"@(njit|jit|vectorize|guvectorize|cuda\.jit)\b")
     offenders = [
         str(path.relative_to(REPO_ROOT))
-        for path in sorted((REPO_ROOT / "src" / "radiosim").rglob("*.py"))
+        for path in iter_tracked_files(
+            REPO_ROOT / "src" / "radiosim", suffixes=PYTHON_SUFFIXES
+        )
         if pattern.search(path.read_text(encoding="utf-8"))
     ]
     assert offenders == []
@@ -1737,7 +1740,9 @@ def test_exactly_one_solver_call_site_requests_compilation() -> None:
     private_callers: list[str] = []
     compile_pattern = re.compile(r"\bbackend\.compile\s*\(")
     private_pattern = re.compile(r"\.(jit|vmap|jit_compile)\s*\(")
-    for path in sorted((REPO_ROOT / "src" / "radiosim").rglob("*.py")):
+    for path in iter_tracked_files(
+        REPO_ROOT / "src" / "radiosim", suffixes=PYTHON_SUFFIXES
+    ):
         text = path.read_text(encoding="utf-8")
         relative = str(path.relative_to(REPO_ROOT))
         for match in compile_pattern.finditer(text):

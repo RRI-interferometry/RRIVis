@@ -18,6 +18,7 @@ import radiosim.io as io
 import radiosim.io.config as input_config
 import radiosim.io.instrument_config as instrument_config
 from radiosim.api.simulator import Simulator
+from tests.support.repo_scan import PYTHON_SUFFIXES, iter_tracked_files
 
 REMOVED_MODULES = (
     "radiosim.core.antenna",
@@ -143,7 +144,7 @@ def test_owned_source_has_no_legacy_definitions_or_imports() -> None:
     found_definitions: list[str] = []
     found_imports: list[str] = []
 
-    for path in source_root.rglob("*.py"):
+    for path in iter_tracked_files(source_root, suffixes=PYTHON_SUFFIXES):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):

@@ -31,6 +31,7 @@ from radiosim.core.sky.registry import (
     VIZIER_POINT_CATALOGS,
     loader_registry,
 )
+from tests.support.repo_scan import PYTHON_SUFFIXES, iter_tracked_files
 
 # ---------------------------------------------------------------------------
 # D6 - package re-exports
@@ -103,7 +104,7 @@ def test_no_src_imports_registry_submodule():
         r"(?:from|import)\s+[\w.]+\.registry\.(?:facade|catalogs|core)\b"
     )
     violations: list[str] = []
-    for path in sorted(src_root.rglob("*.py")):
+    for path in iter_tracked_files(src_root, suffixes=PYTHON_SUFFIXES):
         rel = path.relative_to(src_root)
         if rel.parts[:3] == ("core", "sky", "registry"):
             continue

@@ -11,6 +11,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tests.support.repo_scan import PYTHON_SUFFIXES, iter_tracked_files
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 DELETED_MODULES = {
     "radiosim.core.jones.beam.fits": (
@@ -306,7 +308,9 @@ assert not any(name.startswith("radiosim.backends") for name in sys.modules)
 def test_jones_source_has_no_legacy_import_or_definition_residue() -> None:
     source_paths = (
         REPOSITORY_ROOT / "src/radiosim/core/__init__.py",
-        *(REPOSITORY_ROOT / "src/radiosim/core/jones").rglob("*.py"),
+        *iter_tracked_files(
+            REPOSITORY_ROOT / "src/radiosim/core/jones", suffixes=PYTHON_SUFFIXES
+        ),
     )
     deleted_imports = (
         "radiosim.core.jones.beam.fits",

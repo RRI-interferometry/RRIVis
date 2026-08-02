@@ -14,10 +14,11 @@ docs gate depends on; 8D and 8E add the rest.
 The prose file set is listed through ``git ls-files --cached --others
 --exclude-standard``, not ``Path.rglob``, for the reason
 ``Tier8ReleasePlan.md`` Section 12 gives: a gitignored stray file must never be
-able to fail a repository scan.  ``_tracked_prose_files`` below is a local,
-prose-only instance of that discipline; 8D creates the shared
-``tests/support/repo_scan.py`` helper and this module's lister becomes a call
-into it.
+able to fail a repository scan.  ``_tracked_prose_files`` below was a local,
+prose-only instance of that discipline until 8D created the shared
+``tests/support/repo_scan.py`` helper; it is now the prose root and suffix
+selection over :func:`tests.support.repo_scan.iter_tracked_files`, which the
+suite's other twenty repository scans share.
 
 The distinction from ``tests/characterization/test_tier8_current_behavior.py``
 is direction.  The characterization module pins drift *as it is* so that a
@@ -37,12 +38,17 @@ from pathlib import Path
 
 import pytest
 
+from tests.support.repo_scan import iter_tracked_files
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE_SCRIPT = REPO_ROOT / "examples" / "scripts" / "simple_simulation.py"
 EXAMPLES_README = REPO_ROOT / "examples" / "README.md"
 
 #: Roots whose tracked ``.rst``/``.md`` files are the documented prose surface.
 PROSE_ROOTS = ("docs", "README.md", "AGENTS.md", "CLAUDE.md", "examples/README.md")
+
+#: The prose suffixes those roots are scanned for.
+PROSE_SUFFIXES = frozenset({".rst", ".md"})
 
 #: Documents that record what the project *used* to be. They name removed
 #: symbols on purpose and are never edited to remove that history: the
@@ -200,27 +206,15 @@ def _tracked_prose_files() -> list[Path]:
     fail a documentation scan. ``docs/superpowers/`` is exactly such a
     directory, and it is why ``git`` rather than the filesystem is the
     authority here.
+
+    Since 8D the listing itself is :func:`tests.support.repo_scan.iter_tracked_files`,
+    the one shared implementation of that discipline
+    (``Tier8ReleasePlan.md`` Section 12); this function is now only the prose
+    root and suffix selection.
     """
-    listing = subprocess.run(
-        [
-            "git",
-            "ls-files",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            *PROSE_ROOTS,
-        ],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
-    return sorted(
-        REPO_ROOT / name
-        for name in listing.split("\0")
-        if name.endswith((".rst", ".md"))
+    return iter_tracked_files(
+        *(REPO_ROOT / root for root in PROSE_ROOTS),
+        suffixes=PROSE_SUFFIXES,
     )
 
 

@@ -39,6 +39,7 @@ import pytest
 
 from radiosim.core.jones.base import JonesTerm
 from radiosim.core.jones.baseline_errors import JonesBaselineTerm
+from tests.support.repo_scan import PYTHON_SUFFIXES, iter_tracked_files
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPOSITORY_ROOT / "src" / "radiosim"
@@ -146,7 +147,7 @@ def _source(relative: str) -> str:
 
 
 def _python_sources() -> list[Path]:
-    return sorted(SOURCE_ROOT.rglob("*.py"))
+    return iter_tracked_files(SOURCE_ROOT, suffixes=PYTHON_SUFFIXES)
 
 
 def _exported_term_classes() -> list[tuple[str, type]]:
@@ -263,7 +264,7 @@ def test_no_stub_marker_survives_anywhere_in_the_package() -> None:
 
 def test_the_beam_subsystem_carries_no_in_code_todo_marker() -> None:
     """Section 19's ``SCI-003`` disposition rests on ``beam/TODO.md`` alone."""
-    for path in sorted((JONES_ROOT / "beam").rglob("*.py")):
+    for path in iter_tracked_files(JONES_ROOT / "beam", suffixes=PYTHON_SUFFIXES):
         assert "TODO" not in path.read_text(encoding="utf-8"), path
 
 
@@ -352,7 +353,7 @@ def test_no_jones_module_returns_an_unconditional_identity() -> None:
     asserts that none of them is a bare ``return <eye-like>``.
     """
     offenders: list[str] = []
-    for path in sorted(JONES_ROOT.rglob("*.py")):
+    for path in iter_tracked_files(JONES_ROOT, suffixes=PYTHON_SUFFIXES):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef):

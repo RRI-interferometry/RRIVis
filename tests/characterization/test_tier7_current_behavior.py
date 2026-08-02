@@ -223,6 +223,7 @@ from tests.characterization.test_tier6_current_behavior import (
     _solver_components,
     _workload_point_sources,
 )
+from tests.support.repo_scan import PYTHON_SUFFIXES, iter_tracked_files
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = REPO_ROOT / "src" / "radiosim"
@@ -594,7 +595,7 @@ def test_a_removed_class_is_absent_from_every_access_path(class_name: str) -> No
     with pytest.raises(AttributeError):
         getattr(jones_package, class_name)
 
-    for path in sorted(SOURCE_ROOT.rglob("*.py")):
+    for path in iter_tracked_files(SOURCE_ROOT, suffixes=PYTHON_SUFFIXES):
         assert class_name not in path.read_text(encoding="utf-8"), path
 
     assert class_name in _source("docs/migration_guide.md")
@@ -623,7 +624,7 @@ def test_todo_markers_outside_the_stub_modules() -> None:
     """
     carriers = {
         path.relative_to(SOURCE_ROOT).as_posix()
-        for path in sorted(SOURCE_ROOT.rglob("*.py"))
+        for path in iter_tracked_files(SOURCE_ROOT, suffixes=PYTHON_SUFFIXES)
         if "TODO" in path.read_text(encoding="utf-8")
     }
     assert carriers == {"cli/main.py", "core/sky/registry/catalogs.py"}
@@ -634,7 +635,7 @@ def test_todo_markers_outside_the_stub_modules() -> None:
         )
     assert not any(
         path.name.endswith(".py") and "TODO" in path.read_text(encoding="utf-8")
-        for path in (JONES_ROOT / "beam").rglob("*.py")
+        for path in iter_tracked_files(JONES_ROOT / "beam", suffixes=PYTHON_SUFFIXES)
     )
 
 
@@ -1564,7 +1565,7 @@ def test_calculation_type_reaches_no_consumer_because_it_no_longer_exists() -> N
     """
     carriers = {
         path.relative_to(SOURCE_ROOT).as_posix()
-        for path in sorted(SOURCE_ROOT.rglob("*.py"))
+        for path in iter_tracked_files(SOURCE_ROOT, suffixes=PYTHON_SUFFIXES)
         if "calculation_type" in path.read_text(encoding="utf-8")
     }
     assert carriers == {"io/config.py"}

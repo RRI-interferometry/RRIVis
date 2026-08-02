@@ -160,6 +160,7 @@ from radiosim.core.result import SimulationResult
 from radiosim.core.visibility import _build_jones_chain
 from radiosim.io.receptor_config import ReceptorsConfig
 from tests.fixtures.configs import valid_config_mapping
+from tests.support.repo_scan import PYTHON_SUFFIXES, iter_tracked_files
 
 FREQUENCIES_HZ = np.array([100_000_000.0], dtype=np.float64)
 LOCATION = EarthLocation.from_geodetic(
@@ -694,7 +695,9 @@ def test_all_four_correlation_constant_sites_now_share_the_table() -> None:
     # the Measurement Set path, and every other module read the shared table.
     label_hits = {
         path.name
-        for path in (SOURCE_ROOT / "radiosim").rglob("*.py")
+        for path in iter_tracked_files(
+            SOURCE_ROOT / "radiosim", suffixes=PYTHON_SUFFIXES
+        )
         if path.name != "polarization_basis.py"
         and any(
             token in path.read_text()
@@ -791,7 +794,9 @@ def test_resolve_instrument_has_exactly_one_caller_inside_the_simulator() -> Non
     """
     callers = sorted(
         path.relative_to(SOURCE_ROOT).as_posix()
-        for path in (SOURCE_ROOT / "radiosim").rglob("*.py")
+        for path in iter_tracked_files(
+            SOURCE_ROOT / "radiosim", suffixes=PYTHON_SUFFIXES
+        )
         if "resolve_instrument(" in path.read_text()
         and path.name != "instrument_resolution.py"
     )
@@ -834,7 +839,9 @@ def test_superseded_polarization_helpers_have_no_production_caller() -> None:
     for helper in helpers:
         callers = sorted(
             path.relative_to(SOURCE_ROOT).as_posix()
-            for path in (SOURCE_ROOT / "radiosim").rglob("*.py")
+            for path in iter_tracked_files(
+                SOURCE_ROOT / "radiosim", suffixes=PYTHON_SUFFIXES
+            )
             if f"{helper}(" in path.read_text()
             and path.name not in {"polarization.py", "__init__.py"}
         )
@@ -843,7 +850,9 @@ def test_superseded_polarization_helpers_have_no_production_caller() -> None:
     # stokes_to_coherency, by contrast, is the one live entry point.
     live = sorted(
         path.relative_to(SOURCE_ROOT).as_posix()
-        for path in (SOURCE_ROOT / "radiosim").rglob("*.py")
+        for path in iter_tracked_files(
+            SOURCE_ROOT / "radiosim", suffixes=PYTHON_SUFFIXES
+        )
         if "stokes_to_coherency(" in path.read_text()
         and path.name not in {"polarization.py", "__init__.py"}
     )

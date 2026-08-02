@@ -20,11 +20,12 @@ import ast
 from pathlib import Path
 
 import radiosim
+from tests.support.repo_scan import PYTHON_SUFFIXES, iter_tracked_files
 
 
 def _sky_modules() -> list[Path]:
-    pkg_root = Path(radiosim.__file__).parent / "core" / "sky"
-    return sorted(p for p in pkg_root.rglob("*.py") if p.is_file())
+    pkg_root = Path(radiosim.__file__).resolve().parent / "core" / "sky"
+    return iter_tracked_files(pkg_root, suffixes=PYTHON_SUFFIXES)
 
 
 def _imports_replace_from_dataclasses(tree: ast.AST) -> bool:

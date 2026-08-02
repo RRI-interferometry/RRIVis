@@ -53,6 +53,7 @@ import radiosim.core.polarization as polarization_module
 import radiosim.core.polarization_basis as polarization_basis_module
 import radiosim.core.receptor as receptor_module
 from radiosim.core.jones.receptor import BasisTransformJones, ReceptorConfigJones
+from tests.support.repo_scan import iter_package_sources, iter_tracked_files
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_ROOT = REPOSITORY_ROOT / "src" / "radiosim"
@@ -87,7 +88,9 @@ REFERENCE_SCAN_ROOTS = (
     REPOSITORY_ROOT / "docs",
 )
 
-REFERENCE_SCAN_SUFFIXES = (".py", ".rst", ".md", ".yaml", ".yml", ".txt", ".cfg")
+REFERENCE_SCAN_SUFFIXES = frozenset(
+    {".py", ".rst", ".md", ".yaml", ".yml", ".txt", ".cfg"}
+)
 
 # The complete set of files allowed to name a removed symbol, and the only reason
 # they may: each one exists to assert that the symbol is gone.  The scan below is
@@ -126,38 +129,17 @@ BASIS_LITERAL_TEXT = 'Literal["linear_xy", "circular_rl"]'
 
 
 def _iter_package_sources() -> list[Path]:
-    return sorted(PACKAGE_ROOT.rglob("*.py"))
+    return iter_package_sources()
 
 
 def _iter_reference_scan_files() -> list[Path]:
     # Scope the walk to files git knows about (tracked, plus untracked files
     # not covered by .gitignore) so gitignored build artifacts -- a stale
-    # ``docs/_build/`` in particular -- cannot pollute the residual scan.
-    listing = subprocess.run(
-        [
-            "git",
-            "ls-files",
-            "--cached",
-            "--others",
-            "--exclude-standard",
-            "-z",
-            "--",
-            *(root.name for root in REFERENCE_SCAN_ROOTS),
-        ],
-        cwd=REPOSITORY_ROOT,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    found: list[Path] = []
-    for relative in sorted(filter(None, listing.stdout.split("\0"))):
-        path = REPOSITORY_ROOT / relative
-        if not path.is_file() or path.suffix not in REFERENCE_SCAN_SUFFIXES:
-            continue
-        if "__pycache__" in path.parts:
-            continue
-        found.append(path)
-    return found
+    # ``docs/_build/`` in particular -- cannot pollute the residual scan.  This
+    # function was the original of that discipline; Tier 8D extracted it to
+    # ``tests/support/repo_scan.py`` so the other nineteen repository scans in
+    # the suite share it (``Tier8ReleasePlan.md`` Section 12).
+    return iter_tracked_files(*REFERENCE_SCAN_ROOTS, suffixes=REFERENCE_SCAN_SUFFIXES)
 
 
 # ---------------------------------------------------------------------------
