@@ -1090,10 +1090,43 @@ edit; `Fix.md`; `Tier8ReleasePlan.md`.
 **Writable.** `docs/**` (`conf.py`, `Makefile`, `index.rst`, `api/*`,
 `HERA_VSIM_ANALYSIS.md`, `migration_guide.md` anchor only);
 `src/radiosim/backends/__init__.py`, `base.py`, `numpy_backend.py`,
-`src/radiosim/core/polarization.py` — **docstrings only**;
-`tests/unit/test_tier8_release_acceptance.py`;
+`src/radiosim/core/polarization.py` — **docstrings only**; **plus, by the
+correction below, `src/radiosim/core/hybrid.py`,
+`src/radiosim/core/polarization_basis.py`, `src/radiosim/core/precision.py`,
+`src/radiosim/core/sky/combine/regrid.py`,
+`src/radiosim/core/sky/io/serialization.py`, `src/radiosim/simulator/base.py`,
+`src/radiosim/simulator/rime.py`, `src/radiosim/utils/logging.py` — also
+docstrings only**; `tests/unit/test_tier8_release_acceptance.py`;
 `tests/characterization/test_tier8_current_behavior.py`; `Fix.md`;
 `Tier8ReleasePlan.md`.
+
+**Writable-list correction, applied at 8C.** Section 20 risk 1 predicts that
+"new `docs/api/` pages surface new Sphinx warnings" and rules that a page
+"lands with the debt fixed or the page is deferred and the deferral recorded".
+The four source files named above are the sites of the *sixteen known*
+warnings; item 3's six new pages surfaced twenty-six more, in eight further
+files. Deferring those pages would fail Section 18 criterion 4, so the debt is
+paid and the grant is extended to exactly the eight files, **docstring prose
+only** — no signature, default, branch, or constant. Nineteen of the
+twenty-six were removed by two `docs/conf.py` settings rather than by any
+source edit (`napoleon_use_ivar = True` for duplicate dataclass attribute
+descriptions, `napoleon_google_docstring = True` because the package mixes
+both styles while only numpydoc was enabled). `src/radiosim/simulator/rime.py`
+also carries a "Backend abstraction for CPU/GPU" line that 8E's Section 11
+scan 7 owns; 8C leaves it untouched, exactly as it leaves
+`src/radiosim/simulator/__init__.py:12`.
+
+**One further correction, applied at 8C.** Section 8's "baseline discipline"
+paragraph rules that an in-tree build reporting 18 because gitignored
+`docs/superpowers/` exists "is not a regression and must not be treated as
+one". Making `-W` the default changed what that artifact costs: it would turn
+a stray untracked directory into a *failed* build for any contributor who has
+one. 8C therefore adds `"superpowers"` to `exclude_patterns` in
+`docs/conf.py`, so the clean-worktree and in-tree builds are the same build.
+This is not a `suppress_warnings` entry — that setting stays unset — and the
+excluded directory is asserted gitignored and empty of tracked files by
+`tests/unit/test_tier8_release_acceptance.py`, so the exclusion can never hide
+a documented page.
 
 **Gate.** `make -C docs clean html` (now `-W` by default) exits 0 with **zero**
 warnings in a clean detached worktree; `pixi run test`; `pixi run lint`;
