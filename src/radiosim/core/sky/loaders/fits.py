@@ -383,7 +383,7 @@ def _infer_fits_provenance(
     representations=("healpix_map",),
     category="file",
     requires_file=True,
-    network_service=None,
+    network_services=(),
     config_fields=["filename", "nside"],
 )
 def load_fits_image(

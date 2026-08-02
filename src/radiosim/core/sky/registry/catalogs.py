@@ -84,8 +84,9 @@ class _CatalogBase(BaseModel):
         default=("point_sources",), description="Canonical loader representations"
     )
     category: str = Field("catalog", description="Registry loader category")
-    network_service: str | None = Field(
-        default=None, description="Network service required by this catalog loader"
+    network_services: tuple[str, ...] = Field(
+        default=(),
+        description="Network services required by this catalog loader",
     )
     config_fields: dict[str, str] = Field(
         default_factory=dict, description="Config field to loader kwarg mapping"
@@ -124,8 +125,9 @@ class DiffuseModelEntry(_CatalogBase):
         ("healpix_map",), description="Canonical loader representations"
     )
     category: str = Field("diffuse", description="Registry loader category")
-    network_service: str | None = Field(
-        "pygdsm_data", description="Network service required by this catalog loader"
+    network_services: tuple[str, ...] = Field(
+        ("pygdsm_data",),
+        description="Network services required by this catalog loader",
     )
     config_fields: dict[str, str] = Field(
         default_factory=lambda: {
@@ -192,8 +194,9 @@ class VizierCatalogEntry(_CatalogBase):
     alias_defaults: dict[str, object] = Field(
         default_factory=dict, description="Registry defaults bound to the alias"
     )
-    network_service: str | None = Field(
-        "vizier", description="Network service required by this catalog loader"
+    network_services: tuple[str, ...] = Field(
+        ("vizier",),
+        description="Network services required by this catalog loader",
     )
     config_fields: dict[str, str] = Field(
         default_factory=lambda: {
@@ -277,8 +280,9 @@ class RacsCatalogEntry(_CatalogBase):
     use_flag: str | None = Field(
         "use_racs", description="Config enable flag (defaults to use_{loader_name})"
     )
-    network_service: str | None = Field(
-        "casda", description="Network service required by this catalog loader"
+    network_services: tuple[str, ...] = Field(
+        ("casda",),
+        description="Network services required by this catalog loader",
     )
     config_fields: dict[str, str] = Field(
         default_factory=lambda: {
@@ -420,7 +424,7 @@ def vizier_family_loader_registration(
     return {
         "config_section": _effective_config_section(representative),
         "use_flag": _effective_use_flag(representative),
-        "network_service": representative.network_service,
+        "network_services": representative.network_services,
         "category": representative.category,
         "aliases": aliases,
         "config_fields": fields,
@@ -433,7 +437,7 @@ def vizier_simple_loader_registration(catalog_key: str) -> dict[str, object]:
     return {
         "config_section": _effective_config_section(entry),
         "use_flag": _effective_use_flag(entry),
-        "network_service": entry.network_service,
+        "network_services": entry.network_services,
         "category": entry.category,
         "config_fields": dict(entry.config_fields),
     }
@@ -458,7 +462,7 @@ def racs_loader_registration(
     return {
         "config_section": _effective_config_section(representative),
         "use_flag": _effective_use_flag(representative),
-        "network_service": representative.network_service,
+        "network_services": representative.network_services,
         "category": representative.category,
         "aliases": aliases,
         "config_fields": fields,
@@ -470,7 +474,7 @@ DIFFUSE_SKY_LOADER_REGISTRY: dict[str, object] = {
     "config_section": "gsm_healpix",
     "use_flag": "use_gsm",
     "category": "diffuse",
-    "network_service": "pygdsm_data",
+    "network_services": ("pygdsm_data",),
     "representations": ("healpix_map",),
 }
 
@@ -494,7 +498,7 @@ def diffuse_sky_loader_registration(
     return {
         "config_section": DIFFUSE_SKY_LOADER_REGISTRY["config_section"],
         "use_flag": DIFFUSE_SKY_LOADER_REGISTRY["use_flag"],
-        "network_service": DIFFUSE_SKY_LOADER_REGISTRY["network_service"],
+        "network_services": DIFFUSE_SKY_LOADER_REGISTRY["network_services"],
         "category": DIFFUSE_SKY_LOADER_REGISTRY["category"],
         "representations": DIFFUSE_SKY_LOADER_REGISTRY["representations"],
         "aliases": aliases,

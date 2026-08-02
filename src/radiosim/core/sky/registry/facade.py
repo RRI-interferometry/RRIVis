@@ -46,7 +46,7 @@ class SkyLoaderRegistry:
         representations: tuple[LoaderRepresentation, ...] | None = None,
         category: LoaderCategory = "catalog",
         requires_file: bool = False,
-        network_service: str | None = None,
+        network_services: Sequence[str] = (),
         aliases: (
             list[str] | tuple[str, ...] | dict[str, dict[str, Any] | None] | None
         ) = None,
@@ -62,7 +62,7 @@ class SkyLoaderRegistry:
             representations=representations,
             category=category,
             requires_file=requires_file,
-            network_service=network_service,
+            network_services=network_services,
             aliases=aliases,
             config_fields=config_fields,
             path_options=path_options,
@@ -133,12 +133,19 @@ class SkyLoaderRegistry:
         _ensure_default_loaders_registered()
         return _REGISTRY.alias_map()
 
-    def network_services(self) -> dict[str, str]:
-        """Return loader name -> required network service."""
-        result: dict[str, str] = {}
+    def network_services(self) -> dict[str, tuple[str, ...]]:
+        """Return loader name -> the network services that loader requires.
+
+        Only loaders that declare at least one service appear.  The value is a
+        tuple because a composite recipe reaches more than one service:
+        ``realistic_foreground`` dispatches to a diffuse model and a VizieR
+        catalog, so it declares both (``Tier8ReleasePlan.md`` Section 13,
+        ``SKY-002``).
+        """
+        result: dict[str, tuple[str, ...]] = {}
         for definition in self.definitions():
-            if definition.network_service is not None:
-                result[definition.name] = definition.network_service
+            if definition.network_services:
+                result[definition.name] = definition.network_services
         return result
 
 

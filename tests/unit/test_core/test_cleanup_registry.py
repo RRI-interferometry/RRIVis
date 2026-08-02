@@ -188,7 +188,7 @@ def test_meta_keys_are_a_stable_canonical_set():
         "output_mode",
         "category",
         "requires_file",
-        "network_service",
+        "network_services",
         "aliases",
         "alias_defaults",
         "config_fields",
@@ -392,7 +392,7 @@ def test_catalog_entries_carry_registry_identity_metadata():
     assert gleam.config_section == "gleam"
     assert gleam.use_flag == "use_gleam"
     assert gleam.alias_defaults == {"catalog": "gleam_egc"}
-    assert gleam.network_service == "vizier"
+    assert gleam.network_services == ("vizier",)
     assert gleam.config_fields == {
         "flux_limit": "flux_limit",
         "catalog": "catalog",
@@ -403,7 +403,7 @@ def test_catalog_entries_carry_registry_identity_metadata():
     lfsm = DIFFUSE_MODELS["lfsm"]
     assert lfsm.loader_name == "diffuse_sky"
     assert lfsm.alias_defaults == {"model": "lfsm"}
-    assert lfsm.network_service == "pygdsm_data"
+    assert lfsm.network_services == ("pygdsm_data",)
 
     racs_low = RACS_CATALOGS["low"]
     assert racs_low.loader_name == "racs"
@@ -411,7 +411,7 @@ def test_catalog_entries_carry_registry_identity_metadata():
     assert racs_low.use_flag == "use_racs"
     assert racs_low.alias == "racs_low"
     assert racs_low.alias_defaults == {"band": "low"}
-    assert racs_low.network_service == "casda"
+    assert racs_low.network_services == ("casda",)
 
     three_c = VIZIER_POINT_CATALOGS["3c"]
     assert three_c.config_section == "three_c"
@@ -497,7 +497,7 @@ def test_family_loader_registry_metadata_matches_catalog_entries(
     else:
         pytest.fail(f"unexpected loader {loader_name!r}")
 
-    for field in ("config_section", "use_flag", "network_service", "category"):
+    for field in ("config_section", "use_flag", "network_services", "category"):
         assert getattr(definition, field) == expected[field], field
     assert set(definition.aliases) == set(expected["aliases"])
     assert definition.alias_defaults == expected["aliases"]
@@ -512,7 +512,7 @@ def test_family_loader_registry_metadata_matches_catalog_entries(
                 else DIFFUSE_MODELS[catalog_keys[0]]
             )
         )
-        assert definition.network_service == representative.network_service
+        assert definition.network_services == representative.network_services
         assert definition.category == representative.category
 
 

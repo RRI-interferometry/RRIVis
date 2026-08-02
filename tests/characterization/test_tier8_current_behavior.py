@@ -555,56 +555,69 @@ def test_claude_md_carries_its_three_documented_defects() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_realistic_foreground_recipe_declares_no_network_service() -> None:
-    """Pins ``SKY-002`` at its registry source and at its shipped-config effect.
+def test_realistic_foreground_recipe_declares_both_network_services() -> None:
+    """FLIPPED AT 8D.  Was ``..._declares_no_network_service``.
 
-    ``LoaderDefinition.network_service`` is singular, so a composite recipe that
-    calls two network-backed loaders cannot declare either one; the shipped
-    ``configs/realistic_foreground_example.yaml`` therefore reports no required
-    service at all, and ``Simulator``'s pre-flight prints "no network-dependent
-    models" for a run that makes two real network calls.  The two direct loaders
-    the recipe wraps declare their services correctly, which is what makes this
-    a metadata gap rather than a missing concept.
+    Before 8D, ``LoaderDefinition.network_service`` was singular, so a composite
+    recipe that dispatches to two network-backed loaders could declare neither:
+    the shipped ``configs/realistic_foreground_example.yaml`` reported no
+    required service at all.  The field is now
+    ``network_services: tuple[str, ...]`` with no compatibility shim -- the
+    singular spelling is gone from the package -- and the recipe declares
+    ``("pygdsm_data", "vizier")``, the exact tokens the two catalog entries it
+    reaches declare in ``registry/catalogs.py``.
 
-    FLIPPED BY: Tier 8D (widen the declaration to ``network_services`` with no
-    compatibility shim, declare ``("pygdsm_data", "vizier")`` on the recipe, and
-    add the registry-completeness test that stops the next composite recipe from
-    repeating it).
+    Preserved from here on, not flipped.  The rule that keeps it true is
+    ``tests/unit/test_core/test_sky_registry.py``'s completeness scan: a loader
+    whose module names a network client, or resolves other loaders dynamically,
+    must declare at least one service.
     """
     from radiosim.utils.network import get_required_services, get_sky_model_services
 
     services = get_sky_model_services()
-    assert services["gleam"] == "vizier"
-    assert services["diffuse_sky"] == "pygdsm_data"
-    assert services.get("realistic_foreground") is None
+    assert services["gleam"] == ("vizier",)
+    assert services["diffuse_sky"] == ("pygdsm_data",)
+    assert services["realistic_foreground"] == ("pygdsm_data", "vizier")
 
     config = yaml.safe_load(_read("configs/realistic_foreground_example.yaml"))
     sources = config["sky_model"]["sources"]
     assert [entry["kind"] for entry in sources] == ["realistic_foreground"]
-    assert get_required_services(config["sky_model"]) == {}
+    assert get_required_services(config["sky_model"]) == {
+        "pygdsm_data": ["realistic_foreground"],
+        "vizier": ["realistic_foreground"],
+    }
 
     recipe = _read("src/radiosim/core/sky/recipes/realistic_foreground.py")
-    assert "network_service" not in recipe
+    assert 'network_services=("pygdsm_data", "vizier")' in recipe
     assert "_load_diffuse" in recipe and "_load_bright_catalog" in recipe
-    assert "network_service: str | None" in _read(
-        "src/radiosim/core/sky/registry/core.py"
-    )
+    registry_core = _read("src/radiosim/core/sky/registry/core.py")
+    assert "network_services: tuple[str, ...] = ()" in registry_core
+    assert "network_service:" not in registry_core, "no singular shim survives"
 
 
-def test_the_shipped_recipe_config_is_the_one_the_preflight_misreports() -> None:
-    """Pins the pre-flight branch the missing metadata selects.
+def test_the_shipped_recipe_config_is_the_one_the_preflight_now_reports() -> None:
+    """FLIPPED AT 8D.  Was ``..._is_the_one_the_preflight_misreports``.
 
-    Kept separate from the registry pin because 8D must flip *both* -- the
-    declaration and the user-visible sentence -- and a single test would let one
-    of the two land alone.
-
-    FLIPPED BY: Tier 8D.
+    Kept separate from the registry pin because 8D had to flip *both* -- the
+    declaration and the user-visible sentence -- and a single test would have
+    let one of the two land alone.  The source-level half is here; that the
+    branch is really taken for the shipped document, and that an offline run of
+    it fails with the actionable offline error rather than a network attempt,
+    is asserted by running it in
+    ``tests/unit/test_utils/test_network.py::TestShippedRecipeConfigurationServices``.
     """
+    from radiosim.utils.network import get_required_services
+
     simulator_source = _read("src/radiosim/api/simulator.py")
     assert 'print_info(f"Network: {status_label} (no network-dependent models)")' in (
         simulator_source
     )
     assert "required: {', '.join(service_names)}" in simulator_source
+
+    config = yaml.safe_load(_read("configs/realistic_foreground_example.yaml"))
+    assert get_required_services(config["sky_model"]), (
+        "the recipe config must select the network-dependent pre-flight branch"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1,5 +1,7 @@
 """Tests for the public sky loader registry surface."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from pydantic import ValidationError
@@ -110,12 +112,66 @@ class TestRegistry:
 class TestRegistryMetadata:
     def test_network_services_map(self):
         svc_map = loader_registry.network_services()
-        assert svc_map["gleam"] == "vizier"
-        assert svc_map["racs"] == "casda"
-        assert svc_map["diffuse_sky"] == "pygdsm_data"
-        assert svc_map["pysm3"] == "pysm3_data"
+        assert svc_map["gleam"] == ("vizier",)
+        assert svc_map["racs"] == ("casda",)
+        assert svc_map["diffuse_sky"] == ("pygdsm_data",)
+        assert svc_map["pysm3"] == ("pysm3_data",)
+        # A composite recipe declares every service it can reach (SKY-002).
+        assert svc_map["realistic_foreground"] == ("pygdsm_data", "vizier")
         assert "bbs" not in svc_map
         assert "fits_image" not in svc_map
+
+    def test_every_network_implicated_loader_declares_a_service(self):
+        """``SKY-002``'s generalization: no loader reaches the network silently.
+
+        The defect Tier 8D closed was not that one declaration was wrong; it
+        was that a *composite* loader had no way to say what it reached, so the
+        pre-flight lied about a shipped configuration. This scan is what stops
+        the next one repeating it. A loader is network-implicated when the
+        module defining it names a network client, or when it resolves other
+        loaders dynamically -- ``realistic_foreground`` does the second, which
+        is exactly why an import scan alone would have missed it -- and a
+        network-implicated loader must declare at least one service.
+        """
+        import inspect
+
+        network_clients = (
+            "astroquery",
+            "pygdsm",
+            "pysm3",
+            "TapPlus",
+            "Vizier",
+            "require_service(",
+            "urllib.request",
+            "requests.get",
+        )
+        dynamic_dispatch = (
+            "loader_registry.resolve_callable(",
+            "loader_registry.loader(",
+        )
+
+        undeclared: list[str] = []
+        implicated: set[str] = set()
+        for definition in loader_registry.definitions():
+            source_file = inspect.getsourcefile(definition.loader)
+            assert source_file is not None, definition.name
+            text = Path(source_file).read_text(encoding="utf-8")
+            reasons = [token for token in network_clients if token in text]
+            reasons += [token for token in dynamic_dispatch if token in text]
+            if not reasons:
+                continue
+            implicated.add(definition.name)
+            if not definition.network_services:
+                undeclared.append(
+                    f"{definition.name} ({Path(source_file).name}) names "
+                    f"{reasons} but declares network_services=(); add every "
+                    "service it can reach, including through loaders it "
+                    "dispatches to"
+                )
+        assert undeclared == []
+        assert "realistic_foreground" in implicated
+        assert "diffuse_sky" in implicated
+        assert "racs" in implicated
 
     def test_alias_map(self):
         alias_map = loader_registry.aliases()
@@ -177,7 +233,7 @@ class TestRegistryMetadata:
         assert info["loader"] == "racs"
         assert info["resolved_loader"] == "racs"
         assert info["resolved_kwargs"] == {"band": "low"}
-        assert info["network_service"] == "casda"
+        assert info["network_services"] == ["casda"]
 
     def test_discovery_catalog_info_resolves_lotss_release(self):
         info = get_catalog_info("lotss_dr2")

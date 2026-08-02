@@ -533,7 +533,7 @@ def create_gsm_observer(
     use_flag="use_pysm3",
     representations=("healpix_map",),
     category="diffuse",
-    network_service="pysm3_data",
+    network_services=("pysm3_data",),
     config_fields=["components", "nside", "include_polarization"],
 )
 def load_pysm3(

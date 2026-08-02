@@ -1,5 +1,6 @@
 """Tests for radiosim.utils.network connectivity detection."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -273,11 +274,14 @@ class TestGetRequiredServices:
 
     def test_all_vizier_models_mapped(self):
         """Every model in get_sky_model_services()
-        should map to a known service endpoint."""
-        for _key, service in get_sky_model_services().items():
-            assert service in SERVICE_ENDPOINTS, (
-                f"get_sky_model_services() maps {_key!r} to unknown service {service!r}"
-            )
+        should map to known service endpoints."""
+        for _key, services in get_sky_model_services().items():
+            assert services, f"{_key!r} is listed with no service at all"
+            for service in services:
+                assert service in SERVICE_ENDPOINTS, (
+                    f"get_sky_model_services() maps {_key!r} to unknown "
+                    f"service {service!r}"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -325,3 +329,86 @@ class TestOfflinePolicy:
         set_offline_policy(False)
         assert is_online() is True
         assert mock_check.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# SKY-002: the shipped recipe configuration, and what the pre-flight says about it
+# ---------------------------------------------------------------------------
+
+
+class TestShippedRecipeConfigurationServices:
+    """``SKY-002`` (``Tier8ReleasePlan.md`` Section 13), closed at Tier 8D.
+
+    ``realistic_foreground`` reaches the network only through the loaders it
+    dispatches to, and ``LoaderDefinition`` could previously declare exactly one
+    service, so the recipe declared none: ``get_required_services`` returned
+    ``{}`` for the shipped configuration and ``Simulator``'s pre-flight printed
+    "no network-dependent models" for a run that makes two real network calls.
+
+    Every test here is offline. The last one *runs* the shipped configuration
+    with the offline policy forced, so the network is never touched: the point
+    is that the failure is the actionable offline error, not a connection
+    attempt.
+    """
+
+    @staticmethod
+    def _shipped_sky_config() -> dict:
+        import yaml
+
+        text = (
+            Path(__file__).resolve().parents[3]
+            / "configs"
+            / "realistic_foreground_example.yaml"
+        ).read_text(encoding="utf-8")
+        return yaml.safe_load(text)
+
+    def test_the_shipped_recipe_configuration_requires_both_services(self):
+        sky_config = self._shipped_sky_config()["sky_model"]
+        assert [entry["kind"] for entry in sky_config["sources"]] == [
+            "realistic_foreground"
+        ]
+        assert get_required_services(sky_config) == {
+            "pygdsm_data": ["realistic_foreground"],
+            "vizier": ["realistic_foreground"],
+        }
+
+    def test_the_recipe_declares_exactly_what_its_shipped_defaults_reach(self):
+        """The declaration is the union of the loaders the recipe dispatches to.
+
+        Derived here rather than restated: ``haslam`` resolves to the diffuse
+        loader and ``gleam`` to the VizieR loader, and the recipe's own
+        declaration must equal the union of their declarations. A renamed
+        service token therefore fails this test rather than silently making the
+        recipe's declaration wrong again.
+        """
+        services = get_sky_model_services()
+        expected = set(services["diffuse_sky"]) | set(services["gleam"])
+        assert set(services["realistic_foreground"]) == expected
+        assert services["realistic_foreground"] == ("pygdsm_data", "vizier")
+
+    def test_the_preflight_names_both_services_and_the_offline_run_says_why(
+        self, capsys
+    ):
+        """The user-visible half of ``SKY-002``, and the offline failure mode.
+
+        Before Tier 8D this printed ``Network: offline (forced) (no
+        network-dependent models)`` and then attempted two downloads.
+        """
+        from radiosim.api.simulator import Simulator
+        from radiosim.core.sky.operations.parallel import SkyLoadAggregateError
+
+        document = self._shipped_sky_config()
+        document["execution"]["offline"] = True
+        document["workflow"]["save_results"] = False
+        simulator = Simulator.from_mapping(
+            document,
+            base_dir=Path(__file__).resolve().parents[3] / "configs",
+        )
+
+        with pytest.raises(SkyLoadAggregateError) as failure:
+            simulator.setup()
+
+        printed = capsys.readouterr().out
+        assert "Network: offline (forced) (required: pygdsm data, VizieR)" in printed
+        assert "no network-dependent models" not in printed
+        assert "No internet connection" in str(failure.value)

@@ -280,6 +280,13 @@ def _check_threshold_chain(
     use_flag="use_realistic_foreground",
     representations=("healpix_map",),
     category="synthetic",
+    # This recipe reaches the network through the loaders it dispatches to, not
+    # through an import of its own: ``_load_diffuse`` resolves a diffuse model
+    # (``pygdsm_data``) and ``_load_bright_catalog`` resolves a bright catalog
+    # (``vizier``).  Both tokens are the ones those catalog entries declare in
+    # ``registry/catalogs.py``; ``SKY-002`` was the pre-flight reporting no
+    # required service at all for a run that makes both calls.
+    network_services=("pygdsm_data", "vizier"),
     config_fields=[
         "diffuse",
         "diffuse_kwargs",

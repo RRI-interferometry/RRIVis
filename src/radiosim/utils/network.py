@@ -31,12 +31,22 @@ SERVICE_ENDPOINTS: dict[str, tuple[str, int]] = {
     "pysm3_data": ("portal.nersc.gov", 443),
 }
 
-# Maps source kind -> service name for sky models that need network.
-_SKY_MODEL_SERVICES_CACHE: dict[str, str] | None = None
+# Maps source kind -> the services that kind needs.  A kind can need more than
+# one: ``realistic_foreground`` dispatches to a diffuse model and to a VizieR
+# catalog, so it declares both (``SKY-002``).
+_SKY_MODEL_SERVICES_CACHE: dict[str, tuple[str, ...]] | None = None
 
 
-def get_sky_model_services() -> dict[str, str]:
-    """Return the source-kind -> network-service mapping."""
+def get_sky_model_services() -> dict[str, tuple[str, ...]]:
+    """Return the source-kind -> required-network-services mapping.
+
+    Returns
+    -------
+    dict[str, tuple[str, ...]]
+        One entry per registered loader that needs the network at all, mapped
+        to every service it can reach -- including services it reaches only
+        through another loader it dispatches to.
+    """
     global _SKY_MODEL_SERVICES_CACHE
     if _SKY_MODEL_SERVICES_CACHE is None:
         from radiosim.core.sky.registry import loader_registry
@@ -365,13 +375,12 @@ def get_required_services(sky_config: dict) -> dict[str, list[str]]:
                 kind, _ = loader_registry.resolve_request(raw_kind, {})
             except ValueError:
                 continue
-            service = services.get(kind)
-            if service is not None:
+            for service in services.get(kind, ()):
                 required.setdefault(service, []).append(kind)
         return required
 
     # Fallback for legacy config shape.
-    for kind, service in get_sky_model_services().items():
+    for kind, kind_services in get_sky_model_services().items():
         sub = sky_config.get(kind, {})
         if isinstance(sub, dict):
             enabled = any(
@@ -380,7 +389,8 @@ def get_required_services(sky_config: dict) -> dict[str, list[str]]:
                 if isinstance(k, str) and k.startswith("use_")
             )
             if enabled:
-                required.setdefault(service, []).append(kind)
+                for service in kind_services:
+                    required.setdefault(service, []).append(kind)
     return required
 
 

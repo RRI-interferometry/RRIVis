@@ -239,7 +239,7 @@ def _maybe_cross_check_frequencies(
     use_flag="use_skyh5_multifile",
     category="file",
     requires_file=True,
-    network_service=None,
+    network_services=(),
     aliases=["pyradiosky_multifile"],
     config_fields=[
         "file_glob",

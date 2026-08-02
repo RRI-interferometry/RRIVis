@@ -199,7 +199,11 @@ class LoaderDefinition:
     representations: tuple[LoaderRepresentation, ...] = ("point_sources",)
     category: LoaderCategory = "catalog"
     requires_file: bool = False
-    network_service: str | None = None
+    #: Every network service this loader can reach, including the ones it
+    #: reaches only through another registered loader.  A composite recipe
+    #: declares the union of what it dispatches to; a single-service loader
+    #: declares a one-element tuple; a purely local loader declares ``()``.
+    network_services: tuple[str, ...] = ()
     aliases: tuple[str, ...] = ()
     alias_defaults: dict[str, dict[str, Any]] = field(
         default_factory=_empty_alias_defaults
@@ -243,7 +247,7 @@ class LoaderDefinition:
             "output_mode": self.output_mode,
             "category": self.category,
             "requires_file": self.requires_file,
-            "network_service": self.network_service,
+            "network_services": list(self.network_services),
             "aliases": list(self.aliases),
             "alias_defaults": {
                 alias: dict(defaults) for alias, defaults in self.alias_defaults.items()
@@ -292,7 +296,7 @@ class LoaderRegistry:
         representations: Sequence[LoaderRepresentation] | None = None,
         category: LoaderCategory = "catalog",
         requires_file: bool = False,
-        network_service: str | None = None,
+        network_services: Sequence[str] = (),
         aliases: (
             list[str] | tuple[str, ...] | Mapping[str, Mapping[str, Any] | None] | None
         ) = None,
@@ -324,7 +328,7 @@ class LoaderRegistry:
             representations=normalized_representations,
             category=category,
             requires_file=requires_file,
-            network_service=network_service,
+            network_services=tuple(network_services),
             aliases=alias_names,
             alias_defaults=alias_defaults,
             config_fields=normalized_config_fields,
@@ -451,7 +455,7 @@ def register_loader(
     representations: Sequence[LoaderRepresentation] | None = None,
     category: LoaderCategory = "catalog",
     requires_file: bool = False,
-    network_service: str | None = None,
+    network_services: Sequence[str] = (),
     aliases: (
         list[str] | tuple[str, ...] | Mapping[str, Mapping[str, Any] | None] | None
     ) = None,
@@ -477,7 +481,7 @@ def register_loader(
             representations=representations,
             category=category,
             requires_file=requires_file,
-            network_service=network_service,
+            network_services=network_services,
             aliases=aliases,
             config_fields=config_fields,
             path_options=path_options,

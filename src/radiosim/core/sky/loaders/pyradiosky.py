@@ -66,7 +66,7 @@ class LossyConversionWarning(UserWarning):
     use_flag="use_pyradiosky",
     category="file",
     requires_file=True,
-    network_service=None,
+    network_services=(),
     # pyradiosky files can carry point or HEALPix payloads; declare both
     # explicitly rather than relying on a loader-name special-case in the
     # registry.

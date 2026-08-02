@@ -153,7 +153,7 @@ def get_catalog_info(catalog_key: str, live: bool = False) -> dict[str, Any]:
         "primary_representation": reps[0],
         "supports_point_sources": "point_sources" in reps,
         "supports_healpix_map": "healpix_map" in reps,
-        "network_service": definition.network_service,
+        "network_services": list(definition.network_services),
         "requires_file": definition.requires_file,
         "aliases": list(definition.aliases),
         "config_fields": dict(definition.config_fields),
