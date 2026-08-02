@@ -209,9 +209,11 @@ Status values used below:
 | SKY-002 | OPEN | The `realistic_foreground` recipe loader is registered (`core/sky/recipes/realistic_foreground.py:277-297`) with no `network_service`, so `utils/network.py::get_required_services()` returns `{}` for any config using `kind: realistic_foreground` — including the shipped `configs/realistic_foreground_example.yaml` (`diffuse: haslam`, `bright_catalogs: gleam`) — and `Simulator`'s pre-flight network check (`api/simulator.py:726`) prints "Network: offline (no network-dependent models)" even though the recipe internally calls `_load_diffuse` (pygdsm) and `_load_bright_catalog` (VizieR), both real network dependencies. Direct loaders (`diffuse_sky`, `gleam`, etc.) report correctly; only the composite recipe under-reports. Found during the SKY-001 acceptance review, 2026-07-31 | pre-Tier-8 (network pre-flight metadata), bounded |
 | RUN-005 | DONE | `scientific_sha256` embeds the antenna layout source file's absolute filesystem path (`io/instrument_sources.py`'s `source_reference=str(path)`, carried into `instrument_snapshot["reference"]` and hashed by `core/result.py::_scientific_hash`), so two runs of the identical config with bit-identical raw visibility cubes produce different `scientific_sha256` values solely because the repository checkout lives at a different absolute path; confirmed pre-existing and unaffected by Tier 6D (`core/instrument.py`, `io/instrument_sources.py`, `core/result.py` are untouched in `c5d79aa..87d7c79`) by reproducing the same divergence with cube-identical, fingerprint-different runs at `c5d79aa` from two detached worktrees | standalone, bounded fix (pre-Tier 7) |
 | RUN-006 | DONE | The FITS beam `definition_fingerprint` (`core/beam/models.py::ResolvedFITSBeamDefinition.__post_init__`) hashed the absolute FITS path, so `definition_fingerprint`, `assignment_fingerprint`, `state_fingerprint`, and `loaded_fingerprint` all differed between checkouts of the same commit even though `RUN-005`'s projection already kept them out of `scientific_sha256`; fixed by hashing only the load settings (`normalization`, `angular_interpolation`, `frequency_interpolation`) — file content stays bound at load time by the content-based handler `scientific_fingerprint` — with pre-load dedup (`_deduplicated_definitions`) re-keyed on fingerprint + resolved path so two distinct files with identical settings remain distinct definitions/handlers, and `LoadedBeamState` gaining an explicit `handler.file.resolved_path == assignment.definition.path` cross-check to preserve the assignment-matching strength the path hash used to provide; changes every stored FITS-beam fingerprint value (snapshots, summary JSON, HDF5 provenance) but no schema, no `scientific_sha256` (projection unchanged, settings survive as sibling keys), and no analytic-beam value, so the shipped-config pins are untouched | standalone, bounded fix (pre-Tier 7) |
-| SCI-001 | ROADMAP | Most Jones classes are public identity-returning stubs | 7 |
-| SCI-002 | ROADMAP | Spherical-harmonic/m-mode mode is advertised but unimplemented | 7 |
-| SCI-003 | ROADMAP | Advanced beam-physics TODOs remain | 7 |
+| SCI-001 | DONE | Most Jones classes are public identity-returning stubs — closed 2026-08-02 (Tier 7 whole-tier acceptance, Tier 7K): every exported Jones class implements real physics; twenty-six speculative stubs were removed rather than implemented, each with a documented replacement; no public term multiplies by identity | 7 |
+| SCI-002 | DONE | Spherical-harmonic/m-mode mode is advertised but unimplemented — closed 2026-08-02 (Tier 7K) by removal of the unimplemented option and of its unhonored sibling value from the public configuration surface; `execution.simulator` is the single solver selector and accepts only `rime`; the m-mode solver is filed as `SCI-004` | 7 |
+| SCI-003 | DONE | Advanced beam-physics TODOs remain — closed 2026-08-02 (Tier 7K): two items implemented and analytically verified (pointing offsets, Ruze efficiency), five given explicit scientific scope with citations in a tracked scope document (`docs/development/beam_physics_scope.md`), and `SCI-005` filed as their owner; the in-package `TODO.md` no longer exists | 7 |
+| SCI-004 | ROADMAP | A spherical-harmonic/m-mode solver — a second forward-model algorithm entirely, distinct from the direct-sum RIME `rime` simulator — remains unimplemented. `execution.simulator` accepts only `rime`, matching the simulator registry's single key; a future m-mode solver is a new registry entry, not a value on a removed field. Filed 2026-08-02 at Tier 7 whole-tier acceptance (Tier 7K) per §38's `SCI-002` closure requirement, as the named successor for the descoped Workstream E | post-Tier-7, successor design gate |
+| SCI-005 | ROADMAP | Advanced beam physics beyond the accepted scalar-`E` subset: polarized/cross-polar beams (Ludwig-3 decomposition, quadrupolar cross-polarization, IXR conversion), beam squint, aperture blockage, Zernike aberrations, and the Ruze error-beam decomposition. Each item has explicit scientific scope, a citation, and its non-goal reasoning recorded in `docs/development/beam_physics_scope.md` (which replaces the old in-package `src/radiosim/core/jones/beam/TODO.md`); each requires widening the accepted `E`-Jones beyond a scalar diagonal, which is a tier-scale change. Filed 2026-08-02 at Tier 7 whole-tier acceptance (Tier 7K) per §38's `SCI-003` closure requirement | post-Tier-7, successor tier |
 | SCI-006 | OPEN | RadioSim's local Stokes ``Q`` has the opposite sign to `pyuvsim`/`pyradiosky`'s for the same sky, BeamFITS feed convention (`x_orientation="east"`), and mount, discovered by the 7J `pyuvsim` cross-validation (`tests/crossvalidation/test_pyuvsim_comparison.py`, `output/crossvalidation/2026-08-02-pyuvsim-1.4.0.json`). The comparison's mapping 3 characterizes this as a local-basis axis-order swap (feed 0 bound to `data_array[0, 0]`, `pyuvdata`'s first sky-vector component) that also flips ``V``, and the preserved polarized intensity (``\|Q+iU\|`` agrees to `2.1e-3` relative after the swap) is consistent with that reading, but the comparison does not establish which convention is the intended one for an east-oriented ``x`` feed — a characterization, not an endorsement of either sign. Filed at 7J independent acceptance review, 2026-08-02, per the plan's routing of this finding to whole-tier review | 7J discovery, pre-7K disposition |
 | SCI-007 | OPEN | After the 7J cross-validation's basis-axis swap (`SCI-006`), the local linear-polarization frame still differs from `pyuvsim`'s by a fitted `-0.0576` degrees (`output/crossvalidation/2026-08-02-pyuvsim-1.4.0.json`). An independent astropy probe recorded in that artifact measures `0.200` degrees between the position angle of ICRS north and the apparent-equatorial parallactic angle at the same epoch and sources, the right order of magnitude for a reference-frame effect of this species, but the two numbers were not reconciled. This review's own independent CIRS-frame probe (ICRS-north-offset point transformed to CIRS at the crossval epoch/sources/location) measures `0.04`-`0.06` degrees per source — a different but same-order-of-magnitude quantity, confirming a real (not fabricated) sub-degree frame effect exists without closing the gap to either recorded figure. Filed at 7J independent acceptance review, 2026-08-02 | 7J discovery, pre-7K disposition |
 | DOC-001 | DOCS | `simple_simulation.py` uses stale private/result APIs | 8 |
@@ -13751,3 +13753,323 @@ behind the artifact's `0.200`-degree astropy figure was not reproduced exactly
 but different quantity); recorded in `SCI-007` rather than resolved. `SCI-004`
 (m-mode) and `SCI-005` (advanced beam physics) are not filed by this review —
 they remain 7K's per Section 33.2.
+
+### 2026-08-02 Tier 7 whole-tier acceptance (Tier 7K)
+
+**VERDICT: ACCEPTED.** Tier 7 (`ac4fe41..47df8fc`, the design gate plus slices
+7A-7J and the mid-tier test-infrastructure integration) is accepted as a whole,
+indivisibly, per `Tier7JonesSciencePlan.md` §33.2/§35/§37/§38. This review is
+independent of every prior slice record: every criterion below was re-derived
+from current source and/or a fresh empirical probe run directly by this
+review, not read off a slice's own claim. No `src/`, `tests/`, `configs/`, or
+`docs/` file was touched; only this entry, the register flip above, and the
+plan's status header/appendix are written, per the 7K writable list.
+
+**§37 checklist, compact (all twenty independently re-proved).**
+
+1. `radiosim.core.jones.__all__` has exactly 19 names, confirmed by direct AST
+   parse of `core/jones/__init__.py` (not a behavioral import): `JonesTerm`,
+   `JonesChain`, `JonesBaselineTerm`, `DirectionBatch`,
+   `evaluate_antenna_jones`, `geometric_phase`, and 13 concrete terms. All 28
+   `REMOVED_JONES_NAMES` (26 stubs + `GeometricPhaseJones` + the renamed
+   `CrosshandPhaseJones`) raise `AttributeError` on `getattr`, reproduced
+   directly for every one of the 28 names in a fresh interpreter; the
+   migration guide's "Removed Jones classes" table independently lists the
+   same 28 rows with a replacement for each. **PASS.**
+2. Every `term_status` property of the 13 concrete term classes was read
+   directly in source (`bandpass.py`, `crosshand.py`, `parallactic.py`,
+   `delay.py` x2, `gain.py`, `ionosphere.py`, `receptor.py` x2,
+   `polarization_leakage.py`, `troposphere.py`, `baseline_errors.py` x2):
+   every one returns the unconditional literal `"implemented"`; the base-class
+   `"planned"` default is reachable by no exported class.
+   `grep -rn '"planned"' src/radiosim/core/jones` finds it only in
+   docstrings/the abstract base default. **PASS.**
+3. `grep -rn "TODO: implement properly"`, `"Stub:"`, and `xp.eye(2` under
+   `src/radiosim`: zero hits, all three, reproduced directly. The one
+   `xp.eye`-adjacent hit (`chain.py`'s `batch_eye` seed) is the multiplicative
+   accumulator identity for an empty/finished chain product, not a term's
+   return value — read in context and confirmed structurally distinct.
+   **PASS.**
+4. `tests/unit/test_jones/test_term_contract.py` (111 tests) and the eleven
+   per-term unit files (`test_gain.py`, `test_bandpass.py`, `test_leakage.py`,
+   `test_crosshand.py`, `test_delay.py`, `test_parallactic.py`,
+   `test_ionosphere.py`, `test_troposphere.py`, `test_closure_error.py`,
+   `test_smearing.py`; 273 tests) reproduced directly, all green — these
+   exercise the citation/analytic-invariant/parity/effect-changes-visibility
+   shape per Section 31 for every term. Citations spot-read directly in
+   source: Ruze (1966) in `beam/runtime.py` and `beam_physics_scope.md`,
+   Carozzi & Woan (2011)/Ludwig (1973)/Hamaker-Bregman-Sault (1996) in the
+   same scope doc, Thompson-Moran-Swenson-style geometry in
+   `core/jones/geometric.py`/`visibility.py` docstrings (re-derived by hand at
+   7H, ratified again here by re-reading, not re-deriving twice). **PASS.**
+5. `test_every_declared_true_flag_is_numerically_true`,
+   `test_every_declared_false_flag_has_a_witness`, and
+   `test_the_identity_case_is_not_the_only_case_swept` (part of the 111 above)
+   reproduced directly, green — I2's non-vacuous negative-case requirement is
+   met. **PASS.**
+6. Reproduced by hand, fresh interpreter, not from the suite: `jones.G` with
+   `amplitude_error=0, phase_error_rad=0` raises
+   `IdentityJonesTermError: jones.G is configured with parameters that make it
+   exactly the identity...` at `Simulator.setup()`; `jones.M` with an all-ones
+   `2x2` matrix raises the same class with the `M`-specific message; `jones.Rc`
+   with `amplitude=0` raises `InvalidJonesConfigError` ("0 < |A| < 1... cannot
+   return more power than it receives"); `jones.Q` with both smearing kinds
+   `False` raises `InvalidJonesConfigError` ("remove the section instead").
+   Four independent by-hand rejections, all exact-message matches. **PASS.**
+7. `git diff 2bb9c32..HEAD -- src/ configs/` is empty (7J's own finding,
+   re-confirmed by this review), which is a logical guarantee stronger than a
+   digest re-hash; the full-suite run this review performed independently
+   (`pixi run test`, 5,332 passed, 1 skipped) includes
+   `test_shipped_default_config_fingerprint_is_unchanged`,
+   `test_shipped_circular_receptor_config_fingerprint_is_unchanged`, and the
+   hybrid additivity pin, all green. **PASS.**
+8. `tests/unit/test_tier7_jones_acceptance.py::
+   test_the_two_sky_paths_agree_with_every_implemented_term_enabled` (I14, the
+   point/HEALPix agreement with every implemented term at once) reproduced
+   directly as part of that module's 90/90 passing run. **PASS.**
+9. `tests/unit/test_jones/test_backend_parity.py::
+   test_point_path_parity_with_every_implemented_term[dask]`/`[jax]`
+   reproduced directly (part of a 212/212 passing run alongside
+   `test_chain_order.py` and `test_term_contract.py`); Dask tolerance is
+   `rtol=0, atol=0` (bit-identical) and JAX is `rtol=1e-12, atol=0`, read
+   directly from `_BACKEND_TOLERANCES` in the same file. Every per-term parity
+   case (Section 28's per-term requirement) passed as part of the full-suite
+   run. **PASS.**
+10. `grep -rn "backend.compile(" src/radiosim` finds exactly one call site,
+    `contraction.py:143`. `git diff --stat ac4fe41..HEAD --
+    src/radiosim/core/contraction.py` is empty — the compiled kernel's file is
+    byte-for-byte unchanged since the Tier 7 baseline. **PASS.**
+11. `tests/unit/test_jones/test_chain_order.py` (13 tests, non-commuting
+    synthetic terms) reproduced directly, green; `CANONICAL_CHAIN_ORDER` read
+    directly from `core/jones_terms.py` is exactly `("H","G","B","Rc","Kd","X",
+    "D","C","E","P","T","Z")`, matching CLAUDE.md's chain-order sentence and
+    Section 12.2's corrected order (`P` sky-side of `C`). **PASS.**
+12. `core/hybrid.py` was read directly: the `jones_terms` parameter now
+    defaults to `EMPTY_JONES_TERMS` (a `ResolvedJonesTerms` instance), not a
+    hard-coded `None`; no raw dict parameter survives anywhere in the solver
+    signatures (`jones_config=` is gone, confirmed by its absence from
+    `grep -rn "jones_config" src/radiosim` finding only docstring references
+    to its historical removal). **PASS.**
+13. `core/jones_terms.py::_compute_jones_sha256` was read directly: its
+    canonical payload is exactly `{schema_version, enabled_terms, chain_order,
+    term_snapshots, mount_types}` — no filesystem path field anywhere in it.
+    `core/result.py::_scientific_hash` was read directly: the Jones snapshot
+    is hashed into `scientific_sha256` only when non-empty (preserving I1),
+    and the hashed content is that same path-free payload. **PASS.**
+14. Confirmed directly: `io/hdf5.py`'s `SCHEMA_VERSION = "4.0.0"` and the
+    `jones/jones_sha256` (plus sibling `jones/*`) dataset paths exist in the
+    schema; `tests/integration/test_jones_end_to_end.py`'s
+    `test_a_configured_term_survives_setup_run_and_save` (24 parametrizations
+    including `"all"`) reproduced directly, round-tripping HDF5 and summary
+    JSON with the Jones group/block intact; MS/UVFITS writers accept a
+    Jones-corrupted cube unchanged (`test_the_standard_visibility_formats_
+    carry_the_corrupted_cube`, reproduced as part of the full suite).
+    **PASS.**
+15. `SolverExecutionConfig`/`ExecutionConfig.simulator: Literal["rime"]` read
+    directly in `io/config.py:1568`; `radiosim.simulator.__init__.py`'s
+    registry (`{"rime": RIMESimulator}`) has exactly that one key — the
+    literal and the registry agree by direct inspection, not by test alone.
+    `calculation_type` absent from `src/`, `configs/*.yaml` (grep, zero hits,
+    all four files checked), and `docs/user_guide/configuration.rst` (present
+    only as removed-field guidance, read directly). **PASS.**
+16. `tests/unit/test_jones/test_term_contract.py::
+    test_a_term_returns_the_dtype_it_was_handed` (parametrized `complex64`/
+    `complex128` across every swept term) and
+    `test_no_evaluation_path_hard_codes_a_complex_dtype` (a source-level AST
+    scan of exactly `JonesChain.compute_antenna_jones_batch` and
+    `_ReceptorTermBase.compute_jones_batch`) both reproduced directly, green.
+    Several term files do build a host-side `np.zeros(..., dtype=np.complex128)`
+    scratch block from Python floats before the final
+    `backend.xp.array(block, dtype=dtype)` cast (`gain.py`, `bandpass.py`,
+    `crosshand.py`, `delay.py`, `polarization_leakage.py`, `ionosphere.py`,
+    `troposphere.py`, `parallactic.py`) — read directly and confirmed to be
+    exactly Section 17.1's documented, tested pattern (a host-only Python-float
+    scratch that never reaches the backend/device before being cast to the
+    resolved dtype), not a hard-coded output dtype; the dtype-sweep test above
+    is the behavioral proof that the resolved `PrecisionConfig` dtype is what
+    actually crosses to the backend for every term. **PASS.**
+17. `CLAUDE.md` read directly at the current HEAD: its "Implementation Status"
+    section states every exported term implements real physics, names the
+    eleven configurable letters plus C/H/K/E, states cross-validation and
+    backend status accurately, and states `calculation_type`'s removal and
+    replacement by `execution.simulator` — matching source exactly, with no
+    "stub"/"scaffold"/"identity" language about any now-implemented term.
+    `README.md`, `docs/api/jones.rst`, `docs/user_guide/jones_matrices.rst`,
+    `docs/user_guide/jones_terms.rst` (1,280 lines, new in Tier 7), and
+    `docs/user_guide/configuration.rst` were grepped directly for
+    `scaffold`/`is a stub`/`returns.*identity`/`stub whose`/`not yet
+    implement`: zero hits in all five. **PASS.**
+18. `docs/development/beam_physics_scope.md` read in full: implements and
+    cites pointing offsets and Ruze efficiency (with the corrected IXR formula
+    and the voltage-vs-power Ruze convention both explained), and routes
+    exactly five items (cross-polarization models [quadrupolar, IXR, Ludwig-3],
+    aperture blockage, the Ruze error-beam decomposition, systematic
+    aberrations, and beam squint) to `SCI-005` with citations
+    (Carozzi & Woan 2011, Ludwig 1973, Hamaker/Bregman/Sault 1996,
+    Cotton & Uson 2008), plus the near/far-field regime recorded as a
+    permanent non-goal (not a `SCI-005` item, since it is not a capability gap
+    at all). `src/radiosim/core/jones/beam/TODO.md` confirmed absent
+    (`ls` fails). `tests/unit/test_core/test_beam_pointing.py` and
+    `test_beam_solver_integration.py`'s `test_pointing_and_ruze_are_backend_
+    parity_clean` reproduced as part of the full-suite run (I19). **PASS.**
+19. Tier-1 evidence (published closed forms evaluated independently in each
+    term's own test body; astropy/pyuvdata as independent references) is in
+    the standard gate, confirmed by the per-term test files above. Tier-2:
+    `pixi run --environment crossval -- python -m pytest
+    tests/crossvalidation/ -m crossval` reproduced directly by this review:
+    **4 passed**. The committed artifact
+    `output/crossvalidation/2026-08-02-pyuvsim-1.4.0.json` exists and is the
+    Tier-2 record; its two open findings (`SCI-006`, `SCI-007`) remain
+    recorded, not silently resolved. **PASS.**
+20. Reproduced directly by this review (not read off a slice's own numbers):
+    `pixi run test -- -m "not slow" -n 0` — **default/py311: 5,322 passed, 2
+    skipped, 10 deselected, 27 warnings** (453.51s); **py312: 5,322 passed, 2
+    skipped, 10 deselected, 41 warnings** (504.36s). The "2 skipped" (not 1) is
+    the already-diagnosed `-n 0`-only `--doctest-modules` double-collection of
+    the crossval module's `pytest.importorskip` (7J's own finding, re-confirmed
+    structurally unchanged); the same filter under `-n auto` reports 1 skipped,
+    per that diagnosis. `pixi run test` (full suite, default, `-n auto`):
+    **5,332 passed, 1 skipped, 27 warnings** (141.17s). `pixi run --environment
+    crossval -- python -m pytest tests/crossvalidation/ -m crossval`: **4
+    passed**. `pixi run bench`: **10/10 passed**. `pixi run lint`: all checks
+    passed. `pixi run check-format`: 372 files already formatted. `git diff
+    --check`: clean. `pixi run typecheck`: **2,583 errors <= the 4,600
+    ceiling** ("Strict Pyright error ceiling satisfied"). `pixi lock --check`:
+    up to date. `pixi install --locked` succeeded for `default`, `py312`, and
+    `crossval` (all three). Sphinx, forced clean-worktree rebuild (`-b html
+    -E`, a fresh detached worktree at `47df8fc`, no `docs/superpowers/`
+    contamination): **exactly 16 warnings** — the established baseline,
+    unchanged. All four shipped YAMLs validate via `radiosim validate`.
+    **PASS.**
+
+**§38 dispositions.**
+
+- **`SCI-001` -> DONE.** Criteria 1-6, 11, 12, 16 above all independently
+  reproduced and passing. The per-term evidence (citation, invariant test,
+  parity case, I7-class effect-changes-visibility test) exists for all eleven
+  newly-implemented terms plus the pre-existing C/H, verified via the 111-test
+  `test_term_contract.py` module and the 273 per-term tests, both reproduced
+  green in this review. The 26-stub + `GeometricPhaseJones` + renamed
+  `CrosshandPhaseJones` = 28-name removal ledger is in `docs/migration_guide.md`
+  with a replacement line for each, independently counted (28 rows) and
+  cross-checked against `REMOVED_JONES_NAMES` (28 entries, same set). Three
+  rejections reproduced by hand in this review (`G`, `M`, `Rc`) plus one
+  invariant reproduced directly (I11's closure-phase delta,
+  `test_a_closure_error_changes_the_closure_phase_by_the_predicted_amount`).
+  Closure text: *every exported Jones class implements real physics; twenty-six
+  speculative stubs were removed rather than implemented, each with a
+  documented replacement; no public term multiplies by identity.*
+- **`SCI-002` -> DONE**, by absence from accepted config. Criterion 15
+  reproduced (registry-equality, `calculation_type` absent from source, all
+  four shipped configs, and the documentation). R1's removed-field guidance
+  reproduced directly (`io/config.py:2205-2208`'s exact rejection text read in
+  source). `SCI-004` filed above as the named successor. Closure text: *closed
+  by removal of the unimplemented option and of its unhonored sibling value
+  from the public configuration surface; `execution.simulator` is the single
+  solver selector and accepts only `rime`; the m-mode solver is filed as
+  `SCI-004`.*
+- **`SCI-003` -> DONE.** Criterion 18 reproduced: two items implemented and
+  analytically verified (pointing offsets — the great-circle/keyhole/horizon
+  invariants re-read and cross-checked against 7I's independent re-derivation;
+  Ruze efficiency — the voltage/power-square convention re-checked by hand:
+  `exp(-(1/2)(4pi*sigma/lambda)^2)` squared over a like-antenna baseline gives
+  exactly the published power ratio `exp(-(4pi*sigma/lambda)^2)`), five items
+  scoped with citations in `docs/development/beam_physics_scope.md`, and
+  `SCI-005` filed above as their owner. The in-package `TODO.md` confirmed
+  absent. Closure text: *two items implemented and analytically verified
+  (pointing offsets, Ruze efficiency), five given explicit scientific scope
+  with citations in a tracked scope document, and `SCI-005` filed as their
+  owner. The in-package `TODO.md` no longer exists.*
+
+**Scientific spot-checks, reproduced independently (not re-reading a slice's
+own derivation).** (a) `M`'s closure-phase invariant (I11):
+`test_a_closure_error_changes_the_closure_phase_by_the_predicted_amount` and
+`test_a_closure_error_is_not_expressible_as_any_pair_of_antenna_gains`, both
+reproduced directly and green — a per-antenna gain cannot reproduce `M`'s
+effect on closure phase, confirming `M` is genuinely non-factorizable into
+antenna terms. (b) R7 identity-rejection, reproduced by hand for `G`
+(`amplitude_error=0, phase_error_rad=0`), `M` (all-ones matrix), `Rc`
+(`amplitude=0`), and `Q` (both smearing kinds `False`) — four independent
+fresh-interpreter probes, all raising the documented exception classes and
+messages. (c) The Ruze voltage/power convention re-derived by hand (above) and
+matches `beam/runtime.py::ruze_voltage_factor`'s literal
+`exp(-0.5 * argument**2)`. (d) `test_term_contract.py`'s full 111-test module
+(I2, I17, direction-batch shape contracts) and `test_chain_order.py`'s 13
+tests (I6, the corrected chain order with non-commuting synthetic terms) both
+reproduced directly, green. (e) `test_tier7_jones_acceptance.py`'s full 90-test
+module (I1, I14, I16, I18, I20, and the whole-tier residual scans) reproduced
+directly, green.
+
+**CI observation.** `gh run view` for the exact acceptance SHA, `47df8fc`
+(run `30725507865`, triggered by the 7J acceptance push): **all eight jobs
+green** — `NumPy/JAX-CPU backend parity`, `Lint, metadata, types, and docs`,
+`linux-64 / Python 3.11`, `linux-64 / Python 3.12`, `osx-arm64 / Python 3.11`,
+`osx-arm64 / Python 3.12`, `osx-64 / Python 3.11` (14m6s), `osx-64 / Python
+3.12` (13m40s) — confirmed by polling the run to completion rather than
+reading a snapshot mid-run. This satisfies the binding CI-on-exact-SHA
+requirement the Tier 6J rejection/re-run precedent established (Fix.md,
+2026-07-31). One transient, adjudicated-not-rejected data point was found
+while reviewing recent history: the immediately preceding push (the
+test-infrastructure integration, run `30719161877`) failed its `linux-64 /
+Python 3.11` job with five `AssertionError`s reading "digest not among those
+recorded for environment linux-64-py311" against a runner reporting `cpu
+model: 'Intel(R) Xeon(R) 6973P-C'` — a fingerprint-observation gap (a new
+GitHub-hosted runner CPU model whose vectorized floating-point behavior has
+never been harvested into the pinned digest set), not a correctness
+regression: every other test in that run passed (`5 failed, 5254 passed`),
+`src/` was empty in that commit's diff, and the very next push's `linux-64 /
+Python 3.11` job (run `30722411377`, the 7I acceptance) succeeded cleanly —
+confirming this was a one-off runner assignment rather than a persistent
+break. Per §21/§27's observation-set discipline and the Tier 6J-repair
+precedent (new architecture/runner fingerprints are harvested, not silently
+loosened, and a not-yet-harvested value is adjudicated rather than an
+automatic rejection when it does not reproduce on the acceptance SHA itself),
+this is recorded here as an honest, non-blocking observation: it did not
+recur on `47df8fc`, and no `src/`-touching commit was implicated.
+
+**Inter-record consistency.** All eleven prior acceptance records (7 design,
+7A-7J, the test-infrastructure integration) were read in this review; each
+independently re-derived its own claims from source per its own writable
+list, each names what it did and did not observe, and no contradiction was
+found among them. Every plan correction referenced by a slice record
+(`5578cc3`, `79d392d`, `ca02f00`, `68458da`, `76929e8`, and the 7E/7F/7G/7H/7I/
+7J corrections) is reflected in the plan's current status header, read
+directly. Two slices' Section 34 grants were spot-checked against their
+landed diffs: 7H (23 files, matching the corrected 7H writable list exactly,
+confirmed by `git diff --stat d4d1019..de0e313`) and 7I (the two forced
+additions — `test_beam_fits.py` and `core/__init__.py` — both ratified in the
+7I record and confirmed present/consistent here).
+
+**Register.** `SCI-001`, `SCI-002`, `SCI-003` flipped to **DONE** above, with
+the exact closure text §38 requires. `SCI-004` (m-mode/spherical-harmonic
+solver) and `SCI-005` (advanced beam physics beyond scalar `E`) filed as new
+**ROADMAP** rows above, per §38. `SCI-006` and `SCI-007` (filed at 7J) remain
+**OPEN** — they are successor findings from cross-validation, not Tier 7
+exit criteria, and this review did not attempt to close either. `SKY-002` and
+`PERF-001` are untouched.
+
+**Unobserved items, stated honestly.** GPU/TPU/distributed hardware: none
+exercised, none claimed anywhere in this review or in the tier it accepts.
+`linux-64` and `osx-64` execution: not run locally in this environment
+(`osx-arm64` only, matching every prior tier's acceptance pattern in this
+file); the CI observation above is this review's evidence for those two
+platforms, and it is by exact-SHA run inspection, not a local reproduction.
+The `crossval` pixi environment's `pyuvsim 1.4.0` comparison was authored and
+is reproduced here only on `osx-arm64`; the committed artifact itself
+discloses that scope. `SCI-006` (the Stokes-`Q` sign disagreement) and
+`SCI-007` (the residual sub-degree frame rotation) are not resolved by this
+review — both are explicitly out of Tier 7's own exit criteria (they are
+findings *about* the comparison, not gaps in the tier's stated deliverables)
+and remain open successor work. The exact mechanism behind the crossval
+artifact's disputed `0.200`-degree figure (7J's own unresolved sub-finding)
+is not re-investigated here. Physical GPU validation, live network validation,
+and any remote/registry/publishing operation: none performed, none claimed,
+consistent with §40's explicit exclusions.
+
+**Disposition.** Tier 7 is **ACCEPTED as a whole**. `SCI-001`, `SCI-002`, and
+`SCI-003` close **DONE**. `SCI-004` and `SCI-005` are filed as their named
+successors. `SCI-006` and `SCI-007` stay **OPEN**, unresolved by design. The
+plan's status header and an acceptance appendix are updated in
+`Tier7JonesSciencePlan.md` to record whole-tier acceptance and to name Tier 8
+design as the next authorized roadmap item. Acceptance commit:
+`docs(jones): accept Tier 7 integration`. Not pushed.

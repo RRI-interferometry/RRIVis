@@ -98,7 +98,19 @@ absorbed as a footnote, following the `SKY-002` precedent; the 6I-routed
 changelog GPU-claim defect was ruled discharged by the historical-note
 treatment rather than left open for Tier 8; no decision changed; see
 `Fix.md`'s 2026-08-02 "Tier 7J independent acceptance" note for the full
-record). Slice **7K is authorized**.**
+record). Slice **7K is accepted, and Tier 7 is accepted as a whole**
+(2026-08-02, independent whole-tier review; all twenty Section 37 criteria and
+the Section 38 closure evidence for `SCI-001`, `SCI-002`, and `SCI-003` were
+independently re-proved from current source and fresh empirical probes, not
+read off a prior slice's claim; `SCI-004` (m-mode/spherical-harmonic solver)
+and `SCI-005` (advanced beam physics beyond scalar `E`) were filed as the named
+successor rows; `SCI-006` and `SCI-007` (filed at 7J) stay `OPEN`, being
+successor cross-validation findings rather than Tier 7 exit criteria; CI on
+the exact acceptance SHA `47df8fc` was polled to completion and is green on
+all eight jobs; no decision changed and no defect was found; see `Fix.md`'s
+2026-08-02 "Tier 7 whole-tier acceptance (Tier 7K)" note for the full record).
+Tier 7 is closed. The next authorized work, per the roadmap, is **Tier 8
+design**.**
 
 This document is the governing implementation specification for Tier 7 of the
 RadioSim remediation program, defined by [`Fix.md`](Fix.md) Section 16
@@ -4183,3 +4195,37 @@ channels with three different declared widths, where the per-channel smearing
 tracks each channel's own width and not the spacing — and recorded in
 `docs/user_guide/jones_terms.rst`. `dt` is the same story one axis over:
 `ObservationTimeGrid.integration_time_seconds` is a resolved per-sample array.
+
+## 42. Tier 7 whole-tier acceptance appendix (Tier 7K, 2026-08-02)
+
+This appendix records the outcome only; the full evidence lives in `Fix.md`'s
+2026-08-02 "Tier 7 whole-tier acceptance (Tier 7K)" entry, and is not
+duplicated here per Section 34's 7K writable list ("an acceptance appendix
+only, never a rewrite of the design").
+
+**Verdict: ACCEPTED.** All twenty Section 37 criteria hold, independently
+reproduced from source and fresh empirical probes at HEAD `47df8fc`. Section
+38's closure evidence is satisfied for all three register rows:
+
+- `SCI-001` (Jones identity stubs) — **DONE**. Nineteen names exported, all
+  thirteen concrete terms `"implemented"`, twenty-eight names removed with a
+  documented replacement each, zero stub markers anywhere in `src/`.
+- `SCI-002` (spherical-harmonic/m-mode mode) — **DONE**, by absence.
+  `execution.simulator` accepts only `rime`, matching the one-entry simulator
+  registry; `calculation_type` is gone from the schema, the four shipped
+  configs, and the documentation. `SCI-004` is filed as the named successor.
+- `SCI-003` (advanced beam-physics TODOs) — **DONE**. Pointing offsets and
+  Ruze efficiency are implemented and analytically verified; the remaining
+  five items are scoped with citations in `docs/development/beam_physics_
+  scope.md`; `SCI-005` is filed as their owner; the in-package `TODO.md` is
+  gone.
+
+CI on the exact acceptance SHA (`47df8fc`, run `30725507865`) is green on all
+eight jobs (quality, backend parity, and all six locked OS/Python cells),
+polled to completion rather than read mid-run. `SCI-006` and `SCI-007`
+(filed at 7J) remain `OPEN` as successor cross-validation findings, not Tier 7
+exit criteria.
+
+Tier 7 is closed. Per the roadmap, the next authorized work is **Tier 8
+design** — this plan's own scope ends here, and no future tier's design work
+is authorized by this document.
