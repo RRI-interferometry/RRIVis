@@ -30,26 +30,32 @@ jobs:
             runner: ubuntu-24.04
             python: "3.11"
             environment: default
+            key: linux-64-py311
           - platform: linux-64
             runner: ubuntu-24.04
             python: "3.12"
             environment: py312
+            key: linux-64-py312
           - platform: osx-64
             runner: macos-15-intel
             python: "3.11"
             environment: default
+            key: osx-64-py311
           - platform: osx-64
             runner: macos-15-intel
             python: "3.12"
             environment: py312
+            key: osx-64-py312
           - platform: osx-arm64
             runner: macos-15
             python: "3.11"
             environment: default
+            key: osx-arm64-py311
           - platform: osx-arm64
             runner: macos-15
             python: "3.12"
             environment: py312
+            key: osx-arm64-py312
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -79,7 +85,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          RECORD_ARTIFACT: characterization-${{ matrix.platform }}-py${{ matrix.python }}
+          RECORD_ARTIFACT: characterization-${{ matrix.key }}
         run: |
           mkdir -p output/characterization
           previous="$(gh run list --workflow "${{ github.workflow }}" \
@@ -116,7 +122,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: characterization-${{ matrix.platform }}-py${{ matrix.python }}
+          name: characterization-${{ matrix.key }}
           path: output/characterization/
           if-no-files-found: warn
           retention-days: 30

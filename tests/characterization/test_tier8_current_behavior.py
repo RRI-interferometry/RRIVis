@@ -586,20 +586,26 @@ def test_ci_surfaces_the_ci_001_evidence_that_the_runner_would_discard() -> None
     assert "gh run download" in workflow, "no reference cube is ever restored"
     assert "actions: read" in workflow, "gh run download needs the actions scope"
 
-    # The artifact name must key on the same two facts the environment key
-    # does, or one cell would restore another cell's cubes.
-    assert "characterization-${{ matrix.platform }}-py${{ matrix.python }}" in workflow
-
     from tests.characterization.test_tier6_current_behavior import (
-        _ENVIRONMENT_KEY,
+        _MEASURED_ENVIRONMENTS,
         _RECORD_DIR_ENV,
+    )
+
+    # The artifact is named for the matrix cell's ``key``, and those keys are
+    # spelled exactly like the pins' own environment keys -- so an artifact
+    # downloaded from a failing run can be matched to the digest table it
+    # disagreed with, and no cell can restore another cell's cubes.
+    assert "characterization-${{ matrix.key }}" in workflow
+    declared = set(re.findall(r"^\s+key: (\S+)$", workflow, re.MULTILINE))
+    assert declared == set(_MEASURED_ENVIRONMENTS), (
+        f"the workflow matrix keys {sorted(declared)} are not the six "
+        f"characterized environments {sorted(_MEASURED_ENVIRONMENTS)}"
     )
 
     assert _RECORD_DIR_ENV not in workflow, (
         "the record directory is left at its default, so the uploaded path and "
         "the written path cannot drift apart"
     )
-    assert _ENVIRONMENT_KEY.count("-py") == 1, "the artifact name mirrors this shape"
 
 
 # ---------------------------------------------------------------------------
