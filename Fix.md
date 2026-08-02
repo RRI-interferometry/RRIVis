@@ -14222,3 +14222,210 @@ appetite, and whether the notebook is executed in CI.
 
 No source, test, configuration, documentation, or CI file was changed by this
 gate. Design commit: `docs(release): plan Tier 8 reconciliation`. Not pushed.
+
+
+### 2026-08-02 Tier 8 design acceptance
+
+Independent adversarial review of `Tier8ReleasePlan.md` at `785d576`,
+performed against `main` (`src/` and `tests/` at `785d576` are byte-identical
+to `47df8fc`, the last commit with a green CI run — the design gate itself,
+like `95a937e` before it, touches only `Fix.md` and `Tier8ReleasePlan.md`).
+**Verdict: ACCEPTED, with eleven bounded factual corrections applied before
+acceptance (`docs(release): correct Tier 8 design`, `13b59f3`); no decision
+changed. Slice 8A is authorized to begin.**
+
+**Per-`DOC`-row verdicts (§6) — all re-verified true at HEAD.** `DOC-001`:
+the script's argparse defines exactly `--config`/`--backend`/`--progress`
+(`examples/scripts/simple_simulation.py:16-34`); `examples/README.md`
+documents four flags that do not exist (`--no-plot` at `:13` and `:30`,
+`--save --output-dir` at `:19-20`, `--plot --output-dir` at `:22-23` —
+corrected from the plan's original `:29`) and still offers "Numba" at `:49`
+(corrected from `:48`). `DOC-002`/`DOC-003`: `generate_baselines` and
+`GeometricDelayJones` confirmed zero hits in `README.md`/`docs/`/`examples/`/
+`src/` by direct `git grep`. `DOC-004`: `README.md:408` says "Three shipped
+YAML samples" against four files in `configs/`, confirmed by `ls`. `DOC-005`:
+README's backend section re-verified claim-by-claim against
+`output/benchmarks/reference/20260731T104303Z-darwin-arm64.json` (the 3.01x
+ratio, the `1.7e-11`/`5.2e-9` deviation pair, `accelerator: "none"` in all
+eight records); `pyproject.toml` confirmed still shipping `gpu`/`gpu-cuda`/
+`gpu-rocm`/`tpu` extras at exactly `:61,67,72,77` and the `"gpu"` keyword at
+`:20`. `DOC-006`: `git check-ignore -v project.md` → `.gitignore:125`;
+`git log --all -- project.md` empty; `project.md` independently confirmed
+1238 lines, RRIVis-titled, GPU-claiming. `DOC-007`: `AGENTS.md:4`'s Hugging
+Face sentence is the sole live reference; `huggingface_space/` confirmed
+removed at `3266746`. `DOC-008`: `.github/workflows/ci.yml` confirmed 127
+lines, three jobs (`compatibility` `:16-68`, `backend-parity` `:69-96`,
+`quality` `:97-127` — the plan's original ranges were each off by several
+lines and are corrected), eight jobs total, no `continue-on-error`; test
+inventory reproduced exactly (`5332 tests collected`, 154/7/2/1/1 files
+across `unit`/`characterization`/`integration`/`performance`/`crossvalidation`).
+
+**The CI-001 characterization — independently reproduced from `gh`, not
+taken from the plan's prose.** `gh run view 30726145633` confirms `headSha
+95a937e...`, `conclusion: failure`; `gh run view 30725507865` confirms
+`headSha 47df8fc...`, `conclusion: success`; `git diff --stat 47df8fc..95a937e`
+touches only `Fix.md` and `Tier7JonesSciencePlan.md`, and
+`git diff --stat 47df8fc..95a937e -- src/ tests/` is empty — the tree really
+is byte-identical. The red run's failing job (`linux-64 / Python 3.11`) shows
+exactly the five named characterization tests failing with "digest not among
+those recorded", each `_assert_pinned_digests` message containing a
+`measured`/`recorded` hex pair. The measured `scientific_sha256` for
+`config.yaml` (`89f38f62...`) is byte-identical across three separate CI runs
+(`30726145633`, `30719161877`, `30705549269`) on three different CPU models
+from two vendors (AMD EPYC 9V74, Intel Xeon 6973P-C, Intel Xeon Platinum
+8573C) — confirmed directly from each run's failure log, not asserted. The
+module's own stated discriminator (dispatched vector feature set) is
+independently falsified: the AMD run's `numpy dispatched features` list omits
+`AVX512FP16`/`AVX512_SPR`, present in both Intel runs' lists, yet all three
+produce the identical digest. `_machine_fingerprint()` (`test_tier6_current_
+behavior.py:413-437`) is confirmed called only inside `_assert_pinned_digests`'s
+`pytest.fail` branch (`:491`) — it cannot fire on a pass — and `git log -S`
+confirms it was added in `e5b20d1`, after the original `linux-64-py311` pin
+was harvested (`bfe3edc`), so the claim "no record exists of what a passing
+runner was" holds. `gh run list --limit 25` reproduces exactly **11 failures
+of 25**, and every one of the eleven is confirmed the same pin-family failure
+(`test_tier6_current_behavior.py` fingerprint assertions), including the
+pre-repair multi-job failures from the Tier 6J rejection window. The "never
+grows to make a failure go away" rule is confirmed verbatim at
+`test_tier6_current_behavior.py:271-273`, and the four prior append commits
+(`e3f1987`, `1c90d81`, `e5b20d1`, `0ce72e4`) are confirmed real, each doing
+exactly what the plan says. Package/dependency drift was independently ruled
+out for the failing job specifically (not just in general): `libblas`,
+`libopenblas`, and `astropy-iers-data` versions on `linux-64 / Python 3.11`
+are identical between the red and green runs' installed-package logs.
+
+**Adjudication 1 — the plan's posture (file `CI-001`, unconditional
+fingerprint emission, numeric deltas, refuse a fifth reflex append) is
+correct and is ratified.** The Tier 6J re-run precedent (`Fix.md`, `2026-07-31
+Tier 6 whole-tier acceptance`) establishes exactly this discipline for this
+exact codebase: a genuinely new digest is adjudicated and recorded only on
+reviewed CI evidence explaining *why* it is a machine class and not a
+regression, never appended reflexively because a failure recurs. Here the
+discriminator the module itself relies on (dispatched CPU features) is now
+demonstrably wrong, which is a stronger reason to refuse a fifth append than
+existed for any of the four prior ones — appending now would record an
+observation under a rationale already known to be false, which is precisely
+what `test_tier6_current_behavior.py:271-273` and `Fix.md` §4.2 forbid. The
+alternative (append now to go green) would trade a truthful gate for a
+convenient one at the exact tier whose purpose is ending that trade. The
+plan's conditional (append only if a future numeric probe shows ULP-scale
+divergence, per Q3) is the correct middle path and is not decided here,
+correctly, since 8D's instrumentation does not yet exist.
+
+**Adjudication 2 — the red run at HEAD does NOT block this design-gate
+acceptance.** `785d576`'s own tree (design-gate commit) is `Fix.md` +
+`Tier8ReleasePlan.md` only, identical in `src/`/`tests/` to `47df8fc`
+(verified above) and to `95a937e`. This acceptance's own corrections commit
+(`13b59f3`) is `Tier8ReleasePlan.md`-only. Neither commit can touch the
+fingerprint path; the redness is `CI-001`, a pre-existing, already-diagnosed
+phenomenon on an unrelated CPU-dispatch axis, not a defect introduced by this
+design or its correction. A design gate that adds no source or test change
+is not required to wait on an unrelated CI leg to be reviewable — the
+precedent for this is Tier 7's own design gate, accepted while `main` carried
+open `SCI-006`/`SCI-007` rows. **Slices 8A onward remain bound by criterion
+16 and gate 22: each slice's own CI run, by run ID, must be reported
+honestly, and a `CI-001` recurrence on a slice's own SHA must be distinguished
+from that slice's own defect** (Risk 4, already in the plan) — that
+discipline applies going forward, starting at 8A, not retroactively to this
+design-only commit.
+
+**`SKY-002` design — verified sound and bounded.** `registry/core.py:202`
+confirmed `network_service: str | None = None`; `facade.py:49,136-141` and
+`catalogs.py:87,127,195,280` confirmed mirroring it; `recipes/
+realistic_foreground.py:277-297`'s `register_loader` call confirmed to pass
+no `network_service`, and `:390,410` confirmed calling `_load_diffuse`/
+`_load_bright_catalog`. `catalogs.py:473`'s `"pygdsm_data"` and the `"vizier"`
+token used by `loaders/vizier/core.py:219` and `inspect.py:217` confirmed as
+the two real tokens the widened declaration must use — the plan's claim that
+the recipe's declaration would be "identical to what `gleam` already
+declares" is grounded in the same `"vizier"` string. The tuple-widening
+design (`network_service` → `network_services`, no compatibility shim) is a
+correct, minimal, pre-v1-consistent fix.
+
+**Version-bump safety — verified exactly.** `core/result.py:789` (`_scientific_
+hash`), `:844` (`_provenance_hash`), and `:857` (`_hash_json(digest,
+"package_version", ...)`, inside `_provenance_hash`) confirmed at the cited
+lines. A repository-wide search for a literal `provenance_sha256 ==` pin
+found only relative round-trip/identity comparisons, never a fixed hex
+string. `test_release_metadata.py:89` confirmed testing exactly the five
+claimed sources (`pyproject.toml`, `pixi.toml`, `__about__.py`, `docs/conf.py`
+`version`+`release`, `radiosim.__version__`). The bump is safe as designed;
+Q1 is correctly left to the user.
+
+**Findings spot-checks.** The §17-item-15 over-inclusion claim is confirmed:
+`test_output_atomicity.py:330` rglobs a `tmp_path`-derived `.ms` directory
+(`:320-333`) and `test_result_plots.py:247` rglobs `tmp_path / "plots"`
+(`:242`) — neither can admit a repository file. The raw `git grep -n rglob --
+tests` count is **22 sites in 13 files** and the converted/hardening set is
+**20 sites in 11 files** (both corrected from the plan's original 21/12 and
+19/10 — the underlying Section 12 table was already complete and correct;
+only the plan's summary prose undercounted by one throughout). `CLAUDE.md`'s
+three defects confirmed exactly (`:200` MyPy vs. the real Pyright command at
+`pixi.toml:20`, corrected from `:19`; `:181`'s absent `writers.py`, confirmed
+absent from `src/radiosim/io/`; `:216`'s stale `TODO`, confirmed discharged
+at `docs/contributing.rst:46`). `--doctest-modules` confirmed dead:
+`pytest --collect-only --doctest-modules` still collects exactly 5332 items,
+identical to a bare collect, because `testpaths = ["tests"]` at
+`pyproject.toml:137` never reaches `src/`. `git submodule status | wc -l`
+confirmed **41**. The stale-naming inventory is confirmed **9 hits in 4
+tracked files** at `95a937e`, but the plan's own disposition table only
+summed to 5 hits (its `Fix.md` row said "1" where the file actually carries
+five hits at `:224,874,1609,6465,11624`) — corrected so the table now sums to
+the stated total. The FITS `COMMENT` card claim required accounting for
+`antenna_layout_examples/1101503312_metafits.fits` being Git-LFS-tracked
+(`git show` alone returns only the LFS pointer text); the working-tree
+file's own SHA-256 matches the commit's recorded LFS `oid` exactly, and its
+resolved content does contain `COMMENT Example MWA metafits file for RRIVis
+testing` — the claim holds, just not reproducible by a naive `git grep` on
+the committed blob.
+
+A Sphinx `-W --keep-going` build was independently reproduced in a fresh
+detached worktree at `785d576` with no `docs/superpowers/` present: **16
+warnings**, matching the plan's baseline exactly, and its categorization
+(10 docstring/1 toc/1 theme-option/3 highlighting/1 myst-xref) matches with
+one correction — `polarization.py`'s `jones_matrix_power` docstring produces
+**five** `|...|`-substitution warnings, not four (the docstring's `|E|`,
+`|J_Xθ|`, `|J_Xφ|`, `|J_Yθ|`, `|J_Yφ|` are each flagged; the plan's "10 total"
+row sum was already correct, only its per-item breakdown was off by one).
+`docs/api/jones.rst` was independently confirmed to carry **16** `automodule`
+directives, not fifteen.
+
+**Slice quality.** The six slices (8A-8F) have exhaustive, disjoint writable
+lists, tests-first sequencing (8A pins current behavior before any slice
+changes it), and named exclusions consistent with §4.1. The five gated
+questions (Q1-Q5) are each phrased as a genuine user decision with a stated
+default and consequence, and none blocks 8A, matching the plan's own claim.
+`Fix.md` §17's fifteen implementation items all map into the plan: items 1-6,
+9-14 map directly to named sections/slices/criteria; item 7 (`project.md`) to
+§15.1/Q2; item 8 (`huggingface_space/`) to §15.2; item 15 to §12/criterion 11,
+using the corrected 20-site/11-file inventory. `docs/api/`'s `io.rst`
+(confirmed to cover exactly nine `io/` modules via a mix of `autofunction`/
+`autoclass`/`automodule` directives, not `automodule` alone) supports the
+plan's "nine `io/` modules" claim once all directive types are counted, so no
+correction was needed there.
+
+**Process conformance.** `git show 785d576 --stat` confirmed exactly two
+files (`Fix.md` +149, `Tier8ReleasePlan.md` +1286 new); the `Fix.md` diff is
+a pure append (zero `-` lines) of one `### 2026-08-02 Tier 8 documentation and
+release reconciliation design gate` note, with no register-row edits and no
+acceptance-record language; the commit message carries no co-author line;
+§4's seven not-claim statements are consistent with the plan's own prose
+(the one raw speed figure it states, "3.01x", is cited to the benchmark
+record in the same paragraph, satisfying its own scan rule 7).
+
+**Corrections applied** (`13b59f3`, `docs(release): correct Tier 8 design`,
+no decision changed): examples/README.md's line count (49→51) and two flag
+citation lines (:29→:30, :48→:49, three total occurrences across §5.1/§6);
+the `jones_matrix_power` substitution count (four→five); the `jones.rst`
+autodoc count (fifteen→sixteen); `pixi.toml`'s typecheck-task line (:19→:20);
+`ci.yml`'s three job line ranges (16-73/75-98/100-127 → 16-68/69-96/97-127);
+the raw and converted rglob-site inventory (21/12 and 19/10 → 22/13 and
+20/11, four occurrences); and the `Fix.md` row of the RRIVis stale-naming
+table (1 hit → 5 hits, matching the stated 9-hit total).
+
+Tier 8's design is sound: the CI-001 characterization is the most rigorously
+evidenced finding reviewed in this program to date (independently reproduced
+from `gh` run logs, byte-level tree diffs, and source, not taken on the
+plan's word), the SKY-002 and version-bump designs are minimal and verified
+safe, and the eleven corrections are citation-level, touching no decision,
+no slice scope, and no closure criterion. **Slice 8A is authorized.**

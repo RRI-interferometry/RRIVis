@@ -3,12 +3,18 @@
 ## 1. Identity, status, and governing sources
 
 **Status: design authored 2026-08-02 on clean `main` at `95a937e`
-(`docs(jones): accept Tier 7 integration`). Not yet independently accepted.
-No slice is implemented. Tier 7 is accepted as a whole (Tier 7K, 2026-08-02);
-`SCI-001`, `SCI-002`, `SCI-003` are `DONE`; `SCI-004`, `SCI-005` are filed
-`ROADMAP`; `SCI-006`, `SCI-007` stay `OPEN`; `PERF-001` stays `ROADMAP`;
-`SKY-002` is `OPEN` and is **absorbed by this tier** (Section 13). Tier 8 is
-the final tier of the remediation program defined by `Fix.md`.**
+(`docs(jones): accept Tier 7 integration`). Design accepted 2026-08-02 by
+independent review, with eleven bounded citation/count corrections applied
+(`docs(release): correct Tier 8 design`, `13b59f3`) and no decision changed;
+see `Fix.md`'s 2026-08-02 "Tier 8 design acceptance" note for the full
+record, including the CI-001 adjudication and the ruling that the red run at
+`95a937e`/HEAD does not block this design-gate acceptance. No slice is
+implemented; **8A is authorized to begin.** Tier 7 is accepted as a whole
+(Tier 7K, 2026-08-02); `SCI-001`, `SCI-002`, `SCI-003` are `DONE`; `SCI-004`,
+`SCI-005` are filed `ROADMAP`; `SCI-006`, `SCI-007` stay `OPEN`; `PERF-001`
+stays `ROADMAP`; `SKY-002` is `OPEN` and is **absorbed by this tier**
+(Section 13). Tier 8 is the final tier of the remediation program defined by
+`Fix.md`.**
 
 This document is the governing implementation specification for Tier 8,
 defined by [`Fix.md`](Fix.md) Section 17 ("Tier 8 — Documentation and release
