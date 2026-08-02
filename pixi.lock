@@ -27622,11 +27622,8 @@ packages:
   - pympler>=1.0
   - rich>=13.0
   - click>=8.0
-  - jax>=0.4.20 ; extra == 'gpu'
-  - jaxlib>=0.4.20 ; extra == 'gpu'
-  - jax[cuda12]>=0.4.20 ; extra == 'gpu-cuda'
-  - jax[rocm]>=0.4.20 ; extra == 'gpu-rocm'
-  - jax[tpu]>=0.4.20 ; extra == 'tpu'
+  - jax>=0.4.20 ; extra == 'jax'
+  - jaxlib>=0.4.20 ; extra == 'jax'
   - dask[complete]>=2024.1.0 ; extra == 'dask'
   - python-casacore>=3.5 ; extra == 'ms'
   - xarray>=2023.1 ; extra == 'ms'
@@ -27640,7 +27637,7 @@ packages:
   - sphinx-rtd-theme>=2.0 ; extra == 'docs'
   - myst-parser>=2.0 ; extra == 'docs'
   - numpydoc>=1.6 ; extra == 'docs'
-  - radiosim[gpu,dask,ms,dev,docs] ; extra == 'all'
+  - radiosim[jax,dask,ms,dev,docs] ; extra == 'all'
   requires_python: '>=3.11'
 - pypi: https://files.pythonhosted.org/packages/1b/b4/116a78a309c975c05f69e6d26208d8e607fb84de8f0fa0090306d3cc63f0/ephem-4.2.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
   name: ephem

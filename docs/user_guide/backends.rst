@@ -249,12 +249,13 @@ dependencies only:
 
 .. code-block:: bash
 
-   pip install radiosim[gpu]       # JAX for supported platforms
-   pip install radiosim[gpu-cuda]  # JAX with CUDA
+   pip install radiosim[jax]       # JAX for supported platforms
    pip install radiosim[dask]      # NumPy/Dask backend
 
 The pixi environments declare a **CPU-only** ``jax``/``jaxlib`` so the
 NumPy/JAX parity evidence above is actually measured rather than skipped. The
-CUDA and ROCm extras exist for users who supply their own hardware; RadioSim
-has not measured them, and installing one does not change any statement on this
-page.
+device-named ``gpu``, ``gpu-cuda``, ``gpu-rocm`` and ``tpu`` extras were
+removed before ``0.3.0``: RadioSim has measured no accelerator (``PERF-001``),
+so an installable extra named for one advertised a capability this page
+explicitly does not claim. A user with their own accelerator hardware installs
+the vendor's JAX wheel directly, and nothing on this page changes when they do.

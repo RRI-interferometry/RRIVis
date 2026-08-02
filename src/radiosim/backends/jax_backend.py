@@ -112,10 +112,10 @@ class JAXBackend(ArrayBackend):
             raise BackendNotAvailableError(
                 "JAX not installed. Every pixi environment declares a CPU-only\n"
                 "jax/jaxlib, so `pixi install` is the supported fix. Outside pixi:\n"
-                "  pip install radiosim[gpu]        # Generic\n"
-                "  pip install radiosim[gpu-cuda]   # NVIDIA CUDA\n"
-                "  pip install radiosim[gpu-rocm]   # AMD ROCm\n"
-                "  pip install radiosim[tpu]        # Google TPU"
+                "  pip install radiosim[jax]\n"
+                "There is no device-named extra: RadioSim has measured no\n"
+                "accelerator, so a CUDA, ROCm or TPU build is the vendor's JAX\n"
+                "wheel, installed directly."
             )
 
         # RadioSim's standard precision is float64/complex128. JAX disables

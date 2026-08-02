@@ -21,12 +21,13 @@ Backend extras install optional JAX or Dask dependencies:
 
 .. code-block:: bash
 
-   pip install radiosim[gpu-cuda]
-   pip install radiosim[gpu]
+   pip install radiosim[jax]
    pip install radiosim[dask]
 
 These extras make backend implementations available when the platform is
-supported. RadioSim has measured no accelerator, so none of them establishes
+supported. They are named for the libraries they install: the ``gpu``,
+``gpu-cuda``, ``gpu-rocm`` and ``tpu`` extras were removed before ``0.3.0``
+because RadioSim has measured no accelerator, so none of them established
 that any RIME calculation runs on a GPU. See :doc:`user_guide/backends` for the
 execution boundary, the compilation boundary, and the measured NumPy/JAX-CPU/Dask
 comparison.

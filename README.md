@@ -67,12 +67,13 @@ pixi install
 pixi run test
 ```
 
-Optional extras install backend or I/O dependencies. RadioSim has measured no
-accelerator, so installing one of these changes nothing on this page:
+Optional extras install backend or I/O dependencies. They are named for the
+libraries they install, not for devices: the `gpu`, `gpu-cuda`, `gpu-rocm` and
+`tpu` extras were removed because RadioSim has measured no accelerator, and an
+installable extra called `gpu-cuda` claimed one.
 
 ```bash
-pip install radiosim[gpu-cuda]  # optional JAX stack for CUDA
-pip install radiosim[gpu]       # optional JAX stack for supported platforms
+pip install radiosim[jax]       # optional JAX stack (CPU; see the note below)
 pip install radiosim[dask]      # optional NumPy/Dask backend stack
 pip install radiosim[ms]        # optional Measurement Set support
 ```

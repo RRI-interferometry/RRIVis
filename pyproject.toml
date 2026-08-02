@@ -17,7 +17,6 @@ keywords = [
     "interferometry",
     "visibility",
     "simulation",
-    "gpu",
     "rime",
     "hera",
     "polarization"
@@ -57,25 +56,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# GPU support via JAX (all vendors)
-gpu = [
+# The JAX backend. One extra, named for the library it installs rather than
+# for a device: the `gpu`, `gpu-cuda`, `gpu-rocm` and `tpu` extras were removed
+# in Tier 8E because installing them delivered a package that has never
+# executed on an accelerator. RadioSim's only compiled kernel is a
+# per-(time, frequency) contraction inside host-side Python loops, every
+# measured JAX run is slower than NumPy (records: output/benchmarks/reference/),
+# and no GPU or TPU run has ever been measured. A device-named extra returns
+# when PERF-001 closes with measurements behind it; a user who supplies their
+# own accelerator hardware installs the vendor JAX wheel directly.
+jax = [
     "jax>=0.4.20",
     "jaxlib>=0.4.20",
-]
-
-# NVIDIA GPU (CUDA 12)
-gpu-cuda = [
-    "jax[cuda12]>=0.4.20",
-]
-
-# AMD GPU (ROCm)
-gpu-rocm = [
-    "jax[rocm]>=0.4.20",
-]
-
-# Google TPU
-tpu = [
-    "jax[tpu]>=0.4.20",
 ]
 
 # NumPy/Dask backend (renamed from `numba` in Tier 6H: that backend never
@@ -110,7 +102,7 @@ docs = [
 
 # All extras (development)
 all = [
-    "radiosim[gpu,dask,ms,dev,docs]",
+    "radiosim[jax,dask,ms,dev,docs]",
 ]
 
 [project.urls]

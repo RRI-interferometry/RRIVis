@@ -106,6 +106,79 @@ def test_release_metadata_matches_canonical_project_version() -> None:
     _assert_release_versions(canonical, observed)
 
 
+def test_no_accelerator_named_extra_is_published() -> None:
+    """No installable extra may be named for a device RadioSim never measured.
+
+    ``pip install radiosim[gpu-cuda]`` used to install ``jax[cuda12]`` and
+    deliver a package whose only compiled kernel is a per-(time, frequency)
+    contraction inside host-side Python loops, whose ``auto`` backend selects
+    JAX only when a non-CPU device is present, and whose own documentation
+    records every measured JAX run as slower than NumPy
+    (``output/benchmarks/reference/``). That is a packaging-level capability
+    claim with nothing behind it.
+
+    The four extras and the ``gpu`` keyword were removed in Tier 8E
+    (``Tier8ReleasePlan.md`` Section 15.3). This test keeps them out while
+    ``PERF-001`` is open: a device-named extra may return when a measured
+    accelerator run exists, and the same change closes that register row.
+    """
+    pyproject = _read_toml(ROOT / "pyproject.toml")
+    project = pyproject["project"]
+    assert isinstance(project, dict)
+
+    extras = project["optional-dependencies"]
+    assert isinstance(extras, dict)
+    device_named = sorted(
+        name
+        for name in extras
+        if re.search(r"gpu|tpu|cuda|rocm|metal|accelerat", name, re.IGNORECASE)
+    )
+    assert not device_named, (
+        f"pyproject.toml publishes the extras {device_named}, which name "
+        f"hardware RadioSim has never executed on (PERF-001). Offer the "
+        f"library under the `jax` extra instead, and restore a device-named "
+        f"extra only together with a measured record under "
+        f"output/benchmarks/reference/."
+    )
+
+    keywords = project["keywords"]
+    assert isinstance(keywords, list)
+    device_keywords = sorted(
+        keyword
+        for keyword in keywords
+        if re.search(r"gpu|tpu|cuda|rocm", str(keyword), re.IGNORECASE)
+    )
+    assert not device_keywords, (
+        f"pyproject.toml lists the keywords {device_keywords}. Package metadata "
+        f"is a claim like any other, and no accelerator run has been measured."
+    )
+
+    assert "jax" in extras, (
+        "the JAX stack must stay installable under one honest extra name"
+    )
+
+
+def test_the_changelog_has_a_section_for_the_canonical_version() -> None:
+    """The version in the metadata must be the version the changelog describes.
+
+    ``0.2.0``'s changelog entry is retracted in place by a corrective note: two
+    of its headline claims did not survive verification. Shipping the
+    remediated package under that same version string would leave a bug report
+    against "radiosim 0.2.0" unanswerable, which is why Tier 8 bumps the
+    version and writes the notes in the same change
+    (``Tier8ReleasePlan.md`` Section 16). This test ties the two together, so a
+    future bump that forgets the notes fails here rather than at a release.
+    """
+    canonical = str(_read_toml(ROOT / "pyproject.toml")["project"]["version"])
+    changelog = (ROOT / "docs/changelog.rst").read_text(encoding="utf-8")
+    heading = re.compile(rf"(?m)^\[{re.escape(canonical)}\] - \d{{4}}-\d{{2}}-\d{{2}}$")
+    assert heading.search(changelog), (
+        f"docs/changelog.rst has no dated `[{canonical}]` section, but "
+        f"pyproject.toml declares that version. Move the [Unreleased] content "
+        f"into a dated section for it before or with the version bump."
+    )
+
+
 def test_release_metadata_failure_is_actionable() -> None:
     with pytest.raises(AssertionError) as exc_info:
         _assert_release_versions(

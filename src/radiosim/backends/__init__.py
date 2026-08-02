@@ -243,9 +243,10 @@ def get_backend(
         if not JAX_AVAILABLE:
             raise BackendNotAvailableError(
                 "JAX not available. Install with:\n"
-                "  pip install radiosim[gpu]        # Generic\n"
-                "  pip install radiosim[gpu-cuda]   # NVIDIA\n"
-                "  pip install radiosim[gpu-rocm]   # AMD"
+                "  pip install radiosim[jax]\n"
+                "The device-named extras were removed before 0.3.0: RadioSim "
+                "has measured no accelerator, so supply a vendor JAX wheel "
+                "yourself if you have one."
             )
         device = kwargs.get("device", "gpu")
         return JAXBackend(device=device, precision=resolved_precision)
@@ -267,7 +268,9 @@ def get_backend(
         resolved_precision = _require_supported_precision(precision, "jax")
         if not JAX_AVAILABLE:
             raise BackendNotAvailableError(
-                "JAX required for TPU. Install with: pip install radiosim[tpu]"
+                "JAX required for TPU. Install with: pip install radiosim[jax] "
+                "plus the TPU JAX wheel for your runtime; RadioSim ships no "
+                "device-named extra, because it has measured no accelerator."
             )
         return JAXBackend(device="tpu", precision=resolved_precision)
 

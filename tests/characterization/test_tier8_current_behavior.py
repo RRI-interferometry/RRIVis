@@ -771,25 +771,43 @@ def test_the_shipped_recipe_config_is_the_one_the_preflight_now_reports() -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_packaging_still_advertises_four_accelerator_extras() -> None:
-    """Pins the packaging-level accelerator claim.
+def test_packaging_advertises_no_accelerator_extra() -> None:
+    """FLIPPED AT 8E.  Was ``..._still_advertises_four_accelerator_extras``.
 
-    ``pip install radiosim[gpu-cuda]`` installs ``jax[cuda12]`` and delivers a
+    ``pip install radiosim[gpu-cuda]`` installed ``jax[cuda12]`` and delivered a
     package that has never executed on a GPU, whose ``auto`` backend selects JAX
     only when a non-CPU device is present, and whose own README records every
-    measured JAX run as slower than NumPy.  ``PERF-001`` stays ``ROADMAP``; the
-    extras are the one place the repository still says otherwise.
+    measured JAX run as slower than NumPy.  ``PERF-001`` stays ``ROADMAP``, and
+    the extras were the one place the repository still said otherwise.  8E
+    removed the four extras and the ``"gpu"`` keyword and offers the library
+    under a single ``jax`` extra.
 
-    FLIPPED BY: Tier 8E (remove the four extras and the ``"gpu"`` keyword,
-    offer ``jax`` under one honest extra, and extend
-    ``tests/unit/test_release_metadata.py`` to assert their absence while
-    ``PERF-001`` is open).
+    The standing rule lives in
+    ``tests/unit/test_release_metadata.py::test_no_accelerator_named_extra_is_published``;
+    this pin records the transition and, additionally, that the five documents
+    and error messages that told a reader to install those extras were
+    corrected in the same change rather than left pointing at names that no
+    longer resolve.
     """
     pyproject = tomllib.loads(_read("pyproject.toml"))
     extras = pyproject["project"]["optional-dependencies"]
-    assert {"gpu", "gpu-cuda", "gpu-rocm", "tpu"} <= set(extras)
-    assert "gpu" in pyproject["project"]["keywords"]
-    assert pyproject["project"]["version"] == "0.2.0"
+    assert not {"gpu", "gpu-cuda", "gpu-rocm", "tpu"} & set(extras)
+    assert "jax" in extras
+    assert "gpu" not in pyproject["project"]["keywords"]
+    assert extras["all"] == ["radiosim[jax,dask,ms,dev,docs]"]
+
+    for document in (
+        "README.md",
+        "docs/installation.rst",
+        "docs/user_guide/backends.rst",
+        "src/radiosim/backends/__init__.py",
+        "src/radiosim/backends/jax_backend.py",
+    ):
+        text = _read(document)
+        for removed in ("radiosim[gpu]", "radiosim[gpu-cuda]", "radiosim[tpu]"):
+            assert f"pip install {removed}" not in text, (
+                f"{document} still tells a reader to install {removed}"
+            )
 
 
 def test_the_machine_fingerprint_is_now_recorded_on_the_pass_path() -> None:
