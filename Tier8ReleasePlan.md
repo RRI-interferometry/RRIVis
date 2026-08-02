@@ -1250,7 +1250,17 @@ each forced and each bounded:
    "does the hardening work?" finds one module rather than a test lodged in an
    unrelated tier's acceptance file.
 
-No decision recorded by Sections 11 to 14 is changed by any of the four.
+5. **`tests/characterization/test_tier6_current_behavior.py`'s
+   integration-directory listing.** 8D's grant on that file is scoped to "the
+   instrumentation and numeric-delta reporting"; its
+   `test_the_benchmark_harness_task_and_performance_test_now_exist` also
+   asserts the exact `tests/integration/*.py` listing, which item 3's new
+   `test_cli_end_to_end.py` necessarily widens. The assertion exists precisely
+   so that a new file there is visible in a diff, and Tier 6F and Tier 7D each
+   widened it by exactly the file their own plan named; 8D does the same, for
+   the one file Section 17 names, and edits nothing else in that test.
+
+No decision recorded by Sections 11 to 14 is changed by any of the five.
 
 **Gate.** `pixi run test`; `pixi run lint`; `pixi run check-format`;
 `pixi run typecheck`; the checkpoint regression proof; a named CI run ID at the
