@@ -601,6 +601,26 @@ flags to satisfy a stale README would grow the public example surface to match
 a document rather than a need, and would add file-writing behavior to the one
 example that is safe to run in CI unconditionally.
 
+**Correction (applied at 8B).** §5.1's "`simple_simulation.py` **executes
+cleanly**" is true of the default path and **false of `--config`**. `main()`
+asserts `result.visibilities.shape == (1, 15, 2, 4)`
+(`examples/scripts/simple_simulation.py:125`), which are the *built-in*
+example's dimensions; every shipped document is larger
+(`configs/config.yaml` yields `(60, 15, 101, 4)`), so
+`--config configs/config.yaml` — a command the stale README itself printed —
+exits with `AssertionError`. A flag that cannot be exercised is the same
+`DOC-001` defect class 8B exists to close, and `examples/README.md` cannot
+honestly print a command for it while it holds.
+
+This decision is therefore **narrowed, not reversed**: the script still does
+not grow `--no-plot`, `--save`, `--plot` or `--output-dir`, still writes no
+artifacts, and still defines exactly three flags — the 8A pin
+`test_example_script_defines_exactly_three_flags` stays green. 8B is granted
+`examples/scripts/simple_simulation.py` **for the single change of scoping
+that dimension assertion to the built-in path** (`if args.config is None:`),
+and for nothing else. Section 10's stated reasons — not growing the public
+surface, and not adding file-writing behavior — are untouched by that change.
+
 ## 11. Design decision 5 — one residual-scan contract for the whole tier
 
 **Decision.** Tier 8 adds a single acceptance module,
@@ -1029,9 +1049,12 @@ shipped-config fingerprints are byte-identical to their values at `397c0e1`.
 4. Decide and record the notebook treatment (Section 9 item 2).
 5. Flip the corresponding 8A characterization pins in place.
 
-**Writable.** `examples/README.md`; `pyproject.toml` (pytest `addopts` only);
-`pixi.toml` (new task only); `tests/unit/test_tier8_release_acceptance.py`
-(new); `tests/characterization/test_tier8_current_behavior.py`; any
+**Writable.** `examples/README.md`;
+`examples/scripts/simple_simulation.py` — **only** the Section 10 correction
+scoping the built-in dimension assertion to the built-in path, no flag change
+and no new behavior; `pyproject.toml` (pytest `addopts` only); `pixi.toml`
+(new task only); `tests/unit/test_tier8_release_acceptance.py` (new);
+`tests/characterization/test_tier8_current_behavior.py`; any
 `src/radiosim/**/*.py` **docstring** the doctest run proves wrong — no logic
 edit; `Fix.md`; `Tier8ReleasePlan.md`.
 
