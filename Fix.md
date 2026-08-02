@@ -226,6 +226,7 @@ Status values used below:
 | DOC-008 | DOCS | No tracked CI and no real integration/performance suites | 8 |
 | CI-001 | OPEN | A **second byte-stable digest class on `linux-64-py311`** makes `main` red on one of eight CI jobs with an **unidentified discriminator**. Run `30726145633` at `95a937e` fails five characterization pins (`test_tier6_current_behavior.py::test_shipped_default_config_scientific_fingerprint`, `::test_shipped_circular_receptor_config_scientific_fingerprint`, `::test_section_13_4_workload_fingerprints[heterogeneous_receptor_bases]`, and the two `test_tier7_current_behavior.py` fingerprint pins that import the Tier 6 tables — three distinct measurements) while run `30725507865` at `47df8fc` is green on all eight with a **byte-identical `src/`/`tests/` tree** (`git diff 47df8fc..95a937e -- src/ tests/` is empty). The raw cube digest moves too, not only `scientific_sha256`, so this is a numbers change and not metadata. The class is **reproducible, not a race**: the measured `config.yaml` `scientific_sha256` (`89f38f62...`) is byte-identical across runs `30726145633`, `30719161877` and `30705549269` on three CPU models from two vendors (AMD EPYC 9V74, Intel Xeon 6973P-C, Intel Xeon Platinum 8573C), and every within-process reproducibility test passes in the failing job. **The module's own stated discriminator is falsified**: `test_tier6_current_behavior.py:226-246` attributes the axis to NumPy's dispatched vector feature set, but the AMD run's feature list omits `AVX512FP16`/`AVX512_SPR` that both Intel runs report and all three produce the identical digest, and the originally recorded value was itself measured on an AMD EPYC 9V74. Ruled out with evidence: source regression; xdist presence, worker count and ordering; numpy/astropy/OpenBLAS drift (`locked: true`, with identical `libblas`, `libopenblas` and `astropy-iers-data` in the red and green jobs' installed-package logs); astropy IERS auto-download; `PYTHONHASHSEED`; thread counts; uninitialized memory. It appears in 3 of the 8 runs on that cell since it first appeared (~38%), and 11 of the last 25 CI runs failed — all 11 in this one pin family. **Filed 2026-08-02 at Tier 8A** per `Tier8ReleasePlan.md` Section 14, which ratifies three acts and refuses a fourth: (1) this row; (2) `_machine_fingerprint()` now emits **unconditionally** — written to gitignored `output/characterization/` on pass as well as fail, and widened to carry the thread environment and BLAS build — because the structural evidence gap is that the helper was reachable only from the `pytest.fail` branch and was added after the green `linux-64-py311` baseline was harvested, so **nothing has ever been recorded about a passing runner on that cell**; (3) pin failures now report a **numeric delta** (`max\|dV\|`, max relative delta, differing-element count, first differing index) against every captured reference cube and name the nearest recorded observation, because a digest gate cannot distinguish 1 ULP from 100% and no failing log in the last 25 runs contains a single number. **Refused: a fifth reflex append.** Four prior commits (`e3f1987`, `1c90d81`, `e5b20d1`, `0ce72e4`) appended a newly observed digest on disagreement; appending again under a rationale now known to be false would violate the module's own rule that "a set never grows to make a failure go away" (`test_tier6_current_behavior.py:271-273`) and §4.2. Whether the observed class may be appended once the numeric probe runs, on an honest justification naming the discriminator as unidentified and recording the measured delta, is Tier 8 gated question Q3 and is decided by measurement at 8D. **Root cause is explicitly not Tier 8's**: naming the discriminator needs runner access or instrumented dumps of intermediate quantities from both classes, and the hypothesis space still includes hypervisor CPU-feature masking and `libm`/OpenBLAS runtime dispatch, neither of which current instrumentation captures. **Successor decision, named and deferred**: whether a bitwise digest is the right cross-platform gate at all — versus pinning a reference cube and asserting the `rtol=1e-12` tolerance the project already uses for backend parity, with the digest kept advisory — is a real design question that changes what the gate *means*, and Tier 8 does not make it, because weakening a reproducibility gate on evidence that cannot yet distinguish harmless last-bit dispatch from a real numerical difference is exactly the trade this program exists to stop. Blocks any "CI is green" claim while open | 8A filing and instrumentation; discriminator and successor gate design post-Tier-8 |
 | API-001 | OPEN | `stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np)` (`src/radiosim/core/polarization.py:73`) does not broadcast a scalar keyword default against a non-scalar positional argument: the rows are assembled with `xp.stack`, which requires every stacked array to share one shape, so `stokes_to_coherency(np.ones(5))` — the single most basic array-input call, using every default — raises `ValueError: all input arrays must have the same shape` instead of broadcasting `Q=U=V=0` to `(5,)`. Reproduced directly, 2026-08-02. **No solver path is affected**: both production call sites (`core/visibility.py:754`, `core/visibility_healpix.py:574`) always pass four already-matched-shape arrays explicitly, confirmed by direct read. Tier 8B's docstring correction (`a3ef72d`) already documents this precisely and is the *closure* of the truthfulness defect (state 1-3 per §4.2's discipline, applied by `Tier8ReleasePlan.md` §7); this row tracks the *underlying ergonomics gap* the corrected prose newly discloses, which the prose fix does not and should not silently absorb. Filed at Tier 8B independent acceptance review, 2026-08-02, as a disclosed, non-blocking, low-priority API-polish item (broadcast the three scalar defaults against `stokes_I`'s shape, or `xp.broadcast_arrays` all four, before `stack`) — not a Tier 8 blocker, since the truthfulness defect it was found investigating is already closed | post-Tier-8, low-priority, bounded |
+| API-002 | OPEN | `print_warning(message)` (`src/radiosim/utils/logging.py:123-125`) forwards `message` straight into `console.print(f"[warning]⚠[/warning] {message}", highlight=False)` with Rich markup left enabled (only `highlight=False` is passed, not `markup=False`), so any `[...]`-bracketed substring inside a *caller-built* message is parsed as a markup tag and silently dropped from the rendered output rather than escaped or shown literally. Reproduced directly, 2026-08-02, both in isolation (`print_warning("Sky model(s) [gleam, haslam] require ...")` prints `"Sky model(s)  require ..."`, the bracketed list gone) and via the real call site that motivated the search: `Simulator.setup()`'s offline pre-flight (`src/radiosim/api/simulator.py:779-784`), reached by the same `SKY-002`-shipped `configs/realistic_foreground_example.yaml` run offline, prints `"⚠ Sky model(s)  require pygdsm data but network is unavailable"` — the model name list that is the entire point of the message is silently eaten. `print_success`, `print_error`, and `print_info` share the identical pattern (`utils/logging.py:113-130`) and are equally exposed wherever a caller interpolates a data-derived, bracket-containing string (a model name, a file path, a list) into the message. **No test currently catches this**: `test_the_preflight_names_both_services_and_the_offline_run_says_why` (`tests/unit/test_utils/test_network.py`, added closing `SKY-002` at 8D) asserts the `print_info` line's exact text but does not assert on the `print_warning` line's content, so the swallowed list passed the new SKY-002 tests unnoticed. Found while reproducing `SKY-002`'s offline pre-flight at the Tier 8D independent acceptance review, 2026-08-02. Neither 8D's nor 8E's writable grant (`Tier8ReleasePlan.md` §17) reaches `src/radiosim/utils/logging.py` or `src/radiosim/api/simulator.py`, so this is filed rather than fixed, exactly as `API-001` was at 8B — a disclosed, non-blocking, low-priority logging-polish item (escape the interpolated `message` with `rich.markup.escape()` before interpolation, or pass `markup=False` and style only the fixed icon/label segment) — not a Tier 8 blocker | post-Tier-8, low-priority, bounded |
 
 ## 6. Question-by-question findings and target behavior
 
@@ -14948,3 +14949,218 @@ substantive plan gap this review found (an additional accelerator claim on
 disclosed and routed exactly as `API-001` was at 8B, rather than fixed
 out-of-grant or silently left for 8E to discover on its own. **Slice 8C is
 ACCEPTED. Slice 8D is authorized.**
+
+### 2026-08-02 Tier 8D independent acceptance
+
+**VERDICT: ACCEPTED, with bounded plan corrections applied before
+acceptance.** Slice 8D (scan hardening, `SKY-002`, CI shape, and the
+`CI-001` evidence path) is accepted. Slice 8E is authorized.
+
+**Scope reviewed.** `c1598dd..98bcbc6`, six commits: `68674ec` (scan
+hardening), `73714d0` (`SKY-002`), `1cc82f5`/`98bcbc6` (CI shape and the
+integration test), `6058e13`/`4f1dcfd` (plan corrections). Branch `main`,
+HEAD `98bcbc6`, working tree clean, 6 commits ahead of `origin/main`, none of
+them pushed. No branch created, no push, no production fix made by this
+review beyond the bounded plan correction and register row below. All
+reproduction ran in two fresh `git worktree add --detach` checkouts (one at
+`c1598dd`, the baseline, one at `98bcbc6`, HEAD), each with its own `pixi
+install` against the shared package cache (`git diff --stat c1598dd..98bcbc6
+-- pixi.lock pixi.toml` is empty, so both solves are the one locked
+environment).
+
+**Scan hardening — reproduced, not read.** `tests/support/repo_scan.py` is a
+209-line module with exactly the three exported functions Section 12
+specifies, one `git ls-files --cached --others --exclude-standard -z`
+subprocess call, no cache, and a typed `RepositoryScanError` with no `rglob`
+fallback on any of its three raise sites (missing `git`, non-worktree
+directory, root outside the repository) — confirmed by reading the module in
+full and by monkeypatching `subprocess.run` to raise `FileNotFoundError`,
+which raises the typed error rather than silently walking the filesystem.
+`grep -rn "\.rglob("` over `tests/` and `src/` finds exactly the two exempted
+`tmp_path`-scoped sites (`test_output_atomicity.py:330`,
+`test_result_plots.py:247`) and nothing else under `tests/`; the twenty call
+sites in the eleven files Section 12's table names all import and call
+`iter_tracked_files`/`iter_package_sources`, counted and matched 1:1 against
+the table (1+1+3+1+1+1+1+1+4+2+4 = 20). `tests/unit/test_tier8_release_acceptance.py`'s
+own lister is confirmed replaced by a call into the shared helper, per the
+writable-list correction's item 3.
+
+Pollution reproduced directly, in both worktrees: planting the exact
+`Fix.md`-recorded scenario — a gitignored
+`src/radiosim/.ipynb_checkpoints/*-checkpoint.py` carrying `GeometricPhaseJones`
+and a `TODO: implement properly` marker — at `c1598dd` fails exactly
+`test_a_removed_jones_name_appears_nowhere_in_the_package_source[GeometricPhaseJones]`
+and `test_no_stub_marker_survives_anywhere_in_the_package` (2 failures, 55
+passed, matching the plan's checkpoint-probe claim exactly); the identical
+plant at `98bcbc6` leaves all 97 collected tests in that pair of files
+(including the 7-test `tests/unit/test_utils/test_repo_scan.py` module
+itself) green. The other two pollution classes were reproduced independently
+of the plan's own fixture: an **untracked, non-ignored** violation
+(`src/radiosim/core/jones/_untracked_violation.py`, no `.gitignore` match)
+fails the same two tests at HEAD; a **tracked (staged, uncommitted)**
+violation (`git add`, no commit) fails them too. Both were removed
+(`git reset` + `rm`) and `git status --porcelain` confirmed clean afterward.
+The 7-test module's two negative-direction tests
+(`test_the_same_file_fails_both_scans_the_moment_it_enters_the_listing` and
+the throwaway-repository lister contract tests) were read and pass, proving
+the hardening removed no assertion strength.
+
+**`SKY-002` — reproduced.** `grep -rn "network_service\b"` (word-boundaried,
+excluding `network_services`) over `src/` and `tests/` returns only prose/
+docstring/comment references to the pre-8D name inside
+`test_tier8_current_behavior.py` and the self-checking assertion
+`"network_service:" not in registry_core` — no singular field, parameter, or
+registration keyword survives anywhere in `src/`. The recipe's declared
+tuple, `("pygdsm_data", "vizier")`, is confirmed sourced from `catalogs.py`'s
+own defaults (`registry/catalogs.py:129` for the diffuse family, `:198` for
+the VizieR family), not guessed, and `test_the_recipe_declares_exactly_what_its_shipped_defaults_reach`
+derives the expected tuple from `get_sky_model_services()` rather than
+restating it. The offline pre-flight was reproduced directly against the live
+`Simulator` API (not only the test suite): running
+`configs/realistic_foreground_example.yaml` with `execution.offline: true`
+prints `Network: offline (forced) (required: pygdsm data, VizieR)` and raises
+`SkyLoadAggregateError` with "No internet connection" in its message, never
+attempting a network call. `radiosim validate` on all four shipped
+`configs/*.yaml` was run in both worktrees; the only diff between baseline and
+HEAD output is the worktree's own absolute path prefix — the validation
+content is byte-identical. All four `SKY-002` tests specified in Section 13
+are present and pass: (a) `test_the_shipped_recipe_configuration_requires_both_services`,
+(b)/(d) `test_the_preflight_names_both_services_and_the_offline_run_says_why`
+(the pre-flight line and the offline failure, combined in one test), (c)
+`test_every_network_implicated_loader_declares_a_service` in
+`test_sky_registry.py` (the registry-completeness generalization), plus a
+fourth, `test_the_recipe_declares_exactly_what_its_shipped_defaults_reach`,
+deriving the exact-token claim rather than asserting it verbatim.
+
+**The register-flip prescription — verified, then ratified.** Section 13
+literally reads: "**Register consequence, executed by the implementer at 8D
+acceptance**: `SKY-002` flips `OPEN` → `DONE`... its tier column changing from
+'pre-Tier-8' to `8`." The plan assigns the flip to the implementer, not to
+this independent review, and `73714d0`'s diff (`Fix.md | 2 +-`) shows the
+implementer already executed it in the same commit that closed the defect —
+`Fix.md:209` reads `DONE`, tier column `8`, with the closure evidence quoted
+above. This review independently re-verified every claim in that closure
+sentence (the widening, the tests, the pre-flight text, the offline failure)
+and **ratifies the flip as correct**: nothing in the row overstates what was
+verified above.
+
+**CI shape.** `.github/workflows/ci.yml`'s diff (`c1598dd..98bcbc6`) was read
+in full and parses cleanly as YAML (`yaml.safe_load`). The `quality` job gains
+exactly three execution steps in the order specified — `pixi run doctest`,
+the example script (`--help` then a real run), and
+`jupyter nbconvert --to notebook --execute --stdout` on the notebook — followed
+by a `git diff --exit-code && test -z "$(git status --porcelain)"`
+cleanliness check; all four were reproduced locally in the HEAD worktree
+(doctest: 41 passed; example script: runs and prints a scientific fingerprint;
+notebook: executes via `nbconvert` with exit 0; working tree clean afterward
+in every case). The `compatibility` job's `CI-001` evidence path was read and
+independently exercised: the restore step (`gh run list` → `gh run download`)
+runs *before* "Run non-slow tests", the fingerprint-cat step and the
+`actions/upload-artifact@v4` upload both run `if: always()`, and every
+`gh` invocation is guarded (`|| true` / `|| echo ...`) so a missing previous
+run or a missing artifact leaves `output/characterization/` empty rather than
+failing the job — confirmed by writing three stub `gh` executables (no
+previous run; previous run with a downloadable artifact; previous run whose
+artifact 404s) and running the extracted restore-step shell fragment against
+each under `bash -eo pipefail` (GitHub Actions' default shell mode): all three
+completed with exit 0 and the documented behavior. The matrix `key` spelling
+was checked against `_MEASURED_ENVIRONMENTS`
+(`test_tier6_current_behavior.py`) via the same regex the characterization
+pin uses; the six declared keys equal the six characterized environments.
+`actionlint` is not installed in this environment and was not available via
+`pixi`/`brew`, so the YAML was checked by parsing and by manual read rather
+than by that tool — **unobserved**. Live CI proof of any of this necessarily
+**awaits the push**: `git status` shows `main` 6 commits ahead of
+`origin/main` with none of the six 8D commits pushed, so no CI run exists yet
+at any 8D SHA.
+
+**`CI-001` verification.** `gh auth status` confirms an authenticated,
+scoped token; `gh run list --branch main` shows CI green (all 8 jobs,
+job-level confirmed for `c1598dd` via `gh run view --json jobs`) on the three
+most recent slice-acceptance SHAs (`27a8d87` 8A, `ac35159` 8B, `c1598dd` 8C)
+— the "three green runs" this review takes the claim to mean, since no 8D-SHA
+run exists to re-run. A mechanical `git diff c1598dd..98bcbc6 -- tests/characterization/test_tier6_current_behavior.py`
+grepped for any 16+ hex-digit token shows zero matches: the diff is
+instrumentation and listing widening only (a `repo_scan` import, two `rglob`→
+`iter_tracked_files` conversions, and the `test_cli_end_to_end.py` addition to
+the integration-directory listing pin per writable-list correction item 5),
+no digest table edited. Because the 8D commits are unpushed, Section 14's
+conditional (a numeric-delta measurement on 8D's own SHA deciding whether to
+append a fifth digest class) has nothing to measure — the **nothing-to-measure
+conclusion** is correct and not a shortfall: no run exists to produce the
+numeric delta the conditional depends on, so no append is made and none
+should be. `CI-001` correctly stays `OPEN`.
+
+**The integration test.** `tests/integration/test_cli_end_to_end.py` was read
+in full and run directly in the HEAD worktree: 5 passed, including the
+failure path (`test_an_unreadable_configuration_fails_the_process_with_a_message`,
+confirming a nonzero exit and no published directory). It invokes the
+installed console script as a real subprocess, recomputes every manifest
+SHA-256 from bytes on disk, opens the HDF5 with `h5py` and parses the summary
+with `json`, and cross-checks that the same document run in both result
+formats reports one `scientific_sha256` — exactly Section 17 item 3's ask,
+independent of the writer.
+
+**The new finding — reproduced and disposed.** `print_warning` (`src/radiosim/utils/logging.py:123-125`)
+passes its `message` argument straight into `console.print(f"[warning]⚠[/warning] {message}", highlight=False)`
+with Rich markup left enabled. Reproduced in isolation
+(`print_warning("Sky model(s) [gleam, haslam] require ...")` prints "Sky
+model(s)  require ..." — the bracketed list silently gone) and via the real
+call site: running `configs/realistic_foreground_example.yaml` offline
+through the live `Simulator.setup()` prints
+`"⚠ Sky model(s)  require pygdsm data but network is unavailable"`. Neither
+8D's nor 8E's writable grant reaches `src/radiosim/utils/logging.py` or
+`src/radiosim/api/simulator.py`, so — following the `API-001` precedent set
+at 8B for exactly this situation (a real defect found while verifying this
+slice's own work, outside the slice's writable grant) — **this review files a
+register row rather than fixing it**: `API-002` (`OPEN`, `Fix.md` §5, above),
+disclosed, non-blocking, low-priority.
+
+**The 8E follow-up — a bounded plan gap found and corrected.** Section 16
+commits the `[0.3.0]` changelog entry to covering "Tiers 1–6 as well as Tier
+7", and neither 8D's nor 8E's writable list named `docs/migration_guide.md` —
+but `SKY-002`'s closure at 8D is itself a breaking, no-shim rename
+(`network_service` → `network_services`), exactly the class of change that
+file records for every prior tier. Left as written, 8E would assemble the
+release's breaking-changes documentation while silently omitting the one
+breaking change Tier 8 itself made. **Corrected**: Section 16 gains a dated
+correction paragraph, 8E's work item 6 is widened to name the rename
+explicitly, and `docs/migration_guide.md` (one new dated entry only, no edit
+to any existing tier's section) is added to 8E's writable list. No decision
+already recorded by Sections 11–14 is changed.
+
+**Gates, both environments (`default`=py311, `py312`), reproduced in the HEAD
+worktree.** `pixi run test -- -m "not slow"`: **5368 passed, 1 skipped, 10
+deselected** in both environments, with **27** warnings under py311 and
+**41** under py312 — matching the claimed 5,350+18=5,368 / 1 / 10 and 27/41
+exactly. `pixi run lint`: clean. `pixi run check-format`: clean (378 files
+already formatted). `pixi run typecheck`: strict Pyright ceiling satisfied,
+2583 errors <= 4600 (type debt decreased since the last checked-in ceiling).
+`pixi run doctest`: 41 passed. A Sphinx `-b html` build (`make -C docs html`)
+in the HEAD worktree reported **"build succeeded"** with zero warnings
+printed, matching the strict zero-warning gate `docs/Makefile` enforces since
+8C. All four `configs/*.yaml` validated identically (path prefix aside)
+between the baseline and HEAD worktrees. The `core.sky` laziness guard
+(`test_sky_core_dep_guard.py`) passed within the full-suite run and again in
+isolation (4 passed). `git status --porcelain` was clean in the real
+repository before, during, and after this review, and in both worktrees after
+every planted-pollution experiment was removed. No `Co-Authored-By` line in
+any of the six commits (`68674ec`, `73714d0`, `1cc82f5`, `98bcbc6`, `6058e13`,
+`4f1dcfd`), confirmed by grepping every commit body in the range.
+
+**Unobserved.** This review did not obtain a live GitHub Actions run at any
+8D SHA — all six commits are unpushed, so the CI-shape and `CI-001`-evidence
+claims above are verified by local reproduction of the extracted shell logic
+and by static/YAML-level reading, not by a real workflow execution; `gh run
+view`'s "three green runs" evidence is therefore about the three prior
+slice-acceptance SHAs, not an 8D-SHA run. `actionlint` was not available in
+this environment and the workflow was instead checked by YAML parsing and
+manual read. This review did not attempt to name `CI-001`'s discriminator
+(explicitly out of Tier 8's scope) and did not exercise GPU/TPU hardware
+(none exists in this environment; unaffected by this slice regardless).
+
+**Register.** `SKY-002` flips `OPEN` → `DONE`, tier column `8` (already
+executed by the implementer at `73714d0`, ratified above). `CI-001` remains
+`OPEN` (nothing to measure pre-push). `API-001` remains `OPEN`. `API-002` is
+newly filed `OPEN` (§5, above). **Slice 8D is ACCEPTED. Slice 8E is
+authorized.**

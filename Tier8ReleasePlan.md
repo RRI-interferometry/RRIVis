@@ -20,15 +20,24 @@ independent acceptance" note). **8C is ACCEPTED** (first independent review of
 `tests/unit/test_tier8_release_acceptance.py`; repaired by `3c10f31` and
 `f78c330`; 2026-08-02 independent re-acceptance verified both repairs from
 scratch and accepted with bounded plan corrections to Sections 8 and 17; see
-`Fix.md`'s "Tier 8C independent acceptance (re-run)" note) **and 8D is
-authorized to begin.** Tier 7 is
+`Fix.md`'s "Tier 8C independent acceptance (re-run)" note). **8D is ACCEPTED**
+(2026-08-02 independent acceptance, with one bounded plan correction to
+Section 16 and 8E's writable list — the `network_services` breaking rename
+gains an explicit changelog/migration-guide obligation — and one new register
+row, `API-002`, filed for a `print_warning` markup-swallowing defect found
+while reproducing the `SKY-002` offline pre-flight, out of both 8D's and 8E's
+writable grants; see `Fix.md`'s "Tier 8D independent acceptance" note) **and
+8E is authorized to begin.** Tier 7 is
 accepted as a whole (Tier 7K, 2026-08-02); `SCI-001`, `SCI-002`, `SCI-003` are
 `DONE`; `SCI-004`, `SCI-005` are filed `ROADMAP`; `SCI-006`, `SCI-007` stay
-`OPEN`; `PERF-001` stays `ROADMAP`; `SKY-002` is `OPEN` and is **absorbed by
-this tier** (Section 13); `CI-001` is `OPEN`, filed at 8A; `API-001` is
-`OPEN`, filed at 8B independent acceptance (a `stokes_to_coherency` broadcast
-ergonomics gap found while verifying 8B's docstring correction — no solver
-path reachable, not a Tier 8 blocker). Tier 8 is the final tier of the
+`OPEN`; `PERF-001` stays `ROADMAP`; `SKY-002` is `DONE`, closed at 8D
+(Section 13); `CI-001` is `OPEN`, filed at 8A, still open at 8D because the
+CI-side instrumentation has not yet run on a pushed 8D SHA — there is nothing
+to measure yet, so no digest is appended and the row is unchanged; `API-001`
+is `OPEN`, filed at 8B independent acceptance (a `stokes_to_coherency`
+broadcast ergonomics gap found while verifying 8B's docstring correction — no
+solver path reachable, not a Tier 8 blocker); `API-002` is `OPEN`, filed at 8D
+independent acceptance (see above). Tier 8 is the final tier of the
 remediation program defined by `Fix.md`.**
 
 This document is the governing implementation specification for Tier 8,
@@ -1001,6 +1010,23 @@ only, so 8E must walk the tier acceptance records and add the Tier 1–6
 breaking changes that were documented in `docs/migration_guide.md` but never
 entered the changelog.
 
+**Correction, applied at 8D independent acceptance.** Tier 8 itself makes one
+breaking change before 8E ever runs: 8D's `SKY-002` closure renames
+`LoaderDefinition.network_service: str | None` to
+`network_services: tuple[str, ...]` with no compatibility shim (Section 13).
+That rename is exactly the class of change `docs/migration_guide.md` records
+for every prior tier, but neither 8D's nor 8E's writable list named that file,
+and Section 16's own scope statement above says the `[0.3.0]` entry covers
+"Tiers 1–6 as well as Tier 7" — silently excluding Tier 8's own change from the
+release notes it is simultaneously assembling. `docs/migration_guide.md` is
+added to 8E's writable list below, and 8E's work item 6 is widened: the
+`[0.3.0]` changelog entry's breaking-changes list must also name the
+`network_service` → `network_services` rename (`SKY-002`), and
+`docs/migration_guide.md` gains a short dated entry for it, in the same style
+as the file's existing renamed-keyword sections (for example
+`### Illumination primitives renamed`). No other Tier 8 slice made a
+breaking public-API rename, so this is the only addition the correction makes.
+
 **Also required in `[0.3.0]`, per Section 4**: a "Known limitations" subsection
 naming `PERF-001`, `SCI-004`, `SCI-005`, `SCI-006`, `SCI-007`, and (if still
 open) `CI-001`, each in one sentence with its register ID. Release notes that
@@ -1288,7 +1314,10 @@ slice SHA with its per-job result stated honestly.
    (Section 15.3); extend `tests/unit/test_release_metadata.py` to assert their
    absence while `PERF-001` is open.
 6. The version bump and the `[0.3.0]` changelog section including "Known
-   limitations" (Section 16), gated on Q1.
+   limitations" (Section 16), gated on Q1. Per the correction recorded in
+   Section 16, this includes the `network_service` → `network_services`
+   rename (`SKY-002`, closed at 8D) in the breaking-changes list, and a
+   matching `docs/migration_guide.md` entry.
 7. Section 11 scans 2, 7 and 8 (naming, GPU-claim citation, `pixi run` task
    existence) added to the acceptance module. **A specific pre-existing
    instance for scan 7 to catch, found and routed here at the 8B independent
@@ -1328,9 +1357,11 @@ slice SHA with its per-job result stated honestly.
 **Writable.** `AGENTS.md`; `CLAUDE.md`; `README.md`; `.gitignore`;
 `antenna_layout_examples/1101503312_metafits.fits`; `pyproject.toml`;
 `pixi.toml`; `src/radiosim/__about__.py`; `docs/conf.py`;
-`docs/changelog.rst`; `docs/contributing.rst` (test-directory description
-only); `src/radiosim/simulator/__init__.py` (the `:12` GPU-claim sentence
-above, only — no logic edit); `src/radiosim/simulator/base.py` (the
+`docs/changelog.rst`; `docs/migration_guide.md` (one new dated entry for the
+`SKY-002` `network_services` rename, per the Section 16 correction, only — no
+edit to any existing tier's section); `docs/contributing.rst` (test-directory
+description only); `src/radiosim/simulator/__init__.py` (the `:12` GPU-claim
+sentence above, only — no logic edit); `src/radiosim/simulator/base.py` (the
 `supports_gpu` docstring at `:122-129` only — no logic edit);
 `tests/unit/test_release_metadata.py`;
 `tests/unit/test_tier8_release_acceptance.py`;
