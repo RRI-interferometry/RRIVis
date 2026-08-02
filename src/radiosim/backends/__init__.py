@@ -11,26 +11,39 @@ Backends:
 - jax: JAX array operations on a device supported by the installed JAX runtime
 
 Usage:
-    >>> from radiosim.backends import get_backend, list_backends
-    >>>
-    >>> # List available backends
-    >>> print(list_backends())
-    {'numpy': True, 'dask': True, 'jax': True}
-    >>>
-    >>> # Get backend (auto-detect best available)
-    >>> backend = get_backend("auto")
-    >>> print(backend.name)
-    'numpy-cpu'
-    >>>
-    >>> # Use backend for computation
-    >>> xp = backend.xp
-    >>> arr = backend.asarray([1, 2, 3])
-    >>> result = backend.exp(arr)
+
+>>> from radiosim.backends import get_backend, list_backends
+>>>
+>>> # Discover the reported backend keys; NumPy is always available
+>>> availability = list_backends()
+>>> sorted(availability)
+['dask', 'jax', 'jax_gpu', 'jax_tpu', 'numpy']
+>>> availability["numpy"]
+True
+>>>
+>>> # Select a backend explicitly.  ``"auto"`` returns JAX only when JAX
+>>> # reports a non-CPU device, and NumPy otherwise.
+>>> backend = get_backend("numpy")
+>>> backend.name
+'numpy-cpu'
+>>>
+>>> # Use backend for computation
+>>> xp = backend.xp
+>>> arr = backend.asarray([1, 2, 3])
+>>> result = backend.exp(arr)
 
 With precision control:
-    >>> from radiosim.core.precision import PrecisionConfig
-    >>> backend = get_backend("numpy", precision="fast")  # Use fast preset
-    >>> backend = get_backend("numpy", precision=PrecisionConfig.precise())
+
+>>> from radiosim.core.precision import PrecisionConfig
+>>> get_backend("numpy", precision="fast").name  # Use fast preset
+'numpy-cpu'
+>>> get_backend("numpy", precision=PrecisionConfig.standard()).name
+'numpy-cpu'
+
+``PrecisionConfig.precise()`` and ``PrecisionConfig.ultra()`` request
+``float128``, which the NumPy backend rejects with
+``BackendNotAvailableError`` on platforms that do not provide it (Apple
+Silicon among them), so they are not shown as executed examples here.
 """
 
 from typing import TYPE_CHECKING, Union
@@ -303,7 +316,7 @@ def get_backend_info() -> dict[str, dict]:
 
     Examples:
         >>> info = get_backend_info()
-        >>> print(info["numpy"]["device"])
+        >>> info["numpy"]["device"]
         'CPU'
     """
     info = {}

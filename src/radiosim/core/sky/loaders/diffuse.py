@@ -93,8 +93,11 @@ def list_diffuse_models() -> dict[str, str]:
 
     Examples
     --------
-    >>> for name, desc in list_diffuse_models().items():
-    ...     print(f"{name}: {desc[:80]}...")
+    >>> models = list_diffuse_models()
+    >>> sorted(models)
+    ['gsm2008', 'gsm2016', 'haslam', 'lfsm']
+    >>> models["haslam"].startswith("Haslam 408 MHz")
+    True
     """
     return {name: info.description for name, info in DIFFUSE_MODELS.items()}
 
@@ -499,11 +502,17 @@ def create_gsm_observer(
 
     Examples
     --------
-    >>> obs = create_gsm_observer(basemap="wmap")
-    >>> obs.lat = "-30.72"
-    >>> obs.lon = "21.43"
-    >>> obs.date = "2025-01-15T00:00:00"
-    >>> obs.generate(150e6)
+    Not executed: building the observer downloads and reads the ``pygdsm``
+    basemap data, and ``pyephem`` dates use ``YYYY/MM/DD hh:mm:ss``, not ISO
+    8601.
+
+    .. code-block:: python
+
+        obs = create_gsm_observer(basemap="wmap")
+        obs.lat = "-30.72"
+        obs.lon = "21.43"
+        obs.date = "2025/01/15 00:00:00"
+        sky = obs.generate(150e6)
     """
     from pygdsm import GlobalSkyModel, GSMObserver08
 

@@ -2,16 +2,24 @@
 
 Examples
 --------
->>> from radiosim.api import Simulator
->>> sim = Simulator.from_yaml("config.yaml")
->>> result = sim.run()
->>> result is sim.result
-True
+Every entry point needs a configuration document or an already resolved
+configuration model, so these are illustrative rather than executed:
 
->>> sim = Simulator.from_mapping(config_data, base_dir=project_dir)
->>> result = sim.run()
+.. code-block:: python
 
->>> sim = Simulator.from_config(config_model, base_dir=project_dir)
+    from radiosim.api import Simulator
+
+    sim = Simulator.from_yaml("config.yaml")
+    result = sim.run()
+    assert result is sim.result
+
+    sim = Simulator.from_mapping(config_data, base_dir=project_dir)
+    result = sim.run()
+
+    sim = Simulator.from_config(config_model, base_dir=project_dir)
+
+``examples/scripts/simple_simulation.py`` is the executed counterpart: it
+builds a simulator with :meth:`Simulator.from_parameters` and runs offline.
 """
 
 from __future__ import annotations
@@ -132,15 +140,19 @@ class Simulator:
 
     Examples
     --------
-    >>> # Basic usage with a YAML document
-    >>> sim = Simulator.from_yaml("config.yaml")
-    >>> result = sim.run()
-    >>> result is sim.result
-    True
+    Illustrative rather than executed; each form needs a configuration
+    document or mapping supplied by the caller:
 
-    >>> # Programmatic mapping usage
-    >>> sim = Simulator.from_mapping(config_data, base_dir=project_dir)
-    >>> result = sim.run()
+    .. code-block:: python
+
+        # Basic usage with a YAML document
+        sim = Simulator.from_yaml("config.yaml")
+        result = sim.run()
+        assert result is sim.result
+
+        # Programmatic mapping usage
+        sim = Simulator.from_mapping(config_data, base_dir=project_dir)
+        result = sim.run()
 
     See Also
     --------
@@ -614,10 +626,12 @@ class Simulator:
 
         Examples
         --------
-        >>> sim = Simulator.from_yaml("config.yaml")
-        >>> sim.setup()
-        >>> print(f"Antennas: {len(sim.antennas)}")
-        >>> print(f"Baselines: {len(sim.baselines)}")
+        .. code-block:: python
+
+            sim = Simulator.from_yaml("config.yaml")
+            sim.setup()
+            print(f"Antennas: {len(sim.antennas)}")
+            print(f"Baselines: {len(sim.baselines)}")
         """
         if self._is_setup:
             return self
@@ -997,10 +1011,11 @@ class Simulator:
 
         Examples
         --------
-        >>> sim = Simulator.from_yaml("config.yaml")
-        >>> result = sim.run()
-        >>> result is sim.result
-        True
+        .. code-block:: python
+
+            sim = Simulator.from_yaml("config.yaml")
+            result = sim.run()
+            assert result is sim.result
         """
         t_start = time.perf_counter()
 
@@ -1612,10 +1627,12 @@ class Simulator:
 
         Examples
         --------
-        >>> sim = Simulator.from_yaml("config.yaml")
-        >>> sim.setup()
-        >>> mem = sim.get_memory_estimate()
-        >>> print(f"Estimated memory: {mem['total_human']}")
+        .. code-block:: python
+
+            sim = Simulator.from_yaml("config.yaml")
+            sim.setup()
+            mem = sim.get_memory_estimate()
+            print(f"Estimated memory: {mem['total_human']}")
         """
         if not self._is_setup:
             self.setup()

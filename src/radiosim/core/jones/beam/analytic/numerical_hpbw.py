@@ -21,8 +21,10 @@ The algorithm works by:
 Examples
 --------
 >>> import numpy as np
->>> from radiosim.core.jones.beam.taper import uniform_taper
->>> from radiosim.core.jones.beam.numerical_hpbw import compute_hpbw_numerical
+>>> from radiosim.core.jones.beam.analytic.taper import uniform_taper
+>>> from radiosim.core.jones.beam.analytic.numerical_hpbw import (
+...     compute_hpbw_numerical,
+... )
 >>> hpbw = compute_hpbw_numerical(uniform_taper, 150e6, 14.0)
 >>> hpbw.shape
 (1,)

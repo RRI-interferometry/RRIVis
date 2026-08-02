@@ -46,15 +46,21 @@ class VisibilitySimulator(ABC):
     >>> sim = get_simulator("rime")
     >>> print(sim.name, sim.complexity)
     rime O(N_src × N_bl × N_freq)
-    >>> visibilities = sim.calculate_visibilities(
-    ...     instrument=instrument_view,
-    ...     beam_system=beam_system,
-    ...     source_arrays=source_arrays,
-    ...     frequencies=freqs,
-    ...     backend=backend,
-    ...     location=location,
-    ...     time_grid=time_grid,
-    ... )
+
+    The solver inputs come from :meth:`radiosim.api.Simulator.setup`, so the
+    call itself is illustrative rather than executed:
+
+    .. code-block:: python
+
+        visibilities = sim.calculate_visibilities(
+            instrument=instrument_view,
+            beam_system=beam_system,
+            source_arrays=source_arrays,
+            frequencies=freqs,
+            backend=backend,
+            location=location,
+            time_grid=time_grid,
+        )
     """
 
     @property
@@ -260,11 +266,15 @@ class VisibilitySimulator(ABC):
 
         Examples
         --------
-        >>> sim = get_simulator("rime")
-        >>> valid, errors = sim.validate_inputs(antennas, baselines, sources, freqs)
-        >>> if not valid:
-        ...     for err in errors:
-        ...         print(f"Validation error: {err}")
+        .. code-block:: python
+
+            sim = get_simulator("rime")
+            valid, errors = sim.validate_inputs(
+                instrument_view, baselines, sources, freqs
+            )
+            if not valid:
+                for err in errors:
+                    print(f"Validation error: {err}")
         """
         errors = []
 
@@ -340,12 +350,13 @@ class VisibilitySimulator(ABC):
 
         Examples
         --------
+        >>> from radiosim.simulator import get_simulator
         >>> sim = get_simulator("rime")
         >>> mem = sim.get_memory_estimate(
         ...     n_antennas=350, n_baselines=61425, n_sources=10000, n_frequencies=1024
         ... )
         >>> print(f"Estimated memory: {mem['total_human']}")
-        Estimated memory: 4.8 GB
+        Estimated memory: 3.9 GB
         """
         # Bytes per complex number (complex128 = 16 bytes)
         bytes_per_complex = 16

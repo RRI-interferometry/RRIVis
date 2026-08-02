@@ -138,10 +138,14 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+# `--doctest-modules` deliberately does NOT live here.  With
+# `testpaths = ["tests"]` it never reached `src/`, so it collected zero doctest
+# items while implying that the 299 `>>>` lines in `src/radiosim` were covered.
+# Docstring doctests are now a separate, really-executed invocation: the
+# `doctest` pixi task (Tier8ReleasePlan.md Section 9 item 3).
 addopts = [
     "-v",
     "--tb=short",
-    "--doctest-modules",
 ]
 doctest_optionflags = [
     "NORMALIZE_WHITESPACE",

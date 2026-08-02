@@ -26,8 +26,13 @@ def list_point_catalogs() -> dict[str, str]:
 
     Examples
     --------
-    >>> for name, desc in list_point_catalogs().items():
-    ...     print(f"{name}: {desc[:80]}...")
+    >>> catalogs = list_point_catalogs()
+    >>> sorted(catalogs)
+    ['3c', 'gleam_egc', 'gleam_gal', 'gleam_x_dr1', 'gleam_x_dr2', 'lotss_dr1',
+     'lotss_dr2', 'mals_dr1', 'mals_dr2', 'nvss', 'sumss', 'tgss', 'vlass',
+     'vlssr', 'wenss']
+    >>> catalogs["nvss"].startswith("NVSS:")
+    True
     """
     return {name: info.description for name, info in VIZIER_POINT_CATALOGS.items()}
 
@@ -42,8 +47,11 @@ def list_racs_catalogs() -> dict[str, str]:
 
     Examples
     --------
-    >>> for name, desc in list_racs_catalogs().items():
-    ...     print(f"{name}: {desc}")
+    >>> bands = list_racs_catalogs()
+    >>> sorted(bands)
+    ['high', 'low', 'mid']
+    >>> bands["low"].startswith("RACS-Low DR1:")
+    True
     """
     return {name: info.description for name, info in RACS_CATALOGS.items()}
 
@@ -198,13 +206,19 @@ def get_catalog_columns(catalog_key: str) -> dict[str, Any]:
 
     Examples
     --------
-    >>> info = get_catalog_columns("nvss")
-    >>> print(info["columns"][:5])
-    ['recno', 'Field', 'Xpos', 'Ypos', 'NVSS']
-    >>> print(info["used_by_radiosim"])
-    {'ra': 'RAJ2000', 'dec': 'DEJ2000', 'flux': 'S1.4', 'spectral_index': None}
-    >>> print(info["column_details"]["S1.4"])
-    {'description': '...', 'unit': 'mJy'}
+    Not executed: this function queries VizieR over the network, so it cannot
+    run in the offline gate.
+
+    .. code-block:: python
+
+        info = get_catalog_columns("nvss")
+        print(info["columns"][:5])
+        # ['recno', 'Field', 'Xpos', 'Ypos', 'NVSS']
+        print(info["used_by_radiosim"])
+        # {'ra': 'RAJ2000', 'dec': 'DEJ2000', 'flux': 'S1.4',
+        #  'spectral_index': None}
+        print(info["column_details"]["S1.4"]["unit"])
+        # 'mJy'
     """
     if catalog_key not in VIZIER_POINT_CATALOGS:
         raise ValueError(
@@ -292,9 +306,15 @@ def get_racs_columns(band: str) -> dict[str, Any]:
 
     Examples
     --------
-    >>> info = get_racs_columns("low")
-    >>> print(info["freq_mhz"])
-    887.5
+    Not executed: this function queries CASDA TAP over the network, so it
+    cannot run in the offline gate.  ``get_racs_metadata("low")`` returns the
+    same static fields with no network call.
+
+    .. code-block:: python
+
+        info = get_racs_columns("low")
+        print(info["freq_mhz"])
+        # 887.5
     """
     band = band.lower()
     if band not in RACS_CATALOGS:

@@ -26,6 +26,7 @@ Using presets:
 
 Granular control:
 
+>>> from radiosim.core.precision import JonesPrecision
 >>> precision = PrecisionConfig(
 ...     default="float64",
 ...     jones=JonesPrecision(
@@ -34,20 +35,27 @@ Granular control:
 ...     ),
 ... )
 
-In Simulator:
+In Simulator (illustrative; each call needs a configuration document on
+disk):
 
->>> from radiosim import Simulator
->>> from radiosim.io import SimulationOverrides
->>> sim = Simulator.from_yaml(
-...     "config.yaml",
-...     overrides=SimulationOverrides(backend="jax", precision="fast"),
-... )
->>> sim = Simulator.from_yaml(
-...     "config.yaml",
-...     overrides=SimulationOverrides(
-...         backend="numpy", precision=PrecisionConfig.precise()
-...     ),
-... )
+.. code-block:: python
+
+    from radiosim import Simulator
+    from radiosim.io import SimulationOverrides
+
+    sim = Simulator.from_yaml(
+        "config.yaml",
+        overrides=SimulationOverrides(backend="jax", precision="fast"),
+    )
+    sim = Simulator.from_yaml(
+        "config.yaml",
+        overrides=SimulationOverrides(
+            backend="numpy", precision=PrecisionConfig.precise()
+        ),
+    )
+
+A backend rejects a precision it cannot honor: ``float128`` is unavailable on
+some platforms, and the JAX backend supports ``float32``/``float64`` only.
 """
 
 from __future__ import annotations

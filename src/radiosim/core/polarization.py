@@ -109,24 +109,30 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
     - C[0,0] = (I+Q)/2, C[1,1] = (I-Q)/2 → Sum = I ✓
 
     Broadcasting:
-    - All inputs broadcast to common shape
+
+    - The four Stokes inputs must already share one shape: all scalars, or
+      all arrays of the same shape. The rows are assembled with ``stack``,
+      not with ``+``, so mixing an array ``stokes_I`` with a scalar
+      ``stokes_Q`` raises ``ValueError``; pass explicit zero arrays instead.
     - Output adds (2, 2) dimensions at end
-    - Example: stokes_I.shape=(100,) → C.shape=(100, 2, 2)
+    - Example: all four of shape (100,) → C.shape=(100, 2, 2)
 
     Examples
     --------
-    >>> # Unpolarized 1 Jy source
+    >>> # Unpolarized 1 Jy source; check energy conservation
     >>> C = stokes_to_coherency(stokes_I=1.0)
-    >>> # Check energy conservation
-    >>> np.allclose(C[0, 0] + C[1, 1], 1.0)  # → True
+    >>> bool(np.allclose(C[0, 0] + C[1, 1], 1.0))
+    True
 
-    >>> # Fully Q-polarized
-    >>> C = stokes_to_coherency(stokes_I=10.0, stokes_Q=10.0)  # All in X feed
-    >>> C[0, 0], C[1, 1]  # → (10.0, 0.0)
+    >>> # Fully Q-polarized: all the power lands in the X feed
+    >>> C = stokes_to_coherency(stokes_I=10.0, stokes_Q=10.0)
+    >>> float(C[0, 0].real), float(C[1, 1].real)
+    (10.0, 0.0)
 
-    >>> # Circular polarization
+    >>> # Circular polarization (IAU/HBS: U+iV -> +iV)
     >>> C = stokes_to_coherency(stokes_I=5.0, stokes_V=2.0)
-    >>> C[0, 1].imag  # → +1.0 (IAU/HBS: U+iV → +iV)
+    >>> float(C[0, 1].imag)
+    1.0
     """
     # Convert to arrays for consistent handling.
     stokes_I = xp.asarray(stokes_I, dtype=float)
@@ -199,11 +205,14 @@ def apply_jones_matrices(jones_i, coherency, jones_j):
     - jones_i: (Ntime, 2, 2), coherency: (Nsources, 2, 2)
       → Broadcast fails: incompatible (Ntime ≠ Nsources)
 
-    Best practice: Explicitly reshape/broadcast before calling:
-    >>> # Vectorize over sources
-    >>> jones_i_all = jones_i[..., None, :, :]  # (Ntime, 1, 2, 2)
-    >>> coherency_all = coherency[None, ...]  # (1, Nsources, 2, 2)
-    >>> # Now broadcasts to (Ntime, Nsources, 2, 2)
+    Best practice: explicitly reshape/broadcast before calling.
+
+    .. code-block:: python
+
+        # Vectorize over sources
+        jones_i_all = jones_i[..., None, :, :]  # (Ntime, 1, 2, 2)
+        coherency_all = coherency[None, ...]  # (1, Nsources, 2, 2)
+        # Now broadcasts to (Ntime, Nsources, 2, 2)
 
     Notes
     -----
@@ -218,15 +227,18 @@ def apply_jones_matrices(jones_i, coherency, jones_j):
     >>> jones_j = np.array([[0.98, 0.02], [0.01, 0.99]])
     >>> C = stokes_to_coherency(stokes_I=10.0)
     >>> vis = apply_jones_matrices(jones_i, C, jones_j)
-    >>> vis.shape  # → (2, 2)
+    >>> vis.shape
+    (2, 2)
 
     >>> # Multiple sources (vectorized)
     >>> Nsrc = 100
     >>> jones_i_all = np.tile(jones_i, (Nsrc, 1, 1))  # (100, 2, 2)
-    >>> C_all = stokes_to_coherency(stokes_I=np.ones(Nsrc))  # (100, 2, 2)
+    >>> zeros = np.zeros(Nsrc)
+    >>> C_all = stokes_to_coherency(np.ones(Nsrc), zeros, zeros, zeros)
     >>> jones_j_all = np.tile(jones_j, (Nsrc, 1, 1))
     >>> vis_all = apply_jones_matrices(jones_i_all, C_all, jones_j_all)
-    >>> vis_all.shape  # → (100, 2, 2)
+    >>> vis_all.shape
+    (100, 2, 2)
     """
     # E_j^H = Hermitian conjugate (conjugate transpose)
     # np.swapaxes on last two axes works for any leading dimensions
@@ -266,15 +278,19 @@ def stokes_I_only_visibility(jones_i, jones_j, intensity):
     due to instrumental polarization leakage (off-diagonal Jones terms).
 
     This is equivalent to:
-    >>> C = stokes_to_coherency(stokes_I=intensity, stokes_Q=0, stokes_U=0, stokes_V=0)
-    >>> vis = apply_jones_matrices(jones_i, C, jones_j)
+
+    .. code-block:: python
+
+        C = stokes_to_coherency(stokes_I=intensity, stokes_Q=0, stokes_U=0, stokes_V=0)
+        vis = apply_jones_matrices(jones_i, C, jones_j)
 
     Examples
     --------
     >>> J_i = np.array([[0.95, 0.05], [0.02, 0.98]])  # Leaky beam
     >>> J_j = np.eye(2)  # Ideal
     >>> vis = stokes_I_only_visibility(J_i, J_j, intensity=10.0)
-    >>> vis[0, 1]  # Non-zero! Leakage creates cross-pol
+    >>> float(vis[0, 1])  # Non-zero! Leakage creates cross-pol
+    0.25
     """
     jones_j_H = np.conj(np.swapaxes(jones_j, -2, -1))
     visibility = (intensity / 2.0) * (jones_i @ jones_j_H)
@@ -300,12 +316,15 @@ def coherency_to_stokes(coherency):
 
     Notes
     -----
-    Round-trip property (up to numerical precision):
-    >>> C = stokes_to_coherency(stokes_I, stokes_Q, stokes_U, stokes_V)
-    >>> I2, Q2, U2, V2 = coherency_to_stokes(C)
-    >>> np.allclose(
-    ...     [stokes_I, stokes_Q, stokes_U, stokes_V], [I2, Q2, U2, V2]
-    ... )  # → True
+    Round-trip property (up to numerical precision), for any Stokes vector:
+
+    .. code-block:: python
+
+        C = stokes_to_coherency(stokes_I, stokes_Q, stokes_U, stokes_V)
+        I2, Q2, U2, V2 = coherency_to_stokes(C)
+        assert np.allclose([stokes_I, stokes_Q, stokes_U, stokes_V], [I2, Q2, U2, V2])
+
+    The Examples section below executes exactly that round trip.
 
     With half-power convention C = [[I+Q, U+iV], [U-iV, I-Q]] / 2:
     - I: C[0,0] + C[1,1] = (I+Q)/2 + (I-Q)/2 = I (no factor needed!)
@@ -370,7 +389,10 @@ def jones_matrix_power(jones):
     --------
     >>> J = np.array([[0.9 + 0.1j, 0.05], [0.03, 0.95 - 0.05j]])
     >>> px, py = jones_matrix_power(J)
-    >>> px  # Power in X: |0.9+0.1j|² + |0.05|² ≈ 0.8225
+    >>> round(float(px), 4)  # |0.9+0.1j|² + |0.05|²
+    0.8225
+    >>> round(float(py), 4)  # |0.03|² + |0.95-0.05j|²
+    0.9059
     """
     power_x = np.abs(jones[..., 0, 0]) ** 2 + np.abs(jones[..., 0, 1]) ** 2
     power_y = np.abs(jones[..., 1, 0]) ** 2 + np.abs(jones[..., 1, 1]) ** 2

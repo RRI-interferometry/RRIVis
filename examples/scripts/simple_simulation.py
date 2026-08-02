@@ -122,7 +122,12 @@ def main() -> int:
 
     result = simulator.run(progress=args.progress)
     assert result is simulator.result
-    assert result.visibilities.shape == (1, 15, 2, 4)
+    if args.config is None:
+        # Only the built-in example has fixed dimensions: five HERA antennas
+        # (fifteen baselines), two channels, one time sample.  A document
+        # supplied with --config defines its own grid, so asserting these here
+        # would make every shipped configuration fail.
+        assert result.visibilities.shape == (1, 15, 2, 4)
     print(f"Visibility shape (T, B, F, C): {result.visibilities.shape}")
     print(f"Correlations: {', '.join(result.correlations)}")
     print(f"Stokes-I shape: {result.stokes_i().shape}")

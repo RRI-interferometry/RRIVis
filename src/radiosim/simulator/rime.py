@@ -101,22 +101,26 @@ class RIMESimulator(VisibilitySimulator):
     >>> sim = get_simulator("rime")
     >>> print(sim.name, sim.complexity)
     rime O(N_src × N_bl × N_freq)
-    >>>
-    >>> # Calculate visibilities with an explicit optional backend
-    >>> backend = get_backend("jax")  # or "numpy", "dask"
-    >>> visibilities = sim.calculate_visibilities(
-    ...     instrument=instrument_view,
-    ...     beam_system=beam_system,
-    ...     source_arrays=source_arrays,
-    ...     frequencies=freqs,
-    ...     backend=backend,
-    ...     location=location,
-    ...     time_grid=time_grid,
-    ... )
-    >>>
-    >>> # Backend-native receptor matrix cube: time, baseline, frequency, 2, 2
-    >>> visibilities.shape
-    (1, 15, 2, 2, 2)
+
+    The solver inputs come from :meth:`radiosim.api.Simulator.setup`, so the
+    call itself is illustrative rather than executed:
+
+    .. code-block:: python
+
+        # Calculate visibilities with an explicit optional backend
+        backend = get_backend("jax")  # or "numpy", "dask"
+        visibilities = sim.calculate_visibilities(
+            instrument=instrument_view,
+            beam_system=beam_system,
+            source_arrays=source_arrays,
+            frequencies=freqs,
+            backend=backend,
+            location=location,
+            time_grid=time_grid,
+        )
+
+        # Backend-native receptor matrix cube: time, baseline, frequency, 2, 2
+        assert visibilities.shape == (1, 15, 2, 2, 2)
 
     See Also
     --------

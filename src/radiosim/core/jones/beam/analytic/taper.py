@@ -26,19 +26,22 @@ References
 Examples
 --------
 >>> import numpy as np
->>> from radiosim.core.jones.beam.taper import uniform_taper, parabolic_taper
+>>> from radiosim.core.jones.beam.analytic.taper import (
+...     parabolic_taper,
+...     uniform_taper,
+... )
 
 Uniform illumination (Airy pattern):
 
 >>> u = np.array([0.0, 0.5, 1.0])
 >>> response = uniform_taper(u)
->>> response[0]
+>>> float(response[0])
 1.0
 
 Parabolic taper with 10 dB edge illumination:
 
 >>> response = parabolic_taper(u, edge_taper_dB=10.0)
->>> response[0]
+>>> float(response[0])
 1.0
 """
 

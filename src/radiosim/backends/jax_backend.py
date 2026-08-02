@@ -72,13 +72,16 @@ class JAXBackend(ArrayBackend):
     - Precision control (float32/float64 only; float128 falls back to float64)
 
     Example:
+        >>> import jax.numpy as jnp
+        >>> from radiosim.backends.jax_backend import JAXBackend
         >>> backend = JAXBackend(device="cpu")
         >>> arr = backend.asarray([1, 2, 3], dtype=jnp.float32)
-        >>> result = backend.exp(arr)
+        >>> backend.exp(arr).shape
+        (3,)
 
-        # With precision control:
-        >>> from radiosim.core.precision import PrecisionConfig
-        >>> backend = JAXBackend(precision="fast")  # float32 where safe
+        With precision control:
+
+        >>> fast = JAXBackend(device="cpu", precision="fast")  # float32 where safe
     """
 
     def __init__(

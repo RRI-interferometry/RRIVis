@@ -5,18 +5,24 @@ A modern Python package for simulating radio interferometer visibilities
 with strict, source-aware configuration and selectable computation backends.
 
 Basic usage:
-    >>> import radiosim
-    >>> print(radiosim.__version__)
-    '0.2.0'
 
-    >>> # High-level API
-    >>> sim = radiosim.Simulator.from_yaml("config.yaml")
-    >>> result = sim.run()
-    >>> sim.save("output/result")
+>>> import radiosim
+>>> isinstance(radiosim.__version__, str)
+True
 
-    >>> # Programmatic API
-    >>> sim = radiosim.Simulator.from_mapping(config_data, base_dir=project_dir)
-    >>> result = sim.run()
+The high-level entry points each need a configuration document, so they are
+shown as illustrative code rather than as executed examples:
+
+.. code-block:: python
+
+    # High-level API
+    sim = radiosim.Simulator.from_yaml("config.yaml")
+    result = sim.run()
+    sim.save("output/result")
+
+    # Programmatic API
+    sim = radiosim.Simulator.from_mapping(config_data, base_dir=project_dir)
+    result = sim.run()
 
 For more information, see https://github.com/RRI-interferometry/RadioSim
 """

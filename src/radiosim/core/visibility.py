@@ -419,10 +419,24 @@ def calculate_visibility(
 
     Examples
     --------
-    >>> # Explicit backend
-    >>> from radiosim.backends import get_backend
-    >>> selected_backend = get_backend("jax")
-    >>> vis = calculate_visibility(..., backend=selected_backend)
+    The solver inputs are built by :meth:`radiosim.api.Simulator.setup`, so
+    this is illustrative rather than executed:
+
+    .. code-block:: python
+
+        from radiosim.backends import get_backend
+
+        selected_backend = get_backend("jax")
+        vis = calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=source_arrays,
+            location=location,
+            time_grid=time_grid,
+            frequencies=frequencies,
+            backend=selected_backend,
+            receptors=receptors,
+        )
     """
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.time_grid import ObservationTimeGrid

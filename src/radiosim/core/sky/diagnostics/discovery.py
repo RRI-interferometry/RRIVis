@@ -52,10 +52,10 @@ def estimate_healpix_memory(
     --------
     >>> info = estimate_healpix_memory(nside=1024, n_frequencies=20)
     >>> print(f"Memory: {info['total_mb']:.1f} MB")
-    Memory: 960.0 MB
+    Memory: 1006.6 MB
     >>> info = estimate_healpix_memory(nside=1024, n_frequencies=20, n_stokes=4)
     >>> print(f"Memory: {info['total_mb']:.1f} MB")
-    Memory: 3840.0 MB
+    Memory: 4026.5 MB
     """
     npix = hp.nside2npix(nside)
     bytes_per_value = np.dtype(dtype).itemsize

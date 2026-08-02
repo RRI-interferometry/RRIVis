@@ -77,6 +77,50 @@ environments at their recorded ``397c0e1`` values.
 digest class; it makes the next occurrence adjudicable, per
 ``Tier8ReleasePlan.md`` Section 14 items 2 and 3, whose implementation lives in
 ``tests/characterization/test_tier6_current_behavior.py``.
+
+Tier 8B addendum -- the measured doctest debt, and what was paid
+===============================================================
+
+**Q4, measured before choosing.** The first real run of
+``pytest --doctest-modules src/radiosim`` collected **54** doctest items and
+reported **34 failed, 20 passed**.  Because pytest stops a doctest at its first
+failing example, 34 was a *lower* bound on the broken examples: fixing one
+routinely exposed the next in the same docstring.  8B took option **(a)**, fix
+all, rather than (b)'s public-API-only scope, for two reasons.  First, the
+plan's own concrete artifact -- the ``doctest`` task string in Section 9 item
+3 -- is scoped to the whole of ``src/radiosim``, so option (b) would have
+required inventing a module list the design never wrote and filing a debt row
+for a remainder of seventeen failures.  Second, 34 against a stated threshold
+of "roughly thirty" is inside the fuzz of that word.  The result is
+``pixi run doctest`` green over the whole package: **41 items, all passing**.
+
+The item count fell from 54 to 41 because 13 examples were **not** repaired
+into executable doctests but converted to ``.. code-block:: python``.  Each is
+one of three kinds that cannot execute hermetically: it needs a configuration
+document on disk (``Simulator.from_yaml``), it needs solver state the caller
+does not have (``calculate_visibilities``'s ``instrument_view``,
+``JonesChain``'s terms), or it makes a live network call
+(``get_catalog_columns`` queries VizieR, ``get_racs_columns`` queries CASDA
+TAP -- both of which really did hit the network during the 8A-state
+measurement).  That is Section 9 item 4's reasoning applied to docstrings: an
+example that cannot execute must not be dressed as one that did.
+
+**Q5, decided: the notebook is executed.**  ``jupyter``, ``nbconvert`` and
+``ipykernel`` are already in ``pixi.toml``'s ``[dependencies]``, so the
+dependency gate in ``Tier8ReleasePlan.md`` Section 9 item 2 is satisfied with
+no environment inflation.  ``jupyter nbconvert --to notebook --execute
+--stdout examples/notebooks/01_basic_usage.ipynb`` was run at 8B and exited 0,
+writing nothing to the working tree.  The notebook is fully offline: five code
+cells over the bundled HERA layout and synthetic sources.  8D wires the command
+into the ``quality`` job; 8B records the decision and the evidence.
+
+**The one script change.** ``examples/scripts/simple_simulation.py``'s
+``--config`` path was broken at 8A and is fixed here under the Section 10
+correction recorded in ``Tier8ReleasePlan.md``: ``main()`` asserted the
+built-in example's ``(1, 15, 2, 4)`` for every run, so ``--config`` against any
+shipped document raised ``AssertionError``.  The assertion is now scoped to the
+built-in path.  No flag was added or removed -- the pin below still holds --
+and the default run's scientific fingerprint is unchanged.
 """
 
 from __future__ import annotations
@@ -114,14 +158,27 @@ def _script_flags() -> set[str]:
 
 
 def _documented_flags() -> set[str]:
-    """Return every ``--flag`` token ``examples/README.md`` puts in a command.
+    """Return every ``--flag`` ``examples/README.md`` gives the example script.
 
     ``--help`` is excluded: argparse supplies it, so it is real without being an
-    ``add_argument`` call, and 8B's flag-parity test must make the same
-    allowance.
+    ``add_argument`` call, and 8B's flag-parity test makes the same allowance.
+
+    Scoped at 8B to the command blocks that name the script plus the inline code
+    spans, rather than to every ``--token`` in the file.  The corrected document
+    also shows a ``jupyter nbconvert`` invocation (Q5), whose ``--to`` and
+    ``--execute`` are real flags of a different program and are not the example
+    parser's business.
     """
     text = _read("examples/README.md")
-    found = set(re.findall(r"(?<![\w-])(--[a-z][a-z0-9-]*)", text))
+    blocks = [
+        block
+        for block in re.findall(r"```bash\n(.*?)```", text, re.DOTALL)
+        if "simple_simulation.py" in block
+    ]
+    spans = re.findall(r"`([^`\n]+)`", text)
+    found: set[str] = set()
+    for fragment in blocks + spans:
+        found |= set(re.findall(r"(?<![\w-])(--[a-z][a-z0-9-]*)", fragment))
     return found - {"--help"}
 
 
@@ -148,46 +205,54 @@ def test_example_script_defines_exactly_three_flags() -> None:
     assert _script_flags() == {"--config", "--backend", "--progress"}
 
 
-def test_examples_readme_documents_four_flags_the_script_does_not_define() -> None:
-    """Pins the phantom flags in the example README.
+def test_examples_readme_documents_exactly_the_flags_the_script_defines() -> None:
+    """FLIPPED AT 8B.  Was ``..._documents_four_flags_the_script_does_not_define``.
 
-    Each of the four appears in a copy-pasteable command block that fails with
-    ``error: unrecognized arguments``.  This is the live half of ``DOC-001``.
-
-    FLIPPED BY: Tier 8B (correct ``examples/README.md``; add the flag-parity test
-    that converts this prose claim from state 2 to state 1).
+    Before 8B the document printed four flags -- ``--no-plot``, ``--save``,
+    ``--plot``, ``--output-dir`` -- in copy-pasteable command blocks, each of
+    which failed with ``error: unrecognized arguments``.  That was the live half
+    of ``DOC-001``.  The document now describes the three flags that exist, and
+    the rule that keeps it there is
+    ``tests/unit/test_tier8_release_acceptance.py``'s parity scan, which reads
+    the *live* ``--help`` rather than the source.  This pin is the cheap
+    source-level mirror of it.
     """
-    phantom = _documented_flags() - _script_flags()
-    assert phantom == {"--no-plot", "--save", "--plot", "--output-dir"}
+    assert _documented_flags() == _script_flags()
+    for phantom in ("--no-plot", "--save", "--plot", "--output-dir"):
+        assert phantom not in _read("examples/README.md"), phantom
 
 
-def test_examples_readme_offers_the_removed_numba_backend() -> None:
-    """Pins the example README's stale backend sentence.
+def test_examples_readme_names_the_live_backend_set_and_not_numba() -> None:
+    """FLIPPED AT 8B.  Was ``..._offers_the_removed_numba_backend``.
 
     ``numba`` was removed as a selectable backend name in Tier 6H;
-    ``get_backend("numba")`` raises, and ``README.md`` already says so.  Only
-    this file still offers it.  Live half of ``DOC-005``.
-
-    FLIPPED BY: Tier 8B (replace with the live backend set and a pointer to
-    ``README.md``'s benchmark-cited backend section).
+    ``get_backend("numba")`` raises, and ``README.md`` already said so while
+    this file still offered it.  Live half of ``DOC-005``.  The replacement
+    names the four selectable strategies, says why ``numba`` went, and cites the
+    committed benchmark records rather than implying acceleration.
     """
     text = _read("examples/README.md")
-    assert "JAX and Numba can be selected" in text
+    assert "JAX and Numba can be selected" not in text
     assert "Numba" not in _read("README.md")
+    for name in ("`numpy`", "`jax`", "`dask`", "`auto`"):
+        assert name in text, name
+    assert "output/benchmarks/reference/" in text, "backend claim without citation"
 
 
-def test_examples_readme_lists_two_of_the_four_shipped_configurations() -> None:
-    """Pins the example README's incomplete configuration list.
+def test_examples_readme_lists_all_four_shipped_configurations() -> None:
+    """FLIPPED AT 8B.  Was ``..._lists_two_of_the_four_shipped_configurations``.
 
-    FLIPPED BY: Tier 8B (list all four with one accurate line each, including
-    that ``realistic_foreground_example.yaml`` needs network access -- which 8D
-    then makes the program's own pre-flight say too).
+    The document named ``config.yaml`` and ``realistic_foreground_example.yaml``
+    and omitted the hybrid and circular-receptor samples entirely.  All four now
+    carry one accurate line, including that
+    ``realistic_foreground_example.yaml`` needs network access at simulation
+    time -- which 8D then makes the program's own pre-flight say too
+    (``SKY-002``).
     """
     text = _read("examples/README.md")
     shipped = _shipped_config_names()
     assert len(shipped) == 4
-    named = [name for name in shipped if name in text]
-    assert named == ["config.yaml", "realistic_foreground_example.yaml"]
+    assert [name for name in shipped if name in text] == shipped
 
 
 # ---------------------------------------------------------------------------
@@ -301,21 +366,30 @@ def test_docs_api_covers_no_page_for_six_subpackages_and_nine_core_modules() -> 
         assert f".. automodule:: radiosim.core.{module}" not in documented, module
 
 
-def test_doctest_collection_is_configured_but_reaches_no_source_file() -> None:
-    """Pins ``--doctest-modules`` as dead configuration.
+def test_doctests_are_a_real_scoped_invocation_and_not_a_dead_flag() -> None:
+    """FLIPPED AT 8B.  Was ``..._is_configured_but_reaches_no_source_file``.
 
-    The flag is set, ``testpaths`` confines collection to ``tests/``, and the
-    299 ``>>>`` lines in 22 tracked ``src/radiosim`` docstrings therefore never
-    execute.  Nothing in ``tests/`` or ``.github/`` mentions doctest either, so
-    the coverage the flag implies does not exist anywhere.
+    Before 8B, ``--doctest-modules`` sat in the shared ``addopts`` while
+    ``testpaths = ["tests"]`` confined collection to ``tests/``, so it collected
+    exactly zero doctest items and the ``>>>`` lines in ``src/radiosim`` had
+    never executed.  It is now gone from ``addopts`` -- so a bare
+    ``pixi run test`` collects precisely what it collected before -- and the
+    ``doctest`` pixi task runs the real thing against the package.  The measured
+    debt and how much of it 8B paid are in this module's docstring.
 
-    FLIPPED BY: Tier 8B (remove the flag from the shared ``addopts``, add a
-    ``doctest`` pixi task scoped to ``src/radiosim``, and fix what it surfaces).
+    The CI wiring is deliberately *not* asserted here: adding the step to the
+    ``quality`` job is 8D's item 3.
+
+    FLIPPED BY: Tier 8D (the ``ci.yml`` clause below inverts when the step
+    lands).
     """
     pyproject = tomllib.loads(_read("pyproject.toml"))
     pytest_config = pyproject["tool"]["pytest"]["ini_options"]
-    assert "--doctest-modules" in pytest_config["addopts"]
+    assert "--doctest-modules" not in pytest_config["addopts"]
     assert pytest_config["testpaths"] == ["tests"]
+
+    pixi_toml = _read("pixi.toml")
+    assert 'doctest = "python -m pytest --doctest-modules src/radiosim' in pixi_toml
 
     listed = subprocess.run(
         ["git", "grep", "-c", ">>>", "--", "src/radiosim"],
@@ -324,11 +398,9 @@ def test_doctest_collection_is_configured_but_reaches_no_source_file() -> None:
         text=True,
         check=True,
     ).stdout.splitlines()
-    assert len(listed) == 22
-    assert sum(int(line.rsplit(":", 1)[1]) for line in listed) == 299
+    assert listed, "the doctest surface is empty; the task now guards nothing"
 
     assert "doctest" not in _read(".github/workflows/ci.yml")
-    assert "doctest" not in _read("pixi.toml")
 
 
 # ---------------------------------------------------------------------------

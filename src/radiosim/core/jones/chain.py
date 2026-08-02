@@ -68,25 +68,31 @@ class JonesChain:
         multiplication and are applied by the solver, not by this chain.
 
     Example:
-        >>> from radiosim.backends import get_backend
-        >>> backend = get_backend("numpy")
-        >>> chain = JonesChain(backend)
-        >>>
-        >>> # Add terms correlator-side first; the last added is applied first
-        >>> chain.add_term(basis_transform_term)  # H
-        >>> chain.add_term(receptor_config_term)  # C
-        >>> chain.add_term(primary_beam_term)  # E, supplied by the solver
-        >>>
-        >>> # Compute this antenna's Jones over one whole direction batch
-        >>> J = chain.compute_antenna_jones_batch(
-        ...     antenna_idx=0,
-        ...     directions=direction_batch,
-        ...     frequency_hz=1.5e8,
-        ...     freq_idx=0,
-        ...     time_mjd=60000.0,
-        ...     time_idx=0,
-        ...     dtype=complex_dtype,
-        ... )
+        The terms and the direction batch come from the solver, so this is
+        illustrative rather than executed:
+
+        .. code-block:: python
+
+            from radiosim.backends import get_backend
+
+            backend = get_backend("numpy")
+            chain = JonesChain(backend)
+
+            # Add terms correlator-side first; the last added is applied first
+            chain.add_term(basis_transform_term)  # H
+            chain.add_term(receptor_config_term)  # C
+            chain.add_term(primary_beam_term)  # E, supplied by the solver
+
+            # Compute this antenna's Jones over one whole direction batch
+            J = chain.compute_antenna_jones_batch(
+                antenna_idx=0,
+                directions=direction_batch,
+                frequency_hz=1.5e8,
+                freq_idx=0,
+                time_mjd=60000.0,
+                time_idx=0,
+                dtype=complex_dtype,
+            )
     """
 
     def __init__(self, backend: Any):
@@ -120,9 +126,11 @@ class JonesChain:
                 point of the mistake (defect D7).
 
         Example:
-            >>> chain.add_term(gain_jones)  # append (correlator side)
-            >>> chain.add_term(troposphere_jones, position="prepend")  # sky side
-            >>> chain.add_term(leakage_jones, position=2)  # at index 2
+            .. code-block:: python
+
+                chain.add_term(gain_jones)  # append (correlator side)
+                chain.add_term(troposphere_jones, position="prepend")  # sky side
+                chain.add_term(leakage_jones, position=2)  # at index 2
         """
         if isinstance(term, JonesBaselineTerm):
             raise TypeError(

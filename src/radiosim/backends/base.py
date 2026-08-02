@@ -196,9 +196,12 @@ class ArrayBackend(ABC):
             Use this for array creation and operations.
 
         Example:
+            >>> from radiosim.backends import get_backend
+            >>> backend = get_backend("numpy")
             >>> xp = backend.xp
             >>> arr = xp.zeros((10, 10), dtype=complex)
-            >>> result = xp.sum(arr)
+            >>> complex(xp.sum(arr))
+            0j
         """
         pass
 

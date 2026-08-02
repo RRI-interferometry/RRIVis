@@ -28,19 +28,23 @@ Quick Start
 >>> sim = get_simulator("rime")
 >>> print(sim.name, sim.complexity)
 rime O(N_src × N_bl × N_freq)
->>>
->>> # Calculate visibilities
->>> visibilities = sim.calculate_visibilities(
-...     instrument=instrument,
-...     beam_system=beam_system,
-...     source_arrays=source_arrays,
-...     frequencies=frequencies,
-...     backend=backend,
-...     location=location,
-...     time_grid=time_grid,
-... )
->>> visibilities.shape
-(1, 15, 2, 2, 2)
+
+The solver inputs are built by :meth:`radiosim.api.Simulator.setup`, so the
+call itself is illustrative rather than executed:
+
+.. code-block:: python
+
+    visibilities = sim.calculate_visibilities(
+        instrument=instrument,
+        beam_system=beam_system,
+        source_arrays=source_arrays,
+        frequencies=frequencies,
+        backend=backend,
+        location=location,
+        time_grid=time_grid,
+    )
+    # Backend-native receptor cube: (time, baseline, frequency, 2, 2)
+    assert visibilities.shape == (1, 15, 2, 2, 2)
 
 API Reference
 -------------

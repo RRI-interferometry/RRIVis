@@ -4,14 +4,21 @@ This is the default backend that is always available. It supports both
 x86-64 and ARM architectures (including Apple Silicon).
 
 Usage:
-    >>> from radiosim.backends import get_backend
-    >>> backend = get_backend("numpy")
-    >>> backend.name
-    'numpy-cpu'
+
+>>> from radiosim.backends import get_backend
+>>> backend = get_backend("numpy")
+>>> backend.name
+'numpy-cpu'
 
 With precision control:
-    >>> from radiosim.core.precision import PrecisionConfig
-    >>> backend = get_backend("numpy", precision=PrecisionConfig.precise())
+
+>>> from radiosim.core.precision import PrecisionConfig
+>>> get_backend("numpy", precision=PrecisionConfig.standard()).name
+'numpy-cpu'
+
+``PrecisionConfig.precise()`` requests ``float128``, which this backend
+rejects with ``BackendNotAvailableError`` wherever the platform does not
+provide that dtype, so it is not shown as an executed example.
 """
 
 import platform

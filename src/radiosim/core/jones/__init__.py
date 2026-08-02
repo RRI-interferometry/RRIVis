@@ -65,27 +65,36 @@ evaluate_antenna_jones : the one chain-evaluation entry point both solvers use
 
 Examples
 --------
->>> from radiosim.core.jones import DirectionBatch, JonesChain, evaluate_antenna_jones
->>> from radiosim.backends import get_backend
->>>
->>> backend = get_backend("numpy")
->>> chain = JonesChain(backend)
->>> chain.add_term(basis_transform_term)  # H, correlator side first
->>> chain.add_term(receptor_config_term)  # C
->>> chain.add_term(beam_term)  # E, sky side last
->>>
->>> # One evaluation per antenna over the whole direction batch
->>> jones_by_row = evaluate_antenna_jones(
-...     chain=chain,
-...     antenna_rows=(0, 1),
-...     directions=directions,
-...     frequency_hz=1.5e8,
-...     freq_idx=0,
-...     time_mjd=60000.0,
-...     time_idx=0,
-...     backend=backend,
-...     dtype=backend.get_complex_dtype("accumulation"),
-... )
+The terms and the direction batch are supplied by the solver, so this is
+illustrative rather than executed:
+
+.. code-block:: python
+
+    from radiosim.backends import get_backend
+    from radiosim.core.jones import (
+        DirectionBatch,
+        JonesChain,
+        evaluate_antenna_jones,
+    )
+
+    backend = get_backend("numpy")
+    chain = JonesChain(backend)
+    chain.add_term(basis_transform_term)  # H, correlator side first
+    chain.add_term(receptor_config_term)  # C
+    chain.add_term(beam_term)  # E, sky side last
+
+    # One evaluation per antenna over the whole direction batch
+    jones_by_row = evaluate_antenna_jones(
+        chain=chain,
+        antenna_rows=(0, 1),
+        directions=directions,
+        frequency_hz=1.5e8,
+        freq_idx=0,
+        time_mjd=60000.0,
+        time_idx=0,
+        backend=backend,
+        dtype=backend.get_complex_dtype("accumulation"),
+    )
 """
 
 from importlib import import_module
