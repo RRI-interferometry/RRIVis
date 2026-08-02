@@ -32,6 +32,7 @@ import importlib
 import re
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -602,20 +603,48 @@ def test_the_directory_excluded_from_the_docs_build_is_gitignored() -> None:
     directory holds nothing tracked; if it ever did, the exclusion would hide a
     real page from the documentation and from the gate. This test is the
     standing proof of the precondition.
+
+    The proof has to hold in a checkout that does *not* have the scratch
+    directory, which is every fresh clone, every detached worktree and every CI
+    runner. ``.gitignore``'s entry is a directory-only pattern
+    (``docs/superpowers/``), and ``git check-ignore`` can only match a
+    directory-only pattern against a path that exists on disk -- so asking it
+    about an absent path answers "not ignored" for a repository that is
+    configured exactly right. The probe below materialises a throwaway file
+    under the directory first, so the answer depends on ``.gitignore`` and
+    nothing else, and removes whatever it created afterwards.
     """
     assert '"superpowers"' in _read("docs/conf.py"), (
         "docs/conf.py no longer excludes docs/superpowers/; if that is "
         "deliberate, delete this test with it."
     )
-    ignored = subprocess.run(
-        ["git", "check-ignore", "-q", "docs/superpowers"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-    )
+    scratch_directory = REPO_ROOT / "docs" / "superpowers"
+    probe = scratch_directory / ".gitignore-probe"
+    directory_was_created = not scratch_directory.exists()
+    try:
+        scratch_directory.mkdir(parents=True, exist_ok=True)
+        probe.touch()
+        ignored = subprocess.run(
+            ["git", "check-ignore", "-q", "docs/superpowers/.gitignore-probe"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+        )
+    finally:
+        probe.unlink(missing_ok=True)
+        if directory_was_created:
+            with suppress(OSError):
+                scratch_directory.rmdir()
     assert ignored.returncode == 0, (
         "docs/superpowers/ is no longer gitignored, so excluding it from the "
         "Sphinx build could hide tracked documentation. Either restore the "
         "ignore entry or remove the exclude_patterns entry in docs/conf.py."
+    )
+    assert "docs/superpowers/" in [
+        line.strip() for line in _read(".gitignore").splitlines()
+    ], (
+        "docs/superpowers/ is ignored by some broader pattern rather than by "
+        "its own .gitignore entry. Restore the explicit entry so the "
+        "exclusion in docs/conf.py stays pinned to a deliberate decision."
     )
     tracked = subprocess.run(
         ["git", "ls-files", "--", "docs/superpowers"],
