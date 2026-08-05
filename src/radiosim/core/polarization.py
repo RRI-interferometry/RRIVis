@@ -110,12 +110,15 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
 
     Broadcasting:
 
-    - The four Stokes inputs must already share one shape: all scalars, or
-      all arrays of the same shape. The rows are assembled with ``stack``,
-      not with ``+``, so mixing an array ``stokes_I`` with a scalar
-      ``stokes_Q`` raises ``ValueError``; pass explicit zero arrays instead.
-    - Output adds (2, 2) dimensions at end
+    - The four Stokes inputs broadcast against each other under the usual
+      NumPy rules, so scalars — including the Q/U/V defaults — combine
+      freely with arrays. Genuinely incompatible shapes still raise
+      ``ValueError``.
+    - Output adds (2, 2) dimensions at the end of the broadcast shape
     - Example: all four of shape (100,) → C.shape=(100, 2, 2)
+
+    >>> stokes_to_coherency(np.ones(5)).shape  # scalar defaults broadcast
+    (5, 2, 2)
 
     Examples
     --------
@@ -139,6 +142,14 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
     stokes_Q = xp.asarray(stokes_Q, dtype=float)
     stokes_U = xp.asarray(stokes_U, dtype=float)
     stokes_V = xp.asarray(stokes_V, dtype=float)
+
+    # Broadcast to one shared shape so scalar inputs (including the Q/U/V
+    # defaults) combine with array inputs; genuinely incompatible shapes
+    # raise ValueError here. Broadcasting already-equal shapes is an
+    # identity view, so previously valid inputs are untouched.
+    stokes_I, stokes_Q, stokes_U, stokes_V = xp.broadcast_arrays(
+        stokes_I, stokes_Q, stokes_U, stokes_V
+    )
 
     # Fill coherency matrix with the IAU/HBS half-power convention.
     row_x = xp.stack(

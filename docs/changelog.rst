@@ -9,6 +9,13 @@ All notable changes to RadioSim are documented here.
 Fixed
 ^^^^^
 
+- **stokes_to_coherency broadcasts its inputs** (``API-001``). The four
+  Stokes inputs now broadcast against each other under the usual NumPy
+  rules, so ``stokes_to_coherency(np.ones(5))`` — array ``I`` with the
+  scalar Q/U/V defaults — works instead of raising. Genuinely incompatible
+  shapes still raise ``ValueError``. Previously valid inputs take the
+  identical arithmetic path: broadcasting already-equal shapes is an
+  identity view, so no result changes.
 - **Console helpers print literal text** (``API-002``). The four
   ``print_success`` / ``print_error`` / ``print_warning`` / ``print_info``
   helpers in ``radiosim.utils.logging`` now escape Rich markup in the
