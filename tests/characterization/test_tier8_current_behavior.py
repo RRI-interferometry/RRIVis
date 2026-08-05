@@ -870,6 +870,14 @@ def test_the_machine_fingerprint_is_now_recorded_on_the_pass_path() -> None:
         "numpy dispatched features:",
         "thread environment:",
         "blas build:",
+        # The post-Tier-8 WP-2 extension (PostTier8RemediationPlan.md §5.2):
+        # every field is best-effort and may carry "unavailable", but the
+        # line itself is always emitted, on every platform.
+        "libc:",
+        "runner image:",
+        "numpy runtime:",
+        "cpu topology:",
+        "cache topology:",
     ):
         assert field in fingerprint, field
 

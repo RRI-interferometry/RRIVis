@@ -312,16 +312,30 @@ diagnostic that can fail a test is worse than no diagnostic.  No digest table
 grew, and 8A deliberately did **not** append the divergent ``linux-64-py311``
 class -- see ``Fix.md`` ``CI-001`` and ``Tier8ReleasePlan.md`` Section 14 for
 why appending under a falsified rationale is forbidden.
+
+The post-Tier-8 WP-2 extension (``PostTier8RemediationPlan.md`` Section 5.2)
+widened the fingerprint again, on the same evidence-only terms as 8A: it adds
+the libc/glibc version (targets ``libm``), the GitHub runner image identity
+(``ImageOS``/``ImageVersion``), NumPy's runtime BLAS report including the
+OpenBLAS runtime core name (the "OpenBLAS runtime dispatch" datum from
+``CI-001``'s remaining hypothesis space), the CPU count and scheduler
+affinity, and the cache topology (OpenBLAS blocking follows detected cache
+sizes, which vary across VM SKUs with identical CPU model strings).  Every
+field is best-effort, cross-platform, and exception-swallowed; the extension
+changes no assertion, no digest, and no test outcome.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib
 import inspect
+import io
 import os
 import platform
 import re
+import subprocess
 import sys
 import time
 import tomllib
@@ -493,6 +507,152 @@ def _blas_build() -> str:
     return "unavailable"
 
 
+def _libc_fingerprint() -> str:
+    """Report the C library the process runs against; targets ``libm``.
+
+    ``CI-001``'s remaining hypothesis space names ``libm`` dispatch explicitly.
+    ``platform.libc_ver()`` inspects the interpreter binary; on Linux,
+    ``os.confstr("CS_GNU_LIBC_VERSION")`` adds the glibc the process actually
+    loaded.  Best-effort on every axis (WP-2, evidence path only).
+    """
+    parts: list[str] = []
+    try:
+        library, version = platform.libc_ver()
+        if library or version:
+            parts.append(f"{library} {version}".strip())
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        pass
+    try:
+        runtime = os.confstr("CS_GNU_LIBC_VERSION")
+        if runtime:
+            parts.append(f"runtime {runtime}")
+    except Exception:  # pragma: no cover - Linux-only constant
+        pass
+    return "; ".join(parts) if parts else "unavailable"
+
+
+def _runner_image() -> str:
+    """Report the GitHub-hosted runner image identity, when present.
+
+    The cheapest possible ``CI-001`` discriminator: if digest-class membership
+    tracks ``ImageOS``/``ImageVersion``, the axis is the image's ``libm`` and
+    the search ends there.  Off CI both variables are unset, and saying so is
+    itself the datum.
+    """
+    image_os = os.environ.get("ImageOS")
+    image_version = os.environ.get("ImageVersion")
+    if image_os or image_version:
+        return (
+            f"ImageOS={image_os or '<unset>'} ImageVersion={image_version or '<unset>'}"
+        )
+    return "<ImageOS/ImageVersion unset: not a GitHub-hosted runner>"
+
+
+def _numpy_runtime() -> str:
+    """Report NumPy's runtime BLAS state, including the OpenBLAS core name.
+
+    OpenBLAS picks its kernels at *runtime* from the CPU it lands on -- the
+    "OpenBLAS runtime dispatch" datum ``CI-001`` names as uncaptured.  Three
+    best-effort sources, most direct first: ``openblas_get_corename()`` /
+    ``openblas_get_config()`` via ``ctypes`` on the BLAS the process already
+    loaded (no new dependency); ``threadpoolctl`` (the same source
+    ``numpy.show_runtime()`` uses), whose ``architecture`` field is the core
+    name; and finally the captured ``numpy.show_runtime()`` text.
+    """
+    entries: list[str] = []
+    try:
+        import ctypes
+
+        for soname in (
+            "libblas.so.3",
+            "libopenblas.so.0",
+            "libblas.3.dylib",
+            "libopenblas.0.dylib",
+        ):
+            try:
+                library = ctypes.CDLL(soname)
+                library.openblas_get_corename.restype = ctypes.c_char_p
+                library.openblas_get_config.restype = ctypes.c_char_p
+                core = library.openblas_get_corename()
+                config = library.openblas_get_config()
+                entries.append(
+                    f"openblas runtime core="
+                    f"{(core or b'?').decode('ascii', 'replace')}"
+                    f" config={(config or b'?').decode('ascii', 'replace')!r}"
+                    f" (via {soname})"
+                )
+                break
+            except (OSError, AttributeError):
+                continue
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        pass
+    try:
+        from threadpoolctl import threadpool_info  # type: ignore[import-not-found]
+
+        for pool in threadpool_info():
+            entries.append(
+                f"{pool.get('internal_api', '?')} {pool.get('version', '?')}"
+                f" core={pool.get('architecture', '?')}"
+                f" threads={pool.get('num_threads', '?')}"
+            )
+    except Exception:  # pragma: no cover - optional dependency
+        pass
+    if entries:
+        return "; ".join(entries)
+    try:
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            np.show_runtime()
+        flattened = " ".join(buffer.getvalue().split())
+        if flattened:
+            return flattened
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        pass
+    return "unavailable"
+
+
+def _cpu_topology() -> str:
+    """Report the CPU count and the scheduler affinity actually granted."""
+    try:
+        count = os.cpu_count()
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        count = None
+    try:
+        affinity: object = len(os.sched_getaffinity(0))
+    except Exception:  # pragma: no cover - Linux-only API
+        affinity = "unavailable"
+    return f"os.cpu_count()={count} sched_getaffinity={affinity}"
+
+
+def _cache_topology() -> str:
+    """Report the CPU cache topology (``lscpu`` on Linux, ``sysctl`` on macOS).
+
+    OpenBLAS blocking follows detected cache sizes, which vary across VM SKUs
+    with identical CPU model strings -- one of the few axes that crosses
+    vendors while staying byte-stable per class (WP-2 rationale).
+    """
+    if sys.platform.startswith("linux"):
+        command = ["lscpu"]
+    elif sys.platform == "darwin":
+        command = ["sysctl", "hw"]
+    else:  # pragma: no cover - no locked platform reaches this
+        return "unavailable"
+    try:
+        completed = subprocess.run(
+            command, capture_output=True, text=True, timeout=10, check=False
+        )
+        lines = [
+            " ".join(line.split())
+            for line in completed.stdout.splitlines()
+            if "cache" in line.lower()
+        ]
+        if lines:
+            return "; ".join(lines)
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        pass
+    return "unavailable"
+
+
 def _machine_fingerprint() -> str:
     """Describe the machine facts a raw-cube digest is actually a function of.
 
@@ -506,6 +666,14 @@ def _machine_fingerprint() -> str:
     proven insufficient on its own, and Tier 8A added the thread environment and
     the BLAS build after the CI-001 observation falsified the feature-set
     explanation as well (``Fix.md`` register row ``CI-001``).
+
+    The WP-2 extension (``PostTier8RemediationPlan.md`` Section 5.2) added the
+    libc/glibc version, the runner image identity, NumPy's runtime BLAS report
+    with the OpenBLAS core name, the CPU topology, and the cache topology --
+    the axes ``CI-001`` names as uncaptured (hypervisor CPU-feature masking
+    and ``libm``/OpenBLAS runtime dispatch).  Evidence path only: every field
+    is best-effort and the extension changes no assertion, no digest, and no
+    test outcome.
     """
     try:
         from numpy._core._multiarray_umath import (  # type: ignore[import-not-found]
@@ -527,6 +695,11 @@ def _machine_fingerprint() -> str:
         f"numpy dispatched features: {features}\n"
         f"thread environment: {_thread_environment()}\n"
         f"blas build: {_blas_build()}\n"
+        f"libc: {_libc_fingerprint()}\n"
+        f"runner image: {_runner_image()}\n"
+        f"numpy runtime: {_numpy_runtime()}\n"
+        f"cpu topology: {_cpu_topology()}\n"
+        f"cache topology: {_cache_topology()}\n"
         f"python {platform.python_version()}, numpy {np.__version__}, "
         f"platform {platform.platform()}"
     )
