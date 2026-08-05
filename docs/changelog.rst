@@ -6,7 +6,17 @@ All notable changes to RadioSim are documented here.
 [Unreleased]
 ------------
 
-Nothing yet.
+Fixed
+^^^^^
+
+- **Console helpers print literal text** (``API-002``). The four
+  ``print_success`` / ``print_error`` / ``print_warning`` / ``print_info``
+  helpers in ``radiosim.utils.logging`` now escape Rich markup in the
+  caller's message, so bracketed text — for example the model-name list in
+  ``Simulator.setup()``'s offline pre-flight warning — prints as-is instead
+  of being parsed (and silently eaten) as a markup tag. The ``RichHandler``
+  installed by ``setup_logging()`` likewise renders logged messages literally
+  (``markup=False``). Only the helpers' styled glyph prefixes remain markup.
 
 [0.3.0] - 2026-08-02
 --------------------

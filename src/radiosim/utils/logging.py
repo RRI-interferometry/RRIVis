@@ -7,6 +7,7 @@ import logging
 
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.markup import escape
 from rich.theme import Theme
 
 # Custom theme for RadioSim
@@ -50,14 +51,16 @@ def setup_logging(
     # Remove existing handlers to avoid duplicates
     logger.handlers = []
 
-    # Rich console handler with beautiful formatting
+    # Rich console handler with beautiful formatting. markup=False: logged
+    # messages are literal text, so bracketed content (e.g. model-name lists)
+    # is never parsed as Rich markup.
     rich_handler = RichHandler(
         console=console,
         show_time=True,
         show_path=False,
         rich_tracebacks=rich_tracebacks,
         tracebacks_show_locals=False,
-        markup=True,
+        markup=False,
     )
     rich_handler.setLevel(level)
     logger.addHandler(rich_handler)
@@ -111,23 +114,39 @@ def print_header(title: str, subtitle: str | None = None) -> None:
 
 
 def print_success(message: str) -> None:
-    """Print a success message with checkmark."""
-    console.print(f"[success]✓[/success] {message}", highlight=False)
+    """Print a success message with checkmark.
+
+    ``message`` is rendered literally: Rich markup is escaped, so bracketed
+    text (e.g. ``[gsm2008]``) prints as-is. Only the glyph prefix is styled.
+    """
+    console.print(f"[success]✓[/success] {escape(message)}", highlight=False)
 
 
 def print_error(message: str) -> None:
-    """Print an error message with X mark."""
-    console.print(f"[error]✗[/error] {message}", highlight=False)
+    """Print an error message with X mark.
+
+    ``message`` is rendered literally: Rich markup is escaped, so bracketed
+    text (e.g. ``[gsm2008]``) prints as-is. Only the glyph prefix is styled.
+    """
+    console.print(f"[error]✗[/error] {escape(message)}", highlight=False)
 
 
 def print_warning(message: str) -> None:
-    """Print a warning message."""
-    console.print(f"[warning]⚠[/warning] {message}", highlight=False)
+    """Print a warning message.
+
+    ``message`` is rendered literally: Rich markup is escaped, so bracketed
+    text (e.g. ``[gsm2008]``) prints as-is. Only the glyph prefix is styled.
+    """
+    console.print(f"[warning]⚠[/warning] {escape(message)}", highlight=False)
 
 
 def print_info(message: str) -> None:
-    """Print an info message."""
-    console.print(f"[info]ℹ[/info] {message}", highlight=False)
+    """Print an info message.
+
+    ``message`` is rendered literally: Rich markup is escaped, so bracketed
+    text (e.g. ``[gsm2008]``) prints as-is. Only the glyph prefix is styled.
+    """
+    console.print(f"[info]ℹ[/info] {escape(message)}", highlight=False)
 
 
 def print_table(title: str, data: dict, title_style: str = "bold cyan") -> None:
