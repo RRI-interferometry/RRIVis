@@ -1,0 +1,116 @@
+# CI-001, WP-2 (PostTier8RemediationPlan.md Section 5.2 item 3). A non-gating
+# nightly sampler for the one cell with a second byte-stable digest class:
+# linux-64-py311. The divergence appears in ~38% of runs on that cell and only
+# when the runner lands on the divergent machine class, so the observation
+# rate is capped by the push rate — this workflow raises it by one scheduled
+# observation per night. Schedule-triggered, required by nothing, blocking
+# nothing: a red night is an *observation* (and, with references restored, a
+# measured delta in the log), not a broken build.
+name: Characterization nightly
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: characterization-nightly
+  cancel-in-progress: false
+
+jobs:
+  characterization:
+    name: linux-64 / Python 3.11 characterization (non-gating)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # `actions: read` is what `gh run list`/`gh run download` need to restore
+    # the previous successful CI run's characterization record (CI-001).
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Install locked Pixi environment
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          pixi-version: v0.72.2
+          environments: default
+          locked: true
+          cache: true
+          cache-write: false
+
+      # Same restore as ci.yml's compatibility job, pointed at the CI
+      # workflow's last green main run: a divergent night then reports
+      # `max|dV|` against an accepted-digest cube instead of two hex strings.
+      # The previous run's fingerprints are stashed next door so the failure
+      # path can diff this runner's fingerprint against the green one's.
+      - name: Restore the previous CI characterization record (CI-001)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECORD_ARTIFACT: characterization-linux-64-py311
+        run: |
+          mkdir -p output/characterization output/characterization-previous
+          previous="$(gh run list --workflow CI \
+            --branch main --status success --limit 1 \
+            --json databaseId --jq '.[0].databaseId' || true)"
+          if [ -n "$previous" ]; then
+            gh run download "$previous" --name "$RECORD_ARTIFACT" \
+              --dir output/characterization \
+              || echo "no $RECORD_ARTIFACT artifact on run $previous"
+          else
+            echo "no previous successful CI run to restore from"
+          fi
+          mv output/characterization/machine-fingerprint-*.txt \
+            output/characterization-previous/ 2>/dev/null || true
+          find output/characterization output/characterization-previous \
+            -type f | head -50
+
+      - name: Run the characterization suite
+        run: pixi run test -- tests/characterization -m "not slow"
+
+      - name: Surface the machine fingerprint (CI-001)
+        if: always()
+        run: |
+          for record in output/characterization/machine-fingerprint-*.txt; do
+            [ -f "$record" ] || continue
+            echo "=== $record ==="
+            cat "$record"
+          done
+
+      # CI-001, WP-2. On failure, the adjudication evidence is the field-level
+      # difference between this runner's fingerprint and the restored
+      # previous-green one — print it here so the failing log is complete.
+      - name: Diff the fingerprint against the previous green run (CI-001)
+        if: failure()
+        continue-on-error: true
+        run: |
+          fields='^(environment key|cpu model|numpy dispatched features|thread environment|blas build|libc|runner image|numpy runtime|cpu topology|cache topology):'
+          extract() { grep -hE "$fields" "$@" 2>/dev/null | sort -u; }
+          if ! ls output/characterization-previous/machine-fingerprint-*.txt >/dev/null 2>&1; then
+            echo "no previous-green fingerprint was restored; nothing to diff"
+            exit 0
+          fi
+          echo "=== fingerprint fields: previous green CI run ==="
+          extract output/characterization-previous/machine-fingerprint-*.txt
+          echo "=== fingerprint fields: this run ==="
+          extract output/characterization/machine-fingerprint-*.txt
+          echo "=== field-level diff (previous green run vs this run) ==="
+          diff <(extract output/characterization-previous/machine-fingerprint-*.txt) \
+               <(extract output/characterization/machine-fingerprint-*.txt) \
+            && echo "no fingerprint field differs" || true
+
+      - name: Upload the characterization record (CI-001)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: characterization-linux-64-py311
+          path: output/characterization/
+          if-no-files-found: warn
+          retention-days: 30

@@ -87,7 +87,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RECORD_ARTIFACT: characterization-${{ matrix.key }}
         run: |
-          mkdir -p output/characterization
+          mkdir -p output/characterization output/characterization-previous
           previous="$(gh run list --workflow "${{ github.workflow }}" \
             --branch main --status success --limit 1 \
             --json databaseId --jq '.[0].databaseId' || true)"
@@ -98,12 +98,41 @@ jobs:
           else
             echo "no previous successful run to restore from"
           fi
-          find output/characterization -type f | head -50
+          # Stash the previous green run's fingerprints next door: this run's
+          # session would overwrite the same filenames, and the failure path
+          # below wants to diff the two (CI-001, WP-2).
+          mv output/characterization/machine-fingerprint-*.txt \
+            output/characterization-previous/ 2>/dev/null || true
+          find output/characterization output/characterization-previous \
+            -type f | head -50
 
       - name: Run non-slow tests
         run: >-
           pixi run --environment ${{ matrix.environment }}
           test -- -m "not slow"
+
+      # CI-001, WP-2. On a characterization failure the adjudication evidence
+      # is the field-level difference between this runner's fingerprint and
+      # the restored previous-green one — print it in the failing log so no
+      # artifact archaeology is needed. Purely diagnostic: it never fails.
+      - name: Diff the fingerprint against the previous green run (CI-001)
+        if: failure()
+        continue-on-error: true
+        run: |
+          fields='^(environment key|cpu model|numpy dispatched features|thread environment|blas build|libc|runner image|numpy runtime|cpu topology|cache topology):'
+          extract() { grep -hE "$fields" "$@" 2>/dev/null | sort -u; }
+          if ! ls output/characterization-previous/machine-fingerprint-*.txt >/dev/null 2>&1; then
+            echo "no previous-green fingerprint was restored; nothing to diff"
+            exit 0
+          fi
+          echo "=== fingerprint fields: previous green run ==="
+          extract output/characterization-previous/machine-fingerprint-*.txt
+          echo "=== fingerprint fields: this run ==="
+          extract output/characterization/machine-fingerprint-*.txt
+          echo "=== field-level diff (previous green run vs this run) ==="
+          diff <(extract output/characterization-previous/machine-fingerprint-*.txt) \
+               <(extract output/characterization/machine-fingerprint-*.txt) \
+            && echo "no fingerprint field differs" || true
 
       # CI-001. Emitted unconditionally since Tier 8A, on pass as well as fail:
       # before this, nothing had ever been recorded about a runner that produced
