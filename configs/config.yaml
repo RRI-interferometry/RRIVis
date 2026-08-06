@@ -72,7 +72,7 @@ execution:
   offline: false
 
 workflow:
-  output_dir: /Users/kartikmandar/MacProjects/RadioSim/output
+  output_dir: ../output
   run_subdir: null
   result_filename: visibilities
   result_format: hdf5
