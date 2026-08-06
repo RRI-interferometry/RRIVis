@@ -26,6 +26,18 @@ logs from ``gh run view <id> --log-failed``. Both are optional per run: a
 green run contributes fingerprints and reference cubes, a red run contributes
 the failure log's measured digests and its fail-path fingerprint block.
 
+WP-3 extension: ``--experiment <dir>`` additionally reads the artifacts of a
+``ci001-forced-experiment.yml`` run (downloaded as ``<dir>/draw-<n>/``, one
+per matrix job) and reports the per-job, per-variant table the experiment
+exists to produce: dispatched tier, OpenBLAS runtime core, pass/fail, digest
+class, and the maximum relative delta against the green reference cubes.  A
+variant that passed matched the recorded observation set byte-for-byte (its
+delta is exactly zero); a variant that failed carries measured digests and
+delta lines in its pytest log, and its digests are classified against the
+harvest's digest classes.  A digest matching no known class is reported as
+``NOVEL``: it is a new observation to record and adjudicate, never a value to
+append so that a failure goes away.
+
 This tool changes nothing: no assertion, no digest, no pin table. It only
 reads harvested evidence and reports.
 """
@@ -262,6 +274,202 @@ def _cross_class_deltas(
     return reports
 
 
+_PROBE_FEATURES_RE = re.compile(r"numpy dispatched features: (.+)")
+_PROBE_CORE_RE = re.compile(r"openblas runtime core: (\S+)")
+_MAX_RELATIVE_RE = re.compile(r"max relative d = ([0-9.eE+-]+)")
+_NEAREST_RE = re.compile(r"nearest recorded observation: ([0-9a-f]{64})")
+
+
+@dataclass
+class VariantEvidence:
+    """Everything one experiment variant (one pytest run) contributed."""
+
+    draw: str
+    variant: str
+    cpu_model: str = "?"
+    exit_code: int | None = None
+    dispatched_features: str = "?"
+    openblas_core: str = "?"
+    env_overrides: dict[str, str] = field(default_factory=dict)
+    digests: dict[str, str] = field(default_factory=dict)  # pin slug -> digest
+    max_relative_delta: float | None = None
+    nearest_observation: str | None = None
+
+
+def _dispatch_tier(features: str) -> str:
+    """Summarize a dispatched-feature list as the tier CI-001 cares about."""
+    names = {name.strip() for name in features.split(",") if name.strip()}
+    if any(name.startswith("AVX512") for name in names):
+        return "AVX512"
+    if "AVX2" in names:
+        return "AVX2"
+    return "unknown"
+
+
+def _load_experiment_variant(draw_dir: Path, variant: str) -> VariantEvidence:
+    """Read one variant's probe, exit code, and pytest log from a draw."""
+    evidence = VariantEvidence(draw=draw_dir.name, variant=variant)
+    variant_dir = draw_dir / "experiment" / variant
+
+    probe = variant_dir / "runtime-probe.txt"
+    if probe.exists():
+        text = probe.read_text(encoding="utf-8", errors="replace")
+        match = _PROBE_FEATURES_RE.search(text)
+        if match:
+            evidence.dispatched_features = match.group(1).strip()
+        match = _PROBE_CORE_RE.search(text)
+        if match:
+            evidence.openblas_core = match.group(1)
+        for name in ("NPY_DISABLE_CPU_FEATURES", "OPENBLAS_CORETYPE"):
+            override = re.search(rf"{name}=(.+)", text)
+            if override and override.group(1).strip() not in ("<unset>", ""):
+                evidence.env_overrides[name] = override.group(1).strip()
+
+    exit_file = variant_dir / "pytest-exit-code.txt"
+    if exit_file.exists():
+        try:
+            evidence.exit_code = int(exit_file.read_text().strip())
+        except ValueError:
+            evidence.exit_code = None
+
+    log = variant_dir / "pytest.log"
+    if log.exists():
+        text = log.read_text(encoding="utf-8", errors="replace")
+        current_pin: str | None = None
+        deltas: list[float] = []
+        for line in text.splitlines():
+            pin_match = _PIN_LABEL_RE.search(line)
+            if pin_match:
+                current_pin = _slug(pin_match.group(1).strip())
+                continue
+            measured = _MEASURED_RE.search(line)
+            if measured and current_pin is not None:
+                evidence.digests.setdefault(current_pin, measured.group(1))
+            for value in _MAX_RELATIVE_RE.findall(line):
+                try:
+                    deltas.append(float(value))
+                except ValueError:
+                    continue
+            nearest = _NEAREST_RE.search(line)
+            if nearest:
+                evidence.nearest_observation = nearest.group(1)
+        if deltas:
+            evidence.max_relative_delta = max(deltas)
+
+    for record in sorted(
+        (draw_dir / "experiment" / "baseline").glob("machine-fingerprint-*.txt")
+    ):
+        parsed = _parse_fingerprint_text(
+            record.read_text(encoding="utf-8", errors="replace")
+        )
+        if "cpu model" in parsed:
+            evidence.cpu_model = parsed["cpu model"]
+            break
+    return evidence
+
+
+def _load_experiment(experiment: Path) -> list[VariantEvidence]:
+    variants: list[VariantEvidence] = []
+    for draw_dir in sorted(experiment.glob("draw-*")):
+        if not draw_dir.is_dir():
+            continue
+        for variant in ("V1", "V2", "V3", "V4"):
+            if (draw_dir / "experiment" / variant).is_dir():
+                variants.append(_load_experiment_variant(draw_dir, variant))
+    return variants
+
+
+def _classify_experiment_variant(
+    evidence: VariantEvidence, classes: dict[str, list[RunEvidence]]
+) -> str:
+    """Name the digest class one variant landed in.
+
+    A passing variant matched the recorded observation set byte-for-byte --
+    every ``linux-64-py311`` pin currently records exactly one digest, the
+    green class's, so a pass *is* a green-class observation and its delta
+    against the green references is exactly zero.  A failing variant is
+    classified by its measured digests against the harvest classes; matching
+    none of them is a NOVEL observation, reported for adjudication and never
+    appended to make the failure go away.
+    """
+    if evidence.exit_code == 0:
+        return "green (all pins match the recorded set)"
+    if not evidence.digests:
+        return "failed without digest evidence"
+    candidate = RunEvidence(
+        run_id=f"{evidence.draw}-{evidence.variant}",
+        kind="experiment",
+        digests=evidence.digests,
+    )
+    matches = [
+        label
+        for label, members in classes.items()
+        if any(_same_class(candidate, member) is True for member in members)
+        and not any(_same_class(candidate, member) is False for member in members)
+    ]
+    if matches:
+        return "/".join(matches)
+    return "NOVEL (matches no known class)"
+
+
+def _print_experiment_report(
+    variants: list[VariantEvidence], classes: dict[str, list[RunEvidence]]
+) -> None:
+    print()
+    print(
+        "== forced-experiment variants "
+        f"(criterion: rtol={RTOL_CRITERION}; delta is vs green references) =="
+    )
+    header = (
+        f"  {'draw':<8} {'variant':<8} {'tier':<7} {'blas core':<10} "
+        f"{'result':<7} {'max rel delta':<14} class"
+    )
+    print(header)
+    for evidence in variants:
+        result = (
+            "pass"
+            if evidence.exit_code == 0
+            else "FAIL"
+            if evidence.exit_code is not None
+            else "?"
+        )
+        if evidence.exit_code == 0:
+            delta = "0 (byte-eq)"
+        elif evidence.max_relative_delta is not None:
+            delta = f"{evidence.max_relative_delta:.3e}"
+        else:
+            delta = "n/a"
+        label = _classify_experiment_variant(evidence, classes)
+        print(
+            f"  {evidence.draw:<8} {evidence.variant:<8} "
+            f"{_dispatch_tier(evidence.dispatched_features):<7} "
+            f"{evidence.openblas_core:<10} {result:<7} {delta:<14} {label}"
+        )
+    models = sorted({evidence.cpu_model for evidence in variants})
+    print()
+    print("  cpu models drawn:")
+    for model in models:
+        draws = sorted(
+            {evidence.draw for evidence in variants if evidence.cpu_model == model}
+        )
+        print(f"    {model}: {', '.join(draws)}")
+    novel = [
+        evidence
+        for evidence in variants
+        if evidence.exit_code not in (0, None)
+        and _classify_experiment_variant(evidence, classes).startswith("NOVEL")
+    ]
+    if novel:
+        print()
+        print(
+            "  NOVEL digests observed (record and adjudicate; a set never grows"
+            " to make a failure go away):"
+        )
+        for evidence in novel:
+            for slug, digest in sorted(evidence.digests.items()):
+                print(f"    {evidence.draw}/{evidence.variant} {slug}: {digest}")
+
+
 def _collect(harvest: Path) -> list[RunEvidence]:
     runs: list[RunEvidence] = []
     for run_dir in sorted((harvest / "artifacts").glob("run-*")):
@@ -284,16 +492,27 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--json", action="store_true", help="emit the full report as JSON"
     )
+    parser.add_argument(
+        "--experiment",
+        type=Path,
+        default=None,
+        help="directory of downloaded ci001-forced-experiment artifacts "
+        "(one draw-<n>/ subdirectory per matrix job)",
+    )
     args = parser.parse_args(argv)
 
     if not args.harvest.exists():
         print(f"harvest directory {args.harvest} does not exist", file=sys.stderr)
+        return 2
+    if args.experiment is not None and not args.experiment.exists():
+        print(f"experiment directory {args.experiment} does not exist", file=sys.stderr)
         return 2
 
     runs = _collect(args.harvest)
     classes = _classify(runs)
     diff = _fingerprint_diff(classes)
     deltas = _cross_class_deltas(classes)
+    variants = _load_experiment(args.experiment) if args.experiment is not None else []
 
     if args.json:
         payload = {
@@ -308,6 +527,24 @@ def main(argv: list[str] | None = None) -> int:
             "fingerprint_fields": diff,
             "cube_deltas": deltas,
         }
+        if variants:
+            payload["experiment"] = [
+                {
+                    "draw": evidence.draw,
+                    "variant": evidence.variant,
+                    "cpu_model": evidence.cpu_model,
+                    "dispatch_tier": _dispatch_tier(evidence.dispatched_features),
+                    "dispatched_features": evidence.dispatched_features,
+                    "openblas_core": evidence.openblas_core,
+                    "env_overrides": evidence.env_overrides,
+                    "exit_code": evidence.exit_code,
+                    "digests": evidence.digests,
+                    "max_relative_delta": evidence.max_relative_delta,
+                    "nearest_observation": evidence.nearest_observation,
+                    "digest_class": _classify_experiment_variant(evidence, classes),
+                }
+                for evidence in variants
+            ]
         print(json.dumps(payload, indent=2))
         return 0
 
@@ -353,6 +590,8 @@ def main(argv: list[str] | None = None) -> int:
             f" vs {str(right['digest'])[:12]}... ({right['class']})"
         )
         print(f"    {report['delta']}")
+    if variants:
+        _print_experiment_report(variants, classes)
     return 0
 
 
