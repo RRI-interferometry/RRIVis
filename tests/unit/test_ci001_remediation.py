@@ -187,6 +187,9 @@ def test_wp2_and_wp3_workflows_are_retained_and_non_gating() -> None:
     assert "characterization-linux-64-py311" in nightly
     assert "retention-days: 30" in nightly
     assert "workflow_dispatch:" in experiment
+    assert "pixi_environment:" in experiment
+    assert "characterization-linux-64-py312" in experiment
+    assert 'pixi run --environment "${PIXI_ENVIRONMENT:?}"' in experiment
     assert "continue-on-error: true" in experiment
     assert "ci001-experiment-${{ github.run_id }}-draw${{ matrix.draw }}" in experiment
     assert "observed-digest TSV manifests are retained" in experiment

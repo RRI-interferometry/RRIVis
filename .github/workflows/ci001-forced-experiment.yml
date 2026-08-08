@@ -25,6 +25,11 @@
 # The divergent runner draw is ~38% on this cell, so six independent jobs
 # give ~94% odds of at least one divergent draw.
 #
+# SCI-006 reuses the same evidence-only experiment for ``py312`` because that
+# locked environment also has two historically accepted dispatch classes.  The
+# manual input defaults to ``default`` so the original CI-001/py311 experiment
+# remains unchanged.
+#
 # workflow_dispatch only. Required by nothing, blocking nothing, gating
 # nothing: every variant run is continue-on-error, and the artifacts upload
 # under ci001-experiment-* -- never under characterization-* -- so the main
@@ -33,6 +38,15 @@ name: CI-001 forced discrimination experiment
 
 on:
   workflow_dispatch:
+    inputs:
+      pixi_environment:
+        description: Locked Linux environment to characterize
+        required: true
+        default: default
+        type: choice
+        options:
+          - default
+          - py312
 
 permissions:
   contents: read
@@ -42,6 +56,8 @@ jobs:
     name: forced discrimination draw ${{ matrix.draw }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      PIXI_ENVIRONMENT: ${{ inputs.pixi_environment }}
     # `actions: read` is what `gh run list`/`gh run download` need to restore
     # the latest green CI run's characterization record (CI-001).
     permissions:
@@ -59,7 +75,7 @@ jobs:
         uses: prefix-dev/setup-pixi@v0.9.3
         with:
           pixi-version: v0.72.2
-          environments: default
+          environments: ${{ inputs.pixi_environment }}
           locked: true
           cache: true
           cache-write: false
@@ -74,7 +90,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          RECORD_ARTIFACT: characterization-linux-64-py311
+          RECORD_ARTIFACT: ${{ inputs.pixi_environment == 'py312' && 'characterization-linux-64-py312' || 'characterization-linux-64-py311' }}
         run: |
           mkdir -p output/green-reference
           previous="$(gh run list --workflow CI \
@@ -149,9 +165,11 @@ jobs:
             cp -R output/green-reference/reference_cubes "${dir}/record/"
           fi
           export RADIOSIM_CHARACTERIZATION_RECORD_DIR="${PWD}/${dir}/record"
-          pixi run -- python "${RUNNER_TEMP}/ci001_probe.py" \
+          pixi run --environment "${PIXI_ENVIRONMENT:?}" -- \
+            python "${RUNNER_TEMP}/ci001_probe.py" \
             > "${dir}/runtime-probe.txt" 2>&1
-          pixi run test -- tests/characterization/test_tier6_current_behavior.py \
+          pixi run --environment "${PIXI_ENVIRONMENT:?}" test -- \
+            tests/characterization/test_tier6_current_behavior.py \
             -m "not slow" 2>&1 | tee "${dir}/pytest.log"
           status=${PIPESTATUS[0]}
           echo "${status}" > "${dir}/pytest-exit-code.txt"
@@ -168,11 +186,12 @@ jobs:
       - name: Record the runner baseline before any variant runs
         run: |
           mkdir -p output/experiment/baseline
-          pixi run -- python "$RUNNER_TEMP/ci001_probe.py" \
+          pixi run --environment "${PIXI_ENVIRONMENT:?}" -- \
+            python "$RUNNER_TEMP/ci001_probe.py" \
             > output/experiment/baseline/runtime-probe.txt 2>&1
           lscpu > output/experiment/baseline/lscpu.txt 2>&1 || true
           RADIOSIM_CHARACTERIZATION_RECORD_DIR="$PWD/output/experiment/baseline" \
-            pixi run test -- \
+            pixi run --environment "${PIXI_ENVIRONMENT:?}" test -- \
             tests/characterization/test_tier6_current_behavior.py \
             --collect-only -q > /dev/null 2>&1 || true
           cat output/experiment/baseline/runtime-probe.txt
@@ -182,7 +201,7 @@ jobs:
       # then honestly degenerates to a second control run.
       - name: Build the AVX512 mask list from what this runner reports
         run: |
-          mask="$(pixi run -- python -c "from numpy._core._multiarray_umath import __cpu_features__ as f; print(','.join(sorted(n for n, on in f.items() if on and n.startswith('AVX512'))))")"
+          mask="$(pixi run --environment "${PIXI_ENVIRONMENT:?}" -- python -c "from numpy._core._multiarray_umath import __cpu_features__ as f; print(','.join(sorted(n for n, on in f.items() if on and n.startswith('AVX512'))))")"
           echo "AVX512_MASK=$mask" >> "$GITHUB_ENV"
           echo "AVX512 features enabled on this runner: ${mask:-<none>}"
 
@@ -214,6 +233,7 @@ jobs:
         run: |
           {
             echo "CI-001 forced discrimination: run ${GITHUB_RUN_ID}, draw ${{ matrix.draw }}"
+            echo "pixi environment: ${PIXI_ENVIRONMENT}"
             echo "green reference restored from CI run: $(cat output/green-reference/source-run-id.txt 2>/dev/null || echo '<none>')"
             echo "AVX512 mask list: ${AVX512_MASK:-<empty>}"
             for variant in V1 V2 V3 V4; do
