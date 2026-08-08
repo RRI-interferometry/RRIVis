@@ -2616,36 +2616,37 @@ _WORKLOAD_SHAPES: dict[str, tuple[int, ...]] = {
     "point_unpolarized_1time_2freq": (1, 3, 2, 2, 2),
 }
 
-# The ``linux-64`` and ``osx-64`` rows were harvested from the CI logs of run
-# ``30628921601``.  Every one of them is byte-identical to the value the *same*
-# platform measured at the 6A characterization commit (run ``30531414992``,
-# which added no production code), which is the direct evidence that the platform
-# spread predates the tier rather than being introduced by 6D/6F/6H -- see the
-# "Reproducibility scope" note in this module's docstring.
+# The pre-SCI-006 ``linux-64`` and ``osx-64`` rows were harvested from CI run
+# ``30628921601`` and matched the same platforms at the 6A characterization
+# commit (run ``30531414992``), proving that the platform spread predates the
+# tier -- see the "Reproducibility scope" note in this module's docstring.
 #
-# ``heterogeneous_receptor_bases`` on ``linux-64``/py312 carries a second
-# observation, ``11d4c0a5...``, from run ``30640039816`` job ``91187338402``
-# (``AMD EPYC 9V74``).  It is the only workload of the six that moved on that
-# runner, which is why these pins are sets per digest rather than per cell.
+# SCI-006 WP-5 intentionally changed the four polarized workloads below.  Run
+# ``31273396688`` at exact SHA ``424b4b90dcb162f4d54a3cb4f4abf2516269ca44``
+# retained all six compatibility artifacts; the WP-5 comparator proved each new
+# cube was byte-identical to ``P V_old P^H`` while the two unpolarized workloads
+# and both shipped configurations remained byte-identical.  Forced run
+# ``31273416758`` at the same SHA established the two accepted linux-64/py311
+# heterogeneous dispatch classes: AVX2 and AVX-512.
 _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     "healpix_polarized": {
         "linux-64-py311": (
-            "c839098b725fc8cebd4ef2c93cc9b67aa59be8b7aea5446a1ee44b3c9fafbc94",
+            "fbf00499ce4e57f24526e3842e4c4a4347c5a7ef1791828a4661d3838c935c45",
         ),
         "linux-64-py312": (
-            "e7ba84d489507cec6ea43cf8425e52a0a4faf31575c419a46d312a829ddccad6",
+            "2f840b17f0786d158606893f2b6f236eed21c847189870ce46ba03d0462e8e13",
         ),
         "osx-64-py311": (
-            "8c5e5fd7a8b30881e7e6de833f15bfcf0583500610bdc077620093fa6b898cad",
+            "e25b04df8050b94795f60e63caa16263e9d640c0a44e6bc76903fae2d34f0d2f",
         ),
         "osx-64-py312": (
-            "f0e26ad0f436758c0c3b153578ce0242fbe8f98feab51fffd0497d7ffb53e6ef",
+            "2d837ee537fe7d2308c854613425e726a53b8033d0085ffa8e1267fc862d0fb6",
         ),
         "osx-arm64-py311": (
-            "201feac2a5d1c8173528a24629d53a4fa51d19ef2eee9bdff667c3eda3c836a5",
+            "b899e1335379a268aef6a8bd26eae8d3b504e1a162131f4cd124f94af6ae5eaa",
         ),
         "osx-arm64-py312": (
-            "72c006b63a70230c7827ef5a618859c1541070bbdabdaada5e4b7edd0c40b1b3",
+            "e82db3e08b6bc2329a459137d0721102418c356a19a222658289081b5ad2a5e5",
         ),
     },
     "healpix_scalar": {
@@ -2670,64 +2671,63 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "heterogeneous_receptor_bases": {
         "linux-64-py311": (
-            "1b7674f0c8c0b6561ea06929a55ecab797d609a150b31e8ad72bf6a88c7f3b7b",
-            "c7b51d022de6c917ee8a3359d2f5f20600a8259e52977555b5148dc32a4718c1",
+            "eda7da522277fc70576abd882e2b4984a3823e19c5ca588b35b530fc65af107c",
+            "9f07661c3348515e5fd1acc478606badd2f4c8a143f67008f8922aabedff04c5",
         ),
         "linux-64-py312": (
-            "73f340f1726163987eef8a387c7634a1e990264c8b23211918eea883749d54b7",
-            "11d4c0a5afd60d1682d62e5d85dcd3cde7c45d8e6b29411e22ccc35425847c46",
+            "6b7d21ab4358b8a6597c1018eb4bafa391cc42b4358d656c4f1d06dee5eb2c97",
         ),
         "osx-64-py311": (
-            "afc26b47933ea3964416dae8ac6cb5d242e133f6068d91617c5ae493ffd97702",
+            "019a863498cce18ed6ab8d2bb3cc0154645ad9a4a2e517252ec6c4f9b8ff5121",
         ),
         "osx-64-py312": (
-            "7a730aa3e8e0e035c32847efe1cc7354439c9e2a8a267251c4c36f44629c7d74",
+            "2c2254df7914ea3d313f43d60228ffb73df9554d8c2bcb18bbf1037593def395",
         ),
         "osx-arm64-py311": (
-            "81055aff940d17817c66fb95ac760962af867ef4a9a3062b1e5bd80991803252",
+            "0b67f896e27b43175cf3c09ea5dd5c642127a7da158dc5e0b65d3cfcca835687",
         ),
         "osx-arm64-py312": (
-            "d39cbe2fde4a3a54c518423ee4c7ee0db2b2664c5caabdf88dbd3d7c7979537d",
+            "4d32287a17fe6a8bfa68d91bf4ab201b1bce59b2b7df2f260a00ad7e44f11a16",
         ),
     },
     "point_gaussian_morphology": {
         "linux-64-py311": (
-            "638a6efa57aedf732d76e251726e59055c4a8c92c6b74340f598b546239ac097",
+            "8620c02095207151fca26b53b68b0bb5f942ad6de25a16c23130b9461eaba339",
         ),
         "linux-64-py312": (
-            "0a52ca6ab8542a87928b31e029ee366d8e49baa7c18d0693ba10b9c3b2f512ea",
+            "516dfc29258c789ed274e56fba767483db335e4f93eae438dabc7fe0d18b16a1",
         ),
         "osx-64-py311": (
-            "f88aefc2a3323d462f2b324533b64b6934f3ad2667fa0fcec5f0f2a432e5df9e",
+            "c3b9acefe0bade36ec66cce5f3571243fc6dc6fcf6e15427fec09c7bb5ad2b3d",
         ),
         "osx-64-py312": (
-            "019ec56ed275b4d27af64338192d4b2890dd2bab860fa4f44392f3cdd5f6f723",
+            "9520888b16249baa6e6993589db96c3c91189b5cfc23daa257472af0b33a192c",
         ),
         "osx-arm64-py311": (
-            "9cd139554a45920f6338c4552544e2c490c8597bcd46f915a3f3855d867ae384",
+            "695be696f1a0aee47a709493b874e4eee49841ab823ba7a91c182802ae4fc418",
         ),
         "osx-arm64-py312": (
-            "370f7f353ec8ced7f09a8322b0867b6f8e7c2fc3ecf51f160ca8fc9d21939941",
+            "24867fa672ce2936a08a79507a4f22e955d5d6c7c20dc214b23fc8b870dcf161",
         ),
     },
     "point_polarized_2times": {
         "linux-64-py311": (
-            "4de5b348e06b3fd3e3fb457487fa8a21e7f10671d2c06ea56866f89b7f717f65",
+            "8d826b2404871de4da27240da98a05427d9dabc4ba8607cbf93df4f3969addf2",
         ),
         "linux-64-py312": (
-            "46d011077d62cc26fdf44cb4c1d7a99e724b028181f527d699d8e7fb917c1230",
+            "4d62ca8ac8e41b630745e08087f6e69cf1020eb7224be90de76921bd957078ea",
         ),
         "osx-64-py311": (
-            "76705c96687157dc96048fd7ee607d1e978fe018018f6931123579340c446a69",
+            "f56eed5320c20dcd4ef8d891f40b7ffe428a4834b993cf410294a2517aca2f61",
         ),
         "osx-64-py312": (
-            "a86e1bea97af310480d62b94da733b0a5793cddbb37187e74fd2df31f0a2461d",
+            "90c223c09d1ed5865b3acbb70fd23f713cb19c6059e1914ea095aeeb84244a40",
         ),
         "osx-arm64-py311": (
-            "1140e5917a671af77233b3b244cc0bd7fb15c814a8f5fb70d22cd9c16cd5b9cd",
+            "0dcc4d86a6295056e06271ff9a8f89bc9fb8da5120a0922afc1443f070687e14",
         ),
         "osx-arm64-py312": (
-            "dabe4c4bc678276a98d03a266ae2e1a9ec39f949bd263ee4da15247bb83f7431",
+            "e0532c3fe5ccb57ad8e6c43552528bc397a0d71840c1c46de1a4e85506cdbf68",
         ),
     },
     "point_unpolarized_1time_2freq": {
