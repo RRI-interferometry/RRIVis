@@ -62,17 +62,26 @@ XX=(I-Q)/2  XY=(U-iV)/2  YX=(U+iV)/2  YY=(I+Q)/2
 XX-YY=-Q
 ```
 
-Pure-I output and ideal circular output do not change. Polarized linear output
-is related to the earlier value by `V_new = P V_old P^H`; this swaps XX with YY
-and swaps/conjugates the physical interpretation of the cross hands. Consumers
-that applied a manual Q-sign or X/Y compensation must remove it.
+Pure-I output and ideal circular output do not change. For ideal or scalar
+linear chains, polarized output is related to the earlier value by
+
+```text
+V_new = P V_old P^H
+[XX, XY, YX, YY]_new = [YY, YX, XY, XX]_old
+```
+
+The matrix permutation swaps the cross-hand values; it does not itself take
+their complex conjugates. Consumers that applied a manual Q-sign or X/Y
+compensation must remove it.
 
 Feed-asymmetric Jones configuration remains keyed to the physical native feed:
 for linear antennas, feed `0` is X/east and feed `1` is Y/north; for circular
 antennas they are R and L. Do not swap `G`, `B`, `Rc`, `Kd`, `X`, or `D`
 parameters. Re-run any persisted polarized-linear reference products and compare
-them through the explicit `P V P^H` relation; do not silently retain old
-fingerprints.
+them against the corrected runtime; do not silently retain old fingerprints.
+The `P V P^H` shortcut above is not generally valid when feed-dependent Jones
+terms do not commute with the basis change, because those terms act in physical
+feed coordinates and require a full re-simulation.
 
 Coordinates, masks, provenance, and fingerprints are available through
 `result.time_grid`, `result.frequencies_hz`, `result.channel_widths_hz`,

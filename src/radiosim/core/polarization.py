@@ -133,7 +133,7 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
     >>> bool(np.allclose(C[0, 0] + C[1, 1], 1.0))
     True
 
-    >>> # Fully Q-polarized: all the power lands in the X feed
+    >>> # Fully Q-polarized: all power lands on the North sky axis
     >>> C = stokes_to_coherency(stokes_I=10.0, stokes_Q=10.0)
     >>> float(C[0, 0].real), float(C[1, 1].real)
     (10.0, 0.0)
