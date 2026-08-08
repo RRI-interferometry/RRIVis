@@ -106,6 +106,19 @@ def test_release_metadata_matches_canonical_project_version() -> None:
     _assert_release_versions(canonical, observed)
 
 
+def test_operating_system_classifiers_match_atomic_publication_support() -> None:
+    project = _read_toml(ROOT / "pyproject.toml")["project"]
+    assert isinstance(project, dict)
+    classifiers = project["classifiers"]
+    assert isinstance(classifiers, list)
+
+    assert "Operating System :: OS Independent" not in classifiers
+    assert {
+        "Operating System :: MacOS :: MacOS X",
+        "Operating System :: POSIX :: Linux",
+    } <= set(classifiers)
+
+
 def test_no_accelerator_named_extra_is_published() -> None:
     """No installable extra may be named for a device RadioSim never measured.
 

@@ -175,7 +175,7 @@ Truthful summary JSON
 .. autofunction:: radiosim.io.summary_json.write_result_summary_json
 
 ``ResultFormat.SUMMARY_JSON`` uses the canonical ``.summary.json`` extension
-and schema ``radiosim.result-summary`` version ``1.0.0``.  It reports result
+and schema ``radiosim.result-summary`` version ``1.2.0``.  It reports result
 shape, dtype, units, fingerprints, flags/weights summaries, canonical axes,
 detached identity/provenance snapshots, performance, and history.  Its
 ``correlation`` block names the exact labels and the resolved

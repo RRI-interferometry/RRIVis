@@ -112,7 +112,7 @@ class DaskBackend(ArrayBackend):
             Use Dask arrays for lazy evaluation.
         precision : PrecisionConfig, str, or None
             Precision configuration. Can be:
-            - None: Use standard float64 precision
+            - None: Use the standard precision preset
             - str: Preset name ("standard", "fast", "precise", "ultra")
             - PrecisionConfig: Full configuration object
             Note: float128 is not supported and falls back to float64.

@@ -20,7 +20,7 @@ Examples
 Using presets:
 
 >>> from radiosim.core.precision import PrecisionConfig
->>> precision = PrecisionConfig.standard()  # All float64
+>>> precision = PrecisionConfig.standard()  # Float64 except HEALPix map storage
 >>> precision = PrecisionConfig.fast()  # float32 where safe
 >>> precision = PrecisionConfig.precise()  # float128 for critical paths
 
@@ -491,7 +491,7 @@ class PrecisionConfig(_StrictFrozenPrecisionModel):
 
     Examples
     --------
-    >>> config = PrecisionConfig.standard()  # All float64
+    >>> config = PrecisionConfig.standard()  # Float64 except HEALPix map storage
     >>> config = PrecisionConfig.fast()  # Optimized for speed
     >>> config = PrecisionConfig(
     ...     default="float64",
@@ -540,14 +540,18 @@ class PrecisionConfig(_StrictFrozenPrecisionModel):
 
     @classmethod
     def standard(cls) -> PrecisionConfig:
-        """Standard precision: float64 everywhere (current default behavior).
+        """Standard precision for general simulations.
+
+        Coordinate, Jones, point-source, accumulation, and output settings use
+        float64. HEALPix map storage uses float32.
 
         Use for: General simulations, 21cm cosmology, precision-critical work.
 
         Returns
         -------
         PrecisionConfig
-            Configuration with all components set to float64
+            Configuration with float64 component settings except for float32
+            HEALPix map storage
         """
         return cls(default="float64")
 
@@ -639,7 +643,11 @@ class PrecisionConfig(_StrictFrozenPrecisionModel):
 
     @classmethod
     def ultra(cls) -> PrecisionConfig:
-        """Ultra precision: float128 everywhere.
+        """Ultra precision on paths that support an extended dtype.
+
+        Coordinates, selected Jones terms, point-source data, accumulation, and
+        output use float128. HEALPix map storage remains float64, and extended
+        Jones terms retain their declared float64 defaults.
 
         Use for: Debugging only - very slow, NumPy only.
 
@@ -889,7 +897,7 @@ def resolve_precision(precision: str | PrecisionConfig | None) -> PrecisionConfi
     precision : str, PrecisionConfig, or None
         Precision specification:
 
-        - None: Use standard (float64)
+        - None: Use the standard preset
         - str: Preset name ("standard", "fast", "precise", "ultra")
           or precision level ("float32", "float64", "float128")
         - PrecisionConfig: Use directly
@@ -916,7 +924,8 @@ def resolve_precision(precision: str | PrecisionConfig | None) -> PrecisionConfi
         if precision in presets:
             return presets[precision]()
 
-        # Check if it's a precision level (use as default for all)
+        # Check if it is a fallback precision level. Nested groups retain their
+        # declared component defaults.
         if precision in VALID_PRECISIONS:
             return PrecisionConfig(default=precision)
 

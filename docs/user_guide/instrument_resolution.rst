@@ -55,7 +55,8 @@ Lifecycle and public state
 
 Construction resolves configuration and paths but does not load instrument,
 backend, sky, output, or browser state. ``setup`` resolves and selects the
-instrument first, then creates the backend and solver adapter. A failed
+instrument first, then resolves receptors, Jones terms, and beams before it
+creates the backend, solver adapter, observation, and sky state. A failed
 instrument resolution publishes no partial public state; retry starts cleanly.
 Later setup failures keep the already resolved canonical instrument available
 for inspection and retry.
@@ -70,10 +71,13 @@ Results and output
 
 The immutable in-memory result exposes the exact canonical antenna and
 selected-baseline tuples plus detached, JSON-safe instrument and beam
-snapshots. ``Simulator.save`` and ``Simulator.plot`` currently raise
-``ResultUnavailableError`` before side effects. No HDF5, JSON-summary,
-Measurement Set, or UVFITS path is integrated with the canonical result in this
-slice; those output boundaries remain later separately gated work.
+snapshots. After a successful run, ``Simulator.save`` publishes that result as
+HDF5, summary JSON, Measurement Set, or UVFITS through the corresponding typed
+``ResultFormat``. HDF5 is the reconstructable native result; summary JSON is a
+bounded metadata view; Measurement Set and UVFITS are projected standard-format
+exports. ``Simulator.plot`` publishes deterministic Bokeh result views into a
+required explicit directory. Both methods raise ``ResultUnavailableError``
+before side effects when no successful result has been published.
 
 Direct CLI and config mode
 --------------------------

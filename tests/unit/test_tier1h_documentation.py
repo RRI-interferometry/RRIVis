@@ -19,7 +19,7 @@ from radiosim.backends import dask_backend, get_backend, jax_backend
 from radiosim.cli.main import cli
 from radiosim.core import visibility, visibility_healpix
 from radiosim.core.precision import PrecisionConfig
-from radiosim.io import measurement_set
+from radiosim.io import measurement_set, summary_json
 from radiosim.io.config import (
     RadioSimConfig,
     SkyModelConfig,
@@ -354,6 +354,11 @@ def test_tier4d_hdf5_documentation_is_complete_and_bounded():
         assert required in text
     assert "save_visibilities_hdf5" not in text
     assert "load_visibilities_hdf5" not in text
+    summary_schema = (
+        f"schema ``{summary_json.SUMMARY_SCHEMA_NAME}`` version "
+        f"``{summary_json.SUMMARY_SCHEMA_VERSION}``"
+    )
+    assert summary_schema in text
     for required in (
         "StandardVisibilityData",
         "first-time zenith",
@@ -549,12 +554,21 @@ def test_tier3h2_hera_analysis_separates_history_from_current_support():
 
 def test_tier2g_truth_surfaces_and_example_inventory_are_current():
     guide = REPOSITORY_ROOT / "docs" / "user_guide" / "instrument_resolution.rst"
+    guide_text = guide.read_text(encoding="utf-8")
+    antenna_formats = (
+        REPOSITORY_ROOT / "antenna_layout_examples" / "README_antenna_formats.md"
+    ).read_text(encoding="utf-8")
     index = (REPOSITORY_ROOT / "docs" / "index.rst").read_text(encoding="utf-8")
     script = (
         REPOSITORY_ROOT / "examples" / "scripts" / "simple_simulation.py"
     ).read_text(encoding="utf-8")
 
     assert guide.is_file()
+    for result_format in ("HDF5", "summary JSON", "Measurement Set", "UVFITS"):
+        assert result_format in guide_text
+    assert "remain later separately gated work" not in guide_text
+    assert "Matching `diameter_overrides` take precedence" in antenna_formats
+    assert "Source diameters are used first" not in antenna_formats
     assert "user_guide/instrument_resolution" in index
     assert "InstrumentConfig(" in script
     assert "BaselineSelectionConfig(" in script
@@ -569,6 +583,28 @@ def test_tier2g_truth_surfaces_and_example_inventory_are_current():
     assert not (
         REPOSITORY_ROOT / "antenna_layout_examples" / "example_pyuvdata_format.txt"
     ).exists()
+
+
+def test_precision_documentation_describes_the_component_tree() -> None:
+    precision_source = (
+        REPOSITORY_ROOT / "src" / "radiosim" / "core" / "precision.py"
+    ).read_text(encoding="utf-8")
+    backend_guide = (
+        REPOSITORY_ROOT / "docs" / "user_guide" / "backends.rst"
+    ).read_text(encoding="utf-8")
+    standard = PrecisionConfig.standard()
+
+    assert standard.default == "float64"
+    assert standard.sky_model.healpix_maps == "float32"
+    assert re.search(r"float32 HEALPix map\s+storage", backend_guide)
+    for overbroad_claim in (
+        "All float64",
+        "float64 everywhere",
+        "all components set to float64",
+        "float128 everywhere",
+    ):
+        assert overbroad_claim not in precision_source
+    assert "float64 throughout" not in backend_guide
 
 
 def test_historical_hera_analysis_is_clearly_labelled():

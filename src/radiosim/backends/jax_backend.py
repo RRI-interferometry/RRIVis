@@ -98,7 +98,7 @@ class JAXBackend(ArrayBackend):
             JAX auto-detects specific hardware (CUDA/ROCm/Metal)
         precision : PrecisionConfig, str, or None
             Precision configuration. Can be:
-            - None: Use standard float64 precision
+            - None: Use the standard precision preset
             - str: Preset name ("standard", "fast", "precise", "ultra")
             - PrecisionConfig: Full configuration object
             Note: float128 is not supported by JAX and falls back to float64.
@@ -118,9 +118,10 @@ class JAXBackend(ArrayBackend):
                 "wheel, installed directly."
             )
 
-        # RadioSim's standard precision is float64/complex128. JAX disables
-        # x64 by default, so enable it before creating backend arrays to honor
-        # the dtype contract instead of silently truncating requested dtypes.
+        # RadioSim's standard compute/output paths use float64/complex128. JAX
+        # disables x64 by default, so enable it before creating backend arrays
+        # to honor the dtype contract instead of silently truncating requested
+        # dtypes.
         jax.config.update("jax_enable_x64", True)
 
         self._device_type = device

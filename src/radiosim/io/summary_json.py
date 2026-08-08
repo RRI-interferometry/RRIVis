@@ -33,6 +33,8 @@ from radiosim.io.result_errors import (
 )
 from radiosim.io.result_format import ResultFormat, normalize_result_path
 
+SUMMARY_SCHEMA_NAME = "radiosim.result-summary"
+SUMMARY_SCHEMA_VERSION = "1.2.0"
 _MAX_SUMMARY_BYTES = 16 * 1024 * 1024
 _MAX_SUMMARY_NESTING = 32
 _MAX_SUMMARY_NODES = 100_000
@@ -329,8 +331,8 @@ def _summary_payload(result: SimulationResult) -> dict[str, object]:
             # retyped, and every ``1.0.0`` key survives at the same path with
             # the same meaning.  See ``Tier6HybridRuntimePlan.md`` Section 19.
             "schema": {
-                "name": "radiosim.result-summary",
-                "version": "1.2.0",
+                "name": SUMMARY_SCHEMA_NAME,
+                "version": SUMMARY_SCHEMA_VERSION,
             },
             "result": {
                 "schema": result.schema_version,
@@ -523,4 +525,8 @@ def write_result_summary_json(
             os.close(parent_fd)
 
 
-__all__ = ["write_result_summary_json"]
+__all__ = [
+    "SUMMARY_SCHEMA_NAME",
+    "SUMMARY_SCHEMA_VERSION",
+    "write_result_summary_json",
+]

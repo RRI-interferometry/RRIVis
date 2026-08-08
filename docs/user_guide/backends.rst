@@ -174,7 +174,9 @@ The following are measurements, not claims. They were produced by
 ``20260731T104303Z-darwin-arm64.json``, taken at commit ``ea48d2c`` on an
 Apple M1 Max (macOS 26.5.2, arm64, 10 logical CPUs) with ``numpy 2.3.2``,
 ``jax 0.10.2`` (CPU-only ``jaxlib``) and ``dask 2025.7.0``, at the ``standard``
-precision preset (float64 throughout, ``complex128`` results).
+precision preset (float64 coordinates, Jones terms, source tables,
+accumulation, and output with float32 HEALPix map storage, producing
+``complex128`` results).
 
 **Correctness.** Across all eight benchmarked workloads -- the seven-row
 point/HEALPix/hybrid/heterogeneous-receptor parity matrix plus a 4096-source,

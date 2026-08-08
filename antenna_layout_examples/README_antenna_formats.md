@@ -28,9 +28,9 @@ Name Number BeamID E N U Diameter
 HH136 136 0 0.0 0.0 0.0 14.0
 ```
 
-Source diameters are used first, followed by matching
-`diameter_overrides`, then `default_diameter_m` for antennas that still lack a
-diameter. Resolution fails if any antenna remains without a positive diameter.
+Matching `diameter_overrides` take precedence, followed by a positive source
+diameter, then `default_diameter_m` for antennas that still lack a diameter.
+Resolution fails if any antenna remains without a positive diameter.
 `BeamID` is retained source metadata; it does not enable per-antenna beam
 physics.
 

@@ -295,7 +295,7 @@ Added
   - B: Bandpass
   - D: Polarization leakage
 - **Precision Control**: Granular control over numerical precision
-  - Presets: ``standard`` (float64), ``fast`` (mixed), ``precise`` (float128), ``ultra``
+  - Presets: ``standard`` (float64 component settings except float32 HEALPix storage), ``fast`` (mixed), ``precise`` (float128 on critical paths), ``ultra`` (maximum supported precision per path)
   - Per-component control for coordinates, Jones matrices, accumulation, output
   - float128/complex256 support on NumPy (platform-dependent)
   - Automatic fallback with warnings on unsupported backends
