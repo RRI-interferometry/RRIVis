@@ -230,6 +230,10 @@ SOURCE_ROOT = REPO_ROOT / "src" / "radiosim"
 JONES_ROOT = SOURCE_ROOT / "core" / "jones"
 
 IDENTITY = np.eye(2, dtype=np.complex128)
+EAST_X_PERMUTATION = np.array(
+    [[0.0, 1.0], [1.0, 0.0]],
+    dtype=np.complex128,
+)
 
 
 def _source(relative_path: str) -> str:
@@ -969,12 +973,15 @@ def test_jones_chain_seed_dtype_comes_from_the_caller() -> None:
 
 
 def test_receptor_config_jones_returns_the_dtype_it_is_given(tmp_path) -> None:
-    """Defect D9, flipped: the C term honours ``PrecisionConfig`` too.
+    """Defect D9, flipped: the east-X C term honours ``PrecisionConfig`` too.
 
     OWNED BY: Tier 7B.  FLIPPED BY: Tier 7B, which made C and H dtype-correct.
     The default preset resolves ``complex128``, which is what the removed
     literal said, so every shipped configuration is bit-identical; a preset that
     resolves anything else is where the fix becomes observable.
+    UPDATED BY: Post-Tier-8 WP-5.  The dtype contract is unchanged, but the
+    homogeneous linear zero-rotation matrix is now the physical east-X
+    permutation rather than the old identity.
     """
     import radiosim.core.jones as jones_package
     from radiosim.core.instrument_adapters import SolverInstrumentView
@@ -999,8 +1006,12 @@ def test_receptor_config_jones_returns_the_dtype_it_is_given(tmp_path) -> None:
         assert matrix.dtype == dtype
         # A direction-independent term returns one broadcastable matrix.
         assert matrix.shape == (1, 2, 2)
-        # The default homogeneous-linear, zero-rotation case is exactly I2.
-        np.testing.assert_array_equal(matrix[0], IDENTITY.astype(dtype))
+        # C maps canonical sky (North, East) into physical feed
+        # (X=east, Y=north), while preserving the caller-selected dtype.
+        np.testing.assert_array_equal(
+            matrix[0],
+            EAST_X_PERMUTATION.astype(dtype),
+        )
 
 
 def test_jones_chain_docstring_records_the_designed_chain_order() -> None:

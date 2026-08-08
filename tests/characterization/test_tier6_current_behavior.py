@@ -2130,6 +2130,7 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
         "test_cli_end_to_end.py",
         "test_hybrid_end_to_end.py",
         "test_jones_end_to_end.py",
+        "test_sci006_output_roundtrip.py",
     ]
 
     benchmarks = REPO_ROOT / "src" / "radiosim" / "benchmarks"

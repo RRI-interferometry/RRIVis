@@ -27,14 +27,25 @@ from typing import Any
 
 import numpy as np
 
-# Importing the characterization module normally records diagnostic files.
-# This tool owns its output tree, so disable that independent side effect.
-os.environ.setdefault("RADIOSIM_CHARACTERIZATION_RECORD_DIR", "")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tests.characterization import (
-    test_tier6_current_behavior as characterization,  # noqa: E402
-)
+# Importing the characterization module normally records diagnostic files.
+# This tool owns its output tree, so suppress only that import-time write and
+# restore the caller's process environment immediately afterwards.  Pytest
+# imports this module while collecting repository-surface tests; leaking an
+# empty value there would disable the CI evidence recorder for the whole worker.
+_RECORD_DIR_ENV = "RADIOSIM_CHARACTERIZATION_RECORD_DIR"
+_previous_record_dir = os.environ.get(_RECORD_DIR_ENV)
+os.environ[_RECORD_DIR_ENV] = ""
+try:
+    from tests.characterization import (
+        test_tier6_current_behavior as characterization,  # noqa: E402
+    )
+finally:
+    if _previous_record_dir is None:
+        os.environ.pop(_RECORD_DIR_ENV, None)
+    else:
+        os.environ[_RECORD_DIR_ENV] = _previous_record_dir
 
 _UNCHANGED_WORKLOADS = (
     "healpix_scalar",

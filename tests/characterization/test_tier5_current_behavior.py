@@ -177,6 +177,13 @@ PLAN_S_MATRIX = (1.0 / np.sqrt(2.0)) * np.array(
     dtype=np.complex128,
 )
 
+# Post-Tier-8 WP-5: canonical sky columns are (North, East), while physical
+# linear receptor rows are (X=east, Y=north).
+PLAN_P_MATRIX = np.array(
+    [[0.0, 1.0], [1.0, 0.0]],
+    dtype=np.complex128,
+)
+
 SOURCE_ROOT = Path(inspect.getfile(result_module)).parents[2]
 
 
@@ -400,7 +407,7 @@ def test_polarization_docstring_carries_the_iau_hbs_attribution() -> None:
 
 
 def test_receptor_and_basis_transform_terms_carry_real_physics(tmp_path) -> None:
-    """Pins both Tier 5 Jones terms as the Section 18.2 / 18.3 mathematics.
+    """Pins the Jones terms after the SCI-006 east-X correction.
 
     At the baseline both classes accepted a permissive ``feed_type`` /
     ``from_basis`` / ``to_basis`` construction and returned the identity
@@ -410,6 +417,8 @@ def test_receptor_and_basis_transform_terms_carry_real_physics(tmp_path) -> None
     Tier 5D.
 
     FLIPPED BY: Tier 5C, in the same commit as the implementation.
+    UPDATED BY: Post-Tier-8 WP-5, which makes the previously implicit
+    north/east-to-X/Y permutation explicit in ``C``.
     """
     backend = get_backend("numpy")
     identity = np.eye(2, dtype=np.complex128)
@@ -429,16 +438,29 @@ def test_receptor_and_basis_transform_terms_carry_real_physics(tmp_path) -> None
     instrument, _ = _solver_components(tmp_path)
     resolved = _resolve_instrument(tmp_path)
 
-    # Default linear array: both terms are exactly I2, so the default
-    # configuration cannot perturb any existing result.
+    # Default linear array: C maps canonical sky (North, East) into physical
+    # feed (X=east, Y=north), while H stays I2 because native and output bases
+    # are both linear_xy.
     linear = resolve_receptors(ReceptorsConfig(), resolved)
-    for term in (
-        ReceptorConfigJones(receptors=linear, instrument=instrument),
-        BasisTransformJones(receptors=linear, instrument=instrument),
-    ):
-        for antenna_idx in range(len(instrument.antenna_numbers)):
-            jones = _evaluate_receptor_term(term, backend, antenna_idx=antenna_idx)
-            np.testing.assert_array_equal(jones, identity)
+    receptor_term = ReceptorConfigJones(receptors=linear, instrument=instrument)
+    transform_term = BasisTransformJones(receptors=linear, instrument=instrument)
+    for antenna_idx in range(len(instrument.antenna_numbers)):
+        np.testing.assert_array_equal(
+            _evaluate_receptor_term(
+                receptor_term,
+                backend,
+                antenna_idx=antenna_idx,
+            ),
+            PLAN_P_MATRIX,
+        )
+        np.testing.assert_array_equal(
+            _evaluate_receptor_term(
+                transform_term,
+                backend,
+                antenna_idx=antenna_idx,
+            ),
+            identity,
+        )
 
     # Circular array: C is the Section 18.1 basis matrix, H stays I2 because
     # the native basis already is the output basis.
