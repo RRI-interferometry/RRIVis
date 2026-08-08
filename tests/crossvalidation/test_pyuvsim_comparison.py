@@ -414,6 +414,60 @@ def test_installed_pyuvsim_is_the_recorded_reference_version():
     assert pyuvsim.__version__ == REFERENCE_PYUVSIM_VERSION
 
 
+def test_pyuvsim_east_x_unit_beam_matches_the_sci006_closed_form(unit_beamfits):
+    """Independently pin pyuvsim's feed-by-sky binding for east-oriented X.
+
+    This is the WP-4 analytic example, evaluated through pyuvsim's own
+    ``Antenna.get_beam_jones`` and pyradiosky's own coherency constructor.  It
+    does not compare against RadioSim and therefore cannot inherit RadioSim's
+    axis-order assumption.
+    """
+    from astropy import units
+    from pyradiosky.utils import stokes_to_coherency
+    from pyuvdata import UVBeam
+    from pyuvsim import Antenna, BeamList, Telescope
+
+    telescope = Telescope(
+        "SCI-006 analytic probe",
+        _earth_location(),
+        BeamList([UVBeam.from_file(str(unit_beamfits))]),
+    )
+    antenna = Antenna("A000", 0, np.zeros(3), 0)
+    jones = antenna.get_beam_jones(
+        telescope,
+        # Both angles land on the unit beam's regular grid, minimizing the
+        # interpolation round-off that is tolerated explicitly below.
+        np.array([[np.pi / 4.0], [0.0]]),
+        1.2e8,
+        reuse_spline=False,
+    )[..., 0]
+
+    stokes = np.array([1.0, 0.6, 0.0, 0.0]) * units.Jy
+    brightness = np.asarray(stokes_to_coherency(stokes).value)
+    visibility = jones @ brightness @ jones.conj().T
+
+    np.testing.assert_allclose(
+        jones,
+        np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128),
+        rtol=0.0,
+        # UVBeam's response path leaves one double-precision interpolation ulp
+        # even when frequency and direction land on the regular grid.
+        atol=5e-16,
+    )
+    np.testing.assert_allclose(
+        visibility,
+        np.array([[0.2, 0.0], [0.0, 0.8]], dtype=np.complex128),
+        rtol=0.0,
+        atol=1e-15,
+    )
+    np.testing.assert_allclose(
+        visibility[0, 0] - visibility[1, 1],
+        -0.6 + 0.0j,
+        rtol=0.0,
+        atol=1e-15,
+    )
+
+
 def test_unpolarized_point_sources_match_pyuvsim(tmp_path, unit_beamfits):
     """The geometric half of the RIME agrees to double-precision round-off.
 

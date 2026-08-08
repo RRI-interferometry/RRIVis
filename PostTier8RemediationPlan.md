@@ -20,7 +20,7 @@ re-verified at execution time, not trusted from here.
 | Row | Status | One line |
 |-----|--------|----------|
 | `CI-001` | DONE | Closed 2026-08-08 by WP-2/WP-3: the second `linux-64-py311` class was forced on demand, its NumPy/OpenBLAS dispatch axes named, its three cube deltas accepted under Section 13.5, and its digests recorded (`docs/development/ci001_adjudication.md`) |
-| `SCI-006` | OPEN | Local Stokes `Q` sign opposite to `pyuvsim`/`pyradiosky` for `x_orientation="east"`; characterized as a local-basis axis-order swap (also flips `V`), neither sign endorsed (`Fix.md` line ~217) |
+| `SCI-006` | OPEN | WP-4 ruled RadioSim's current zero-rotation linear Jones binding non-normative for its declared east-X feed: the IAU north/east brightness axes require an east-X/north-Y permutation, so `XX - YY = -Q` for sky +Q. WP-5 must implement and accept the change before closure (`docs/development/sci006_polarization_convention.md`) |
 | `SCI-007` | OPEN | Fitted `-0.0576°` residual polarization-frame rotation vs `pyuvsim` after the basis swap, unreconciled against two probes of the right order (`Fix.md` line ~218) |
 | `API-001` | OPEN | `stokes_to_coherency` does not broadcast its scalar Q/U/V defaults against array `I`; `stokes_to_coherency(np.ones(5))` raises (`Fix.md` line ~228) |
 | `API-002` | OPEN | `print_warning` leaves Rich markup enabled on interpolated messages; bracketed text silently dropped (`Fix.md` line ~229) |
@@ -75,7 +75,7 @@ This plan was assembled from, and cites only:
 | 1 | `CI-001` | Diagnose from live instrumentation; adjudicate under the pre-authorized Tier 8 §14 conditional; then the successor-gate decision | M (elapsed-time-gated on one red run) | Now (WP-2) |
 | 2 | `API-002` | Fix: escape at the helper boundary, plus the `RichHandler` companion | XS | Now (WP-1) |
 | 3 | `API-001` | Fix: implement broadcasting | XS | Now (WP-1) |
-| 4 | `SCI-006` | Rule the convention (design-gate memo with citations), then flip or document | S + M | Memo now (WP-4); landing after E1 |
+| 4 | `SCI-006` | WP-4 ruling DONE; implement the selected east-X basis correction in WP-5 | S + M | WP-5 ready; WP-3/E1 and Q3 satisfied |
 | 5 | `SCI-007` | Reconcile numerically; close as a documented, test-pinned accuracy bound | S–M | After WP-5 |
 | 6 | `PERF-001` | Four CPU legs now with bit-identity proofs; GPU leg hardware-gated | M + gated | CPU legs now (WP-7) |
 | 7 | `SCI-005` | Staged successor tier, own plan document; scalar-preserving items first | XL | Plan doc now; stages gated (WP-8) |
@@ -118,8 +118,8 @@ never accepted by loosening the pin").
 | WP-1 | Quick wins: `API-002` fix, `API-001` fix | XS + XS | — |
 | WP-2 | `CI-001` evidence: artifact harvest + comparator; fingerprint extension; optional nightly sampler | S–M | DONE 2026-08-08 |
 | WP-3 | `CI-001` adjudication (Tier 8 §14 conditional) + successor-gate memo + mechanized verdict | M | DONE 2026-08-08 |
-| WP-4 | `SCI-006` convention memo (the ruling) | S | — |
-| WP-5 | `SCI-006` implementation (flip or document-intentional) | M | Q3; WP-3/E1 satisfied 2026-08-08 |
+| WP-4 | `SCI-006` convention memo (the ruling) | S | DONE 2026-08-08 |
+| WP-5 | `SCI-006` implementation (selected Branch A correction) | M | Ready; Q3 and WP-3/E1 satisfied 2026-08-08 |
 | WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | WP-5 (E2) |
 | WP-7 | `PERF-001` CPU legs P-a…P-d + docs notes; P-e GPU leg | M; P-e gated | P-e on Q4 (hardware) |
 | WP-8 | `SCI-005` plan document, then staged slices 1→3 | XL | Stage 1 after WP-7 (E3); stages 2–3 after WP-5 (E2) |
@@ -347,9 +347,22 @@ closed form: RadioSim's side is the local sky-basis axis order behind
 The memo rules which code is normative. House rule satisfied: a scientific
 claim with citations, closing exactly the ruling 7J declined to make.
 
+**Outcome — DONE 2026-08-08.**
+`docs/development/sci006_polarization_convention.md` derives the result from
+the IAU north-through-east position-angle definition, Hamaker & Bregman's
+north/east sky axes, pyuvdata's east-X feed angles, and the RIME. For an IAU
+`+Q` source, the north component carries `(I+Q)/2` while the east component
+carries `(I-Q)/2`; therefore an east-oriented X feed and north-oriented Y feed
+must report `XX - YY = -Q`. RadioSim currently reports `+Q` because
+`M(linear)=I2` binds the north-first brightness axis directly to the
+east-labelled X row. An independent pyuvsim 1.4.0 source trace and executable
+unit-BeamFITS probe produce the required permutation and `-Q`. This selects
+Branch A. WP-4 changed no runtime signs, feed order, fingerprints, or retained
+cross-validation artifact, so `SCI-006` remains open pending WP-5 acceptance.
+
 ### 8.3 WP-5 — implementation (two branches; gated on E1 and Q3)
 
-**Branch A — RadioSim is non-normative (prior expectation):** flip. RadioSim
+**Branch A — selected by WP-4; RadioSim is non-normative:** flip. RadioSim
 exports `UVData`/UVFITS/MS, so its correlation labels must mean what the
 ecosystem that reads those files expects, and `pyuvdata` is that ecosystem's
 convention-setter. Touches: the canonical table in
@@ -369,6 +382,13 @@ both).
 statement (with the citation) lands in the polarization docs; the harness
 keeps its swap with the ruling attached; the same analytic test asserts *our*
 sign; no pin churn.
+
+Branch B is retained as the rejected alternative for auditability. The memo's
+WP-5 contract supersedes this sketch where it is more precise: the one-owner
+mapping must preserve ideal circular-output semantics, explicitly audit
+feed-asymmetric Jones terms, and compare the deliberate RadioSim/pyradiosky
+Stokes-`V` convention difference separately after removing the Q-axis
+compensation.
 
 Effort S + M. Landing waits for WP-3 adjudication (edge E1) in Branch A only.
 
@@ -588,11 +608,10 @@ Each work package runs in the established style:
   gate triggers only at ≥3 legitimate classes or a non-byte-stable class.
 - **Q2 (API-001 disposition):** *resolved 2026-08-05 by program adoption* —
   implement broadcasting (see §7).
-- **Q3 (blocks WP-5):** approve the decision criterion for the SCI-006
-  ruling — exported-product semantics follow the IAU/IEEE definitions as
-  instantiated by `pyuvdata`'s conventions; if the WP-4 memo rules RadioSim
-  non-normative, Branch A (the flip) is taken with its pin regeneration and
-  migration entry.
+- **Q3 (WP-5 decision criterion):** *resolved 2026-08-08 by the WP-4 ruling* —
+  exported-product semantics follow the IAU definitions as instantiated by
+  pyuvdata's declared feed angles. The memo rules RadioSim non-normative, so
+  Branch A is selected with its pin regeneration and migration entry.
 - **Q4 (blocks WP-7 P-e only):** name the GPU hardware and access path (cloud
   runner or workstation). Until answered, no accelerator work and no
   accelerator claims.
@@ -606,8 +625,8 @@ Each work package runs in the established style:
 | WP-1 | Ready to start |
 | WP-2 | DONE — accepted 2026-08-08 |
 | WP-3 | DONE — accepted 2026-08-08; CI-001 closed |
-| WP-4 | Ready to start |
-| WP-5 | Blocked on Q3; WP-3/E1 satisfied 2026-08-08 |
+| WP-4 | DONE — ruled 2026-08-08; Branch A selected; no runtime change |
+| WP-5 | Ready to start; Q3 and WP-3/E1 satisfied 2026-08-08 |
 | WP-6 | Prediction computation ready; closure blocked on WP-5 |
 | WP-7 | P-a…P-d ready to start; P-e blocked on Q4 |
 | WP-8 | Plan document ready to draft; stage 1 after WP-7; stages 2–3 after WP-5 |
