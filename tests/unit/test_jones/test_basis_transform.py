@@ -27,6 +27,7 @@ from radiosim.core.receptor import (
 )
 from tests.unit.test_jones.test_receptor import (
     IDENTITY,
+    PLAN_P_MATRIX,
     PLAN_S_MATRIX,
     ROTATIONS_DEG,
     compute,
@@ -38,8 +39,8 @@ from tests.unit.test_jones.test_receptor import (
 PLAN_TRANSFORMS = {
     ("linear", "linear_xy"): IDENTITY,
     ("circular", "circular_rl"): IDENTITY,
-    ("linear", "circular_rl"): PLAN_S_MATRIX,
-    ("circular", "linear_xy"): PLAN_S_MATRIX.conj().T,
+    ("linear", "circular_rl"): PLAN_S_MATRIX @ PLAN_P_MATRIX,
+    ("circular", "linear_xy"): PLAN_P_MATRIX @ PLAN_S_MATRIX.conj().T,
 }
 
 
@@ -131,9 +132,13 @@ def test_a_heterogeneous_array_gets_per_antenna_transforms() -> None:
     receptors = make_receptor_set(specification, "circular_rl")
     term = BasisTransformJones(receptors=receptors, instrument=make_instrument_view(3))
 
-    np.testing.assert_allclose(compute(term, 0), PLAN_S_MATRIX, atol=1e-15)
+    np.testing.assert_allclose(
+        compute(term, 0), PLAN_S_MATRIX @ PLAN_P_MATRIX, atol=1e-15
+    )
     np.testing.assert_allclose(compute(term, 1), IDENTITY, atol=1e-15)
-    np.testing.assert_allclose(compute(term, 2), PLAN_S_MATRIX, atol=1e-15)
+    np.testing.assert_allclose(
+        compute(term, 2), PLAN_S_MATRIX @ PLAN_P_MATRIX, atol=1e-15
+    )
 
     assert term.is_diagonal() is False
     assert term.is_scalar() is False
@@ -168,8 +173,14 @@ def test_h_times_c_is_unitary_for_every_accepted_combination(
     )
 
 
-def test_s_is_unitary_both_ways() -> None:
-    """S6: S S^H == S^H S == I2."""
+def test_linear_to_circular_is_unitary_both_ways() -> None:
+    """SCI-006: the exported linear-to-circular transform is ``S P``."""
+    np.testing.assert_allclose(
+        LINEAR_TO_CIRCULAR,
+        PLAN_S_MATRIX @ PLAN_P_MATRIX,
+        rtol=0.0,
+        atol=0.0,
+    )
     np.testing.assert_allclose(
         LINEAR_TO_CIRCULAR @ LINEAR_TO_CIRCULAR.conj().T,
         IDENTITY,
@@ -255,7 +266,7 @@ def test_circular_native_into_linear_output_equals_linear_native(
 
 
 def test_the_collapse_identity_of_section_18_3_holds() -> None:
-    """Section 18.3: for circular output, H C == S R(chi) from either native."""
+    """SCI-006: for circular output, H C == S R(chi) from either native."""
     view = make_instrument_view(1)
     for native in ("linear", "circular"):
         for rotation_deg in ROTATIONS_DEG:

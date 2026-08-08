@@ -840,6 +840,40 @@ def _capture_reference_cube(what: str, digest: str, cube: Any) -> None:
         return
 
 
+def _capture_observed_cube(what: str, digest: str, cube: Any) -> None:
+    """Retain a failing candidate cube for controlled scientific changes.
+
+    Reference cubes are intentionally written only by a passing pin.  WP-5's
+    SCI-006 change needs the complementary artifact: the candidate cube whose
+    novel digest failed, so every CI cell can prove ``V_new=P V_old P^H``
+    against the restored reference before any pin table is edited.  Like all
+    characterization diagnostics, this is size-capped, one-shot, and unable to
+    affect a test outcome.
+    """
+    if cube is None:
+        return
+    base = _record_dir()
+    if base is None:
+        return
+    path = (
+        base
+        / "observed_cubes"
+        / _record_slug(what)
+        / _ENVIRONMENT_KEY
+        / f"{digest}.npy"
+    )
+    if path.exists():
+        return
+    try:
+        array = np.ascontiguousarray(np.asarray(cube))
+        if array.nbytes > _MAX_REFERENCE_CUBE_BYTES:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(path, array)
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        return
+
+
 def _cube_delta(measured: Any, reference: Any) -> str:
     """Report cube deltas and the full Tier 6 Section 13.5 verdict."""
     left = np.ascontiguousarray(np.asarray(measured))
@@ -996,6 +1030,7 @@ def _assert_pinned_digests(
         if not problem:
             _capture_reference_cube(what, measured, cube)
             continue
+        _capture_observed_cube(what, measured, cube)
         problems.append("\n".join([problem, *_cube_delta_report(table, what, cube)]))
     if problems:
         pytest.fail(

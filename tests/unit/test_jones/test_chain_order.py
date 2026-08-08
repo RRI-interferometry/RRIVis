@@ -18,10 +18,10 @@ placement was unobservable while every optional term was an identity.  Section
 12.1 shows it is wrong for a circular receptor: the physical composite is
 ``M(circular) R(chi + psi) = C R(psi)``, so ``R(psi)`` must sit sky-side of
 ``C``.  Under the Tier 5 order the composite applies a real 2x2 rotation to the
-``(R, L)`` pair, when the correct effect is a pair of opposite phases.  The two
-agree only for a linear receptor, where ``M = I2`` and rotations commute --
-which is exactly the case Tier 5 tested.  Invariant **I6** below is the test
-that separates them.
+``(R, L)`` pair, when the correct effect is a pair of opposite phases.  SCI-006
+also makes the native linear matrix ``P`` rather than ``I2``; ``P`` does not
+commute with a general rotation, so both native bases now distinguish the two
+placements.  Invariant **I6** below is the test that separates them.
 """
 
 from __future__ import annotations
@@ -57,6 +57,7 @@ PLAN_S = (1.0 / np.sqrt(2.0)) * np.array(
     [[1.0, 1.0j], [1.0, -1.0j]],
     dtype=np.complex128,
 )
+PLAN_P = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
 
 # Two deliberately non-commuting, non-unitary matrices.  ``FIRST @ SECOND`` and
 # ``SECOND @ FIRST`` differ in every entry.
@@ -401,7 +402,7 @@ def test_composed_chain_equals_h_times_c_times_e(
     )
 
     receptor = PLAN_S @ plan_rotation(np.deg2rad(rotation_deg))
-    transform = PLAN_S.conj().T
+    transform = PLAN_P @ PLAN_S.conj().T
     beam = np.asarray(
         beam_system.evaluate_jones(
             _antenna_id(instrument, 0),
@@ -598,7 +599,7 @@ def test_the_composed_chain_is_the_receptor_at_the_combined_angle(
             time_mjd=TIME_MJD,
         )
     )
-    transform = PLAN_S.conj().T
+    transform = PLAN_P @ PLAN_S.conj().T
     chi = np.deg2rad(chi_deg)
 
     combined = np.stack(

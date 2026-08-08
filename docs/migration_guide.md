@@ -45,6 +45,35 @@ The correlation labels are no longer fixed. Read `result.correlations` and
 `result.polarization_basis` instead of hard-coding `XX, XY, YX, YY`; a circular
 result reports `RR, RL, LR, LL`. See the receptor section below.
 
+### Linear output now means X=east, Y=north
+
+The unreleased SCI-006 correction changes polarized linear-output numbers. The
+canonical sky brightness matrix is still ordered `(North, East)`, but the
+unrotated linear receptor now applies
+
+```text
+P = [[0, 1], [1, 0]]
+```
+
+before reporting `(X=east, Y=north)`. The corrected zero-rotation products are
+
+```text
+XX=(I-Q)/2  XY=(U-iV)/2  YX=(U+iV)/2  YY=(I+Q)/2
+XX-YY=-Q
+```
+
+Pure-I output and ideal circular output do not change. Polarized linear output
+is related to the earlier value by `V_new = P V_old P^H`; this swaps XX with YY
+and swaps/conjugates the physical interpretation of the cross hands. Consumers
+that applied a manual Q-sign or X/Y compensation must remove it.
+
+Feed-asymmetric Jones configuration remains keyed to the physical native feed:
+for linear antennas, feed `0` is X/east and feed `1` is Y/north; for circular
+antennas they are R and L. Do not swap `G`, `B`, `Rc`, `Kd`, `X`, or `D`
+parameters. Re-run any persisted polarized-linear reference products and compare
+them through the explicit `P V P^H` relation; do not silently retain old
+fingerprints.
+
 Coordinates, masks, provenance, and fingerprints are available through
 `result.time_grid`, `result.frequencies_hz`, `result.channel_widths_hz`,
 `result.flags`, `result.weights`, `result.scientific_sha256`, and

@@ -55,8 +55,9 @@ class JonesChain:
     ``M(basis) R(chi + psi) = C R(psi)``: ``R(psi)`` belongs sky-side of ``C``.
     Under the superseded order a circular receptor would see a real 2x2 rotation
     of the ``(R, L)`` pair, when the correct effect -- ``S R(psi) S^H`` -- is a
-    pair of opposite phases.  The two agree exactly for a linear receptor, where
-    ``M = I2``, which is why the error was unobservable while ``P`` was a stub.
+    pair of opposite phases.  SCI-006 makes the native linear matrix ``P``
+    rather than ``I2``, so the reversed placement is distinguishable for both
+    accepted native bases.
 
     Order matters: ``C`` and ``H`` are the first factors RadioSim composes that
     do not commute with their neighbours.

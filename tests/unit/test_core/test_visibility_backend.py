@@ -455,6 +455,39 @@ def test_healpix_visibility_numba_matches_numpy(tmp_path, polarized: bool):
     )
 
 
+def test_polarized_healpix_visibility_jax_matches_numpy(tmp_path) -> None:
+    """SCI-006: the corrected full-matrix HEALPix path is backend-independent."""
+    sky_model = _healpix_model(polarized=True)
+    numpy_backend = _get_optional_backend("numpy")
+    jax_backend = _get_optional_backend("jax")
+    instrument, beam_system, receptors = _solver_components(tmp_path)
+
+    expected = calculate_visibility_healpix(
+        sky_model,
+        instrument=instrument,
+        beam_system=beam_system,
+        location=LOCATION,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
+        include_polarization=True,
+        backend=numpy_backend,
+        receptors=receptors,
+    )
+    actual = calculate_visibility_healpix(
+        sky_model,
+        instrument=instrument,
+        beam_system=beam_system,
+        location=LOCATION,
+        time_grid=TIME_GRID,
+        frequencies=FREQS,
+        include_polarization=True,
+        backend=jax_backend,
+        receptors=receptors,
+    )
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-5, atol=1e-7)
+
+
 def test_point_and_healpix_paths_preserve_heterogeneous_instrument_values(
     tmp_path,
 ):

@@ -107,6 +107,8 @@ from radiosim.core.polarization import (
 )
 from radiosim.core.polarization_basis import (
     CORRELATION_LABELS,
+    SKY_NORTH_EAST_TO_CIRCULAR_RL,
+    SKY_NORTH_EAST_TO_LINEAR_XY,
     PolarizationBasis,
 )
 from radiosim.core.precision import (
@@ -338,6 +340,8 @@ __all__ = [
     # Polarization basis
     "PolarizationBasis",
     "CORRELATION_LABELS",
+    "SKY_NORTH_EAST_TO_LINEAR_XY",
+    "SKY_NORTH_EAST_TO_CIRCULAR_RL",
     # Sky Model (unified)
     "SkyModel",
     "GSMObserver08",

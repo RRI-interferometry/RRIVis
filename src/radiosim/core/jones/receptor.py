@@ -4,19 +4,23 @@ Both terms are direction-, time-, and frequency-independent unitary factors in
 the sky-linear basis of ``Tier5ReceptorFeedPlan.md`` Section 10.  Row index is
 the receptor feed, column index the sky component (``jones[feed, sky_basis]``).
 
-Building blocks (Section 18.1)
-------------------------------
+Building blocks
+---------------
 Rotation of the receptor pair by ``chi`` within the sky-linear plane::
 
     R(chi) = [[ cos chi,  sin chi],
               [-sin chi,  cos chi]]
 
-Linear-to-circular basis matrix, rows ordered right/left, columns ``(x, y)``::
+Canonical sky brightness columns are ordered ``(North, East)``.  The immutable
+sky-to-receptor matrices are owned by :mod:`radiosim.core.polarization_basis`::
+
+    P = [[0, 1],
+         [1, 0]]
 
     S = (1/sqrt 2) * [[1,  i],
                       [1, -i]]
 
-``S`` is unitary: ``S S^H = S^H S = I2``.
+``P`` reports ``(X=east, Y=north)`` and ``S`` reports IAU ``(R, L)``.
 
 ``ReceptorConfigJones`` -- what the receptor physically is (Section 18.2)
 -------------------------------------------------------------------------
@@ -24,7 +28,7 @@ Linear-to-circular basis matrix, rows ordered right/left, columns ``(x, y)``::
 
     C_p = M(basis_p) @ R(chi_p)
 
-    M(linear)   = I2
+    M(linear)   = P
     M(circular) = S
 
 ``BasisTransformJones`` -- what basis the result is reported in (Section 18.3)
@@ -35,8 +39,8 @@ Linear-to-circular basis matrix, rows ordered right/left, columns ``(x, y)``::
 
     T(linear   -> linear_xy)   = I2
     T(circular -> circular_rl) = I2
-    T(linear   -> circular_rl) = S
-    T(circular -> linear_xy)   = S^H
+    T(linear   -> circular_rl) = S P
+    T(circular -> linear_xy)   = P S^H
 
 ``H_p @ C_p`` collapses to ``S R(chi)`` for a circular output basis regardless
 of the native basis.  The two terms are nonetheless kept separate because they
@@ -46,21 +50,15 @@ inserted *between* them.
 
 Both terms are constructed from a
 :class:`~radiosim.core.receptor.ResolvedReceptorSet` and a
-:class:`~radiosim.core.instrument_adapters.SolverInstrumentView`.  Neither is
-wired into a Jones chain yet; that is Tier 5D.
-
-Modelling assumption
---------------------
-Expressing a circular-native antenna in a linear output basis (or the reverse)
-is exact **only** when both feeds are ideal, orthogonal, and share a common
-complex gain.  That holds while the leakage (``D``) and gain (``G``) terms are
-disabled identity stubs.  When Tier 7 implements ``D``, the conversion becomes
-approximate and this assumption must be re-examined.
+:class:`~radiosim.core.instrument_adapters.SolverInstrumentView`.  The
+maintained Jones chain applies ``C`` on the sky side of native-feed terms and
+``H`` on their output side.  Consequently leakage, cross-coupling, and
+feed-asymmetric gain-like terms remain attached to the physical native feeds;
+they cannot in general be commuted through either basis boundary.
 """
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final
 
@@ -70,6 +68,11 @@ import numpy.typing as npt
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
 from radiosim.core.jones.base import JonesTerm
+from radiosim.core.polarization_basis import (
+    SKY_NORTH_EAST_TO_CIRCULAR_RL,
+    SKY_TO_NATIVE_RECEPTOR,
+    SKY_TO_OUTPUT_RECEPTOR,
+)
 from radiosim.core.receptor import (
     ReceptorAssignmentError,
     ResolvedReceptor,
@@ -84,27 +87,14 @@ if TYPE_CHECKING:
 
 _IDENTITY_2: Final[npt.NDArray[np.complex128]] = np.eye(2, dtype=np.complex128)
 
-#: The Section 18.1 linear-to-circular basis matrix ``S``.
-LINEAR_TO_CIRCULAR: Final[npt.NDArray[np.complex128]] = (
-    1.0 / math.sqrt(2.0)
-) * np.array([[1.0, 1.0j], [1.0, -1.0j]], dtype=np.complex128)
+#: The linear ``(X, Y)`` to circular ``(R, L)`` transform, ``S P``.
+LINEAR_TO_CIRCULAR: Final[npt.NDArray[np.complex128]] = np.asarray(
+    SKY_NORTH_EAST_TO_CIRCULAR_RL @ SKY_TO_OUTPUT_RECEPTOR["linear_xy"].conj().T,
+    dtype=np.complex128,
+)
 
 _IDENTITY_2.setflags(write=False)
 LINEAR_TO_CIRCULAR.setflags(write=False)
-
-#: Section 18.2 ``M(basis)``: the leading factor of the receptor matrix.
-_LEADING_BY_BASIS: Final[Mapping[str, npt.NDArray[np.complex128]]] = {
-    "linear": _IDENTITY_2,
-    "circular": LINEAR_TO_CIRCULAR,
-}
-
-#: Section 18.3 ``T(native_basis -> output_basis)``.
-_TRANSFORM_BY_PAIR: Final[Mapping[tuple[str, str], npt.NDArray[np.complex128]]] = {
-    ("linear", "linear_xy"): _IDENTITY_2,
-    ("circular", "circular_rl"): _IDENTITY_2,
-    ("linear", "circular_rl"): LINEAR_TO_CIRCULAR,
-    ("circular", "linear_xy"): LINEAR_TO_CIRCULAR.conj().T,
-}
 
 #: The output basis a native receptor basis already reports in.
 _NATIVE_OUTPUT_BASIS: Final[Mapping[str, str]] = {
@@ -129,8 +119,8 @@ def basis_rotation_matrix(chi_rad: float) -> npt.NDArray[np.complex128]:
     ndarray
         A fresh, writable ``(2, 2)`` complex rotation matrix.
     """
-    cos_chi = math.cos(chi_rad)
-    sin_chi = math.sin(chi_rad)
+    cos_chi = np.cos(chi_rad)
+    sin_chi = np.sin(chi_rad)
     return np.array(
         [[cos_chi, sin_chi], [-sin_chi, cos_chi]],
         dtype=np.complex128,
@@ -158,7 +148,7 @@ def receptor_matrix(basis: str, chi_rad: float) -> npt.NDArray[np.complex128]:
         ``basis`` is outside the two bases Tier 5 implements.
     """
     try:
-        leading = _LEADING_BY_BASIS[basis]
+        leading = SKY_TO_NATIVE_RECEPTOR[basis]
     except (KeyError, TypeError):
         raise UnsupportedReceptorBasisError(
             f"basis={basis!r} is not a supported receptor basis; Tier 5 "
@@ -171,7 +161,7 @@ def basis_transform_matrix(
     native_basis: str,
     output_basis: str,
 ) -> npt.NDArray[np.complex128]:
-    """Return the Section 18.3 transform ``T(native_basis -> output_basis)``.
+    """Return ``H = M_output M_native^H`` for the requested bases.
 
     Parameters
     ----------
@@ -191,7 +181,8 @@ def basis_transform_matrix(
         The requested pair is not one of the four Tier 5 implements.
     """
     try:
-        transform = _TRANSFORM_BY_PAIR[(native_basis, output_basis)]
+        native = SKY_TO_NATIVE_RECEPTOR[native_basis]
+        output = SKY_TO_OUTPUT_RECEPTOR[output_basis]
     except (KeyError, TypeError):
         raise UnsupportedBasisTransformError(
             f"no basis transform from receptor basis {native_basis!r} to output "
@@ -199,7 +190,12 @@ def basis_transform_matrix(
             "'linear' or 'circular' and the output basis must be 'linear_xy' or "
             "'circular_rl'."
         ) from None
-    return np.array(transform, dtype=np.complex128, copy=True)
+    # Canonicalize the algebraic identity cases exactly.  In particular,
+    # evaluating S @ S^H numerically would otherwise return diagonal entries a
+    # few ULP below one even though the contractual transform is I2.
+    if _NATIVE_OUTPUT_BASIS[native_basis] == output_basis:
+        return np.array(_IDENTITY_2, dtype=np.complex128, copy=True)
+    return np.asarray(output @ native.conj().T, dtype=np.complex128)
 
 
 def _validate_construction(
@@ -370,7 +366,7 @@ class _ReceptorTermBase(JonesTerm):
 class ReceptorConfigJones(_ReceptorTermBase):
     """Receptor configuration Jones term ``C`` (Section 18.2).
 
-    ``C_p = M(basis_p) @ R(chi_p)``, with ``M(linear) = I2`` and
+    ``C_p = M(basis_p) @ R(chi_p)``, with ``M(linear) = P`` and
     ``M(circular) = S``.
 
     Parameters
@@ -399,21 +395,18 @@ class ReceptorConfigJones(_ReceptorTermBase):
         return receptor_matrix(receptor.basis, receptor.feed_rotation_rad)
 
     def is_diagonal(self) -> bool:
-        """``True`` only when every receptor is linear with zero rotation.
-
-        Section 18.2 states the condition as ``basis == "linear"`` and
-        ``chi == 0``, under which ``C`` is exactly ``I2``.  Reporting ``False``
-        elsewhere is conservative: this is an optimization hint, never a
-        correctness claim.
-        """
+        """Whether every resolved ``C`` matrix is exactly diagonal."""
         return all(
-            receptor.basis == "linear" and receptor.feed_rotation_rad == 0.0
-            for receptor in self._resolved
+            np.array_equal(matrix, np.diag(np.diag(matrix)))
+            for matrix in self._matrices
         )
 
     def is_scalar(self) -> bool:
-        """``True`` under the same condition that makes every ``C`` exactly ``I2``."""
-        return self.is_diagonal()
+        """Whether every resolved ``C`` is exactly a scalar multiple of ``I2``."""
+        return all(
+            np.array_equal(matrix, matrix[0, 0] * _IDENTITY_2)
+            for matrix in self._matrices
+        )
 
 
 class BasisTransformJones(_ReceptorTermBase):

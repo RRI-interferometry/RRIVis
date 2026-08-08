@@ -440,6 +440,58 @@ def test_a_common_amplitude_error_scales_every_correlation_by_one_plus_a_squared
     )
 
 
+def test_configured_linear_feed_values_select_east_x_and_north_y(tmp_path) -> None:
+    """SCI-006: native feed 0 is east-X and feed 1 is north-Y.
+
+    The asymmetric gains are resolved through the public ``jones.G``
+    configuration path, then observed through the full ``H ... G ... C``
+    chain.  Applying the same pair to every antenna gives an analytic factor
+    for each reported product and removes baseline-dependent bookkeeping from
+    the oracle.
+    """
+    east_x_gain = 1.25
+    north_y_gain = 0.8
+    per_antenna = [
+        {
+            "antenna": antenna,
+            "feed": feed,
+            "amplitude_error": gain - 1.0,
+        }
+        for antenna in (0, 1)
+        for feed, gain in ((0, east_x_gain), (1, north_y_gain))
+    ]
+    baseline = _cube(tmp_path, None)
+    asymmetric = _cube(
+        tmp_path,
+        {"G": {"amplitude_error": 0.0, "per_antenna": per_antenna}},
+    )
+
+    np.testing.assert_allclose(
+        asymmetric[..., 0, 0],
+        baseline[..., 0, 0] * east_x_gain**2,
+        rtol=1e-13,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        asymmetric[..., 0, 1],
+        baseline[..., 0, 1] * east_x_gain * north_y_gain,
+        rtol=1e-13,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        asymmetric[..., 1, 0],
+        baseline[..., 1, 0] * east_x_gain * north_y_gain,
+        rtol=1e-13,
+        atol=0.0,
+    )
+    np.testing.assert_allclose(
+        asymmetric[..., 1, 1],
+        baseline[..., 1, 1] * north_y_gain**2,
+        rtol=1e-13,
+        atol=0.0,
+    )
+
+
 def test_a_common_phase_error_leaves_every_correlation_amplitude_unchanged(
     tmp_path,
 ) -> None:

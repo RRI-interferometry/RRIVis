@@ -120,6 +120,15 @@ frequency in ``_hz``. A complex number is written ``[re, im]``, never as a
 Python complex literal and never as a string. A field that accepts a complex
 value also accepts a bare real number.
 
+Feed coordinates are physical. In the canonical chain
+``H G B Rc Kd X D C``, the ``G``, ``B``, ``Rc``, ``Kd``, ``X`` and ``D``
+parameters are expressed in the antenna's native receptor rows. For a native
+linear antenna, feed 0 is X/east and feed 1 is Y/north; for a native circular
+antenna they are R and L. ``C`` maps the canonical sky ``(North, East)`` columns
+into those rows, and ``H`` maps the native rows into the requested output basis.
+Do not swap feed-asymmetric configuration values to compensate for sky-axis
+order.
+
 .. note::
 
    YAML 1.1 requires a **signed** exponent for a float in scientific notation.

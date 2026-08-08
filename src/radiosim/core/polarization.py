@@ -12,10 +12,13 @@ CONVENTION CHOICES (Critical for correctness):
    C = (1/2) * [[I+Q,    U+iV  ],
                 [U-iV,   I-Q   ]]
 
-   Physical meaning: A source with flux I splits power between two feeds:
-   - V_XX = (I+Q)/2  (half the power in X feed)
-   - V_YY = (I-Q)/2  (half the power in Y feed)
-   - V_XX + V_YY = I (energy conserved!)
+   The matrix axes are the canonical sky order ``(North, East)``:
+   - B_NN = (I+Q)/2  (north-directed power)
+   - B_EE = (I-Q)/2  (east-directed power)
+
+   The receptor term maps this sky matrix to the requested products.  For the
+   default ``(X=east, Y=north)`` output, ``XX=(I-Q)/2`` and ``YY=(I+Q)/2``;
+   their sum is still I.
 
    This ensures a 1 Jy source produces 1 Jy total visibility, not 2 Jy.
 
@@ -23,8 +26,9 @@ CONVENTION CHOICES (Critical for correctness):
 
    C[0,1] = (U + iV) / 2
 
-   The upper-right (XY) element carries ``+iV``; the lower-left (YX) element
-   carries ``-iV``. Equivalently ``V = i(<e_y e_x*> - <e_x e_y*>)``.
+   The upper-right sky ``(North, East)`` element carries ``+iV``; the
+   lower-left carries ``-iV``.  After the east-X permutation, the reported
+   ``XY`` product carries ``-iV`` and ``YX`` carries ``+iV``.
 
    This is the convention of the primary references, verified term by term
    during the Tier 5A evidence gate:
@@ -52,13 +56,13 @@ CONVENTION CHOICES (Critical for correctness):
 
 3. **Stokes I Extraction: Simple Sum (No Division)**
 
-   I = V_XX + V_YY  (sum of parts = whole)
+   I = B_NN + B_EE = V_XX + V_YY  (sum of parts = whole)
 
    Intuitive for debugging and consistent with half-power convention.
 
 4. **Jones Matrix: RIME Standard**
 
-   J[feed, sky_basis]: rows=feeds (X,Y), columns=sky basis (θ,φ)
+   J[feed, sky_basis]: rows are receptor feeds, columns are ``(North, East)``
 
 References:
 - Hamaker, Bregman & Sault 1996, A&AS 117, 137: Eqs. (3), (8), (9)
@@ -80,7 +84,9 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
                  [U-iV,   I-Q   ]]
 
     ENERGY CONSERVATION: For a source with flux I, this produces visibilities
-    where V_XX + V_YY = I (not 2I), ensuring physical correctness.
+    whose trace is I (not 2I), ensuring physical correctness.  This function
+    constructs sky brightness; receptor/output matrices determine product
+    labels and axis order.
 
     Parameters
     ----------
@@ -201,7 +207,7 @@ def apply_jones_matrices(jones_i, coherency, jones_j):
     visibility : ndarray
         2×2 complex visibility matrix
         Shape: (2, 2) or (..., 2, 2)
-        Elements: [[V_XX, V_XY], [V_YX, V_YY]]
+        Elements are ordered by the rows of the supplied Jones matrices.
 
     Broadcasting Notes
     ------------------
@@ -312,7 +318,9 @@ def coherency_to_stokes(coherency):
     """
     Convert coherency matrix back to Stokes parameters.
 
-    Inverse of stokes_to_coherency() for validation/testing.
+    Inverse of stokes_to_coherency() for validation/testing.  The input must be
+    in the canonical sky ``(North, East)`` order; apply the inverse receptor
+    transform before passing an east-X output visibility matrix.
 
     Parameters
     ----------

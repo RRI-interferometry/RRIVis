@@ -652,11 +652,13 @@ def test_leakage_reaches_a_circular_receptor_in_its_own_basis(tmp_path) -> None:
     leaked = _cube(tmp_path, jones, **receptors)
 
     leakage = np.array([[1.0, d0], [-d1.conjugate(), 1.0]], dtype=np.complex128)
-    # H for a circular-native antenna reported in linear is S^H.
+    # SCI-006: H for circular native reported in east-X linear is P S^H.
     s_matrix = np.array([[1.0, 1.0j], [1.0, -1.0j]], dtype=np.complex128) / math.sqrt(
         2.0
     )
-    in_output_basis = s_matrix.conj().T @ leakage @ s_matrix
+    permutation = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
+    transform = permutation @ s_matrix.conj().T
+    in_output_basis = transform @ leakage @ transform.conj().T
 
     expected = np.einsum(
         "ij,tbfjk,lk->tbfil", in_output_basis, clean, in_output_basis.conjugate()

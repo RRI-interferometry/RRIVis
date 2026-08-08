@@ -42,6 +42,7 @@ PLAN_S_MATRIX = (1.0 / np.sqrt(2.0)) * np.array(
     [[1.0, 1.0j], [1.0, -1.0j]],
     dtype=np.complex128,
 )
+PLAN_P_MATRIX = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
 
 ROTATIONS_DEG = (0.0, 30.0, 45.0, 90.0, -15.0)
 
@@ -59,7 +60,7 @@ def plan_rotation(chi_rad: float) -> np.ndarray:
 
 def plan_receptor_matrix(basis: str, chi_rad: float) -> np.ndarray:
     """Return the Section 18.2 matrix ``C_p = M(basis) @ R(chi)``."""
-    leading = IDENTITY if basis == "linear" else PLAN_S_MATRIX
+    leading = PLAN_P_MATRIX if basis == "linear" else PLAN_S_MATRIX
     return leading @ plan_rotation(chi_rad)
 
 
@@ -174,22 +175,22 @@ def compute(term: JonesTerm, antenna_idx: int) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def test_default_linear_receptors_yield_the_exact_identity() -> None:
-    """Required-test matrix: C is exactly I2 for linear / chi = 0 / linear_xy."""
+def test_default_linear_receptors_yield_the_exact_east_x_permutation() -> None:
+    """SCI-006: unrotated linear ``C`` maps sky ``(North, East)`` to ``(X, Y)``."""
     receptors = make_receptor_set((("linear", 0.0),) * 3, "linear_xy")
     term = ReceptorConfigJones(receptors=receptors, instrument=make_instrument_view(3))
 
     for antenna_idx in range(3):
-        np.testing.assert_array_equal(compute(term, antenna_idx), IDENTITY)
+        np.testing.assert_array_equal(compute(term, antenna_idx), PLAN_P_MATRIX)
 
 
-def test_default_linear_receptors_report_diagonal_and_scalar_hints() -> None:
+def test_default_linear_receptors_report_non_diagonal_non_scalar_hints() -> None:
     receptors = make_receptor_set((("linear", 0.0),) * 3, "linear_xy")
     term = ReceptorConfigJones(receptors=receptors, instrument=make_instrument_view(3))
 
     assert term.is_unitary() is True
-    assert term.is_diagonal() is True
-    assert term.is_scalar() is True
+    assert term.is_diagonal() is False
+    assert term.is_scalar() is False
 
 
 def test_term_metadata_matches_section_18_2() -> None:
@@ -206,18 +207,18 @@ def test_term_metadata_matches_section_18_2() -> None:
 @pytest.mark.parametrize(
     ("specification", "expected_diagonal"),
     (
-        ((("linear", 0.0),), True),
+        ((("linear", 0.0),), False),
         ((("linear", 30.0),), False),
         ((("circular", 0.0),), False),
         ((("circular", 45.0),), False),
         ((("linear", 0.0), ("linear", 15.0)), False),
     ),
 )
-def test_diagonal_hint_is_true_only_for_unrotated_linear_receptors(
+def test_diagonal_hint_describes_the_actual_receptor_matrices(
     specification,
     expected_diagonal: bool,
 ) -> None:
-    """Section 18.2: is_diagonal() is True only for basis == linear and chi == 0."""
+    """SCI-006: the fixed east-X permutation is not diagonal or scalar."""
     output_basis = "linear_xy" if specification[0][0] == "linear" else "circular_rl"
     receptors = make_receptor_set(specification, output_basis)
     term = ReceptorConfigJones(
@@ -247,9 +248,14 @@ def test_the_rotation_building_block_matches_section_18_1(rotation_deg: float) -
     )
 
 
-def test_the_exported_basis_matrix_constant_matches_section_18_1() -> None:
-    """The module constant S is the plan's matrix, and it is unitary."""
-    np.testing.assert_allclose(LINEAR_TO_CIRCULAR, PLAN_S_MATRIX, rtol=0.0, atol=0.0)
+def test_the_exported_linear_to_circular_transform_is_s_times_p() -> None:
+    """The compatibility export names a transform, so it is ``S P``."""
+    np.testing.assert_allclose(
+        LINEAR_TO_CIRCULAR,
+        PLAN_S_MATRIX @ PLAN_P_MATRIX,
+        rtol=0.0,
+        atol=0.0,
+    )
     np.testing.assert_allclose(
         LINEAR_TO_CIRCULAR @ LINEAR_TO_CIRCULAR.conj().T,
         IDENTITY,
@@ -346,10 +352,11 @@ def test_linear_output_reproduces_the_section_18_4_linear_table(stokes) -> None:
     jones_q = compute(term, 1)
     visibility = jones_p @ coherency @ jones_q.conj().T
 
-    assert visibility[0, 0] == pytest.approx((stokes_i + stokes_q) / 2.0)
-    assert visibility[0, 1] == pytest.approx((stokes_u + 1j * stokes_v) / 2.0)
-    assert visibility[1, 0] == pytest.approx((stokes_u - 1j * stokes_v) / 2.0)
-    assert visibility[1, 1] == pytest.approx((stokes_i - stokes_q) / 2.0)
+    assert visibility[0, 0] == pytest.approx((stokes_i - stokes_q) / 2.0)
+    assert visibility[0, 1] == pytest.approx((stokes_u - 1j * stokes_v) / 2.0)
+    assert visibility[1, 0] == pytest.approx((stokes_u + 1j * stokes_v) / 2.0)
+    assert visibility[1, 1] == pytest.approx((stokes_i + stokes_q) / 2.0)
+    assert visibility[0, 0] - visibility[1, 1] == pytest.approx(-stokes_q)
 
 
 @pytest.mark.parametrize("stokes", REFERENCE_STOKES)
@@ -428,7 +435,8 @@ def test_linear_rotation_rotates_q_and_u_by_twice_chi_through_the_term(
     coherency = np.asarray(stokes_to_coherency(stokes_i, stokes_q, stokes_u, stokes_v))
 
     visibility = compute(term, 0) @ coherency @ compute(term, 1).conj().T
-    recovered_i, recovered_q, recovered_u, recovered_v = coherency_to_stokes(visibility)
+    sky_order = PLAN_P_MATRIX @ visibility @ PLAN_P_MATRIX
+    recovered_i, recovered_q, recovered_u, recovered_v = coherency_to_stokes(sky_order)
 
     chi_rad = math.radians(rotation_deg)
     cos_2chi = math.cos(2.0 * chi_rad)

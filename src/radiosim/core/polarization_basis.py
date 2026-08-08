@@ -1,4 +1,10 @@
-"""The single canonical correlation-coordinate table for both output bases.
+"""Canonical polarization coordinates and sky-to-receptor basis matrices.
+
+Sky brightness matrices use the fixed column order ``(North, East)``.  RadioSim
+reports linear receptors as ``(X=east, Y=north)`` and circular receptors as
+``(R, L)`` in IAU sense.  The two immutable matrices in this module are the
+single production owner of those relationships; receptor configuration and
+output-basis transforms must derive from them rather than restating a table.
 
 RadioSim reports visibilities in exactly one polarization basis per simulation,
 named by a ``PolarizationBasis`` token:
@@ -36,8 +42,6 @@ Two distinct AIPS code orders exist and must not be confused:
     order ``UVData.read_ms()`` canonicalizes ``polarization_array`` into on
     read-back.  It is *not* what a freshly written Measurement Set contains.
 
-The linear rows reproduce the pre-existing production constants exactly, so no
-linear behavior changes when a consumer migrates onto this table.
 """
 
 from __future__ import annotations
@@ -46,9 +50,51 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Final, Literal, get_args
 
+import numpy as np
+import numpy.typing as npt
+
 PolarizationBasis = Literal["linear_xy", "circular_rl"]
 
 POLARIZATION_BASES: Final[tuple[PolarizationBasis, ...]] = get_args(PolarizationBasis)
+
+#: ``P`` maps canonical sky columns ``(North, East)`` to linear rows
+#: ``(X=east, Y=north)``.
+SKY_NORTH_EAST_TO_LINEAR_XY: Final[npt.NDArray[np.complex128]] = np.array(
+    [[0.0, 1.0], [1.0, 0.0]],
+    dtype=np.complex128,
+)
+
+#: ``S`` maps canonical sky columns ``(North, East)`` to IAU circular rows
+#: ``(R, L)``.
+SKY_NORTH_EAST_TO_CIRCULAR_RL: Final[npt.NDArray[np.complex128]] = (
+    1.0 / np.sqrt(2.0)
+) * np.array(
+    [[1.0, 1.0j], [1.0, -1.0j]],
+    dtype=np.complex128,
+)
+
+SKY_NORTH_EAST_TO_LINEAR_XY.setflags(write=False)
+SKY_NORTH_EAST_TO_CIRCULAR_RL.setflags(write=False)
+
+#: Native physical receptor matrices ``M_native`` in ``C = M_native R(chi)``.
+SKY_TO_NATIVE_RECEPTOR: Final[Mapping[str, npt.NDArray[np.complex128]]] = (
+    MappingProxyType(
+        {
+            "linear": SKY_NORTH_EAST_TO_LINEAR_XY,
+            "circular": SKY_NORTH_EAST_TO_CIRCULAR_RL,
+        }
+    )
+)
+
+#: Reporting matrices ``M_output`` in ``H = M_output M_native^H``.
+SKY_TO_OUTPUT_RECEPTOR: Final[
+    Mapping[PolarizationBasis, npt.NDArray[np.complex128]]
+] = MappingProxyType(
+    {
+        "linear_xy": SKY_NORTH_EAST_TO_LINEAR_XY,
+        "circular_rl": SKY_NORTH_EAST_TO_CIRCULAR_RL,
+    }
+)
 
 CORRELATION_LABELS: Final[Mapping[PolarizationBasis, tuple[str, str, str, str]]] = (
     MappingProxyType(
@@ -187,6 +233,10 @@ __all__ = [
     "POLARIZATION_BASES",
     "PYUVDATA_FEEDS",
     "PYUVDATA_POLARIZATIONS",
+    "SKY_NORTH_EAST_TO_CIRCULAR_RL",
+    "SKY_NORTH_EAST_TO_LINEAR_XY",
+    "SKY_TO_NATIVE_RECEPTOR",
+    "SKY_TO_OUTPUT_RECEPTOR",
     "PolarizationBasis",
     "basis_for_correlations",
     "parallel_hand_indices",

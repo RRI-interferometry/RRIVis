@@ -17,8 +17,8 @@ runs only under::
 
     pixi run --environment crossval -- python -m pytest tests/crossvalidation/ -m crossval
 
-The measured result of a real run on the authoring host is committed as
-``output/crossvalidation/2026-08-02-pyuvsim-1.4.0.json``, which is the evidence
+The current measured result on the authoring host is committed as
+``output/crossvalidation/2026-08-08-pyuvsim-1.4.0.json``, which is the evidence
 artifact Section 29 requires; the numbers asserted below are the ones in that
 file.
 
@@ -42,8 +42,8 @@ the class where every visibility in ``pyuvsim`` is actually computed -- the
 driver only distributes tasks to it -- and it is a documented export of the
 package.  No ``pyuvsim`` code is reimplemented here.
 
-Three convention mappings, each derived rather than fitted
-==========================================================
+Two explicit convention mappings, each derived rather than fitted
+===============================================================
 
 1. **Fringe sign and the phase reference.**  RadioSim evaluates
    ``exp(-2j*pi*(u*l + v*m + w*(n-1)))`` (``core/jones/geometric.py``);
@@ -66,25 +66,19 @@ Three convention mappings, each derived rather than fitted
    (``pyradiosky/utils.py::stokes_to_coherency``).  This flips the sign of
    Stokes ``V`` between the two forward models.
 
-3. **The local polarization basis axis order.**  RadioSim's receptor frame
-   places feed 0 along the celestial-north direction rotated by the parallactic
-   angle; the accepted scalar BeamFITS subset binds feed 0 to
-   ``data_array[0, 0]``, which is ``pyuvdata``'s first sky-vector component.
-   The two conventions turn out to be each other's axis swap, which flips
-   Stokes ``Q`` and Stokes ``V``.
-
-Mappings 2 and 3 both flip ``V``, so ``V`` agrees between the two codes while
-``Q`` does not.  That is a **characterization, not an endorsement**: this module
-does not claim RadioSim's local ``Q`` sign is right, and the residual
-polarization-frame rotation of about 0.05 degrees left after the swap is not
-fully explained here either.  Both are recorded in the artifact and routed to
-the Tier 7 whole-tier reviewer.  Section 29.2's forbidden claims stay
-forbidden: nothing in this module licenses the sentence "validated against
-pyuvsim" without naming exactly which quantity, at which tolerance.
+SCI-006 removed the former third compensation: both simulators now report the
+same ``(X=east, Y=north)`` frame, so ``Q`` and ``U`` are compared directly.
+Only the independently documented Stokes-V sign mapping remains explicit.  The
+small residual polarization-frame rotation is recorded as SCI-007; it is not
+hidden by a Q-axis swap or a refitted convention.  Section 29.2's forbidden
+claims stay forbidden: nothing in this module licenses the sentence "validated
+against pyuvsim" without naming exactly which quantity, at which tolerance.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import warnings
 from pathlib import Path
 
@@ -119,6 +113,12 @@ CHANNEL_WIDTH_HZ = 1.0e6
 START_TIME_ISO = "2025-01-01T00:00:00"
 CADENCE_SECONDS = 120.0
 TIME_SAMPLES = 3
+
+
+def _emit_metrics(case: str, metrics: dict[str, float]) -> None:
+    """Print machine-readable evidence only when explicitly requested."""
+    if os.environ.get("RADIOSIM_CROSSVAL_METRICS") == "1":
+        print(json.dumps({"case": case, **metrics}, sort_keys=True))
 
 
 def _frequencies() -> np.ndarray:
@@ -394,7 +394,7 @@ def _pyuvsim_cube(result, beamfits: Path, sky) -> np.ndarray:
     return cube
 
 
-def _hermitian(cube: np.ndarray) -> np.ndarray:
+def _apply_fringe_hermitian_mapping(cube: np.ndarray) -> np.ndarray:
     """Apply convention mapping 1: the per-baseline Hermitian conjugate."""
     return np.conj(cube[..., [0, 2, 1, 3]])
 
@@ -498,7 +498,7 @@ def test_unpolarized_point_sources_match_pyuvsim(tmp_path, unit_beamfits):
         output=tmp_path / "out",
     )
     ours = np.asarray(result.visibilities)
-    theirs = _hermitian(_pyuvsim_cube(result, unit_beamfits, sky))
+    theirs = _apply_fringe_hermitian_mapping(_pyuvsim_cube(result, unit_beamfits, sky))
 
     assert ours.shape == theirs.shape == (3, 3, 3, 4)
     scale = float(np.max(np.abs(theirs)))
@@ -509,26 +509,35 @@ def test_unpolarized_point_sources_match_pyuvsim(tmp_path, unit_beamfits):
     # The comparison is not vacuous: undo convention mapping 1 and the two
     # cubes disagree at order unity, so the assertion above is testing the
     # fringe and not an accidental agreement of two near-zero arrays.
-    without_mapping = _hermitian(theirs)
-    assert float(np.max(np.abs(ours - without_mapping))) / scale > 0.1
+    without_mapping = _apply_fringe_hermitian_mapping(theirs)
+    control_relative = float(np.max(np.abs(ours - without_mapping))) / scale
+    assert control_relative > 0.1
 
     # The unpolarized invariant both codes must satisfy independently.
     stokes = _local_stokes(ours)
     assert float(np.max(np.abs(stokes[..., 1]))) / scale < 1e-11
     assert float(np.max(np.abs(stokes[..., 2]))) / scale < 1e-11
     assert float(np.max(np.abs(stokes[..., 3]))) / scale < 1e-11
+    _emit_metrics(
+        "unpolarized",
+        {
+            "cube_scale_jy": scale,
+            "measured_absolute_jy": float(np.max(np.abs(ours - theirs))),
+            "measured_relative": relative,
+            "control_relative_without_fringe_mapping": control_relative,
+        },
+    )
 
 
-def test_polarized_sources_with_jones_p_match_pyuvsim_up_to_the_basis_swap(
+def test_polarized_sources_with_jones_p_match_pyuvsim_in_common_east_x_frame(
     tmp_path, unit_beamfits
 ):
-    """``P`` reproduces ``pyuvsim``'s field rotation, modulo mappings 2 and 3.
+    """``P`` reproduces ``pyuvsim`` in the common east-X frame.
 
     A full-Stokes sky on an ``alt-az`` array with ``jones.P`` enabled.  Total
-    intensity and the polarized intensity ``|Q + iU|`` are frame-independent
-    and must agree closely; the sign of local ``Q`` does not, for the reasons
-    the module docstring derives.  This test pins the measured relation rather
-    than asserting that RadioSim's local ``Q`` sign is the correct one.
+    intensity and ``Q + iU`` are compared directly after the named fringe
+    Hermitian mapping.  Stokes V uses the one explicit sign conversion derived
+    from the two coherency definitions.
     """
     skyh5 = tmp_path / "polarized.skyh5"
     sky = _write_sky(
@@ -550,31 +559,50 @@ def test_polarized_sources_with_jones_p_match_pyuvsim_up_to_the_basis_swap(
         output=tmp_path / "out",
     )
     ours = np.asarray(result.visibilities)
-    theirs = _hermitian(_pyuvsim_cube(result, unit_beamfits, sky))
+    theirs = _apply_fringe_hermitian_mapping(_pyuvsim_cube(result, unit_beamfits, sky))
 
     ours_stokes = _local_stokes(ours)
     theirs_stokes = _local_stokes(theirs)
     scale = float(np.max(np.abs(theirs_stokes[..., 0])))
 
-    # Frame-independent quantities: total intensity and circular polarization
-    # (the latter agrees because mappings 2 and 3 flip its sign twice).
+    # Total intensity is direct.  Circular polarization uses mapping 2
+    # explicitly: RadioSim and pyradiosky define the sign of V oppositely.
     intensity = float(np.max(np.abs(ours_stokes[..., 0] - theirs_stokes[..., 0])))
     assert intensity / scale < 1e-8, intensity / scale
-    circular = float(np.max(np.abs(ours_stokes[..., 3] - theirs_stokes[..., 3])))
+    circular = float(np.max(np.abs(ours_stokes[..., 3] + theirs_stokes[..., 3])))
     assert circular / scale < 1e-8, circular / scale
 
-    # Linear polarization: the magnitude survives the basis difference, the
-    # sign of Q does not.
+    # SCI-006: direct Q/U in the shared east-X frame, with no Q compensation.
     ours_linear = ours_stokes[..., 1] + 1j * ours_stokes[..., 2]
-    theirs_linear = -theirs_stokes[..., 1] + 1j * theirs_stokes[..., 2]
+    theirs_linear = theirs_stokes[..., 1] + 1j * theirs_stokes[..., 2]
     linear_scale = float(np.max(np.abs(theirs_linear)))
     assert linear_scale / scale > 0.1
     residual = float(np.max(np.abs(ours_linear - theirs_linear))) / linear_scale
     assert residual < 5e-3, residual
-    # And it really is a swap, not an agreement: the unswapped comparison is
-    # two orders of magnitude worse.
-    unswapped = theirs_stokes[..., 1] + 1j * theirs_stokes[..., 2]
-    assert float(np.max(np.abs(ours_linear - unswapped))) / linear_scale > 0.5
+    # The retired pre-SCI-006 Q compensation is now a loud control failure.
+    old_q_compensation = -theirs_stokes[..., 1] + 1j * theirs_stokes[..., 2]
+    old_q_control = (
+        float(np.max(np.abs(ours_linear - old_q_compensation))) / linear_scale
+    )
+    assert old_q_control > 0.5
+
+    valid = np.abs(theirs_linear) > linear_scale * 1e-12
+    reference = theirs_linear[valid]
+    measured = ours_linear[valid]
+    fitted_ratio = np.vdot(reference, measured) / np.vdot(reference, reference)
+    fitted_rotation_deg = 0.5 * float(np.degrees(np.angle(fitted_ratio)))
+    _emit_metrics(
+        "polarized",
+        {
+            "measured_intensity_relative": intensity / scale,
+            "measured_circular_relative_after_explicit_v_mapping": circular / scale,
+            "measured_linear_relative_direct_q_u": residual,
+            "control_relative_with_retired_q_compensation": old_q_control,
+            "fitted_residual_frame_rotation_deg": fitted_rotation_deg,
+            "fitted_linear_ratio_modulus": float(abs(fitted_ratio)),
+            "linear_scale_over_intensity_scale": linear_scale / scale,
+        },
+    )
 
 
 def test_the_committed_artifact_describes_this_comparison():
@@ -582,7 +610,7 @@ def test_the_committed_artifact_describes_this_comparison():
     import json
 
     root = Path(__file__).resolve().parents[2]
-    artifact = root / "output" / "crossvalidation" / "2026-08-02-pyuvsim-1.4.0.json"
+    artifact = root / "output" / "crossvalidation" / "2026-08-08-pyuvsim-1.4.0.json"
     assert artifact.is_file(), artifact
     record = json.loads(artifact.read_text(encoding="utf-8"))
     assert record["reference"]["package"] == "pyuvsim"
@@ -591,6 +619,6 @@ def test_the_committed_artifact_describes_this_comparison():
     names = {case["test"] for case in record["cases"]}
     assert "test_unpolarized_point_sources_match_pyuvsim" in names
     assert (
-        "test_polarized_sources_with_jones_p_match_pyuvsim_up_to_the_basis_swap"
+        "test_polarized_sources_with_jones_p_match_pyuvsim_in_common_east_x_frame"
         in names
     )

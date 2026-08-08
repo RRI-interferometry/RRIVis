@@ -147,9 +147,9 @@ JONES_SCHEMA_VERSION = "1.0.0"
 #: ``P`` sits **sky-side** of ``C`` (Tier 7F, defect D12).  Tier 5 Section 19.1
 #: placed it correlator-side, which is wrong for a circular receptor: the
 #: physical composite is ``M(circular) R(chi + psi) = C R(psi)``, so the field
-#: rotation must be the right-hand factor.  The two orders agree only for a
-#: linear receptor, where ``M = I2`` and rotations commute -- which is why the
-#: error was unobservable while ``P`` did not exist.
+#: rotation must be the right-hand factor.  SCI-006 makes the native linear
+#: matrix ``P`` rather than ``I2``; neither ``P`` nor the circular ``S`` may be
+#: commuted across a general field rotation.
 CANONICAL_CHAIN_ORDER: tuple[str, ...] = (
     "H",
     "G",

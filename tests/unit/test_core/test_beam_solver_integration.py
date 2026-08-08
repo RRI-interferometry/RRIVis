@@ -22,6 +22,7 @@ from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import SolverInstrumentView
 from radiosim.core.jones.directions import DirectionBatch
 from radiosim.core.polarization import stokes_to_coherency
+from radiosim.core.polarization_basis import SKY_NORTH_EAST_TO_LINEAR_XY
 from radiosim.core.time_grid import build_observation_time_grid
 from radiosim.core.visibility import calculate_visibility
 from radiosim.core.visibility_healpix import calculate_visibility_healpix
@@ -285,7 +286,10 @@ def _expected_matrix(
         np.array([stokes_v]),
         xp=np,
     )[0]
-    return matrices[ant1] @ coherency @ matrices[ant2].conj().T
+    receptor = SKY_NORTH_EAST_TO_LINEAR_XY
+    jones_p = receptor @ matrices[ant1]
+    jones_q = receptor @ matrices[ant2]
+    return jones_p @ coherency @ jones_q.conj().T
 
 
 def test_solver_signatures_require_beam_system_and_remove_legacy_inputs():

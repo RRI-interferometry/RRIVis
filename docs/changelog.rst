@@ -9,6 +9,16 @@ All notable changes to RadioSim are documented here.
 Fixed
 ^^^^^
 
+- **Linear polarization products now honor the declared east-X feed**
+  (``SCI-006`` implementation candidate). Sky brightness remains canonical
+  ``(North, East)``, while the receptor term now applies the fixed permutation
+  to ``(X=east, Y=north)``. At zero rotation, ``XX=(I-Q)/2``,
+  ``XY=(U-iV)/2``, ``YX=(U+iV)/2``, ``YY=(I+Q)/2``, and ``XX-YY=-Q``.
+  Pure-I and ideal circular-output results are unchanged; polarized linear
+  results and feed-asymmetric configurations change numerically. See
+  :doc:`migration_guide` and
+  :doc:`development/sci006_polarization_convention`. Final issue closure still
+  requires the recorded six-cell fingerprint and independent acceptance gates.
 - **The linux-64-py311 characterization gate recognizes its second verified
   numerical class** (``CI-001``). A six-draw forced-discrimination experiment
   reproduced both byte-stable classes on one runner, isolated NumPy AVX-512

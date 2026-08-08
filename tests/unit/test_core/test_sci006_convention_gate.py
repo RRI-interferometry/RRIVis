@@ -1,9 +1,7 @@
 """WP-4 analytic oracles for the SCI-006 east-X convention ruling.
 
-These tests pin the convention facts and closed-form basis transformation that
-WP-5 must implement.  They deliberately do not assert that the current Jones
-chain already applies the transformation: doing so here would prematurely make
-the WP-5 behavioural change.
+These tests pin the convention facts and the production basis matrix implemented
+by WP-5.
 """
 
 from __future__ import annotations
@@ -11,15 +9,9 @@ from __future__ import annotations
 import numpy as np
 
 from radiosim.core.polarization import stokes_to_coherency
-from radiosim.core.polarization_basis import CORRELATION_LABELS
-
-# The sky-linear brightness matrix is ordered (North, East).  RadioSim declares
-# its zero-rotation linear output feeds as (X=east, Y=north), so the ideal
-# feed-by-sky response is this permutation.  It is kept test-local until WP-5
-# gives the mapping one production owner in polarization_basis.py.
-SKY_NORTH_EAST_TO_EAST_X_NORTH_Y = np.array(
-    [[0.0, 1.0], [1.0, 0.0]],
-    dtype=np.complex128,
+from radiosim.core.polarization_basis import (
+    CORRELATION_LABELS,
+    SKY_NORTH_EAST_TO_LINEAR_XY,
 )
 
 
@@ -36,7 +28,7 @@ def _local_stokes_from_linear_visibility(
 def test_positive_iau_q_seen_by_east_x_has_negative_xx_minus_yy() -> None:
     """For +Q along North, an east X feed sees less power than North Y."""
     brightness = np.asarray(stokes_to_coherency(1.0, 0.6, 0.0, 0.0))
-    permutation = SKY_NORTH_EAST_TO_EAST_X_NORTH_Y
+    permutation = SKY_NORTH_EAST_TO_LINEAR_XY
 
     visibility = permutation @ brightness @ permutation.conj().T
 
@@ -59,7 +51,7 @@ def test_east_x_axis_permutation_flips_q_and_v_but_not_i_or_u() -> None:
     """The ruled basis change maps local ``(I,Q,U,V)`` to ``(I,-Q,U,-V)``."""
     stokes = (5.0, 1.25, -0.75, 0.5)
     brightness = np.asarray(stokes_to_coherency(*stokes))
-    permutation = SKY_NORTH_EAST_TO_EAST_X_NORTH_Y
+    permutation = SKY_NORTH_EAST_TO_LINEAR_XY
 
     visibility = permutation @ brightness @ permutation.conj().T
     observed = _local_stokes_from_linear_visibility(visibility)
@@ -75,7 +67,7 @@ def test_east_x_axis_permutation_flips_q_and_v_but_not_i_or_u() -> None:
 def test_east_x_axis_permutation_leaves_unpolarized_brightness_bit_identical() -> None:
     """A pure-I brightness matrix is invariant under the ruled permutation."""
     brightness = np.asarray(stokes_to_coherency(3.0, 0.0, 0.0, 0.0))
-    permutation = SKY_NORTH_EAST_TO_EAST_X_NORTH_Y
+    permutation = SKY_NORTH_EAST_TO_LINEAR_XY
 
     transformed = permutation @ brightness @ permutation.conj().T
 

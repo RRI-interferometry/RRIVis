@@ -56,7 +56,11 @@ from radiosim.core.jones.parallactic import (
     ParallacticAngleJones,
     parallactic_angle,
 )
-from radiosim.core.jones.receptor import LINEAR_TO_CIRCULAR, basis_rotation_matrix
+from radiosim.core.jones.receptor import basis_rotation_matrix
+from radiosim.core.polarization_basis import (
+    SKY_NORTH_EAST_TO_CIRCULAR_RL,
+    SKY_NORTH_EAST_TO_LINEAR_XY,
+)
 from radiosim.core.visibility import calculate_visibility
 from tests.characterization.test_tier6_current_behavior import (
     WORKLOAD_LOCATION,
@@ -627,18 +631,23 @@ def test_c_times_p_is_the_receptor_at_the_combined_angle(
     receptor pair.
     """
     chi = math.radians(chi_deg)
-    receptor = np.asarray(LINEAR_TO_CIRCULAR) @ basis_rotation_matrix(chi)
+    receptor = np.asarray(SKY_NORTH_EAST_TO_CIRCULAR_RL) @ basis_rotation_matrix(chi)
     rotation = plan_rotation(psi_rad)
-    combined = np.asarray(LINEAR_TO_CIRCULAR) @ basis_rotation_matrix(chi + psi_rad)
+    combined = np.asarray(SKY_NORTH_EAST_TO_CIRCULAR_RL) @ basis_rotation_matrix(
+        chi + psi_rad
+    )
 
     np.testing.assert_allclose(receptor @ rotation, combined, rtol=0.0, atol=1e-15)
     assert not np.allclose(rotation @ receptor, combined, atol=1e-6)
 
-    # A linear receptor is the degenerate case the Tier 5 order got away with.
-    linear = basis_rotation_matrix(chi)
-    np.testing.assert_allclose(
-        linear @ rotation, rotation @ linear, rtol=0.0, atol=1e-15
+    # SCI-006 makes the linear receptor ``P R(chi)``.  Its corrected sky-side
+    # placement still combines angles, while the reversed placement does not.
+    linear = np.asarray(SKY_NORTH_EAST_TO_LINEAR_XY) @ basis_rotation_matrix(chi)
+    linear_combined = np.asarray(SKY_NORTH_EAST_TO_LINEAR_XY) @ basis_rotation_matrix(
+        chi + psi_rad
     )
+    np.testing.assert_allclose(linear @ rotation, linear_combined, rtol=0.0, atol=1e-15)
+    assert not np.allclose(rotation @ linear, linear_combined, atol=1e-6)
 
 
 @pytest.mark.parametrize("psi_rad", [0.4, -0.9, 2.7])
@@ -651,7 +660,7 @@ def test_a_field_rotation_is_a_pair_of_phases_in_the_circular_basis(
     real 2x2 rotation, which is not what a field rotation does to circular
     polarizations; under the corrected order it is a pair of opposite phases.
     """
-    s_matrix = np.asarray(LINEAR_TO_CIRCULAR)
+    s_matrix = np.asarray(SKY_NORTH_EAST_TO_CIRCULAR_RL)
     composed = s_matrix @ plan_rotation(psi_rad) @ s_matrix.conj().T
 
     expected = np.diag(

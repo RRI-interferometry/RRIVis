@@ -112,6 +112,7 @@ def build_standard_result(
     sky_representation: str = "point_sources",
     components: tuple[str, ...] = ("point",),
     component_element_counts: tuple[int, ...] = (3,),
+    receptor_matrix: np.ndarray | None = None,
 ):
     """Build a nontrivial canonical result with autos and crosses.
 
@@ -138,21 +139,27 @@ def build_standard_result(
         2,
         2,
     )
-    real = np.arange(1, np.prod(shape) + 1, dtype=np.float64).reshape(shape)
-    receptor = (real + 1j * (real * 0.125 + 0.03125)).astype(dtype)
-    for baseline_index, baseline in enumerate(
-        simulator._instrument_state.selection.baselines
-    ):
-        if baseline.ant1 == baseline.ant2:
-            receptor[:, baseline_index, :, 0, 0] = receptor[
-                :, baseline_index, :, 0, 0
-            ].real
-            receptor[:, baseline_index, :, 1, 1] = receptor[
-                :, baseline_index, :, 1, 1
-            ].real
-            receptor[:, baseline_index, :, 1, 0] = np.conj(
-                receptor[:, baseline_index, :, 0, 1]
-            )
+    if receptor_matrix is None:
+        real = np.arange(1, np.prod(shape) + 1, dtype=np.float64).reshape(shape)
+        receptor = (real + 1j * (real * 0.125 + 0.03125)).astype(dtype)
+        for baseline_index, baseline in enumerate(
+            simulator._instrument_state.selection.baselines
+        ):
+            if baseline.ant1 == baseline.ant2:
+                receptor[:, baseline_index, :, 0, 0] = receptor[
+                    :, baseline_index, :, 0, 0
+                ].real
+                receptor[:, baseline_index, :, 1, 1] = receptor[
+                    :, baseline_index, :, 1, 1
+                ].real
+                receptor[:, baseline_index, :, 1, 0] = np.conj(
+                    receptor[:, baseline_index, :, 0, 1]
+                )
+    else:
+        matrix = np.asarray(receptor_matrix, dtype=dtype)
+        if matrix.shape != (2, 2):
+            raise ValueError("receptor_matrix must have shape (2, 2)")
+        receptor = np.broadcast_to(matrix, shape).copy()
     return build_simulation_result(
         receptor_visibilities=receptor,
         backend=backend,

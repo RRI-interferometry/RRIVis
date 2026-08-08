@@ -64,8 +64,9 @@ Tier 7F moved ``P`` **sky-side** of ``C`` and ``E``
 (``Tier7JonesSciencePlan.md`` Section 12, defect D12).  For a circular receptor
 the Tier 5 order ``C P`` reversed would apply a real 2x2 rotation to the
 ``(R, L)`` pair; since ``S R(psi) = diag(e^{-i psi}, e^{+i psi}) S``, the
-correct effect is a pair of opposite phases.  The two orders agree only for a
-linear receptor, where ``M = I2`` and rotations commute.
+correct effect is a pair of opposite phases.  SCI-006 makes the native linear
+matrix ``P`` rather than ``I2``; the reversed placement is therefore wrong for
+both accepted native bases.
 
 One latitude, not one per antenna
 ---------------------------------

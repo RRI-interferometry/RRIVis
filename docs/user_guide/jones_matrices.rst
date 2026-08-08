@@ -71,8 +71,7 @@ Polarization conventions
 Stokes :math:`I` is total intensity, :math:`Q` and :math:`U` are linear
 referenced to the celestial frame with position angle measured from North
 through East, and :math:`V = \mathrm{RCP} - \mathrm{LCP}` in the IAU sense. In a
-right-handed linear sky basis mapped onto an antenna's nominal ``(x, y)`` feeds,
-the brightness matrix is
+canonical sky basis ordered ``(North, East)``, the brightness matrix is
 
 .. math::
 
@@ -103,23 +102,27 @@ antenna with feed rotation :math:`\chi`,
    R(\chi) = \begin{bmatrix} \cos\chi & \sin\chi \\
                             -\sin\chi & \cos\chi \end{bmatrix},
 
-with :math:`M(\mathrm{linear}) = I_2` and :math:`M(\mathrm{circular}) = S`,
-where
+with :math:`M(\mathrm{linear}) = P` and :math:`M(\mathrm{circular}) = S`, where
+
+.. math::
+
+   P = \begin{bmatrix} 0 & 1 \\ 1 & 0 \end{bmatrix}
+
+maps ``(North, East)`` sky columns to ``(X=east, Y=north)`` receptor rows, and
 
 .. math::
 
    S = \frac{1}{\sqrt{2}}
    \begin{bmatrix} 1 & i \\ 1 & -i \end{bmatrix}
 
-is the unitary linear-to-circular matrix with rows ordered :math:`(R, L)`.
+maps the same sky columns to unitary circular rows ordered :math:`(R, L)`.
 
 ``H`` (``BasisTransformJones``) is which basis the result is reported in:
-:math:`I_2` when an antenna's native basis already matches the output basis,
-:math:`S` for linear native into ``circular_rl``, and :math:`S^H` for circular
-native into ``linear_xy``. Both terms are unitary, and both are always present
-in the chain. When every antenna is linear with zero rotation and the output
-basis is ``linear_xy``, both are exactly :math:`I_2` and results are
-bit-identical to a run with no ``receptors`` section at all.
+:math:`H=M_\mathrm{output}M_\mathrm{native}^H`.  This gives :math:`I_2` when
+native and output bases match, :math:`SP` for linear native into
+``circular_rl``, and :math:`PS^H` for circular native into ``linear_xy``. Both
+terms are unitary and always present. For the default unrotated linear array,
+:math:`C=P` and :math:`H=I_2`.
 
 For two antennas sharing one basis with zero rotation, the resulting
 correlations are
@@ -127,8 +130,8 @@ correlations are
 .. math::
 
    \begin{aligned}
-   V_{xx} &= (I + Q)/2, & V_{xy} &= (U + iV)/2, \\
-   V_{yx} &= (U - iV)/2, & V_{yy} &= (I - Q)/2,
+   V_{xx} &= (I - Q)/2, & V_{xy} &= (U - iV)/2, \\
+   V_{yx} &= (U + iV)/2, & V_{yy} &= (I + Q)/2,
    \end{aligned}
 
 in the linear basis and

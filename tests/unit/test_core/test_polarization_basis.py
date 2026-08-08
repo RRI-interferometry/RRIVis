@@ -8,6 +8,7 @@ literal below is transcribed from Section 14.2, not imported from RadioSim.
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from radiosim.core.polarization_basis import (
@@ -17,8 +18,17 @@ from radiosim.core.polarization_basis import (
     POLARIZATION_BASES,
     PYUVDATA_FEEDS,
     PYUVDATA_POLARIZATIONS,
+    SKY_NORTH_EAST_TO_CIRCULAR_RL,
+    SKY_NORTH_EAST_TO_LINEAR_XY,
+    SKY_TO_NATIVE_RECEPTOR,
+    SKY_TO_OUTPUT_RECEPTOR,
     basis_for_correlations,
     parallel_hand_indices,
+)
+
+PLAN_P = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
+PLAN_S = (1.0 / np.sqrt(2.0)) * np.array(
+    [[1.0, 1.0j], [1.0, -1.0j]], dtype=np.complex128
 )
 
 SECTION_14_2 = {
@@ -41,6 +51,32 @@ SECTION_14_2 = {
 
 def test_exactly_two_bases_are_accepted() -> None:
     assert POLARIZATION_BASES == ("linear_xy", "circular_rl")
+
+
+def test_sky_to_receptor_matrices_encode_the_sci006_convention() -> None:
+    """The one production owner maps canonical ``(North, East)`` sky columns."""
+    np.testing.assert_array_equal(SKY_NORTH_EAST_TO_LINEAR_XY, PLAN_P)
+    np.testing.assert_allclose(
+        SKY_NORTH_EAST_TO_CIRCULAR_RL, PLAN_S, rtol=0.0, atol=0.0
+    )
+    assert SKY_TO_NATIVE_RECEPTOR["linear"] is SKY_NORTH_EAST_TO_LINEAR_XY
+    assert SKY_TO_NATIVE_RECEPTOR["circular"] is SKY_NORTH_EAST_TO_CIRCULAR_RL
+    assert SKY_TO_OUTPUT_RECEPTOR["linear_xy"] is SKY_NORTH_EAST_TO_LINEAR_XY
+    assert SKY_TO_OUTPUT_RECEPTOR["circular_rl"] is SKY_NORTH_EAST_TO_CIRCULAR_RL
+
+
+def test_sky_to_receptor_matrices_and_maps_are_immutable() -> None:
+    for matrix in (
+        SKY_NORTH_EAST_TO_LINEAR_XY,
+        SKY_NORTH_EAST_TO_CIRCULAR_RL,
+    ):
+        assert matrix.flags.writeable is False
+        with pytest.raises(ValueError):
+            matrix[0, 0] = 99.0
+    with pytest.raises(TypeError):
+        SKY_TO_NATIVE_RECEPTOR["linear"] = PLAN_S  # type: ignore[index]
+    with pytest.raises(TypeError):
+        SKY_TO_OUTPUT_RECEPTOR["linear_xy"] = PLAN_S  # type: ignore[index]
 
 
 @pytest.mark.parametrize("basis", ("linear_xy", "circular_rl"))

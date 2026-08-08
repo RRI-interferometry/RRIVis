@@ -394,8 +394,8 @@ def calculate_visibility(
     receptors : ResolvedReceptorSet
         Canonical resolved receptor inventory from ``resolve_receptors()``.
         Supplies the per-antenna receptor term ``C`` and basis transform ``H``.
-        The default configuration (linear feeds, zero rotation, ``auto``) makes
-        both terms exactly the identity.
+        The default configuration (linear feeds, zero rotation, ``auto``) gives
+        ``C=P`` for east-X reporting and ``H=I2``.
     jones_terms : ResolvedJonesTerms, optional
         The run's resolved Jones-term inventory
         (``Tier7JonesSciencePlan.md`` Section 22), resolved once in

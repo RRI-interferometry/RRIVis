@@ -20,8 +20,8 @@ re-verified at execution time, not trusted from here.
 | Row | Status | One line |
 |-----|--------|----------|
 | `CI-001` | DONE | Closed 2026-08-08 by WP-2/WP-3: the second `linux-64-py311` class was forced on demand, its NumPy/OpenBLAS dispatch axes named, its three cube deltas accepted under Section 13.5, and its digests recorded (`docs/development/ci001_adjudication.md`) |
-| `SCI-006` | OPEN | WP-4 ruled RadioSim's current zero-rotation linear Jones binding non-normative for its declared east-X feed: the IAU north/east brightness axes require an east-X/north-Y permutation, so `XX - YY = -Q` for sky +Q. WP-5 must implement and accept the change before closure (`docs/development/sci006_polarization_convention.md`) |
-| `SCI-007` | OPEN | Fitted `-0.0576°` residual polarization-frame rotation vs `pyuvsim` after the basis swap, unreconciled against two probes of the right order (`Fix.md` line ~218) |
+| `SCI-006` | OPEN | WP-4 ruled the zero-rotation linear binding non-normative for the declared east-X feed. A WP-5 candidate now implements the required permutation and `XX - YY = -Q`; closure still requires six-cell fingerprint evidence and independent read-only acceptance (`docs/development/sci006_polarization_convention.md`) |
+| `SCI-007` | OPEN | Direct-Q/U WP-5 cross-validation refits the residual polarization-frame rotation to `+0.057991°` (linear residual `2.052e-3`), still unreconciled against the frame-species probes (`output/crossvalidation/2026-08-08-pyuvsim-1.4.0.json`) |
 | `API-001` | OPEN | `stokes_to_coherency` does not broadcast its scalar Q/U/V defaults against array `I`; `stokes_to_coherency(np.ones(5))` raises (`Fix.md` line ~228) |
 | `API-002` | OPEN | `print_warning` leaves Rich markup enabled on interpolated messages; bracketed text silently dropped (`Fix.md` line ~229) |
 | `PERF-001` | ROADMAP | Accelerator performance undemonstrated; JAX-CPU measured slower than NumPy on every benchmarked workload (`Fix.md` line ~208) |
@@ -119,7 +119,7 @@ never accepted by loosening the pin").
 | WP-2 | `CI-001` evidence: artifact harvest + comparator; fingerprint extension; optional nightly sampler | S–M | DONE 2026-08-08 |
 | WP-3 | `CI-001` adjudication (Tier 8 §14 conditional) + successor-gate memo + mechanized verdict | M | DONE 2026-08-08 |
 | WP-4 | `SCI-006` convention memo (the ruling) | S | DONE 2026-08-08 |
-| WP-5 | `SCI-006` implementation (selected Branch A correction) | M | Ready; Q3 and WP-3/E1 satisfied 2026-08-08 |
+| WP-5 | `SCI-006` implementation (selected Branch A correction) | M | Local candidate implemented; six-cell evidence and independent acceptance pending |
 | WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | WP-5 (E2) |
 | WP-7 | `PERF-001` CPU legs P-a…P-d + docs notes; P-e GPU leg | M; P-e gated | P-e on Q4 (hardware) |
 | WP-8 | `SCI-005` plan document, then staged slices 1→3 | XL | Stage 1 after WP-7 (E3); stages 2–3 after WP-5 (E2) |
@@ -392,7 +392,7 @@ compensation.
 
 Effort S + M. Landing waits for WP-3 adjudication (edge E1) in Branch A only.
 
-## 9. WP-6 — `SCI-007`: the `-0.0576°` frame rotation
+## 9. WP-6 — `SCI-007`: the refitted `+0.057991°` frame rotation
 
 **Standing.** Three unreconciled numbers: the fitted `-0.057568764952°`; the
 artifact's own probe, `0.200°` between the position angle of ICRS north and

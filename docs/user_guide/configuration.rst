@@ -550,6 +550,13 @@ both cases, so indices ``0`` and ``3`` are always the parallel hands. Read
 the linear labels. See :doc:`jones_matrices` for the receptor mathematics and
 the boundaries Tier 5 does not cross.
 
+The canonical sky brightness axes are ``(North, East)``. At zero feed rotation,
+linear output is physically ``(X=east, Y=north)`` with feed angles
+``(pi/2, 0)``. Consequently
+``(XX,XY,YX,YY)=((I-Q)/2,(U-iV)/2,(U+iV)/2,(I+Q)/2)`` and
+``XX-YY=-Q``. ``feed_rotation_deg`` rotates the physical pair; it does not
+change which configured linear feed index means X/east (0) or Y/north (1).
+
 Boundaries. ``output_basis: auto`` cannot resolve a mixed array and is rejected
 with a count of linear and circular antennas; name the basis instead. A
 ``basis`` value other than ``linear`` or ``circular``, a single-feed or

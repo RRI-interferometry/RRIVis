@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from tools import ci001_characterization_comparator as comparator
 
@@ -127,6 +128,35 @@ def test_observed_digest_manifest_survives_a_passing_pin(tmp_path, monkeypatch) 
 
     manifest = tmp_path / f"observed-digests-{tier6._ENVIRONMENT_KEY}-gw3.tsv"
     assert manifest.read_text(encoding="utf-8") == f"a-measured-pin\t{'c' * 64}\n"
+
+
+def test_failing_pin_retains_its_candidate_cube(tmp_path, monkeypatch) -> None:
+    """SCI-006 CI evidence keeps the after-cube without accepting its digest."""
+    from tests.characterization import test_tier6_current_behavior as tier6
+
+    monkeypatch.setattr(tier6, "_record_dir", lambda: tmp_path)
+    measured = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.complex128)
+    digest = "d" * 64
+
+    with pytest.raises(pytest.fail.Exception):
+        tier6._assert_pinned_digests(
+            (
+                {tier6._ENVIRONMENT_KEY: ("a" * 64,)},
+                "SCI-006 candidate",
+                digest,
+                measured,
+            )
+        )
+
+    path = (
+        tmp_path
+        / "observed_cubes"
+        / "sci-006-candidate"
+        / tier6._ENVIRONMENT_KEY
+        / f"{digest}.npy"
+    )
+    np.testing.assert_array_equal(np.load(path), measured)
+    assert digest not in {"a" * 64}
 
 
 def test_failure_path_prints_the_full_section_13_5_verdict() -> None:

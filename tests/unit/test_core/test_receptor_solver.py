@@ -9,9 +9,8 @@ the production constants, so a matching implementation defect cannot hide.
 
 The invariants asserted are S1, S4, S5, S7, S8, S10 and S12.
 
-Tier 5D does not touch the result model: a circular run is still stamped
-``linear_xy`` with ``XX``/``XY``/``YX``/``YY`` labels, which is why every
-assertion below reads the raw ``(2, 2)`` receptor cube (Section 34.4).
+The assertions below inspect the raw ``(2, 2)`` receptor cube so each physical
+feed product is checked before result-axis flattening or serialization.
 """
 
 from __future__ import annotations
@@ -60,6 +59,7 @@ PLAN_S = (1.0 / np.sqrt(2.0)) * np.array(
     [[1.0, 1.0j], [1.0, -1.0j]],
     dtype=np.complex128,
 )
+PLAN_P = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
 IDENTITY = np.eye(2, dtype=np.complex128)
 
 
@@ -76,15 +76,15 @@ def plan_rotation(chi_rad: float) -> np.ndarray:
 
 def plan_receptor(basis: str, chi_deg: float, output_basis: str) -> np.ndarray:
     """Section 18.2 and 18.3: the combined ``H @ C`` for one antenna."""
-    leading = PLAN_S if basis == "circular" else IDENTITY
+    leading = PLAN_S if basis == "circular" else PLAN_P
     receptor = leading @ plan_rotation(np.deg2rad(chi_deg))
     native_output = "circular_rl" if basis == "circular" else "linear_xy"
     if native_output == output_basis:
         transform = IDENTITY
     elif output_basis == "circular_rl":
-        transform = PLAN_S
+        transform = PLAN_S @ PLAN_P
     else:
-        transform = PLAN_S.conj().T
+        transform = PLAN_P @ PLAN_S.conj().T
     return transform @ receptor
 
 
@@ -306,7 +306,7 @@ def _healpix(
 
 
 # ---------------------------------------------------------------------------
-# S1 — the default configuration cannot perturb any existing result
+# SCI-006 — the default configuration applies the fixed east-X permutation
 # ---------------------------------------------------------------------------
 
 
@@ -314,7 +314,7 @@ def test_default_receptors_reproduce_the_receptor_free_reference(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """S1: linear, ``chi = 0``, ``auto`` gives ``C = H = I2`` in both paths."""
+    """The default applies ``C=P`` identically in point and HEALPix paths."""
     view, beam_system, receptors = _solver_components(tmp_path)
     assert receptors.output_basis == "linear_xy"
     stokes = (2.0, 0.3, 0.2, -0.1)
@@ -322,7 +322,7 @@ def test_default_receptors_reproduce_the_receptor_free_reference(
         beam_system,
         view,
         stokes,
-        dict.fromkeys(view.antenna_numbers, IDENTITY),
+        dict.fromkeys(view.antenna_numbers, PLAN_P),
     )
 
     point = _point(view, beam_system, receptors, stokes, monkeypatch)
@@ -332,11 +332,56 @@ def test_default_receptors_reproduce_the_receptor_free_reference(
     np.testing.assert_allclose(healpix, expected, rtol=0.0, atol=0.0)
 
 
+def test_east_x_production_paths_match_the_sci006_closed_form(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The maintained solvers produce ``(0.2, 0, 0, 0.8)`` for I=1, Q=0.6."""
+
+    def identity_jones(
+        _self,
+        _antenna_id,
+        *,
+        altitude_rad,
+        azimuth_rad: object,
+        frequency_hz: float,
+        time_mjd: float,
+        backend=None,
+    ):
+        del azimuth_rad, frequency_hz, time_mjd
+        result = np.broadcast_to(
+            np.eye(2, dtype=np.complex128),
+            (len(altitude_rad), 2, 2),
+        ).copy()
+        if backend is None:
+            result.setflags(write=False)
+            return result
+        return backend.asarray(result, dtype=backend.default_complex_dtype)
+
+    monkeypatch.setattr(BeamSystem, "evaluate_jones", identity_jones)
+    view, beam_system, receptors = _solver_components(tmp_path)
+    stokes = (1.0, 0.6, 0.0, 0.0)
+    expected = np.array([[0.2, 0.0], [0.0, 0.8]], dtype=np.complex128)
+
+    np.testing.assert_allclose(
+        _point(view, beam_system, receptors, stokes, monkeypatch),
+        expected,
+        rtol=0.0,
+        atol=1e-15,
+    )
+    np.testing.assert_allclose(
+        _healpix(view, beam_system, receptors, stokes, monkeypatch),
+        expected,
+        rtol=0.0,
+        atol=1e-15,
+    )
+
+
 def test_default_receptors_reproduce_the_section_18_4_linear_table(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """S1 restated as physics: the linear correlation table of Section 18.4."""
+    """SCI-006: the default output is ``(X=east, Y=north)``."""
     view, beam_system, receptors = _solver_components(tmp_path)
     stokes_i, stokes_q, stokes_u, stokes_v = 2.0, 0.3, 0.2, -0.1
     point = _point(
@@ -348,10 +393,11 @@ def test_default_receptors_reproduce_the_section_18_4_linear_table(
     )
     gain = _scalar_beam_product(beam_system, view)
 
-    np.testing.assert_allclose(point[0, 0], gain * (stokes_i + stokes_q) / 2.0)
-    np.testing.assert_allclose(point[1, 1], gain * (stokes_i - stokes_q) / 2.0)
-    np.testing.assert_allclose(point[0, 1], gain * (stokes_u + 1.0j * stokes_v) / 2.0)
-    np.testing.assert_allclose(point[1, 0], gain * (stokes_u - 1.0j * stokes_v) / 2.0)
+    np.testing.assert_allclose(point[0, 0], gain * (stokes_i - stokes_q) / 2.0)
+    np.testing.assert_allclose(point[1, 1], gain * (stokes_i + stokes_q) / 2.0)
+    np.testing.assert_allclose(point[0, 1], gain * (stokes_u - 1.0j * stokes_v) / 2.0)
+    np.testing.assert_allclose(point[1, 0], gain * (stokes_u + 1.0j * stokes_v) / 2.0)
+    np.testing.assert_allclose(point[0, 0] - point[1, 1], -gain * stokes_q)
 
 
 def _scalar_beam_product(
@@ -499,7 +545,7 @@ def test_linear_feed_rotation_rotates_q_and_u_by_twice_chi(
     monkeypatch: pytest.MonkeyPatch,
     rotation_deg: float,
 ) -> None:
-    """S7: ``Q' = Q cos 2chi + U sin 2chi``, ``I`` and ``V`` unchanged."""
+    """Rotation is physical; the reported east-X products retain their signs."""
     view, beam_system, receptors = _solver_components(
         tmp_path,
         {"default": {"feed_rotation_deg": rotation_deg}},
@@ -521,13 +567,13 @@ def test_linear_feed_rotation_rotates_q_and_u_by_twice_chi(
         cube[0, 0] + cube[1, 1], gain * stokes_i, rtol=1e-12, atol=1e-14
     )
     np.testing.assert_allclose(
-        cube[0, 0] - cube[1, 1], gain * rotated_q, rtol=1e-12, atol=1e-14
+        cube[0, 0] - cube[1, 1], -gain * rotated_q, rtol=1e-12, atol=1e-14
     )
     np.testing.assert_allclose(
         cube[0, 1] + cube[1, 0], gain * rotated_u, rtol=1e-12, atol=1e-14
     )
     np.testing.assert_allclose(
-        (cube[0, 1] - cube[1, 0]) / 1.0j,
+        (cube[1, 0] - cube[0, 1]) / 1.0j,
         gain * stokes_v,
         rtol=1e-12,
         atol=1e-14,

@@ -440,7 +440,9 @@ def test_a_cross_hand_phase_on_a_circular_receptor_moves_q_into_u(
     s_matrix = np.array([[1.0, 1.0j], [1.0, -1.0j]], dtype=np.complex128) / math.sqrt(
         2.0
     )
-    in_output_basis = s_matrix.conj().T @ crosshand @ s_matrix
+    permutation = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
+    transform = permutation @ s_matrix.conj().T
+    in_output_basis = transform @ crosshand @ transform.conj().T
 
     expected = np.einsum(
         "ij,tbfjk,lk->tbfil", in_output_basis, clean, in_output_basis.conjugate()

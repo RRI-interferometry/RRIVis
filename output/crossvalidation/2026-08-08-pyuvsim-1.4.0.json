@@ -1,0 +1,104 @@
+{
+  "schema": "radiosim-crossvalidation-1.1.0",
+  "recorded_utc": "2026-08-08",
+  "slice": "Post-Tier-8 WP-5 SCI-006",
+  "gating": false,
+  "command": "RADIOSIM_CROSSVAL_METRICS=1 pixi run --environment crossval -- python -m pytest tests/crossvalidation/test_pyuvsim_comparison.py -m crossval -s -q",
+  "reference": {
+    "package": "pyuvsim",
+    "version": "1.4.0",
+    "entry_point": "pyuvsim.UVEngine over pyuvsim.uvsim.UVTask",
+    "driver_not_used": "pyuvsim.run_uvdata_uvsim requires mpi4py, which is not in the crossval feature; the engine it distributes tasks to is called directly instead"
+  },
+  "environment": {
+    "pixi_environment": "crossval",
+    "solve_group": "py311",
+    "radiosim": "0.3.0",
+    "pyuvsim": "1.4.0",
+    "pyuvdata": "3.2.1",
+    "pyradiosky": "1.1.0",
+    "astropy": "7.1.0",
+    "numpy": "2.3.2",
+    "python": "3.11.13"
+  },
+  "host": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "scope": "osx-arm64 only"
+  },
+  "setup": {
+    "antennas_enu_m": [[0.0, 0.0, 0.0], [50.0, 0.0, 0.0], [0.0, 70.0, 0.0]],
+    "latitude_deg": -30.72152,
+    "longitude_deg": 21.4283,
+    "height_m": 1073.0,
+    "frequencies_hz": [120000000.0, 130000000.0, 140000000.0],
+    "start_time_utc": "2025-01-01T00:00:00",
+    "time_samples": 3,
+    "cadence_seconds": 120.0,
+    "cube_shape": [3, 3, 3, 4],
+    "beam": "one shared unit-response BeamFITS file",
+    "sky": "one shared skyh5 point-source file"
+  },
+  "convention_mappings": [
+    {
+      "name": "fringe_hermitian",
+      "operation": "conj([XX, YX, XY, YY])",
+      "reason": "RadioSim and pyuvsim use opposite fringe signs with the same antenna2-antenna1 coplanar ENU baselines"
+    },
+    {
+      "name": "stokes_v_sign",
+      "operation": "V_radiosim compared with -V_pyradiosky",
+      "reason": "RadioSim uses U+iV in brightness[0,1], while pyradiosky 1.1.0 uses U-iV"
+    }
+  ],
+  "retired_compensations": [
+    {
+      "name": "stokes_q_axis_swap",
+      "status": "removed by SCI-006",
+      "control_relative_if_reapplied": 0.697576347665902
+    }
+  ],
+  "cases": [
+    {
+      "test": "test_unpolarized_point_sources_match_pyuvsim",
+      "mapping_applied": ["fringe_hermitian"],
+      "tolerance_asserted_relative": 1e-11,
+      "measured_relative": 2.8065456627916864e-14,
+      "measured_absolute_jy": 9.515252560102877e-14,
+      "cube_scale_jy": 3.390378673061746,
+      "control_relative_without_fringe_mapping": 1.9544719611337873,
+      "verdict": "agrees at double-precision round-off"
+    },
+    {
+      "test": "test_polarized_sources_with_jones_p_match_pyuvsim_in_common_east_x_frame",
+      "mapping_applied": ["fringe_hermitian", "stokes_v_sign"],
+      "linear_comparison": "direct Q+iU in the common X=east, Y=north frame; no Q compensation",
+      "measured_intensity_relative": 2.3139573996814273e-10,
+      "measured_circular_relative_after_explicit_v_mapping": 4.0701816228520426e-11,
+      "measured_linear_relative_direct_q_u": 0.002052050642874229,
+      "linear_scale_over_intensity_scale": 0.18864870820970148,
+      "control_relative_with_retired_q_compensation": 0.697576347665902,
+      "fitted_residual_frame_rotation_deg": 0.057991427331288835,
+      "fitted_linear_ratio_modulus": 1.0000830200328927,
+      "verdict": "I and explicitly mapped V agree below 3e-10 relative; direct Q+iU agrees to 2.1e-3 relative"
+    }
+  ],
+  "sci007": {
+    "status": "open",
+    "refitted_residual_frame_rotation_deg": 0.057991427331288835,
+    "previous_2026_08_02_fit_deg": -0.057568764952046436,
+    "interpretation": "The sign and small numerical shift changed when the obsolete Q-axis compensation was removed; the residual frame rotation remains unexplained and is not absorbed into SCI-006."
+  },
+  "claims_not_licensed_by_this_record": [
+    "validated against pyuvsim without naming the quantity and tolerance",
+    "any statement about matvis, CASA or RASCIL",
+    "any statement about linux-64 or osx-64"
+  ],
+  "unresolved": [
+    {
+      "item": "a 0.05799 degree residual polarization-frame rotation",
+      "detail": "Direct Q+iU comparison leaves a fitted +0.05799 degree frame rotation after the SCI-006 axis correction; this record measures but does not explain it.",
+      "routed_to": "Post-Tier-8 WP-6 / SCI-007"
+    }
+  ]
+}

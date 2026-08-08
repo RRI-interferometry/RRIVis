@@ -15,6 +15,7 @@ unit suite and runs in every gate. This directory exists because a second
 | File | Contents |
 | --- | --- |
 | `2026-08-02-pyuvsim-1.4.0.json` | RadioSim vs `pyuvsim 1.4.0`, measured on `osx-arm64`, 2026-08-02 |
+| `2026-08-08-pyuvsim-1.4.0.json` | SCI-006 east-X rerun: direct Q/U, explicit V mapping, and refitted SCI-007 residual |
 
 ## Reproducing it
 
@@ -26,6 +27,9 @@ pixi install --locked -e crossval
 pixi run --environment crossval -- \
     python -m pytest tests/crossvalidation/ -m crossval
 ```
+
+Set ``RADIOSIM_CROSSVAL_METRICS=1`` and add ``-s`` to emit the two measured
+case records as machine-readable JSON, matching the dated artifact.
 
 The `crossval` environment shares a solve group with `default`, so it is
 `default` plus exactly one package — `pyuvsim-1.4.0-py3-none-any.whl` — on all

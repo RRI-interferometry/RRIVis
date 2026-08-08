@@ -2,6 +2,13 @@
 
 **WP-4 design-gate record — 2026-08-08**
 
+**WP-5 candidate status — 2026-08-08:** the selected production correction is
+implemented locally with one immutable matrix owner, direct-Q/U cross-validation,
+and local solver/output tests. `SCI-006` deliberately remains open: the
+six-cell fingerprint regeneration and separate read-only acceptance review have
+not yet completed. The historical WP-4 present-tense trace below describes the
+pre-correction implementation that the ruling evaluated.
+
 **Ruling:** RadioSim's current default linear Jones binding is not scientifically
 correct for the feed metadata it publishes. RadioSim uses an IAU north/east
 sky brightness basis, but its zero-rotation linear receptor matrix is the
@@ -551,3 +558,11 @@ After WP-5:
 
 WP-4 therefore unblocks WP-6's ruled-frame computation but does not supply its
 closure evidence.
+
+The WP-5 candidate rerun now compares `Q+iU` directly and measures a relative
+linear residual of `0.002052050642874229`. Its least-squares complex ratio has
+modulus `1.0000830200328927` and a fitted residual rotation of
+`+0.057991427331288835` degrees. The explicit pyradiosky V-sign comparison
+agrees to `4.0701816228520426e-11` relative. These measurements are recorded in
+`output/crossvalidation/2026-08-08-pyuvsim-1.4.0.json`; they refit SCI-007 but do
+not close it.
