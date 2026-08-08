@@ -69,6 +69,8 @@ jobs:
           fi
           mv output/characterization/machine-fingerprint-*.txt \
             output/characterization-previous/ 2>/dev/null || true
+          mv output/characterization/observed-digests-*.tsv \
+            output/characterization-previous/ 2>/dev/null || true
           find output/characterization output/characterization-previous \
             -type f | head -50
 

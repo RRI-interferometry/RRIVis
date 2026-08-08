@@ -9,6 +9,14 @@ All notable changes to RadioSim are documented here.
 Fixed
 ^^^^^
 
+- **The linux-64-py311 characterization gate recognizes its second verified
+  numerical class** (``CI-001``). A six-draw forced-discrimination experiment
+  reproduced both byte-stable classes on one runner, isolated NumPy AVX-512
+  dispatch and the OpenBLAS ``SkylakeX`` runtime core as the two contributing
+  axes, and measured all changed cubes within the full Tier 6 Section 13.5
+  predicate. Digest membership remains the primary gate; ``rtol=1e-12`` plus
+  its absolute term remains the failure-path adjudication rule. See
+  :doc:`development/ci001_adjudication` for the retained evidence and policy.
 - **stokes_to_coherency broadcasts its inputs** (``API-001``). The four
   Stokes inputs now broadcast against each other under the usual NumPy
   rules, so ``stokes_to_coherency(np.ones(5))`` — array ``I`` with the

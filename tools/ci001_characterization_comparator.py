@@ -10,8 +10,8 @@ Given a directory of harvested CI evidence, this script:
    the WP-2 extension fields) separate one class from another;
 3. **computes cube deltas wherever two classes both have a captured cube**
    for the same pin — ``max|dV|``, max relative delta, differing-element
-   count, and an explicit verdict against the ``rtol=1e-12`` backend
-   tolerance named by ``Tier8ReleasePlan.md`` §14 — and says so honestly
+   count, and an explicit verdict against the full Section 13.5 float64
+   predicate named by ``Tier8ReleasePlan.md`` §14 — and says so honestly
    when no such pair exists (red runs do not persist cubes; only the pass
    path captures references).
 
@@ -55,8 +55,9 @@ from pathlib import Path
 import numpy as np
 
 #: The Tier8ReleasePlan.md §14 adjudication criterion, verbatim from the
-#: Section 13.5 backend tolerance the project already uses.
+#: Section 13.5 float64 tolerance the project already uses.
 RTOL_CRITERION = 1e-12
+ATOL_SCALE_CRITERION = 1e-12
 
 _FINGERPRINT_FIELDS = (
     "environment key",
@@ -96,7 +97,7 @@ class RunEvidence:
     kind: str  # "artifact" (pass-path record) or "log" (fail-path record)
     digests: dict[str, str] = field(default_factory=dict)  # pin slug -> digest
     fingerprint: dict[str, str] = field(default_factory=dict)
-    cube_paths: dict[str, Path] = field(default_factory=dict)  # slug -> .npy
+    cube_paths: dict[tuple[str, str], Path] = field(default_factory=dict)
 
 
 def _parse_fingerprint_text(text: str) -> dict[str, str]:
@@ -126,10 +127,18 @@ def _load_artifact_run(run_dir: Path) -> RunEvidence:
         parsed = _parse_fingerprint_text(record.read_text(encoding="utf-8"))
         for key, value in parsed.items():
             evidence.fingerprint.setdefault(key, value)
+    for manifest in sorted(run_dir.glob("observed-digests-*.tsv")):
+        for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                pin_slug, digest = line.split("\t", maxsplit=1)
+            except ValueError:
+                continue
+            if re.fullmatch(r"[0-9a-f]{64}", digest):
+                evidence.digests.setdefault(pin_slug, digest)
     for cube in sorted(run_dir.glob("reference_cubes/*/*/*.npy")):
         pin_slug = cube.parent.parent.name
-        evidence.digests[pin_slug] = cube.stem
-        evidence.cube_paths[pin_slug] = cube
+        evidence.digests.setdefault(pin_slug, cube.stem)
+        evidence.cube_paths[(pin_slug, cube.stem)] = cube
     return evidence
 
 
@@ -210,7 +219,7 @@ def _fingerprint_diff(
 
 
 def _cube_delta(left: np.ndarray, right: np.ndarray) -> dict[str, object]:
-    """The §14 numeric probe: max|dV|, max relative, count, first index."""
+    """The §14 probe, including the full Section 13.5 float64 predicate."""
     if left.shape != right.shape:
         return {"comparable": False, "reason": f"shape {left.shape} vs {right.shape}"}
     difference = np.abs(left - right)
@@ -219,6 +228,15 @@ def _cube_delta(left: np.ndarray, right: np.ndarray) -> dict[str, object]:
     with np.errstate(divide="ignore", invalid="ignore"):
         relative = np.where(scale > 0.0, difference / scale, 0.0)
     max_relative = float(np.max(relative)) if relative.size else 0.0
+    reference_scale = max(1.0, float(np.max(np.abs(right))) if right.size else 0.0)
+    atol = ATOL_SCALE_CRITERION * reference_scale
+    allowed = atol + RTOL_CRITERION * np.abs(right)
+    within = bool(np.all(difference <= allowed))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tolerance_ratio = np.where(allowed > 0.0, difference / allowed, 0.0)
+    max_tolerance_ratio = (
+        float(np.max(tolerance_ratio)) if tolerance_ratio.size else 0.0
+    )
     differing = np.flatnonzero(left.ravel() != right.ravel())
     first = (
         tuple(int(axis) for axis in np.unravel_index(int(differing[0]), left.shape))
@@ -229,10 +247,12 @@ def _cube_delta(left: np.ndarray, right: np.ndarray) -> dict[str, object]:
         "comparable": True,
         "max_abs_dV": max_absolute,
         "max_relative": max_relative,
+        "section_13_5_atol": atol,
+        "max_tolerance_ratio": max_tolerance_ratio,
         "differing_elements": int(differing.size),
         "total_elements": int(left.size),
         "first_differing_index": first,
-        "within_rtol_1e-12": bool(max_relative <= RTOL_CRITERION),
+        "within_section_13_5": within,
     }
 
 
@@ -244,10 +264,13 @@ def _cross_class_deltas(
     owners: dict[tuple[str, str], str] = {}
     for label, members in classes.items():
         for run in members:
-            for slug, path in run.cube_paths.items():
-                digest = run.digests[slug]
+            for (slug, digest), path in run.cube_paths.items():
                 cubes[slug].setdefault(digest, path)
-                owners.setdefault((slug, digest), label)
+                key = (slug, digest)
+                if run.digests.get(slug) == digest:
+                    owners[key] = label
+                else:
+                    owners.setdefault(key, "retained reference")
     reports: list[dict[str, object]] = []
     for slug, by_digest in sorted(cubes.items()):
         digests = sorted(by_digest)
@@ -276,8 +299,10 @@ def _cross_class_deltas(
 
 _PROBE_FEATURES_RE = re.compile(r"numpy dispatched features: (.+)")
 _PROBE_CORE_RE = re.compile(r"openblas runtime core: (\S+)")
+_MAX_ABSOLUTE_RE = re.compile(r"max\|dV\| = ([0-9.eE+-]+)")
 _MAX_RELATIVE_RE = re.compile(r"max relative d = ([0-9.eE+-]+)")
 _NEAREST_RE = re.compile(r"nearest recorded observation: ([0-9a-f]{64})")
+_SECTION_13_5_VERDICT_RE = re.compile(r"Section 13\.5 verdict: (WITHIN|OUTSIDE)")
 
 
 @dataclass
@@ -292,7 +317,9 @@ class VariantEvidence:
     openblas_core: str = "?"
     env_overrides: dict[str, str] = field(default_factory=dict)
     digests: dict[str, str] = field(default_factory=dict)  # pin slug -> digest
+    max_absolute_delta: float | None = None
     max_relative_delta: float | None = None
+    within_section_13_5: bool | None = None
     nearest_observation: str | None = None
 
 
@@ -336,7 +363,9 @@ def _load_experiment_variant(draw_dir: Path, variant: str) -> VariantEvidence:
     if log.exists():
         text = log.read_text(encoding="utf-8", errors="replace")
         current_pin: str | None = None
+        absolute_deltas: list[float] = []
         deltas: list[float] = []
+        verdicts: list[bool] = []
         for line in text.splitlines():
             pin_match = _PIN_LABEL_RE.search(line)
             if pin_match:
@@ -345,6 +374,11 @@ def _load_experiment_variant(draw_dir: Path, variant: str) -> VariantEvidence:
             measured = _MEASURED_RE.search(line)
             if measured and current_pin is not None:
                 evidence.digests.setdefault(current_pin, measured.group(1))
+            for value in _MAX_ABSOLUTE_RE.findall(line):
+                try:
+                    absolute_deltas.append(float(value))
+                except ValueError:
+                    continue
             for value in _MAX_RELATIVE_RE.findall(line):
                 try:
                     deltas.append(float(value))
@@ -353,8 +387,30 @@ def _load_experiment_variant(draw_dir: Path, variant: str) -> VariantEvidence:
             nearest = _NEAREST_RE.search(line)
             if nearest:
                 evidence.nearest_observation = nearest.group(1)
+            verdicts.extend(
+                verdict == "WITHIN"
+                for verdict in _SECTION_13_5_VERDICT_RE.findall(line)
+            )
+        if absolute_deltas:
+            evidence.max_absolute_delta = max(absolute_deltas)
         if deltas:
             evidence.max_relative_delta = max(deltas)
+        if verdicts:
+            evidence.within_section_13_5 = all(verdicts)
+        elif absolute_deltas and max(absolute_deltas) <= ATOL_SCALE_CRITERION:
+            # Historical logs predate the explicit verdict.  Since Section
+            # 13.5's absolute allowance is always at least 1e-12, this bound
+            # proves the full predicate without guessing the reference scale.
+            evidence.within_section_13_5 = True
+
+    for manifest in sorted((variant_dir / "record").glob("observed-digests-*.tsv")):
+        for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                pin_slug, digest = line.split("\t", maxsplit=1)
+            except ValueError:
+                continue
+            if re.fullmatch(r"[0-9a-f]{64}", digest):
+                evidence.digests.setdefault(pin_slug, digest)
 
     for record in sorted(
         (draw_dir / "experiment" / "baseline").glob("machine-fingerprint-*.txt")
@@ -384,31 +440,55 @@ def _classify_experiment_variant(
 ) -> str:
     """Name the digest class one variant landed in.
 
-    A passing variant matched the recorded observation set byte-for-byte --
-    every ``linux-64-py311`` pin currently records exactly one digest, the
-    green class's, so a pass *is* a green-class observation and its delta
-    against the green references is exactly zero.  A failing variant is
-    classified by its measured digests against the harvest classes; matching
-    none of them is a NOVEL observation, reported for adjudication and never
-    appended to make the failure go away.
+    A variant is classified from its retained observed-digest manifest, whether
+    pytest passed or failed.  This remains meaningful after WP-3 accepts a
+    second class.  Older passing artifacts without that manifest can only be
+    called accepted, not assigned to one class.  A failing digest that matches
+    no harvested class is a NOVEL observation, reported for adjudication and
+    never appended to make the failure go away.
     """
-    if evidence.exit_code == 0:
-        return "green (all pins match the recorded set)"
+    if not evidence.digests and evidence.exit_code == 0:
+        return "accepted class (digest manifest unavailable)"
     if not evidence.digests:
         return "failed without digest evidence"
-    candidate = RunEvidence(
-        run_id=f"{evidence.draw}-{evidence.variant}",
-        kind="experiment",
-        digests=evidence.digests,
-    )
-    matches = [
+    signatures: dict[str, dict[str, str]] = {}
+    for label, members in classes.items():
+        signature: dict[str, str] = {}
+        for member in members:
+            signature.update(member.digests)
+        signatures[label] = signature
+
+    support: dict[str, int] = {}
+    conflict: dict[str, int] = {}
+    for label, signature in signatures.items():
+        shared = set(evidence.digests) & set(signature)
+        support[label] = sum(evidence.digests[pin] == signature[pin] for pin in shared)
+        conflict[label] = len(shared) - support[label]
+
+    exact = [
         label
-        for label, members in classes.items()
-        if any(_same_class(candidate, member) is True for member in members)
-        and not any(_same_class(candidate, member) is False for member in members)
+        for label, signature in signatures.items()
+        if support[label] == len(signature) and conflict[label] == 0
     ]
-    if matches:
-        return "/".join(matches)
+    if exact:
+        return "/".join(exact)
+
+    partial = [
+        label for label in signatures if support[label] > 0 and conflict[label] == 0
+    ]
+    if len(partial) == 1:
+        label = partial[0]
+        return (
+            f"partial {label} signature "
+            f"({support[label]}/{len(signatures[label])} class pins observed)"
+        )
+
+    supported = [label for label in signatures if support[label] > 0]
+    if len(supported) > 1:
+        details = ", ".join(f"{label}:{support[label]}" for label in supported)
+        return f"MIXED signature ({details} matching pins)"
+    if evidence.exit_code == 0:
+        return "ACCEPTED BUT UNCLASSIFIED (harvest is incomplete)"
     return "NOVEL (matches no known class)"
 
 
@@ -418,11 +498,11 @@ def _print_experiment_report(
     print()
     print(
         "== forced-experiment variants "
-        f"(criterion: rtol={RTOL_CRITERION}; delta is vs green references) =="
+        "(criterion: Section 13.5 float64; delta is vs green references) =="
     )
     header = (
         f"  {'draw':<8} {'variant':<8} {'tier':<7} {'blas core':<10} "
-        f"{'result':<7} {'max rel delta':<14} class"
+        f"{'result':<7} {'max|dV|':<12} {'§13.5':<8} class"
     )
     print(header)
     for evidence in variants:
@@ -434,16 +514,24 @@ def _print_experiment_report(
             else "?"
         )
         if evidence.exit_code == 0:
-            delta = "0 (byte-eq)"
-        elif evidence.max_relative_delta is not None:
-            delta = f"{evidence.max_relative_delta:.3e}"
+            delta = "0"
+        elif evidence.max_absolute_delta is not None:
+            delta = f"{evidence.max_absolute_delta:.3e}"
         else:
             delta = "n/a"
+        criterion = (
+            "within"
+            if evidence.within_section_13_5 is True
+            else "OUTSIDE"
+            if evidence.within_section_13_5 is False
+            else "n/a"
+        )
         label = _classify_experiment_variant(evidence, classes)
         print(
             f"  {evidence.draw:<8} {evidence.variant:<8} "
             f"{_dispatch_tier(evidence.dispatched_features):<7} "
-            f"{evidence.openblas_core:<10} {result:<7} {delta:<14} {label}"
+            f"{evidence.openblas_core:<10} {result:<7} {delta:<12} "
+            f"{criterion:<8} {label}"
         )
     models = sorted({evidence.cpu_model for evidence in variants})
     print()
@@ -517,6 +605,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         payload = {
             "criterion_rtol": RTOL_CRITERION,
+            "criterion_atol_scale": ATOL_SCALE_CRITERION,
             "classes": {
                 label: [
                     {"run": run.run_id, "kind": run.kind, "digests": run.digests}
@@ -539,7 +628,9 @@ def main(argv: list[str] | None = None) -> int:
                     "env_overrides": evidence.env_overrides,
                     "exit_code": evidence.exit_code,
                     "digests": evidence.digests,
+                    "max_absolute_delta": evidence.max_absolute_delta,
                     "max_relative_delta": evidence.max_relative_delta,
+                    "within_section_13_5": evidence.within_section_13_5,
                     "nearest_observation": evidence.nearest_observation,
                     "digest_class": _classify_experiment_variant(evidence, classes),
                 }
@@ -572,7 +663,11 @@ def main(argv: list[str] | None = None) -> int:
             for value in observed:
                 print(f"    {label}: {value}")
     print()
-    print(f"== cross-class cube deltas (criterion: rtol={RTOL_CRITERION}) ==")
+    print(
+        "== cross-class cube deltas "
+        f"(Section 13.5: rtol={RTOL_CRITERION}, "
+        f"atol={ATOL_SCALE_CRITERION}*max(1,max|reference|)) =="
+    )
     if not deltas:
         print(
             "  none computable: no pin has captured cubes under two different\n"

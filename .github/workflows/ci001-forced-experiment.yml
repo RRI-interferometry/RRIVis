@@ -224,6 +224,7 @@ jobs:
               grep -E "NPY_DISABLE_CPU_FEATURES|OPENBLAS_CORETYPE|numpy dispatched features|openblas runtime core" \
                 "${dir}/runtime-probe.txt" 2>/dev/null || true
               grep -hF -e "measured: " -e "recorded: " -e "max|dV|" \
+                -e "Section 13.5 verdict" \
                 -e "nearest recorded observation" -e "numeric delta" \
                 "${dir}/pytest.log" 2>/dev/null | sed 's/^ *//' | sort -u || true
             done
@@ -233,8 +234,9 @@ jobs:
       # the nightly sampler must never pick an experiment record up as a green
       # reference. The seeded reference cubes are excluded -- they are copies
       # of the restored CI artifact, which remains the canonical source (a
-      # variant never captures a new cube: capture happens only when a pin
-      # passes, and a passing pin's digest is already seeded).
+      # observed-digest TSV manifests are retained, so the comparator can name
+      # either accepted class even when pytest passes after WP-3. Reference
+      # cubes remain owned by the main CI characterization artifact.
       - name: Upload the experiment record
         if: always()
         uses: actions/upload-artifact@v4

@@ -103,6 +103,11 @@ jobs:
           # below wants to diff the two (CI-001, WP-2).
           mv output/characterization/machine-fingerprint-*.txt \
             output/characterization-previous/ 2>/dev/null || true
+          # Passing pins now retain their measured digest class. Never append
+          # this run to the previous run's manifest or the artifact would mix
+          # two observations and cease to have one provenance.
+          mv output/characterization/observed-digests-*.tsv \
+            output/characterization-previous/ 2>/dev/null || true
           find output/characterization output/characterization-previous \
             -type f | head -50
 

@@ -19,7 +19,7 @@ re-verified at execution time, not trusted from here.
 
 | Row | Status | One line |
 |-----|--------|----------|
-| `CI-001` | OPEN | Second byte-stable digest class on `linux-64-py311` makes `main` red on one of eight CI jobs; discriminator unidentified (`Fix.md` §5 row, line ~227) |
+| `CI-001` | DONE | Closed 2026-08-08 by WP-2/WP-3: the second `linux-64-py311` class was forced on demand, its NumPy/OpenBLAS dispatch axes named, its three cube deltas accepted under Section 13.5, and its digests recorded (`docs/development/ci001_adjudication.md`) |
 | `SCI-006` | OPEN | Local Stokes `Q` sign opposite to `pyuvsim`/`pyradiosky` for `x_orientation="east"`; characterized as a local-basis axis-order swap (also flips `V`), neither sign endorsed (`Fix.md` line ~217) |
 | `SCI-007` | OPEN | Fitted `-0.0576°` residual polarization-frame rotation vs `pyuvsim` after the basis swap, unreconciled against two probes of the right order (`Fix.md` line ~218) |
 | `API-001` | OPEN | `stokes_to_coherency` does not broadcast its scalar Q/U/V defaults against array `I`; `stokes_to_coherency(np.ones(5))` raises (`Fix.md` line ~228) |
@@ -37,6 +37,12 @@ incidence on the `linux-64-py311` cell (`Tier8ReleasePlan.md` §5.6, §20 risk
 `30749117742` at `ce7f525`) and of nothing after it. `CI-001` therefore leads
 this program, and — see edge E1 below — its adjudication also gates the one
 science change that would regenerate fingerprint pins.
+
+**Execution update, 2026-08-08:** WP-2 and WP-3 are accepted and `CI-001` is
+closed. The historical paragraph above is retained because it explains the
+priority and experiment design; the authoritative adjudication and successor
+gate are in `docs/development/ci001_adjudication.md`. Dependency E1 is
+satisfied.
 
 ## 2. Evidence base
 
@@ -110,10 +116,10 @@ never accepted by loosening the pin").
 | WP | Contents | Effort | Blocked on |
 |----|----------|--------|------------|
 | WP-1 | Quick wins: `API-002` fix, `API-001` fix | XS + XS | — |
-| WP-2 | `CI-001` evidence: artifact harvest + comparator; fingerprint extension; optional nightly sampler | S–M | — |
-| WP-3 | `CI-001` adjudication (Tier 8 §14 conditional) + successor-gate memo + mechanized verdict | M | Next red run with staged references; Q1 for the gate memo |
+| WP-2 | `CI-001` evidence: artifact harvest + comparator; fingerprint extension; optional nightly sampler | S–M | DONE 2026-08-08 |
+| WP-3 | `CI-001` adjudication (Tier 8 §14 conditional) + successor-gate memo + mechanized verdict | M | DONE 2026-08-08 |
 | WP-4 | `SCI-006` convention memo (the ruling) | S | — |
-| WP-5 | `SCI-006` implementation (flip or document-intentional) | M | WP-3 adjudication (E1); Q3 |
+| WP-5 | `SCI-006` implementation (flip or document-intentional) | M | Q3; WP-3/E1 satisfied 2026-08-08 |
 | WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | WP-5 (E2) |
 | WP-7 | `PERF-001` CPU legs P-a…P-d + docs notes; P-e GPU leg | M; P-e gated | P-e on Q4 (hardware) |
 | WP-8 | `SCI-005` plan document, then staged slices 1→3 | XL | Stage 1 after WP-7 (E3); stages 2–3 after WP-5 (E2) |
@@ -238,6 +244,20 @@ a short design-gate memo. Recommendation to bring to it:
 **Closure requires:** discriminator named with evidence *or* class B appended
 on measured ULP evidence; successor-gate decision recorded; the "blocks CI
 green claims" clause lifted by an acceptance record.
+
+### 5.4 WP-2/WP-3 acceptance (2026-08-08)
+
+Accepted. Forced experiment run `31255085487` reproduced both byte-stable
+classes on one Intel 8573C runner. NumPy AVX-512 dispatch moves the default
+configuration cube; OpenBLAS `SkylakeX` moves the circular and heterogeneous
+receptor cubes; forcing both axes to AVX2/Haswell restores the original class
+byte-for-byte. The three maximum absolute deltas are `7.11e-15`, `1.57e-21`,
+and `3.47e-18`, all within the full Section 13.5 predicate. The second class is
+therefore recorded, the primary digest-membership gate is retained, the
+failure-path verdict and passing-class manifest are mechanized, and the
+predeclared three-class/non-byte-stable conversion trigger is adopted. See
+`docs/development/ci001_adjudication.md` for exact commands, artifact
+provenance, digests, limitations, and the closure record.
 
 ## 6. WP-1a — `API-002`: Rich markup eats bracketed text
 
@@ -562,11 +582,10 @@ Each work package runs in the established style:
 
 ## 15. Gated questions
 
-- **Q1 (blocks the WP-3 successor-gate memo's acceptance, not the
-  adjudication):** approve the recommended gate direction — observation-set
-  membership stays primary; the §14 ULP verdict is mechanized into the failure
-  path; a per-cell conversion to a reference-cube `rtol=1e-12` gate triggers
-  only at ≥3 legitimate classes in that cell or a non-byte-stable class.
+- **Q1 (WP-3 successor gate):** *resolved 2026-08-08 by the WP-3 acceptance* —
+  observation-set membership stays primary; the full Section 13.5 verdict is
+  mechanized into the failure path; a per-cell conversion to a reference-cube
+  gate triggers only at ≥3 legitimate classes or a non-byte-stable class.
 - **Q2 (API-001 disposition):** *resolved 2026-08-05 by program adoption* —
   implement broadcasting (see §7).
 - **Q3 (blocks WP-5):** approve the decision criterion for the SCI-006
@@ -582,13 +601,13 @@ Each work package runs in the established style:
 
 ## 16. Status ledger
 
-| WP | State (2026-08-05) |
+| WP | State |
 |----|--------------------|
 | WP-1 | Ready to start |
-| WP-2 | Ready to start |
-| WP-3 | Armed; waiting on the first red run with staged references, and Q1 for the memo |
+| WP-2 | DONE — accepted 2026-08-08 |
+| WP-3 | DONE — accepted 2026-08-08; CI-001 closed |
 | WP-4 | Ready to start |
-| WP-5 | Blocked on WP-3 adjudication + Q3 |
+| WP-5 | Blocked on Q3; WP-3/E1 satisfied 2026-08-08 |
 | WP-6 | Prediction computation ready; closure blocked on WP-5 |
 | WP-7 | P-a…P-d ready to start; P-e blocked on Q4 |
 | WP-8 | Plan document ready to draft; stage 1 after WP-7; stages 2–3 after WP-5 |

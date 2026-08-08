@@ -50,6 +50,7 @@ acceleration.
 
    contributing
    changelog
+   development/ci001_adjudication
    HERA_VSIM_ANALYSIS
 
 Current high-level support

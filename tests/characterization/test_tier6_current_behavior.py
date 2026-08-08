@@ -718,6 +718,13 @@ _RECORD_DIR_ENV = "RADIOSIM_CHARACTERIZATION_RECORD_DIR"
 #: larger pinned workload cannot silently fill a contributor's disk.
 _MAX_REFERENCE_CUBE_BYTES = 64 * 1024 * 1024
 
+#: The Tier 6 Section 13.5 float64 predicate used to adjudicate a novel
+#: machine-class digest.  The absolute term is essential near zero: a relative
+#: delta of 1.0 can still be a harmless 1e-21 residual when the reference is
+#: exactly zero.
+_SECTION_13_5_RTOL = 1e-12
+_SECTION_13_5_ATOL_SCALE = 1e-12
+
 
 def _record_dir() -> Path | None:
     """Return the diagnostics directory, or ``None`` when recording is disabled."""
@@ -773,6 +780,26 @@ def _record_machine_fingerprint() -> None:
         return
 
 
+def _record_observed_digest(what: str, digest: str) -> None:
+    """Retain every measured pin value, including values that pass.
+
+    WP-3 accepts a second ``linux-64-py311`` machine class.  Once more than one
+    value is accepted, a passing pytest log no longer identifies which class
+    ran.  A per-worker TSV manifest preserves that distinction without changing
+    the assertion, the digest, or the reference-cube retention policy.
+    """
+    base = _record_dir()
+    if base is None:
+        return
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "main")
+    path = base / f"observed-digests-{_ENVIRONMENT_KEY}-{worker}.tsv"
+    try:
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(f"{_record_slug(what)}\t{digest}\n")
+    except Exception:  # pragma: no cover - diagnostics must never fail a run
+        return
+
+
 _record_machine_fingerprint()
 
 
@@ -814,7 +841,7 @@ def _capture_reference_cube(what: str, digest: str, cube: Any) -> None:
 
 
 def _cube_delta(measured: Any, reference: Any) -> str:
-    """Report ``max|dV|``, ``max relative d``, and the first differing element."""
+    """Report cube deltas and the full Tier 6 Section 13.5 verdict."""
     left = np.ascontiguousarray(np.asarray(measured))
     right = np.ascontiguousarray(np.asarray(reference))
     if left.shape != right.shape:
@@ -825,15 +852,32 @@ def _cube_delta(measured: Any, reference: Any) -> str:
     with np.errstate(divide="ignore", invalid="ignore"):
         relative = np.where(scale > 0.0, difference / scale, 0.0)
     max_relative = float(np.max(relative)) if relative.size else 0.0
+    reference_scale = max(1.0, float(np.max(np.abs(right))) if right.size else 0.0)
+    atol = _SECTION_13_5_ATOL_SCALE * reference_scale
+    allowed = atol + _SECTION_13_5_RTOL * np.abs(right)
+    within = bool(np.all(difference <= allowed))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tolerance_ratio = np.where(allowed > 0.0, difference / allowed, 0.0)
+    max_tolerance_ratio = (
+        float(np.max(tolerance_ratio)) if tolerance_ratio.size else 0.0
+    )
+    verdict = "WITHIN" if within else "OUTSIDE"
     differing = np.flatnonzero(left.ravel() != right.ravel())
     count = int(differing.size)
     if count == 0:
-        return "identical to the byte (0 differing elements)"
+        return (
+            "identical to the byte (0 differing elements); Section 13.5 verdict: "
+            f"{verdict} (rtol={_SECTION_13_5_RTOL:.0e}, atol={atol:.17g}, "
+            f"max tolerance ratio={max_tolerance_ratio:.17g})"
+        )
     first = tuple(int(axis) for axis in np.unravel_index(int(differing[0]), left.shape))
     return (
         f"max|dV| = {max_absolute!r}, max relative d = {max_relative!r}, "
         f"{count} of {left.size} elements differ, first at index {first} "
-        f"(measured {left[first].item()!r} vs recorded {right[first].item()!r})"
+        f"(measured {left[first].item()!r} vs recorded {right[first].item()!r}); "
+        f"Section 13.5 verdict: {verdict} "
+        f"(rtol={_SECTION_13_5_RTOL:.0e}, atol={atol:.17g}, "
+        f"max tolerance ratio={max_tolerance_ratio:.17g})"
     )
 
 
@@ -947,6 +991,7 @@ def _assert_pinned_digests(
     for check in checks:
         table, what, measured = check[0], check[1], check[2]
         cube = check[3] if len(check) == 4 else None
+        _record_observed_digest(what, measured)
         problem = _pin_problem(table, what, measured)
         if not problem:
             _capture_reference_cube(what, measured, cube)
@@ -2254,13 +2299,19 @@ def test_recommend_executor_is_registry_driven() -> None:
 #
 # The first observation in each cell was measured on runs ``30628921601`` (9V74)
 # and ``30631837095`` (7763 for py312, 9V74 for py311), so the model string is
-# known not to be the discriminator.  Adding a third observation to any cell
-# requires deciding, on the evidence in the failure message, that it is a machine
-# class and not a regression.
+# known not to be the discriminator.  Post-Tier-8 WP-3 run ``31255085487`` then
+# reproduced both py311 classes on one Intel 8573C runner: its control produced
+# the second class; forcing both NumPy's AVX-512 dispatch off and OpenBLAS's
+# runtime core to Haswell restored the first class byte-for-byte.  The three
+# changed cubes were within the full Section 13.5 predicate by wide margins
+# (max absolute deltas 7.11e-15, 3.47e-18, and 1.57e-21), so the reviewed second
+# class is recorded here.  Adding a third observation to any cell still requires
+# deciding from evidence that it is a machine class and not a regression.
 _SHIPPED_CONFIG_FINGERPRINTS: dict[str, dict[str, tuple[str, ...]]] = {
     "config.yaml": {
         "linux-64-py311": (
             "65a1b2b4248d8f479656a32682f2399162d58518b95e163c400b4eba55408a12",
+            "89f38f6277d39c86c30b49a9569494670fa83a8a485ea2c75f610aa87e9eb972",
         ),
         "linux-64-py312": (
             "94ed2fd18d5c23d31a1bf9bcabaefb4ebb4b213258cf000ada4297052783a4ca",
@@ -2282,6 +2333,7 @@ _SHIPPED_CONFIG_FINGERPRINTS: dict[str, dict[str, tuple[str, ...]]] = {
     "receptor_circular_example.yaml": {
         "linux-64-py311": (
             "c257c96e4bee3eaea28e367590398c6fa20d9f71d1bf5534854569dd62e85ca0",
+            "1c6e5bfac14b8af5002f85e4237db5c0a6e70c6c625ffd9b12c7629713172789",
         ),
         "linux-64-py312": (
             "e50754376c095ecec9615016b78137067b286efc95b5cf6eb646e6d6e76bcede",
@@ -2339,6 +2391,7 @@ _SHIPPED_CONFIG_CUBE_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     "config.yaml": {
         "linux-64-py311": (
             "9d770ec675b52d352aea6cf750cdba5056cc0517aad3d87b84ef5ed47e48997f",
+            "312998e30a7c1684b788538273d06f23560bad6db7c2e643b14d3bac67140182",
         ),
         "linux-64-py312": (
             "f7df2b44c374b7ffc86d631ae33f0398538ff77ec5dfc4d80ed3f5266fe35f5d",
@@ -2360,6 +2413,7 @@ _SHIPPED_CONFIG_CUBE_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     "receptor_circular_example.yaml": {
         "linux-64-py311": (
             "1fb5cedd8635dc66a8e51000772b50fb8a4ec3305980f2c01dcb415f85f43f5b",
+            "708f97d2aaddc2d1b34c6f22cd5f1e320f340610a793c384ef14f9cbcb2715ef",
         ),
         "linux-64-py312": (
             "57c6a9dbe57c97c2a2b5307a3a530da5896b17f6393c77dc08a38fc4b4f48ce4",
@@ -2581,6 +2635,7 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     "heterogeneous_receptor_bases": {
         "linux-64-py311": (
             "1b7674f0c8c0b6561ea06929a55ecab797d609a150b31e8ad72bf6a88c7f3b7b",
+            "c7b51d022de6c917ee8a3359d2f5f20600a8259e52977555b5148dc32a4718c1",
         ),
         "linux-64-py312": (
             "73f340f1726163987eef8a387c7634a1e990264c8b23211918eea883749d54b7",
