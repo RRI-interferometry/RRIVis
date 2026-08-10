@@ -2628,6 +2628,15 @@ _WORKLOAD_SHAPES: dict[str, tuple[int, ...]] = {
 # and both shipped configurations remained byte-identical.  Forced run
 # ``31273416758`` at the same SHA established the two accepted linux-64/py311
 # heterogeneous dispatch classes: AVX2 and AVX-512.
+#
+# The exact-SHA successor run ``31425908525`` at
+# ``129344a42d2cf47af1c1f088964fcdb209701736`` then sampled the missing
+# linux-64/py312 AVX-512 class in job ``93577429679``.  Artifact ``9077267004``
+# retained the candidate cube and both historical references.  Its machine
+# fingerprint reports NumPy's AVX-512 effective dispatch and OpenBLAS runtime
+# core ``Cooperlake``.  The candidate digest ``1dd95c93...`` is byte-identical
+# to ``P V_old P^H`` for the historical ``11d4c0a5...`` cube and does not match
+# that transform of the AVX2-class ``73f340f1...`` cube.  No tolerance changed.
 _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     "healpix_polarized": {
         "linux-64-py311": (
@@ -2676,6 +2685,7 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "linux-64-py312": (
             "6b7d21ab4358b8a6597c1018eb4bafa391cc42b4358d656c4f1d06dee5eb2c97",
+            "1dd95c932cec803f06476205670a4902f0f53140d78261e08dc7aad5bac9c995",
         ),
         "osx-64-py311": (
             "019a863498cce18ed6ab8d2bb3cc0154645ad9a4a2e517252ec6c4f9b8ff5121",

@@ -184,3 +184,35 @@ class is outside Section 13.5.
   additions in another cell.
 - GitHub-hosted runner images and CPU allocation can change. The expanded
   fingerprints and nightly sampler remain necessary even though CI-001 closes.
+
+## SCI-006 successor-gate observation (2026-08-10)
+
+SCI-006 changed the polarized characterization cubes through the ruled
+east-X permutation, so its acceptance had to preserve every historical
+dispatch class rather than treating a green workflow as sufficient evidence.
+The missing `linux-64-py312` AVX-512 class was observed directly in CI run
+[`31425908525`](https://github.com/RRI-interferometry/RadioSim/actions/runs/31425908525)
+at exact source SHA `129344a42d2cf47af1c1f088964fcdb209701736`:
+
+- job `93577429679`, `linux-64 / Python 3.12`;
+- artifact `9077267004`, `characterization-linux-64-py312`;
+- GitHub `ubuntu24` runner image `20260720.247.2`, Linux
+  `6.17.0-1020-azure`, AMD EPYC 9V74 with four visible CPUs;
+- Python 3.12.13, NumPy 2.4.6, Astropy 8.0.1;
+- NumPy effective dispatch includes AVX-512 through `AVX512_SKX` and later
+  feature groups;
+- OpenBLAS 0.3.33 selected runtime core `Cooperlake`;
+- the retained heterogeneous-receptor candidate digest is
+  `1dd95c932cec803f06476205670a4902f0f53140d78261e08dc7aad5bac9c995`;
+- the retained historical class cube is
+  `11d4c0a5afd60d1682d62e5d85dcd3cde7c45d8e6b29411e22ccc35425847c46`.
+
+Loading the retained arrays and applying the ruled row-and-column permutation
+proved the candidate is byte-identical to `P V_old P^H` with maximum absolute
+difference zero.  It did not match the same transform of the separately
+retained AVX2-class historical cube
+`73f340f1726163987eef8a387c7634a1e990264c8b23211918eea883749d54b7`.
+The artifact also retained the observed-digest manifest and unchanged-workload
+references.  This evidence adds one observed class member; it does not relax a
+tolerance, replace observation-set membership, or alter CI-001's conversion
+trigger.
