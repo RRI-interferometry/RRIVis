@@ -292,7 +292,7 @@ def test_b_is_always_diagonal() -> None:
         assert block[0, 1, 0] == 0.0
 
 
-def test_scalarity_is_declared_exactly_when_every_feed_shares_a_response() -> None:
+def test_scalarity_is_declared_when_each_antenna_has_matching_feeds() -> None:
     """I2 both ways: a declared ``True`` is checked, a declared ``False`` witnessed."""
     shared = _polynomial_term((1.0 + 0j, -0.1 + 0j))
     assert shared.is_scalar() is True
@@ -305,6 +305,30 @@ def test_scalarity_is_declared_exactly_when_every_feed_shares_a_response() -> No
     assert split.is_scalar() is False
     witness = _evaluate(split, frequency_hz=1.0e8)
     assert witness[0, 0, 0] != witness[0, 1, 1]
+
+    first = PolynomialBandpassResponse(
+        coefficients=(1.0 + 0j, -0.1 + 0j),
+        reference_frequency_hz=1.005e8,
+        scale_frequency_hz=5.0e5,
+    )
+    second = PolynomialBandpassResponse(
+        coefficients=(0.8 + 0j, 0.05 + 0j),
+        reference_frequency_hz=1.005e8,
+        scale_frequency_hz=5.0e5,
+    )
+    per_antenna = BandpassJones(
+        responses=((first, first), (second, second)), frequencies_hz=_GRID
+    )
+    assert per_antenna.is_scalar() is True
+    first_matrix = _evaluate(per_antenna, frequency_hz=1.0e8, antenna_idx=0)[0]
+    second_matrix = _evaluate(per_antenna, frequency_hz=1.0e8, antenna_idx=1)[0]
+    np.testing.assert_array_equal(
+        first_matrix, first_matrix[0, 0] * np.eye(2, dtype=np.complex128)
+    )
+    np.testing.assert_array_equal(
+        second_matrix, second_matrix[0, 0] * np.eye(2, dtype=np.complex128)
+    )
+    assert first_matrix[0, 0] != second_matrix[0, 0]
 
 
 def test_unitarity_is_declared_only_for_a_pure_phase_bandpass() -> None:

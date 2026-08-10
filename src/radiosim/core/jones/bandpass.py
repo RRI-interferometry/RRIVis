@@ -291,13 +291,15 @@ class BandpassJones(JonesTerm):
         return True
 
     def is_scalar(self) -> bool:
-        """``True`` only when every feed of every antenna shares one response.
+        """``True`` when both feeds match within every antenna and channel.
 
         Checked on the resolved table over the observation grid, not on the
         configuration, so two differently written models that happen to produce
-        the same numbers are correctly reported as scalar.
+        the same numbers are correctly reported as scalar.  Different antennas
+        may carry different scalar responses; scalarity is a property of each
+        antenna's 2x2 Jones matrix, not equality across the array.
         """
-        return bool(np.all(self._table == self._table[0:1, 0:1, :]))
+        return bool(np.array_equal(self._table[:, 0, :], self._table[:, 1, :]))
 
     def is_unitary(self) -> bool:
         """``True`` only when every resolved response has unit modulus.
