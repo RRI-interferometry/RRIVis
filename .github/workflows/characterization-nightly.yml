@@ -1,11 +1,12 @@
-# CI-001, WP-2 (PostTier8RemediationPlan.md Section 5.2 item 3). A non-gating
-# nightly sampler for the one cell with a second byte-stable digest class:
-# linux-64-py311. The divergence appears in ~38% of runs on that cell and only
-# when the runner lands on the divergent machine class, so the observation
-# rate is capped by the push rate — this workflow raises it by one scheduled
-# observation per night. Schedule-triggered, required by nothing, blocking
-# nothing: a red night is an *observation* (and, with references restored, a
-# measured delta in the log), not a broken build.
+# CI-001, WP-2 (PostTier8RemediationPlan.md Section 5.2 item 3). This non-gating
+# nightly samples the original recurrent linux-64-py311 second digest class.
+# Its divergence appears in ~38% of runs and only when the runner lands on the
+# divergent machine class, so this workflow adds one scheduled observation per
+# night. WP-5 later authenticated a second linux-64-py312 heterogeneous-receptor
+# class; main CI and the on-demand py312 forced-discrimination path observe that
+# cell rather than widening this fixed py311 sampler. Schedule-triggered,
+# required by nothing, blocking nothing: a red night is an *observation* (and,
+# with references restored, a measured delta in the log), not a broken build.
 name: Characterization nightly
 
 on:

@@ -185,6 +185,10 @@ def test_wp2_and_wp3_workflows_are_retained_and_non_gating() -> None:
     assert 'cron: "17 2 * * *"' in nightly
     assert "pull_request:" not in nightly and "push:" not in nightly
     assert "characterization-linux-64-py311" in nightly
+    assert "original recurrent linux-64-py311 second digest class" in nightly
+    assert "second linux-64-py312 heterogeneous-receptor" in nightly
+    assert "on-demand py312 forced-discrimination path" in nightly
+    assert "one cell with a second byte-stable digest class" not in nightly
     assert "retention-days: 30" in nightly
     assert "workflow_dispatch:" in experiment
     assert "pixi_environment:" in experiment
