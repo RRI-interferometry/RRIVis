@@ -85,9 +85,11 @@ def _jones_summary(result: SimulationResult) -> dict[str, object]:
     Bounded for the same reason the receptor block is: a tabulated bandpass
     carries every node it was measured at, and the summary is metadata.  The
     enabled terms, the composed chain order, the digest, and each term's
-    resolved parameters are here; a run that enabled nothing reports empty
-    lists and a ``null`` digest rather than omitting the block, because a reader
-    should be able to tell "no terms" from "an older summary".
+    resolved parameters are here; a run that enabled no optional Jones or
+    baseline term reports empty lists and a ``null`` digest rather than omitting
+    the block, because a reader should be able to tell "no optional terms" from
+    "an older summary".  Solver-owned ``H``, ``C``, and ``E`` remain active and
+    are represented by their owning result records.
 
     ``Tier7JonesSciencePlan.md`` Section 25.2.
     """

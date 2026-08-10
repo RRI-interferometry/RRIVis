@@ -49,8 +49,10 @@ Every Jones term RadioSim exports implements real physics and declares
 primary beam (E), the receptor configuration (C), and the output basis
 transform (H) are always applied; the nine chain terms above are applied when
 `jones:` configures them, and M and Q apply by Hadamard product outside the
-chain. No exported term multiplies by the identity, and a `jones:` block whose
-parameters would make its term the identity is rejected rather than accepted.
+chain. No exported term is an unconditional identity stub. Parameter-dependent
+identity cases remain where the physical transform is genuinely neutral, while
+a configurable `jones:` block whose resolved effect is entirely the identity is
+rejected rather than accepted.
 
 ## Install
 
@@ -297,8 +299,10 @@ then resolves to `circular_rl`. Name `linear` or `circular` explicitly to report
 a mixed array in one basis; `auto` on a mixed array is rejected with both antenna
 counts. `feed_rotation_deg` is a finite static offset from the nominal
 orientation of the selected basis. Single-feed and multi-feed antennas,
-elliptical or non-orthogonal feed pairs, per-feed angles, a non-`fixed` mount
-type, and a frequency- or time-dependent basis are all rejected. See
+elliptical or non-orthogonal feed pairs, per-feed angles, and a frequency- or
+time-dependent basis are rejected. Mount orientation is handled by `jones.P`:
+`fixed` and `equatorial` are neutral, while `alt-az` and the two supported
+Nasmyth variants require the term; unknown mount types are rejected. See
 [`configs/receptor_circular_example.yaml`](configs/receptor_circular_example.yaml)
 for a runnable circular sample and
 [the Jones guide](docs/user_guide/jones_matrices.rst) for the receptor

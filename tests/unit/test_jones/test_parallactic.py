@@ -9,8 +9,9 @@
 
 and the Jones factor is the real rotation ``P_p = R(eta_p psi + nasmyth_p el)``
 with ``R(a) = [[cos a, sin a], [-sin a, cos a]]`` -- the same ``R`` the accepted
-receptor mathematics uses, so that ``C_p P_p`` composes into
-``M(basis) R(chi + psi)`` exactly (Section 12.1).
+receptor mathematics uses.  With ``alpha_p=eta_p psi_p+nasmyth_p el``, the
+general composition is ``C_p P_p=M(basis)R(chi_p+alpha_p)``. Ordinary alt-az,
+used by the combined-angle oracle below, has ``alpha_p=psi_p``.
 
 Invariants asserted here: **I2**, **I3**, **I6**, **I7**, **I9**, the Section
 29.1 astropy cross-check, and Section 20.7's own statements -- ``P P^T = I2``,
@@ -396,8 +397,8 @@ def test_a_non_rotating_mount_contributes_exactly_the_identity(
 
     ``None`` -- which is what every layout-file source resolves to, because no
     layout format carries a mount column -- is the ``fixed`` case.  That is the
-    choice invariant I1 rests on: an instrument with no mount metadata behaves
-    exactly as it did before this term existed.
+    choice invariant I1 rests on: the optional ``P`` contribution is exactly
+    the identity for those current sources.
     """
     directions = _sample_directions()
     block = _evaluate(_term((mount_type, mount_type)), directions)
@@ -622,13 +623,13 @@ def test_the_matrix_itself_varies_across_a_wide_batch() -> None:
 def test_c_times_p_is_the_receptor_at_the_combined_angle(
     chi_deg: float, psi_rad: float
 ) -> None:
-    """I6: ``C P = M(basis) R(chi + psi)``, and ``P C`` is not.
+    """I6 for ordinary alt-az: ``C P=M R(chi+psi)``, not ``P C``.
 
-    This is the whole reason Tier 7F moves ``P``.  For a *linear* receptor
-    ``M = I2`` and the two orders agree, which is exactly the case Tier 5
-    tested; for a circular receptor they are different matrices, and the
-    corrected order is the one that composes into a single rotation of the
-    receptor pair.
+    This is the whole reason Tier 7F moves ``P``.  The retired Tier-5 linear
+    binding used ``M_old = I2`` and could not expose the order error. SCI-006's
+    east-X binding uses ``M = P``; current linear and circular receptors both
+    distinguish the reversed order. The corrected placement is the one that
+    composes into a single rotation of the receptor pair.
     """
     chi = math.radians(chi_deg)
     receptor = np.asarray(SKY_NORTH_EAST_TO_CIRCULAR_RL) @ basis_rotation_matrix(chi)
@@ -805,12 +806,12 @@ def test_a_heterogeneous_array_breaks_that_invariance(tmp_path) -> None:
 
 
 def test_a_rotated_receptor_composes_with_the_field_rotation(tmp_path) -> None:
-    """Tier 5's static ``chi`` and Tier 7F's ``psi(t)`` add, and are not rejected.
+    """Static ``chi`` and ordinary-alt-az ``alpha=psi`` add without rejection.
 
     ``Tier5ReceptorFeedPlan.md`` Section 12.3 refused the combination outright
-    and said it would become legal "when Tier 7 implements ``P``".  This is that
-    discharge: the run is accepted, and the composite is the receptor at
-    ``chi + psi`` rather than a double rotation or a dropped one.
+    and said it would become legal "when Tier 7 implements ``P``". Tier 7F's
+    sky-side placement, amended by SCI-006, supplies the corrected composition:
+    the run is accepted and the receptor is at ``chi+psi`` for this alt-az case.
     """
     receptors = {"receptors": {"default": {"feed_rotation_deg": 31.0}}}
 

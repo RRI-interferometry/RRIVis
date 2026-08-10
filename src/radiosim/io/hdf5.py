@@ -100,11 +100,12 @@ _GROUPS: Final = {
     "receptors",
 }
 #: Groups a conforming file may omit.  ``jones/`` is the only one: a run that
-#: configured no Jones term has nothing to record there, and
+#: configured no optional Jones or baseline term has nothing to record there,
+#: while solver-owned ``H``, ``C``, and ``E`` remain represented elsewhere;
 #: ``Tier7JonesSciencePlan.md`` Section 25.2 requires a reader to accept such a
-#: file by treating it as "no terms enabled" rather than as corrupt.  Every
-#: other group is mandatory, and the allowlist is still exact -- a file may omit
-#: this group entirely or carry all of it, never part of it.
+#: file by treating it as "no optional terms enabled" rather than as corrupt.
+#: Every other group is mandatory, and the allowlist is still exact -- a file
+#: may omit this group entirely or carry all of it, never part of it.
 _OPTIONAL_GROUPS: Final = {"jones"}
 _DATASETS: Final = {
     "coordinates/baseline/antenna1_number",
@@ -915,11 +916,12 @@ def _write_hdf5_content(
         spec=specs["receptors/feed_angle_rad"],
     )
 
-    # The ``jones/`` group exists only when a term was configured.  A run with
-    # no ``jones:`` section writes a file with no such group, and the reader
-    # treats its absence as "no terms enabled" (Section 25.2) -- so the file a
-    # historical configuration produces has the shape it always had, apart from
-    # the schema version.
+    # The ``jones/`` group exists only when an optional Jones or baseline term
+    # was configured.  A run with no ``jones:`` section writes a file with no
+    # such group, and the reader treats its absence as "no optional terms
+    # enabled" (Section 25.2).  This preserves the optional group's structural
+    # absence; it does not claim that visibility values or scientific
+    # fingerprints match pre-SCI-006 output.
     if "jones/jones_sha256" in prepared.text_payloads:
         handle.create_group("jones", track_order=True)
         for path in sorted(_JONES_DATASETS):

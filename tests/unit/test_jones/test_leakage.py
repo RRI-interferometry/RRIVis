@@ -466,12 +466,14 @@ def test_an_unpolarized_source_acquires_exactly_the_predicted_cross_hands(
 ) -> None:
     """Section 20.3's corrected prediction ``V_01 = (I/2)(d_p0 - d_q1)``.
 
-    With an unpolarized sky, a scalar beam and identity receptor terms, the
+    With an unpolarized sky, a scalar beam, homogeneous default-linear
+    receptors (``C=P``), and matching ``linear_xy`` output (``H=I2``), the
     leakage-free visibility is ``c I2`` on every ``(time, baseline, channel)``
-    cell, so the corrupted cell is exactly ``c D_p D_q^H`` and its ``[0, 1]``
-    element is exactly ``c (d_p0 - d_q1)``.  ``c`` is read from the *unleaked*
-    run's ``[0, 0]``, which is the point: the prediction is checked against a
-    number this term had no part in producing.
+    cell.  The corrupted cell is therefore exactly ``c D_p D_q^H`` and its
+    ``[0, 1]`` element is exactly
+    ``c (d_p0 - d_q1)``.  ``c`` is read from the *unleaked* run's ``[0, 0]``,
+    which is the point: the prediction is checked against a number this term
+    had no part in producing.
 
     The sign is the one the design review corrected.  ``D_q^H`` contributes
     ``-d_q1`` at ``[0, 1]``, not ``+d_q1^*``; the difference is observable

@@ -52,15 +52,18 @@ class JonesChain:
     correlator-side of the receptor.  A field rotation acts on the incoming
     field in the *linear* topocentric frame, and the receptor is
     ``C = M(basis) R(chi)``, so the physical composite is
-    ``M(basis) R(chi + psi) = C R(psi)``: ``R(psi)`` belongs sky-side of ``C``.
+    ``M(basis) R(chi_p + alpha_p) = C R(alpha_p)``: ``R(alpha_p)`` belongs
+    sky-side of ``C``, where ``alpha_p=eta_p psi_p+nasmyth_p el``.
     Under the superseded order a circular receptor would see a real 2x2 rotation
-    of the ``(R, L)`` pair, when the correct effect -- ``S R(psi) S^H`` -- is a
-    pair of opposite phases.  SCI-006 makes the native linear matrix ``P``
+    of the ``(R, L)`` pair, when the correct effect --
+    ``S R(alpha_p) S^H`` -- is a pair of opposite phases.  SCI-006 makes the
+    native linear matrix ``P``
     rather than ``I2``, so the reversed placement is distinguishable for both
     accepted native bases.
 
-    Order matters: ``C`` and ``H`` are the first factors RadioSim composes that
-    do not commute with their neighbours.
+    Order matters because the canonical chain contains non-commuting neighbours;
+    its tests use explicit numerical witnesses rather than infer commutation
+    from term names.
 
     Notes:
         Only ``JonesTerm`` subclasses may be added here, and ``add_term``
@@ -114,8 +117,8 @@ class JonesChain:
                 cannot be added here — they must be applied separately
                 via Hadamard multiplication on the finished visibility.
             position: Where to insert the term:
-                - "append"  : Add to end / correlator side (default)
-                - "prepend" : Add to beginning / sky side
+                - "append"  : Add to end / sky side (default)
+                - "prepend" : Add to beginning / correlator side
                 - int       : Insert at specific index
 
         Raises:
@@ -129,8 +132,8 @@ class JonesChain:
         Example:
             .. code-block:: python
 
-                chain.add_term(gain_jones)  # append (correlator side)
-                chain.add_term(troposphere_jones, position="prepend")  # sky side
+                chain.add_term(troposphere_jones)  # append (sky side)
+                chain.add_term(gain_jones, position="prepend")  # correlator side
                 chain.add_term(leakage_jones, position=2)  # at index 2
         """
         if isinstance(term, JonesBaselineTerm):

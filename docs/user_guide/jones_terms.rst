@@ -96,10 +96,13 @@ even programmatically.
 The ``jones:`` section
 ----------------------
 
-Every term is absent by default, and an absent term is not in the chain at all.
-A configuration with no ``jones:`` section produces exactly the visibilities it
-produced before the section existed — the same numbers and the same
-``scientific_sha256``.
+Every optional term is absent by default, and an absent term is not in the
+chain at all. A configuration with no ``jones:`` section therefore selects the
+empty optional-term inventory. The always-present beam, receptor, reporting
+basis, and geometric factors remain active. Two otherwise identical runs on
+the same current source produce the same values and ``scientific_sha256``;
+SCI-006 deliberately changed polarized linear results relative to releases
+whose zero-rotation linear receptor was the identity.
 
 Two rules follow from that, and both are enforced:
 
@@ -481,16 +484,19 @@ repeated antenna is rejected, as is an antenna the instrument does not have.
 What ``X`` does and does not do
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* With linear receptors, a cross-hand phase :math:`\phi_x` leaves both parallel
-  hands untouched and multiplies :math:`V_{xy}` by :math:`e^{-i\phi_x}` and
-  :math:`V_{yx}` by :math:`e^{+i\phi_x}` — that is, it rotates Stokes :math:`U`
+* With native linear receptors reported in matching ``linear_xy`` output
+  (:math:`H=I_2`), a cross-hand phase :math:`\phi_x` leaves both parallel hands
+  untouched and multiplies :math:`V_{XY}` by :math:`e^{-i\phi_x}` and
+  :math:`V_{YX}` by :math:`e^{+i\phi_x}` — that is, it rotates Stokes :math:`U`
   into Stokes :math:`V` by exactly :math:`\phi_x`, the classic X-Y phase
   signature.
 * Unlike a ``G`` phase, a cross-hand phase common to the whole array does **not**
   cancel: it is a phase on one feed only, so it survives on the cross hands.
 * ``X`` is defined per feed *index* in the antenna's own basis. On a circular
-  receptor the phased feed is ``L``, and the affected correlations are the
-  :math:`(RL, LR)` pair rather than :math:`(xy, yx)`.
+  receptor the phased native feed is ``L``; the directly affected reported
+  correlations are :math:`(RL, LR)` when output is matching ``circular_rl``.
+  Cross-basis output retains the exact subsequent ``H`` transform instead of
+  preserving those labels element by element.
 * ``X`` commutes with ``G``, ``B``, ``Kd`` and ``Rc``, all of which are diagonal
   in the same basis. It does **not** commute with ``D``.
 
@@ -584,15 +590,22 @@ What ``D`` does and does not do
 * ``D`` is **not** unitary for any non-zero leakage. A receptor that moves power
   between its two chains while preserving :math:`J J^{H} = I` would be a
   rotation, not a leakage.
-* For an **unpolarized** source the corrupted cross hand is exactly
+* For the matched scalar-beam oracle, homogeneous default-linear receptors use
+  :math:`C=P` on both antennas and matching ``linear_xy`` output makes
+  :math:`H=I_2`. An **unpolarized** source then has a leakage-free cell
+  :math:`c I_2`. The reported corrupted cross hand is exactly
 
   .. math::
 
-     V_{01} = \tfrac{I}{2}\,\bigl(d_{p0} - d_{q1}\bigr)
+     V_{01} = c\,\bigl(d_{p0} - d_{q1}\bigr),
 
-  — note the second antenna contributes :math:`-d_{q1}`, not
+  with :math:`c=I/2` in the normalized unit-response case. Note that the second
+  antenna contributes :math:`-d_{q1}`, not
   :math:`+d_{q1}^{*}`. This is the sharpest available check that a leakage model
-  is right, and RadioSim's test suite asserts it at machine precision.
+  is right, and RadioSim's test suite reads :math:`c` from the leakage-free run
+  and asserts the relation at machine precision. For cross-basis reporting,
+  ``H`` acts after ``D`` and the output matrix must instead retain that exact
+  basis transform.
 * ``D`` does **not** commute with a feed-asymmetric ``G``, ``B``, ``Kd`` or
   ``Rc``, nor with ``X``. The canonical chain puts all of those nearer the
   correlator than ``D``, and that order is observable.
@@ -624,8 +637,11 @@ and the Jones factor is the real rotation
    \qquad
    R(a) = \begin{bmatrix} \cos a & \sin a \\ -\sin a & \cos a \end{bmatrix},
 
-which is the same :math:`R` the receptor term uses, so that
-:math:`C_p P_p = M(\mathrm{basis}) R(\chi + \psi)`.
+Define :math:`\alpha_p=\eta_p\psi_p+\nu_p\mathrm{el}`. This is the same
+:math:`R` the receptor term uses, so the general composition is
+:math:`C_p P_p=M(\mathrm{basis})R(\chi_p+\alpha_p)`. For an ordinary alt-az
+mount :math:`\alpha_p=\psi_p`; Nasmyth right/left retain the required
+:math:`+\mathrm{el}` or :math:`-\mathrm{el}` term.
 
 The two-argument arctangent is not decoration. An :math:`\arcsin` form folds two
 quadrants onto two others and is wrong for a source below the pole while passing
@@ -671,8 +687,10 @@ resolved instrument, which is what makes a heterogeneous array correct:
 
 An **unspecified** mount is the ``fixed`` case. Only a pyuvdata dataset source
 carries mount metadata at all — a layout file has no column for one — so this is
-what keeps an array with no mount metadata producing exactly the visibilities it
-produced before this term existed.
+what makes the optional ``P`` contribution exactly the identity for current
+layout-file and known-telescope sources with no mount metadata. Other
+always-present factors, including the canonical receptor convention, remain in
+the chain.
 
 Configuration
 ~~~~~~~~~~~~~
@@ -915,8 +933,8 @@ a minimum elevation too.
 Two vertical-TEC models are offered:
 
 * ``constant`` — one column for the whole array. Every antenna sees the same
-  phase for a given direction, so a single source at zenith changes no
-  visibility at all, while a wide field does, through the slant factor.
+  scalar phase for a given direction, so it cancels source by source on every
+  baseline and changes no visibility, for a single source or a wide field.
 * ``gradient`` — a linear gradient in topocentric East and North, evaluated at
   **each antenna's own ionospheric pierce point**. This is the minimal model
   that makes the phase differ between antennas, and therefore the minimal model
@@ -1229,14 +1247,18 @@ Where the record goes
 An enabled Jones term is recorded everywhere the run is recorded:
 
 * ``scientific_sha256`` changes. Two runs differing in any single Jones
-  parameter have different fingerprints; two runs with ``jones:`` absent have
-  the fingerprint they had before the section existed.
-* HDF5 results gain a ``jones/`` group with the enabled terms, the composed
+  parameter have different fingerprints; two runs with ``jones:`` absent on
+  the same current source have the same fingerprint. Historical fingerprints
+  remain versioned evidence, not compatibility promises across scientific
+  corrections.
+* HDF5 results gain a ``jones/`` group with the enabled optional terms, the composed
   chain order, each term's resolved parameters, the resolved mount types, and
-  ``jones_sha256``. The group is written only when a term was enabled.
-* The summary JSON gains a bounded ``jones`` block. A run that enabled nothing
-  reports empty lists and a ``null`` digest rather than omitting the block, so
-  "no terms" is distinguishable from "an older summary".
+  ``jones_sha256``. The group is written only when an optional Jones or baseline
+  term was enabled; solver-owned ``H``, ``C``, and ``E`` are represented
+  elsewhere.
+* The summary JSON gains a bounded ``jones`` block. A run that enabled no
+  optional term reports empty lists and a ``null`` digest rather than omitting
+  the block, so "no optional terms" is distinguishable from "an older summary".
 * Measurement Set and UVFITS output is **unchanged**. A corrupted visibility is
   still a visibility; RadioSim does not write calibration tables.
 * Observability plots are unchanged. They evaluate beams, not chains.

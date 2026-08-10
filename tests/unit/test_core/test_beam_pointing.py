@@ -225,7 +225,7 @@ def test_zero_surface_error_resolves_to_absent_and_is_bit_identical(
 def test_the_beam_state_fingerprint_moves_only_when_science_is_present(
     tmp_path: Path,
 ) -> None:
-    """Absent blocks reproduce the pre-7I digest; present ones must not.
+    """Equivalent current states agree without blocks; present ones must not.
 
     A block that resolves to absence *for every antenna* is unreachable from
     configuration -- an all-zero block is rejected outright -- so what is

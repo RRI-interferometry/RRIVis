@@ -1,9 +1,9 @@
 """Tier 5C scientific invariants for the sky-linear brightness matrix.
 
 Every oracle in this module is written out from ``Tier5ReceptorFeedPlan.md``
-Sections 10.2, 18.1, 18.4, 18.5, and 18.6 rather than derived from RadioSim
-source, so the assertions are checkable against the plan without reading the
-implementation.
+Sections 10.2, 18.1, 18.4, 18.5, and 18.6, as amended by SCI-006's east-X
+linear binding, rather than derived from RadioSim source.  The assertions are
+therefore checkable without reading the implementation.
 
 Invariants covered here: S2, S3, S4, S5, S7, S8.
 """
@@ -20,13 +20,15 @@ from radiosim.core.polarization import (
 )
 
 # ---------------------------------------------------------------------------
-# Plan oracles (Section 18.1), transcribed rather than imported.
+# Plan oracles, transcribed rather than imported: S from Tier 5 Section 18.1
+# and the east-X permutation P from the SCI-006 correction.
 # ---------------------------------------------------------------------------
 
 PLAN_S_MATRIX = (1.0 / np.sqrt(2.0)) * np.array(
     [[1.0, 1.0j], [1.0, -1.0j]],
     dtype=np.complex128,
 )
+PLAN_P_MATRIX = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
 
 ROTATIONS_DEG = (0.0, 30.0, 45.0, 90.0, -15.0)
 
@@ -111,7 +113,7 @@ def test_coherency_matrix_is_hermitian(stokes) -> None:
 
 @pytest.mark.parametrize("stokes", REFERENCE_STOKES)
 def test_half_power_normalization_is_untouched_by_the_v_correction(stokes) -> None:
-    """Tr(C) == I, so V_XX + V_YY == I rather than 2I."""
+    """The sky coherency has ``Tr(C)=I``; no post-Jones claim is made here."""
     stokes_i = stokes[0]
     coherency = np.asarray(stokes_to_coherency(*stokes))
 
@@ -286,7 +288,7 @@ def test_unpolarized_energy_is_conserved_in_both_bases(
     stokes_i = 9.0
     coherency = np.asarray(stokes_to_coherency(stokes_i, 0.0, 0.0, 0.0))
     chi_rad = np.radians(rotation_deg)
-    leading = np.eye(2, dtype=np.complex128) if basis == "linear" else PLAN_S_MATRIX
+    leading = PLAN_P_MATRIX if basis == "linear" else PLAN_S_MATRIX
     jones = leading @ plan_rotation(chi_rad)
 
     visibility = jones @ coherency @ jones.conj().T

@@ -205,9 +205,9 @@ class JonesBaselineTerm(ABC):
 class BaselineFactors:
     """The two Hadamard factors for one ``(time, frequency)`` step.
 
-    Each is ``None`` when no configured term declares that target, which is what
-    lets a solver keep its pre-Tier-7H arithmetic exactly when the run
-    configured no baseline term at all (invariant I1).
+    Each is ``None`` when no configured term declares that target, which lets a
+    solver skip optional baseline-factor multiplication when the run configured
+    no baseline term at all (invariant I1).
     """
 
     envelope: Any = None

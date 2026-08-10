@@ -7,17 +7,17 @@ nearest the correlator::
 
 :class:`~radiosim.core.jones.chain.JonesChain` composes
 ``terms[0] @ terms[1] @ ... @ terms[-1]``, so that factorization is exactly the
-order in which the solver must *add* the terms.  ``C`` and ``H`` are the first
-non-commuting factors RadioSim composes, which is why the order is proven here
-with deliberately non-commuting synthetic terms (invariant S13) rather than
-inferred from a run whose factors all commute.
+order in which the solver must *add* the terms.  The order is proven here with
+deliberately non-commuting synthetic terms (invariant S13) rather than inferred
+from a run whose selected factors happen to commute.
 
 CORRECTED BY: Tier 7F.  ``Tier5ReceptorFeedPlan.md`` Section 19.1 placed ``P``
 *correlator-side* of ``C``, and said -- correctly for its own scope -- that the
 placement was unobservable while every optional term was an identity.  Section
 12.1 shows it is wrong for a circular receptor: the physical composite is
-``M(circular) R(chi + psi) = C R(psi)``, so ``R(psi)`` must sit sky-side of
-``C``.  Under the Tier 5 order the composite applies a real 2x2 rotation to the
+``M(circular) R(chi_p + alpha_p) = C R(alpha_p)``, so ``R(alpha_p)`` must sit
+sky-side of ``C``, where ``alpha_p=eta_p psi_p+nasmyth_p el``. Under the Tier 5
+order the composite applies a real 2x2 rotation to the
 ``(R, L)`` pair, when the correct effect is a pair of opposite phases.  SCI-006
 also makes the native linear matrix ``P`` rather than ``I2``; ``P`` does not
 commute with a general rotation, so both native bases now distinguish the two
@@ -324,33 +324,34 @@ def test_chain_docstring_states_the_canonical_section_19_1_order() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_point_solver_carries_exactly_the_three_terms_that_exist(
+def test_point_solver_with_empty_optional_inventory_carries_owned_h_c_e(
     tmp_path: Path,
 ) -> None:
-    """``H``, ``C`` and ``E``, and nothing else.
+    """The current empty optional-term inventory composes ``H``, ``C``, ``E``.
 
     FLIPPED BY: Tier 7C.  The gate version enabled six optional terms through a
     ``jones_config`` dictionary and asserted the full ``CANONICAL_ORDER``.  All
     six of those terms multiplied by the identity, the dictionary was hard-coded
-    to ``None`` at the only production call site, and 7C removed both.  The
-    order they will occupy is still the plan's, and it is still asserted -- from
-    the solver's own source, below, and by the synthetic non-commuting terms
-    above -- but the chain now contains only terms that exist.
+    to ``None`` at the only production call site, and 7C removed both.  All
+    optional terms are now implemented and are spliced into their canonical
+    slots when configured.  This test deliberately supplies the empty optional
+    inventory and pins only the three factors the solver always owns.
     """
     chain = _chain(tmp_path)
     assert tuple(term.name for term in chain.terms) == ("H", "C", "E")
     assert {term.name for term in chain.terms} <= set(CANONICAL_ORDER)
 
 
-def test_the_chain_builder_reserves_the_canonical_slots_in_order(
+def test_empty_optional_chain_respects_the_owned_canonical_slots(
     tmp_path: Path,
 ) -> None:
-    """The three surviving terms sit in their canonical relative positions.
+    """The three solver-owned factors sit in canonical relative positions.
 
     ``C`` between the electronics-side DIEs and the sky-side DDEs, ``H``
-    leftmost, ``E`` sky-side of ``C``: the neighbours a later slice's ``G``,
-    ``P``, ``T`` and ``Z`` must respect.  Asserted against ``CANONICAL_ORDER``
-    itself so that adding a term out of order fails here.
+    leftmost, ``E`` sky-side of ``C``: configured ``G``, ``P``, ``T``, ``Z``
+    and the other optional terms are spliced around these slots.  Asserted
+    against ``CANONICAL_ORDER`` itself so that adding a term out of order fails
+    here.
     """
     chain = _chain(tmp_path)
     names = [term.name for term in chain.terms]
@@ -457,13 +458,12 @@ def test_a_rotated_receptor_is_carried_by_the_chain_without_a_rejection(
     ``jones_config`` enabled ``P``; with the dictionary gone the combination it
     guarded could not be expressed through any entry point.
 
-    FLIPPED BY: Tier 7F, which deleted the guard outright.  ``P`` is real and
-    sits sky-side of ``C``, so ``C_p P_p = M(basis) R(chi + psi)`` is the full,
-    correct, time-dependent receptor orientation rather than a static rotation
-    silently composed with a stub -- which is exactly what
-    ``Tier5ReceptorFeedPlan.md`` Section 12.3 said would happen "when Tier 7
-    implements ``P``".  The blanket mount-type rejection beside it is now
-    rejection R15, which names the fix rather than the tier.
+    FLIPPED BY: Tier 7F, which deleted the guard outright and placed the now-real
+    ``P`` sky-side of ``C``; SCI-006 then fixed the native linear matrix.  The
+    current composition is ``C_p P_p=M(basis)R(chi_p+alpha_p)``, with
+    ``alpha_p=eta_p psi_p+nasmyth_p el``.  The blanket mount-type rejection
+    beside the old guard is now rejection R15, which names the fix rather than
+    the tier.
     """
     chain = _chain(tmp_path, {"default": {"feed_rotation_deg": 15.0}})
     assert tuple(term.name for term in chain.terms) == ("H", "C", "E")
@@ -542,12 +542,12 @@ def test_the_composed_chain_is_the_receptor_at_the_combined_angle(
 ) -> None:
     """Invariant I6, through the solver, for a circular receptor.
 
-    ``H C E P`` with a static ``chi`` and a field rotation ``psi`` must equal
-    ``T(circular -> linear) M(circular) R(chi + psi) E``.  Under the Tier 5
-    order the ``P`` factor would sit correlator-side of ``C`` and the product
-    would be ``T M(circular) R(psi) R(chi)``... which is the *same* matrix only
-    because ``M`` is a left factor there; the distinguishing statement is the
-    one below, where the reversed placement is built explicitly and differs.
+    For this ordinary alt-az case ``alpha=psi``. ``H C E P`` with static
+    ``chi`` must equal
+    ``T(circular -> linear) M(circular) R(chi + psi) E``. Under the Tier 5
+    correlator-side placement the product would instead be
+    ``T(circular -> linear) R(psi) M(circular) R(chi) E``. The reversed
+    placement is built explicitly below and differs.
     """
     from radiosim.core.jones.parallactic import parallactic_angle
 

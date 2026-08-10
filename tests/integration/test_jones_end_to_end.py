@@ -266,8 +266,8 @@ def test_the_standard_visibility_formats_carry_the_corrupted_cube(
     assert float(np.max(np.abs(result.visibilities))) > 0.0
 
 
-def test_a_run_with_jones_absent_still_runs_and_records_nothing(tmp_path) -> None:
-    """The other end of the same path: absence must remain frictionless."""
+def test_a_run_with_jones_absent_has_no_optional_record(tmp_path) -> None:
+    """An empty optional inventory runs without an optional Jones snapshot."""
     simulator = _simulator(tmp_path, None)
 
     result = simulator.setup().run(progress=False)

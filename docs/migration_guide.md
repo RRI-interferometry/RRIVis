@@ -407,8 +407,10 @@ accept the quantization. None of the shipped configurations relied on it.
 HDF5 results moved to schema `4.0.0`, which adds the optional `jones/` group:
 `enabled_terms`, `chain_order`, `term_snapshots_json`, `mount_types_json`, and
 `jones_sha256`. The group is written only when a run enables a Jones term, and
-a file without it reads as "no terms enabled", so a configuration with no
-`jones:` section is unaffected apart from the version string.
+a file without it reads as "no optional terms enabled". This preserves the
+optional group's structural absence for the current empty optional-term
+inventory; it does not preserve pre-SCI-006 visibility values or scientific
+fingerprints.
 
 Schema `3.0.0` files are rejected with `UnsupportedSchemaVersionError` and are
 not upgraded in place. Re-run the simulation to write a `4.0.0` file.
@@ -662,8 +664,8 @@ every renderer read
 the resolved basis rather than assuming the linear labels. See
 [`docs/api/io.rst`](api/io.rst) for the complete polarization mapping and
 [`docs/user_guide/jones_matrices.rst`](user_guide/jones_matrices.rst) for the
-receptor mathematics, the exactness assumption behind a basis change, and the
-parallactic-angle boundary.
+receptor mathematics, the cross-basis output-native interpretation boundary,
+and the parallactic-angle boundary.
 
 ## Frequency and configuration I/O
 
@@ -707,7 +709,9 @@ Gone: receptor resolution rejected **every** antenna whose `mount_type` was not
 alt-azimuth array could not be simulated at all. It also rejected a non-zero
 `feed_rotation_deg` combined with an enabled parallactic-angle term. Both are
 removed. The static feed rotation and the field rotation now compose:
-`C_p P_p = M(basis) R(chi + psi)`.
+`C_p P_p = M(basis) R(chi_p + alpha_p)`, where
+`alpha_p = eta_p psi_p + nu_p el`. Ordinary alt-az has `alpha_p=psi_p`;
+Nasmyth right/left retain the signed elevation term.
 
 New, and both raised by `UnsupportedMountTypeError` during Jones resolution,
 before any beam or sky is loaded:
@@ -730,9 +734,11 @@ carried no mount metadata — is rejected as an identity, like every other term
 that cannot change the visibilities.
 
 Only a pyuvdata dataset source carries mount metadata; a layout file has no
-column for one, and an unspecified mount is the `fixed` case. **A configuration
-built from a layout file is therefore unaffected**: its visibilities and its
-`scientific_sha256` are what they were.
+column for one, and an unspecified mount is the `fixed` case. For a layout-file
+configuration the optional `P` contribution is therefore the identity and its
+mount handling is unchanged. This does **not** preserve pre-SCI-006 polarized
+linear values or `scientific_sha256`: the always-present receptor matrix `C`
+changed independently to the east-X permutation.
 
 ### The canonical chain order changed: `P` moved sky-side of `C`
 
@@ -745,10 +751,10 @@ J_p = H_p G_p B_p Rc_p Kd_p X_p D_p C_p E_p P_p T_p Z_p     (K applied separatel
 Earlier releases placed `P` between `D` and `C`, following Tier 5's
 factorization. That is wrong for a circular receptor: a field rotation acts on
 the incoming field in the linear topocentric frame, so the physical composite is
-`M(basis) R(chi + psi) = C R(psi)` and `R(psi)` belongs sky-side of `C`. Under
-the old order the `(R, L)` pair would be mixed by a real 2x2 rotation, when
-`S R(psi) S^H = diag(e^-i psi, e^+i psi)` says the correct effect is a pair of
-opposite phases.
+`M(basis) R(chi_p + alpha_p) = C R(alpha_p)` and `R(alpha_p)` belongs
+sky-side of `C`. Under the old order the `(R, L)` pair would be mixed by a real
+2x2 rotation, when `S R(alpha_p) S^H = diag(e^-i alpha_p, e^+i alpha_p)` says
+the correct effect is a pair of opposite phases.
 
 This affects only runs with `jones.P` enabled, which could not exist before it
 was implemented, so no stored result changes. It supersedes

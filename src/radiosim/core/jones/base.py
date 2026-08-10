@@ -39,7 +39,8 @@ class JonesTerm(ABC):
     - P  (ParallacticAngleJones)    : Parallactic angle / field rotation (DDE).
          Sky-side of ``C`` and ``E`` since Tier 7F: a field rotation acts on the
          incoming field before the receptor sees it, so ``C P`` is the receptor
-         at ``chi + psi`` (``Tier7JonesSciencePlan.md`` Section 12.1)
+         at ``chi_p + alpha_p``, where
+         ``alpha_p=eta_p psi_p+nasmyth_p el``
     - E  (canonical beam adapter)   : Primary beam voltage pattern (DDE) -- the
          private solver-owned adapter over ``BeamSystem``, not an exported class
     - C  (ReceptorConfigJones)      : Receptor basis and static feed rotation (DIE, unitary)
@@ -259,9 +260,11 @@ class JonesTerm(ABC):
         cannot verify a claim about a matrix that cannot be computed, so each
         term slice adds its flags together with its physics.
 
-        Diagonal: G, B, T (a scalar times ``I2``), Kd, Rc, X
-        Non-diagonal: E, P, D, C, H, and Z whenever its Faraday rotation is
-        non-zero -- a real rotation is diagonal only at angle zero
+        Implementations decide from their resolved numbers where necessary.
+        ``G``, ``B``, ``T``, ``Kd``, ``Rc``, and ``X`` are diagonal by
+        construction; ``P``, ``Z``, and ``H`` have parameter-dependent cases.
+        ``C`` deliberately checks its exact resolved matrices rather than
+        receiving a categorical promise from this base class.
 
         Default: False
         """
@@ -272,11 +275,12 @@ class JonesTerm(ABC):
 
         Scalar matrices commute with everything and simplify the chain.
 
-        Scalar: K (the geometric phase, which is why it is a function and not a
-        term at all), T (delay and opacity are both scalars times ``I2``), Z
-        without Faraday rotation, and C or H whenever their parameters make them
-        exactly ``I2``.
-        Non-scalar: all others.
+        Implementations decide from resolved values: examples include ``T``,
+        ``Z`` without Faraday rotation, feed-symmetric ``G``/``B``, and ``H``
+        when native and output bases match.  The east-X receptor matrix ``C``
+        is never a scalar or ``I2`` for any supported receptor and rotation.
+        ``K`` is also scalar, but is the geometric-phase function rather than a
+        Jones term.
 
         Default: False
         """
@@ -287,12 +291,13 @@ class JonesTerm(ABC):
 
         Unitary matrices preserve power (pure rotation/phase).
 
-        Unitary: K, P, C, H, and Z -- whose dispersive phase and Faraday
-        rotation are each unitary, so their product is too: the ionosphere
-        delays and rotates the field without absorbing it.
-        Non-unitary: G (amplitude errors), E (beam attenuation), D, B, and T
-        whenever its opacity is enabled, because an absorbing atmosphere really
-        does remove power.
+        Implementations decide from resolved values where necessary. ``P``,
+        ``C``, ``H``, and ``Z`` are unitary; ``G`` and ``B`` can also be
+        unitary for pure unit-modulus phase responses. ``T`` is unitary exactly
+        without opacity, while non-zero leakage ``D`` is not. ``K`` is a
+        unitary scalar phase but is a function rather than a Jones term; the
+        direction-dependent beam response ``E`` does not make a global
+        unitary declaration here.
 
         Default: False
         """

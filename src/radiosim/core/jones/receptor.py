@@ -22,18 +22,18 @@ sky-to-receptor matrices are owned by :mod:`radiosim.core.polarization_basis`::
 
 ``P`` reports ``(X=east, Y=north)`` and ``S`` reports IAU ``(R, L)``.
 
-``ReceptorConfigJones`` -- what the receptor physically is (Section 18.2)
--------------------------------------------------------------------------
-::
+``ReceptorConfigJones`` -- what the receptor physically is
+-----------------------------------------------------------
+Tier 5 Section 18.2, as amended by SCI-006, defines::
 
     C_p = M(basis_p) @ R(chi_p)
 
     M(linear)   = P
     M(circular) = S
 
-``BasisTransformJones`` -- what basis the result is reported in (Section 18.3)
-------------------------------------------------------------------------------
-::
+``BasisTransformJones`` -- what basis the result is reported in
+----------------------------------------------------------------
+Tier 5 Section 18.3, as amended by SCI-006, defines::
 
     H_p = T(basis_p -> output_basis)
 
@@ -128,7 +128,7 @@ def basis_rotation_matrix(chi_rad: float) -> npt.NDArray[np.complex128]:
 
 
 def receptor_matrix(basis: str, chi_rad: float) -> npt.NDArray[np.complex128]:
-    """Return the Section 18.2 receptor matrix ``C = M(basis) @ R(chi)``.
+    """Return the SCI-006-amended receptor matrix ``C = M(basis) @ R(chi)``.
 
     Parameters
     ----------
@@ -291,10 +291,10 @@ class _ReceptorTermBase(JonesTerm):
     def term_status(self) -> str:
         """``"implemented"``: ``C`` and ``H`` are Tier 5 physics, not scaffolds.
 
-        Both carry the exact Section 18 matrices, both change the visibilities
-        for a receptor they are not trivial for, and both are swept numerically
-        by invariant I2.  They are the two terms that were already real when
-        Tier 7 began.
+        Both carry the exact Tier 5 Section 18 matrices as amended by SCI-006,
+        both change the visibilities for a receptor they are not trivial for,
+        and both are swept numerically by invariant I2.  They are the two terms
+        that were already real when Tier 7 began.
         """
         return "implemented"
 
@@ -364,7 +364,7 @@ class _ReceptorTermBase(JonesTerm):
 
 
 class ReceptorConfigJones(_ReceptorTermBase):
-    """Receptor configuration Jones term ``C`` (Section 18.2).
+    """Receptor term ``C`` (Tier 5 Section 18.2, amended by SCI-006).
 
     ``C_p = M(basis_p) @ R(chi_p)``, with ``M(linear) = P`` and
     ``M(circular) = S``.
@@ -410,7 +410,7 @@ class ReceptorConfigJones(_ReceptorTermBase):
 
 
 class BasisTransformJones(_ReceptorTermBase):
-    """Polarization basis transform Jones term ``H`` (Section 18.3).
+    """Basis transform ``H`` (Tier 5 Section 18.3, amended by SCI-006).
 
     ``H_p = T(basis_p -> output_basis)``, taking each antenna's native receptor
     basis into the one array-wide output basis resolved by
@@ -432,7 +432,8 @@ class BasisTransformJones(_ReceptorTermBase):
     ReceptorAssignmentError
         A solver antenna row has no resolved receptor.
     UnsupportedBasisTransformError
-        A native/output basis pair outside the Section 18.3 table.
+        A native/output basis pair outside the SCI-006-amended Section 18.3
+        table.
     """
 
     @property
@@ -445,7 +446,8 @@ class BasisTransformJones(_ReceptorTermBase):
     def is_diagonal(self) -> bool:
         """``True`` only when every antenna's native basis is the output basis.
 
-        Those are exactly the two Section 18.3 rows where ``T`` is ``I2``.
+        Those are exactly the two amended Section 18.3 rows where ``T`` is
+        ``I2``.
         """
         output_basis = self._receptors.output_basis
         return all(

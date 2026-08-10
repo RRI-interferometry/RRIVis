@@ -157,11 +157,11 @@ def test_point_path_parity_with_a_circular_receptor(
     tmp_path,
     backend_name: str,
 ) -> None:
-    """A non-identity ``C`` and ``H``, so parity is testing the chain product.
+    """A non-identity ``C`` and ``H``, so parity tests the chain product.
 
-    With the default linear receptors both terms are exactly ``I2`` and the
-    chain product is the beam alone; a circular receptor reported in a linear
-    basis makes both factors non-trivial and non-commuting.
+    The default unrotated linear receptor has ``C=P`` and ``H=I2``. A rotated
+    circular receptor reported in a linear basis makes both factors
+    non-trivial and non-commuting.
     """
     instrument, beam_system, receptors = _solver_components(
         tmp_path,

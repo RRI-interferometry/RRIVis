@@ -148,9 +148,11 @@ Schema ``4.0.0`` stores an **optional** ``jones`` group: ``enabled_terms``,
 ``chain_order``, the per-term resolved configuration as ``term_snapshots_json``,
 the resolved antenna mount types as ``mount_types_json``, and the
 ``jones_sha256`` that enters the scientific fingerprint.  The group is written
-only when a run enabled a Jones term, and a file without it is read as "no terms
-enabled" rather than rejected — which is why a run with no ``jones:`` section
-produces the file it always produced, apart from the version.  It is the one
+only when a run enabled an optional Jones or baseline term, and a file without
+it is read as "no optional terms enabled" rather than rejected.  This preserves
+the optional group's structural
+absence for the current empty optional-term inventory; it does not promise
+pre-SCI-006 visibility values or scientific fingerprints.  It is the one
 optional group in the schema; every other group is mandatory, and a partially
 present ``jones`` group is rejected like any other allowlist mismatch.
 

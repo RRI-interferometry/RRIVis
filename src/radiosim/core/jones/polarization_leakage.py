@@ -57,14 +57,18 @@ owns that file and rewrites it.
 
 What ``D`` does to a visibility
 -------------------------------
-``V_pq -> D_p V_pq D_q^H``.  For an unpolarized source the leakage-free
-visibility is ``(I/2) I2``, so the corrupted cross hand is exactly
+``V_pq -> D_p V_pq D_q^H`` in native-feed coordinates before ``H``.  In the
+matched scalar-beam oracle the homogeneous default-linear receptors use
+``C=P`` on both antennas and matching ``linear_xy`` output makes ``H=I2``.  An
+unpolarized source then gives a leakage-free cell ``c I2``, and the reported
+corrupted cross hand is exactly
 
-    V_01 = (I/2) (d_p0 - d_q1)
+    V_01 = c (d_p0 - d_q1)
 
--- ``D_q^H`` contributes ``-d_q1`` at ``[0, 1]``, not ``+d_q1^*``.  Section 20.3
-gives this as a first-order prediction; for this convention it is exact, and the
-tests assert it at machine precision.
+where ``c=I/2`` in the normalized unit-response case.  ``D_q^H`` contributes
+``-d_q1`` at ``[0, 1]``, not ``+d_q1^*``.  Section 20.3 gives this as a
+first-order prediction; under this matched setup it is exact, and the tests read
+``c`` from the leakage-free run and assert the relation at machine precision.
 
 References
 ----------

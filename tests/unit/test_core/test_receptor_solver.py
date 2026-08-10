@@ -2,10 +2,11 @@
 
 Both solver paths consume one :class:`ResolvedReceptorSet` and apply
 ``H_p @ C_p`` to every antenna's Jones matrix
-(``Tier5ReceptorFeedPlan.md`` Sections 19.2 and 19.3).  The oracles here are
-written from the plan — the ``S`` matrix of Section 18.1, the correlation table
-of Section 18.4, and the rotation invariants of Section 18.5 — and never from
-the production constants, so a matching implementation defect cannot hide.
+(``Tier5ReceptorFeedPlan.md`` Sections 19.2 and 19.3).  The circular and rotation
+oracles come from that plan's Sections 18.1, 18.4, and 18.5; the linear
+permutation and east-X correlation oracle come from the SCI-006 correction.
+They are written independently of production constants, so a matching
+implementation defect cannot hide.
 
 The invariants asserted are S1, S4, S5, S7, S8, S10 and S12.
 
@@ -53,12 +54,14 @@ TIME_GRID = build_observation_time_grid(
 ALTITUDE_RAD = np.pi / 3.0
 AZIMUTH_RAD = 0.0
 
-#: Section 18.1 ``S``, rows ordered ``(R, L)`` and columns ``(x, y)``.  Written
+#: Section 18.1 ``S``, rows ordered ``(R, L)`` and canonical columns
+#: ``(North, East)``.  Written
 #: from the plan so the oracle is independent of the implementation.
 PLAN_S = (1.0 / np.sqrt(2.0)) * np.array(
     [[1.0, 1.0j], [1.0, -1.0j]],
     dtype=np.complex128,
 )
+# SCI-006's fixed North/East-to-east-X permutation.
 PLAN_P = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
 IDENTITY = np.eye(2, dtype=np.complex128)
 
@@ -75,7 +78,7 @@ def plan_rotation(chi_rad: float) -> np.ndarray:
 
 
 def plan_receptor(basis: str, chi_deg: float, output_basis: str) -> np.ndarray:
-    """Section 18.2 and 18.3: the combined ``H @ C`` for one antenna."""
+    """Tier 5 plus SCI-006: the combined ``H @ C`` for one antenna."""
     leading = PLAN_S if basis == "circular" else PLAN_P
     receptor = leading @ plan_rotation(np.deg2rad(chi_deg))
     native_output = "circular_rl" if basis == "circular" else "linear_xy"
@@ -310,7 +313,7 @@ def _healpix(
 # ---------------------------------------------------------------------------
 
 
-def test_default_receptors_reproduce_the_receptor_free_reference(
+def test_default_east_x_receptors_match_reference_in_point_and_healpix_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -377,7 +380,7 @@ def test_east_x_production_paths_match_the_sci006_closed_form(
     )
 
 
-def test_default_receptors_reproduce_the_section_18_4_linear_table(
+def test_default_receptors_reproduce_the_sci006_east_x_linear_table(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -499,19 +502,19 @@ def test_a_circular_run_differs_from_a_linear_run_on_a_polarized_source(
 
 
 # ---------------------------------------------------------------------------
-# S5 — unpolarized energy conservation in every basis and rotation
+# S5 — matched homogeneous receptors preserve the unpolarized scalar oracle
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("basis", ["linear", "circular"])
 @pytest.mark.parametrize("rotation_deg", [0.0, 30.0, 45.0, 90.0, -15.0])
-def test_unpolarized_energy_is_conserved_in_every_basis_and_rotation(
+def test_matched_receptors_preserve_unpolarized_scalar_oracle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     basis: str,
     rotation_deg: float,
 ) -> None:
-    """S5: parallel hands sum to ``I`` and cross hands vanish (Section 18.6)."""
+    """S5: a common unitary receptor pair preserves the scalar-beam oracle."""
     view, beam_system, receptors = _solver_components(
         tmp_path,
         {"default": {"basis": basis, "feed_rotation_deg": rotation_deg}},
@@ -621,11 +624,11 @@ def test_circular_feed_rotation_only_phases_the_cross_hands(
 # ---------------------------------------------------------------------------
 
 
-def test_circular_native_in_a_linear_output_basis_matches_a_linear_array(
+def test_h_c_change_matches_without_intervening_native_feed_effects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """S10: the change of representation is exact for ideal orthogonal feeds."""
+    """S10: empty optional chains make the ideal ``H @ C`` products equal."""
     stokes = (2.0, 0.4, -0.3, 0.15)
     linear_view, linear_beams, linear_receptors = _solver_components(tmp_path / "lin")
     converted_view, converted_beams, converted_receptors = _solver_components(
@@ -648,7 +651,7 @@ def test_a_mixed_array_reports_one_common_output_basis(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """S10 for the heterogeneous case: one circular antenna, one linear."""
+    """S10: ideal ``H @ C`` products agree with no intervening native effects."""
     stokes = (2.0, 0.4, -0.3, 0.15)
     mixed_view, mixed_beams, mixed_receptors = _solver_components(
         tmp_path / "mixed",
@@ -741,11 +744,11 @@ def test_point_and_healpix_agree_on_a_circular_case(
     )
 
 
-def test_the_scalar_healpix_path_reports_zero_cross_hands_by_construction(
+def test_the_scalar_healpix_path_reports_zero_cross_hands_for_matched_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Section 19.3: the I-only path applies ``H_p @ C_p`` rather than assuming it."""
+    """Matched homogeneous unitary factors preserve the scalar-beam I oracle."""
     view, beam_system, receptors = _solver_components(
         tmp_path,
         {"default": {"basis": "circular", "feed_rotation_deg": 30.0}},
@@ -782,12 +785,11 @@ def test_the_parallactic_rotation_guard_is_gone_from_the_solver(
     (``Tier7JonesSciencePlan.md`` Section 33.2).  The guard fired only when that
     dictionary enabled ``P``, and no supported entry point could arrange it.
 
-    FLIPPED BY: Tier 7F, which deleted the guard.  With ``P`` real and sky-side
-    of ``C``, ``C_p P_p = M(basis) R(chi + psi)`` is the full time-dependent
-    receptor orientation, so the combination the guard refused is now the
-    physics.  A rotated receptor reaches the solver and is carried, exactly as
-    ``Tier5ReceptorFeedPlan.md`` Section 12.3 said it would "when Tier 7
-    implements ``P``".
+    FLIPPED BY: Tier 7F, which deleted the guard and placed real ``P`` sky-side
+    of ``C``; SCI-006 then fixed the native linear matrix. The current
+    composition is ``C_p P_p=M(basis)R(chi_p+alpha_p)``, where
+    ``alpha_p=eta_p psi_p+nasmyth_p el``. A rotated receptor therefore reaches
+    the solver and is carried.
     """
     view, beam_system, receptors = _solver_components(
         tmp_path,

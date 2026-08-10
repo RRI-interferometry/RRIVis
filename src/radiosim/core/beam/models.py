@@ -29,9 +29,9 @@ def _optional_block_fields(dataclass_value: Any) -> tuple[str, ...]:
     A resolved field that both defaults to ``None`` and *is* ``None`` describes
     science the configuration never authored, so it is omitted from snapshots
     and canonical payloads rather than serialized as a null. That is what keeps
-    a run with no ``beams.pointing`` and no ``beams.surface_error`` block
-    bit-identical -- ``scientific_sha256`` included -- to the same run before
-    those blocks existed. A required optional field, such as
+    equivalent current runs with no ``beams.pointing`` and no
+    ``beams.surface_error`` block free of an optional-beam snapshot distinction,
+    including in ``scientific_sha256``. A required optional field, such as
     ``BeamAssignmentProvenance.input_index``, has no ``None`` default and is
     always serialized.
     """

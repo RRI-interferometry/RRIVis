@@ -7,10 +7,12 @@ imported into ``io/config.py`` -- the same placement Tier 5 used for
 
 Three properties the section must have, and how each is obtained here
 --------------------------------------------------------------------
-1. **Every term is absent by default.**  Each field defaults to ``None`` and an
-   absent term is not in the chain at all, so a configuration that does not
-   mention ``jones:`` is bit-identical to one written before the section
-   existed (invariant I1).
+1. **Every optional term is absent by default.**  Each field defaults to
+   ``None`` and an absent term is not in the optional Jones chain.  Omitting
+   ``jones:`` therefore selects the current empty optional-term inventory; the
+   always-present beam, receptor, reporting-basis, and geometric factors still
+   apply.  In particular, this is not a promise of bit identity with the
+   pre-SCI-006 receptor convention.
 2. **A present term must do something.**  There is no ``enabled: false``:
    configuring a term whose resolved parameters make it exactly ``I2`` is
    rejected (R7), because a term that cannot change the visibilities is
@@ -1079,9 +1081,9 @@ class JonesConfig(StrictFrozenModel):
     """The ``jones:`` section: which Jones terms this run enables.
 
     Every field is optional and defaults to ``None``.  A ``None`` term is not
-    resolved, not constructed, and not in the chain, and contributes nothing to
-    the scientific fingerprint -- so ``jones:`` absent and a ``jones:`` with a
-    term the user later removes are the same run, bit for bit.
+    resolved, not constructed, and not in the optional chain, and adds no Jones
+    component to the scientific fingerprint.  Always-present beam, receptor,
+    reporting-basis, and geometric factors remain independent.
 
     A present-but-empty section (``jones: {}``) is rejected at resolution (R2)
     rather than treated as absent, because writing an empty section is a

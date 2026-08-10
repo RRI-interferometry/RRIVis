@@ -27,13 +27,16 @@ quoted in.  This is not in tension with Section 20.0's ``exp(-i phi)`` rule for
 a *delay*: ``phi_x`` and ``tau_x`` are a calibration-frame relative phase and
 its frequency slope, not an excess path length on a signal, and the tier's delay
 terms (``Kd``, ``Rc``, ``T``, ``Z``) are the ones invariant I4 governs.  The
-observable consequence is fixed and tested either way: with linear receptors the
-reported cross hand ``V_01`` is multiplied by ``exp(-i phi_x)``, which is the
-classic X-Y phase signature.
+observable consequence is fixed and tested either way: with native linear
+receptors reported in matching ``linear_xy`` output (``H=I2``), the cross hand
+``V_01`` is multiplied by ``exp(-i phi_x)``, which is the classic X-Y phase
+signature.
 
 ``X`` sits correlator-side of ``C`` (Section 12.2), so its feed indices are the
-antenna's own 0/1 and not ``x``/``y``: on a circular receptor the phased feed is
-``L``, and the affected correlations are the ``(RL, LR)`` pair.
+antenna's own 0/1 and not necessarily the reported pair: on a circular receptor
+the phased native feed is ``L``.  The directly affected reported correlations
+are ``(RL, LR)`` when output is the matching ``circular_rl`` basis; cross-basis
+output retains the exact subsequent ``H`` transform.
 
 References
 ----------

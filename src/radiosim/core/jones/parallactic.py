@@ -18,9 +18,10 @@ and the Jones factor is the real rotation
     R(a) = [[ cos a,  sin a ],
             [-sin a,  cos a ]]
 
-which is the same ``R`` the accepted receptor mathematics uses
-(``docs/user_guide/jones_matrices.rst``), so that ``C_p P_p`` composes into
-``M(basis) R(chi + psi)`` exactly.
+Define ``alpha_p = eta_p psi_p + nasmyth_p el``.  This is the same ``R`` the
+accepted receptor mathematics uses (``docs/user_guide/jones_matrices.rst``), so
+``C_p P_p`` composes into ``M(basis) R(chi_p + alpha_p)`` exactly.  Ordinary
+alt-az has ``alpha_p=psi_p``; Nasmyth mounts retain the signed elevation term.
 
 Why the two-argument arctangent
 -------------------------------
@@ -54,19 +55,22 @@ Mounts
 An **unspecified** mount (``None``) is the ``fixed`` case.  Every instrument
 source RadioSim reads except a pyuvdata dataset produces ``None`` -- a layout
 file has no mount column and the known-telescope registry supplies none -- so
-this is the choice invariant I1 rests on: an array with no mount metadata
-behaves exactly as it did before this term existed.  Any other value is rejected
-at resolution (R12) rather than silently treated as ``alt-az``.
+this is the choice invariant I1 rests on: the optional ``P`` contribution is
+exactly the identity for those current sources.  Any value outside the five
+listed mount types is rejected at resolution (R12) rather than silently treated
+as ``alt-az``.
 
 Chain position
 --------------
 Tier 7F moved ``P`` **sky-side** of ``C`` and ``E``
 (``Tier7JonesSciencePlan.md`` Section 12, defect D12).  For a circular receptor
-the Tier 5 order ``C P`` reversed would apply a real 2x2 rotation to the
-``(R, L)`` pair; since ``S R(psi) = diag(e^{-i psi}, e^{+i psi}) S``, the
-correct effect is a pair of opposite phases.  SCI-006 makes the native linear
-matrix ``P`` rather than ``I2``; the reversed placement is therefore wrong for
-both accepted native bases.
+Tier 5 placed the rotation correlator-side, producing ``P C`` and applying a
+real 2x2 rotation to the ``(R, L)`` output pair.  The corrected sky-side
+placement produces ``C P``; since
+``S R(alpha_p) = diag(e^{-i alpha_p}, e^{+i alpha_p}) S``, its circular effect
+is a pair of opposite phases.  SCI-006 makes the native linear matrix ``P`` rather than
+``I2``; the old ``P C`` placement is therefore wrong for both accepted native
+bases.
 
 One latitude, not one per antenna
 ---------------------------------
@@ -325,9 +329,10 @@ class ParallacticAngleJones(JonesTerm):
     def is_unitary(self) -> bool:
         """``True`` always: a real rotation is orthogonal, so ``P P^H = I2``.
 
-        This is the flag that is a genuine constant for this term, and it is why
-        ``P`` conserves total intensity: an unpolarized coherency commutes with
-        it exactly.
+        This is a per-antenna norm-preservation statement.  When the same ``P``
+        acts on both sides, an unpolarized coherency is unchanged; heterogeneous
+        ``P_p`` and ``P_q`` need not leave an individual baseline matrix or its
+        trace unchanged.
         """
         return True
 

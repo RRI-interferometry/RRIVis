@@ -200,9 +200,11 @@ class VisibilitySimulator(ABC):
             ``Simulator.setup()`` (``Tier7JonesSciencePlan.md`` Section 22).  It
             replaces the untyped dictionary parameter that no caller could ever
             populate (defect D3): a solver receives resolved terms and never
-            parses configuration.  The default is the empty inventory, so a
-            direct solver call with no Jones section is exactly the forward
-            model as it stood before the section existed.
+            parses configuration.  The default is the empty optional-term
+            inventory.  Always-present beam, receptor, reporting-basis, and
+            geometric factors still apply; SCI-006 intentionally changed the
+            default polarized linear receptor from the historical identity to
+            the east-X permutation.
 
         Returns
         -------

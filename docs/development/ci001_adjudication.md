@@ -216,3 +216,40 @@ The artifact also retained the observed-digest manifest and unchanged-workload
 references.  This evidence adds one observed class member; it does not relax a
 tolerance, replace observation-set membership, or alter CI-001's conversion
 trigger.
+
+### Retained pre-SCI-006 py311 dispatch mapping
+
+WP-5 changes the heterogeneous-receptor cube, so the old digest must remain
+historical evidence rather than an accepted post-correction pin. Forced run
+[`31273416758`](https://github.com/RRI-interferometry/RadioSim/actions/runs/31273416758)
+at exact source SHA `424b4b90dcb162f4d54a3cb4f4abf2516269ca44`
+captured the missing post-correction `linux-64-py311` dispatch class:
+
+- draw 3, job `93143054023`, artifact `9026308532`
+  (`ci001-experiment-31273416758-draw3`);
+- GitHub `ubuntu24` image `20260720.247.2`, Linux
+  `6.17.0-1020-azure`, Intel Xeon 6973P-C with four visible CPUs;
+- Python 3.11.13, NumPy 2.3.2, Astropy 7.1.0;
+- NumPy effective dispatch through AVX-512, including `AVX512_SKX`;
+- OpenBLAS 0.3.30 runtime core `Cooperlake`;
+- retained candidate cube digest
+  `9f07661c3348515e5fd1acc478606badd2f4c8a143f67008f8922aabedff04c5`.
+
+The candidate filename was independently authenticated by recomputing the
+Section 13.4 content digest. Because `P=P^-1=P^H`, applying `P` on both axes to
+that retained cube reconstructs the historical pre-correction cube. Its full
+digest is
+`c7b51d022de6c917ee8a3359d2f5f20600a8259e52977555b5148dc32a4718c1`,
+exactly the previously accepted AVX-512/OpenBLAS dispatch observation. Thus the
+durable relation is:
+
+```text
+c7b51d022de6c917ee8a3359d2f5f20600a8259e52977555b5148dc32a4718c1
+  -- P V_old P^H, byte-identical -->
+9f07661c3348515e5fd1acc478606badd2f4c8a143f67008f8922aabedff04c5
+```
+
+The active post-SCI-006 pin set correctly contains `9f07661c...` and its
+separate Haswell/AVX2-class peer `eda7da52...`; it deliberately does **not**
+accept `c7b51d02...`. This preserves the complete CI-001 evidence without
+allowing a pre-correction polarized cube to pass the current scientific gate.

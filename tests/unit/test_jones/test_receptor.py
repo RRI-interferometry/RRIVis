@@ -1,8 +1,9 @@
 """Tier 5C receptor-configuration Jones (term ``C``) mathematics.
 
-Oracles are transcribed from ``Tier5ReceptorFeedPlan.md`` Sections 18.1, 18.2,
-18.4, 18.5, and 18.6.  Invariants covered: the identity linear-to-linear case,
-the analytic circular transform, S4, S5, S6, S7, S8.
+Oracles began from ``Tier5ReceptorFeedPlan.md`` Sections 18.1, 18.2, 18.4,
+18.5, and 18.6 and include the later SCI-006 east-X correction. Invariants
+cover the zero-rotation linear permutation, the analytic circular transform,
+S4, S5, S6, S7, and S8.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ def plan_rotation(chi_rad: float) -> np.ndarray:
 
 
 def plan_receptor_matrix(basis: str, chi_rad: float) -> np.ndarray:
-    """Return the Section 18.2 matrix ``C_p = M(basis) @ R(chi)``."""
+    """Return the SCI-006-amended Section 18.2 matrix ``C=M R(chi)``."""
     leading = PLAN_P_MATRIX if basis == "linear" else PLAN_S_MATRIX
     return leading @ plan_rotation(chi_rad)
 
@@ -171,7 +172,7 @@ def compute(term: JonesTerm, antenna_idx: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Identity for the default linear array
+# East-X permutation for the default linear array
 # ---------------------------------------------------------------------------
 
 
@@ -265,7 +266,7 @@ def test_the_exported_linear_to_circular_transform_is_s_times_p() -> None:
 
 
 def test_the_basis_matrix_matches_section_18_1_elementwise() -> None:
-    """S is (1/sqrt 2) [[1, i], [1, -i]] with rows (R, L) and columns (x, y)."""
+    """S has rows (R, L) and canonical columns (North, East)."""
     receptors = make_receptor_set((("circular", 0.0),), "circular_rl")
     term = ReceptorConfigJones(receptors=receptors, instrument=make_instrument_view(1))
 
@@ -275,7 +276,7 @@ def test_the_basis_matrix_matches_section_18_1_elementwise() -> None:
 @pytest.mark.parametrize("basis", ("linear", "circular"))
 @pytest.mark.parametrize("rotation_deg", ROTATIONS_DEG)
 def test_receptor_matrix_equals_m_times_r(basis: str, rotation_deg: float) -> None:
-    """Section 18.2: C_p == M(basis) @ R(chi_p), elementwise."""
+    """SCI-006-amended Section 18.2: ``C_p=M(basis)R(chi_p)``."""
     output_basis = "linear_xy" if basis == "linear" else "circular_rl"
     receptors = make_receptor_set(((basis, rotation_deg),), output_basis)
     term = ReceptorConfigJones(receptors=receptors, instrument=make_instrument_view(1))
@@ -328,7 +329,7 @@ def test_matrices_are_unitary_for_every_accepted_combination() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The Section 18.4 correlation oracle, driven through the real term
+# SCI-006 east-X linear and Section 18.4 circular correlation oracles
 # ---------------------------------------------------------------------------
 
 
@@ -342,7 +343,7 @@ REFERENCE_STOKES = (
 
 
 @pytest.mark.parametrize("stokes", REFERENCE_STOKES)
-def test_linear_output_reproduces_the_section_18_4_linear_table(stokes) -> None:
+def test_linear_output_reproduces_the_sci006_east_x_table(stokes) -> None:
     stokes_i, stokes_q, stokes_u, stokes_v = stokes
     receptors = make_receptor_set((("linear", 0.0), ("linear", 0.0)), "linear_xy")
     term = ReceptorConfigJones(receptors=receptors, instrument=make_instrument_view(2))

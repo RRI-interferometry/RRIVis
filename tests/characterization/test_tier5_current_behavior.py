@@ -170,7 +170,7 @@ LOCATION = EarthLocation.from_geodetic(
 )
 
 # The linear-to-circular basis matrix of Tier5ReceptorFeedPlan.md Section 18.1,
-# rows ordered (R, L) and columns (x, y).  Written out here so the circular
+# rows ordered (R, L) and columns (North, East).  Written out here so the circular
 # consequence below is derived from the plan, not from RadioSim source.
 PLAN_S_MATRIX = (1.0 / np.sqrt(2.0)) * np.array(
     [[1.0, 1.0j], [1.0, -1.0j]],
@@ -554,8 +554,10 @@ def test_point_solver_adds_chain_terms_in_the_canonical_order(
     D12) and rewrote the solver's documented factorization accordingly.  The
     Tier 5 property this pins -- that the solver adds terms correlator-side
     first, in one canonical order that does not depend on the document -- is
-    unchanged, and the three terms that exist keep their relative positions:
-    ``P`` never sat between them.
+    unchanged.  This invocation supplies the empty optional-term inventory, so
+    the three solver-owned factors ``H``, ``C``, and ``E`` alone keep their
+    relative positions; configured optional terms are spliced into the same
+    canonical order.
     """
     instrument, beam_system = _solver_components(tmp_path)
     receptors = resolve_receptors(ReceptorsConfig(), _resolve_instrument(tmp_path))
@@ -595,7 +597,9 @@ def test_point_solver_chain_always_carries_the_receptor_terms(
     FLIPPED BY: Tier 5D, in the same commit as the solver integration.
 
     ANCHOR UPDATED BY: Tier 7C, which removed the ``jones_config`` argument.
-    H, C and E are now not merely always enabled but the only terms there are.
+    ``H``, ``C`` and ``E`` remain solver-owned and always active.  This
+    invocation supplies the current empty optional-term inventory; configured
+    optional terms are added around them in canonical slots.
     """
     instrument, beam_system = _solver_components(tmp_path)
     receptors = resolve_receptors(ReceptorsConfig(), _resolve_instrument(tmp_path))

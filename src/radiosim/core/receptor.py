@@ -10,13 +10,14 @@ keys loaded beams.
 is pure: it performs no filesystem, network, backend, or device work, and it
 runs before any beam file is opened.
 
-Modelling assumption
---------------------
+Cross-basis reporting
+---------------------
 Expressing a circular-native antenna in a linear output basis (or the reverse)
-is exact **only** when both feeds are ideal, orthogonal, and share a common
-complex gain.  Tier 7E implemented ``D`` and ``G``, so the conversion is exact
-only while both are absent or feed-symmetric; ``docs/user_guide/jones_matrices``
-names the configurations that break it and what to do instead.
+is always an exact unitary coordinate change applied after the antenna's
+native-feed effects.  Feed leakage or asymmetric electronics generally do not
+commute with that change, so the reported result is not equivalent to a
+hypothetical antenna whose same component matrices acted natively in the output
+basis.  ``docs/user_guide/jones_matrices`` states that interpretation boundary.
 
 Mount types
 -----------
@@ -26,9 +27,10 @@ to carry it; Tier 7F implements ``P``, and the rule that replaces the blanket
 rejection lives with the term that discharges it
 (:func:`~radiosim.core.jones_terms.resolve_jones_terms`, rejections R12 and
 R15).  A resolved receptor's ``feed_rotation_rad`` is therefore the **static**
-part of the orientation, and ``C_p P_p = M(basis) R(chi + psi)`` is the whole of
-it -- which is what ``Tier5ReceptorFeedPlan.md`` Section 12.3 said would happen
-when Tier 7 implemented ``P``.
+part of the orientation.  With
+``alpha_p = eta_p psi_p + nasmyth_p el``, the full composition is
+``C_p P_p = M(basis) R(chi_p + alpha_p)``.  Ordinary alt-az reduces to
+``chi_p+psi_p``; Nasmyth mounts retain the signed elevation term.
 """
 
 from __future__ import annotations
@@ -278,13 +280,12 @@ class ResolvedReceptorSet:
     Every antenna carries exactly two ideal orthogonal feeds sharing one basis.
     The whole array is reported in exactly one ``output_basis``.
 
-    Modelling assumption
-    --------------------
-    Converting a circular-native antenna into a linear output basis (or the
-    reverse) is exact **only** when both feeds are ideal, orthogonal, and share
-    a common complex gain.  That holds in Tier 5 because the leakage (``D``)
-    and gain (``G``) terms are disabled identity stubs.  When Tier 7 implements
-    ``D``, the conversion becomes approximate and must be re-examined.
+    Basis semantics
+    ---------------
+    The reporting-basis transform is an exact unitary change of coordinates
+    applied after native-feed effects. Leakage, gains, delays, and bandpass
+    remain defined in the physical native-feed basis; they need not be equal
+    between feeds for the output-basis conversion to remain exact.
 
     Parameters
     ----------

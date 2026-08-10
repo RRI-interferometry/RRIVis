@@ -1843,8 +1843,9 @@ class RadioSimConfig(StrictFrozenModel):
     receptors: ReceptorsConfig = Field(default_factory=ReceptorsConfig)
     #: The Tier 7 Jones-term section.  ``None`` -- not an empty model -- is the
     #: default, because an absent section and a present-but-empty one are
-    #: different statements: the first configures nothing and is the historical
-    #: forward model bit for bit, and the second is rejected as R2.  A
+    #: different statements: the first selects the current empty optional-term
+    #: inventory, and the second is rejected as R2.  Always-present beam,
+    #: receptor, reporting-basis, and geometric factors still apply.  A
     #: ``default_factory`` would collapse the two.
     jones: JonesConfig | None = None
     sky_model: SkyModelConfig

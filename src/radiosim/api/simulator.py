@@ -388,8 +388,9 @@ class Simulator:
     def jones_terms(self) -> ResolvedJonesTerms:
         """Return the exact canonical resolved Jones-term inventory.
 
-        Empty when the configuration has no ``jones:`` section, which is the
-        forward model as it stood before Tier 7D.
+        Empty when the configuration has no ``jones:`` section.  This means no
+        optional Jones term is enabled; always-present beam, receptor,
+        reporting-basis, and geometric factors still apply.
         """
         if self._jones_terms is None:
             raise RuntimeError("Jones resolution has not completed")
@@ -1007,7 +1008,9 @@ class Simulator:
         -------
         SimulationResult
             Immutable canonical result with dimensions ``(T, B, F, 4)`` and
-            correlation order ``XX, XY, YX, YY``.
+            row-major correlation order for the resolved output basis:
+            ``XX, XY, YX, YY`` for ``linear_xy`` or ``RR, RL, LR, LL`` for
+            ``circular_rl``.
 
         Examples
         --------

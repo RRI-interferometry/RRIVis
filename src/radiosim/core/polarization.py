@@ -17,10 +17,11 @@ CONVENTION CHOICES (Critical for correctness):
    - B_EE = (I-Q)/2  (east-directed power)
 
    The receptor term maps this sky matrix to the requested products.  For the
-   default ``(X=east, Y=north)`` output, ``XX=(I-Q)/2`` and ``YY=(I+Q)/2``;
-   their sum is still I.
+   ideal default ``(X=east, Y=north)`` matched unit-response output,
+   ``XX=(I-Q)/2`` and ``YY=(I+Q)/2``; their sum is still I.  Heterogeneous or
+   non-unitary Jones chains can change that observed sum.
 
-   This ensures a 1 Jy source produces 1 Jy total visibility, not 2 Jy.
+   This ensures the sky coherency of a 1 Jy source has trace 1 Jy, not 2 Jy.
 
 2. **Stokes V Sign: IAU / Hamaker-Bregman-Sault Convention**
 
@@ -56,9 +57,10 @@ CONVENTION CHOICES (Critical for correctness):
 
 3. **Stokes I Extraction: Simple Sum (No Division)**
 
-   I = B_NN + B_EE = V_XX + V_YY  (sum of parts = whole)
+   I = B_NN + B_EE
 
-   Intuitive for debugging and consistent with half-power convention.
+   For an ideal matched unit-response system this is also ``V_XX + V_YY``.
+   Arbitrary per-antenna Jones factors need not preserve that visibility sum.
 
 4. **Jones Matrix: RIME Standard**
 
@@ -83,10 +85,10 @@ def stokes_to_coherency(stokes_I, stokes_Q=0, stokes_U=0, stokes_V=0, *, xp=np):
     C = (1/2) * [[I+Q,    U+iV  ],
                  [U-iV,   I-Q   ]]
 
-    ENERGY CONSERVATION: For a source with flux I, this produces visibilities
-    whose trace is I (not 2I), ensuring physical correctness.  This function
-    constructs sky brightness; receptor/output matrices determine product
-    labels and axis order.
+    ENERGY CONSERVATION: For a source with flux I, this produces a sky
+    coherency matrix whose trace is I (not 2I).  Post-Jones visibility traces
+    need not remain I for heterogeneous or non-unitary chains.  Receptor/output
+    matrices determine product labels and axis order.
 
     Parameters
     ----------

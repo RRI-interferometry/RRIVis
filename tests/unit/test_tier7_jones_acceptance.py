@@ -485,11 +485,11 @@ def test_spherical_harmonic_is_no_longer_a_value_or_a_rejection() -> None:
 
 
 # ---------------------------------------------------------------------------
-# I14 -- point/HEALPix agreement with every implemented term enabled
+# I14 -- point/HEALPix agreement for six factorizable optional terms
 # ---------------------------------------------------------------------------
 
 
-def test_the_two_sky_paths_agree_with_every_implemented_term_enabled(
+def test_the_two_sky_paths_agree_with_six_direction_independent_terms_enabled(
     tmp_path,
 ) -> None:
     """I14: the proof that the shared evaluator really is shared.
@@ -497,8 +497,9 @@ def test_the_two_sky_paths_agree_with_every_implemented_term_enabled(
     The point sky and the HEALPix sky differ in flux normalization by
     construction -- a pixel is not a delta function -- so the scientific claim
     is not that the two paths produce the same number.  It is that both apply
-    **the same Jones factor**: with every implemented term enabled and no
-    per-antenna override, each path's corrupted cube must satisfy
+    **the same Jones factor**: with the six direction-independent optional terms
+    in this oracle enabled and no per-antenna override, each path's corrupted
+    cube must satisfy
     ``V' = M(nu) V M(nu)^H`` for the *same* ``M``.  If a term reached one solver
     and not the other, this is where it would show, and it is exactly the defect
     (D4) the shared ``_build_jones_chain`` closes.
@@ -528,9 +529,9 @@ def test_the_two_sky_paths_agree_with_every_implemented_term_enabled(
         solver_components_with_jones,
     )
 
-    # Every term that carries physics today, enabled at once.  Extended by each
-    # term slice, which is what keeps "every implemented term" honest rather
-    # than frozen at whatever was implemented when the test was written.
+    # The six direction-independent optional per-antenna terms whose shared
+    # matrix factors out of the source sum. Direction-dependent P/T/Z and the
+    # baseline terms M/Q require their own non-factorized oracles.
     jones = {
         "G": {"amplitude_error": 0.3, "phase_error_rad": 0.4},
         "B": {"model": {"kind": "polynomial", "coefficients": [1.0, 0.25]}},

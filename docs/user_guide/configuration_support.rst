@@ -69,8 +69,9 @@ Scientific ownership
    * - ``jones``
      - One optional block per enabled term — ``G``, ``B``, ``Rc``, ``Kd``,
        ``X``, ``D``, ``P``, ``Z``, ``T``, ``M``, ``Q`` — applied in the
-       canonical chain order regardless of key order; absence reproduces the
-       previous forward model exactly
+       canonical chain order regardless of key order; absence selects the
+       current empty optional-term inventory while the always-present factors
+       remain active
    * - ``execution``
      - Backend, precision, RIME simulator, and offline policy
    * - ``workflow``
@@ -138,9 +139,12 @@ Receptor support by mode
 A non-zero ``feed_rotation_deg`` is the **static** topocentric part of the
 receptor orientation for the whole observation. The time-dependent part is the
 separate ``jones.P`` term, and the two compose: the static feed rotation and
-the field rotation add, so an antenna at ``feed_rotation_deg`` with ``jones.P``
-enabled is the receptor at :math:`\chi + \psi(s, t)`. Which antennas rotate is
-a property of the instrument's per-antenna ``mount_type``, not of the
+the mount-dependent field rotation add. With
+:math:`\alpha_p=\eta_p\psi_p+\nu_p\mathrm{el}`, an antenna at
+``feed_rotation_deg`` is the receptor at :math:`\chi_p+\alpha_p`. Ordinary
+alt-az has :math:`\alpha_p=\psi_p`; Nasmyth mounts retain their signed elevation
+term. Which antennas rotate is a property of the instrument's per-antenna
+``mount_type``, not of the
 ``receptors`` section: an array with a rotating mount and no ``jones.P`` is
 rejected, and an array with no rotating mount that configures ``jones.P`` is
 rejected as an identity.

@@ -296,8 +296,8 @@ def test_a_cross_hand_phase_rotates_u_into_v_and_leaves_the_parallel_hands(
     With linear receptors and the same ``X`` on both antennas,
     ``V -> X V X^H``, so the parallel hands are untouched and the cross hands
     pick up ``exp(-i phi)`` and ``exp(+i phi)``.  Writing the cross hand as
-    ``(U + iV)/2`` in the clean run, the corrupted cross hand is
-    ``(U + iV) exp(-i phi)/2 = (U' + iV')/2`` -- which is exactly the statement
+    ``(U - iV)/2`` in the clean east-X run, the corrupted cross hand is
+    ``(U - iV) exp(-i phi)/2 = (U' - iV')/2`` -- which is exactly the statement
     that ``U`` rotates into ``V`` by ``phi``.  Both the algebraic form and the
     Stokes reading are asserted, because the second is the one a user cares
     about and the first is the one that localizes a bug.
@@ -316,24 +316,24 @@ def test_a_cross_hand_phase_rotates_u_into_v_and_leaves_the_parallel_hands(
     )
 
     # The Stokes reading of the same numbers.  The reported cross hand is
-    # ``(U + iV)/2`` times the common beam and fringe factor, so its real and
-    # imaginary parts are the ``(U, V)`` pair as the correlator sees it, and the
+    # ``(U - iV)/2`` times the common beam and fringe factor, so twice its real
+    # part and minus twice its imaginary part are the ``(U, V)`` pair, and the
     # statement "``U`` rotates into ``V`` by ``phi``" is that this pair rotates
     # rigidly -- same modulus, angle advanced by exactly ``phi``.
     clean_u = 2.0 * np.real(clean[..., 0, 1])
-    clean_v = 2.0 * np.imag(clean[..., 0, 1])
+    clean_v = -2.0 * np.imag(clean[..., 0, 1])
     rotated_u = 2.0 * np.real(rotated[..., 0, 1])
-    rotated_v = 2.0 * np.imag(rotated[..., 0, 1])
+    rotated_v = -2.0 * np.imag(rotated[..., 0, 1])
 
     np.testing.assert_allclose(
         rotated_u,
-        clean_u * math.cos(phase) + clean_v * math.sin(phase),
+        clean_u * math.cos(phase) - clean_v * math.sin(phase),
         rtol=1e-11,
         atol=1e-15,
     )
     np.testing.assert_allclose(
         rotated_v,
-        clean_v * math.cos(phase) - clean_u * math.sin(phase),
+        clean_v * math.cos(phase) + clean_u * math.sin(phase),
         rtol=1e-11,
         atol=1e-15,
     )

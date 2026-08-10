@@ -3,7 +3,9 @@
 ``Tier5ReceptorFeedPlan.md`` Section 20.1 requires exactly one module-level
 table, populated from the Section 14.2 rows.  Tier 5C creates it; Tier 5E and
 Tier 5F retire the four independent copies (defect D4) in favour of it.  Every
-literal below is transcribed from Section 14.2, not imported from RadioSim.
+label, code, and feed-name literal in ``SECTION_14_2`` is transcribed from that
+section.  The receptor matrices are independent oracles from the SCI-006
+east-X amendment, not imported from RadioSim.
 """
 
 from __future__ import annotations

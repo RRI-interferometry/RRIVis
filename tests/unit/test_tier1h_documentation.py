@@ -508,7 +508,7 @@ def test_tier3h2_final_runtime_and_science_truth_is_documented():
     assert "one canonical per-antenna ``BeamSystem``" in beam_guide
     assert "does not read FITS content" in beam_guide
     assert "no analytic fallback" in readme
-    assert "scalar E-Jones" in jones
+    assert "scalar E-Jones" in " ".join(jones.split())
     assert "Tier 7" in jones
     assert "beam_system" in simulator
     assert "beam_state" in simulator
@@ -765,6 +765,7 @@ def test_tier5g_configuration_guide_documents_every_receptor_mode():
     text = (REPOSITORY_ROOT / "docs" / "user_guide" / "configuration.rst").read_text(
         encoding="utf-8"
     )
+    collapsed = " ".join(text.split())
 
     for required in (
         "Receptor declarations",
@@ -787,10 +788,10 @@ def test_tier5g_configuration_guide_documents_every_receptor_mode():
         # statement the reader now needs: the static rotation and the field
         # rotation compose, and the mount pairing belongs to ``jones.P``.
         "``feed_rotation_deg`` is the **static** part of the orientation",
-        "Receptor resolution does not\nlook at ``mount_type`` at all",
+        "Receptor resolution does not look at ``mount_type`` at all",
     ):
-        assert required in text, required
-    assert "illumination" in text
+        assert required in collapsed, required
+    assert "illumination" in collapsed
 
 
 def test_tier5g_jones_guide_states_the_receptor_science_boundaries():
@@ -802,21 +803,20 @@ def test_tier5g_jones_guide_states_the_receptor_science_boundaries():
     for required in (
         "ReceptorConfigJones",
         "BasisTransformJones",
-        "Modelling assumption",
+        "Cross-basis reporting and interpretation",
         "Parallactic-angle boundary",
         "Chain order",
     ):
         assert required in text, required
-    assert (
-        "is exact **only** when both feeds are ideal, orthogonal, and share a "
-        "common complex gain" in collapsed
-    )
+    assert "is always an exact unitary coordinate change" in collapsed
+    assert "only when those matrices commute with ``H``" in collapsed
     # FLIPPED BY: Tier 7E.  Until this slice the guide said the conversion was
     # exact "because ``D`` and ``G`` are planned rather than implemented", and
     # promised to re-examine the claim when Tier 7 implemented ``D``.  Tier 7E
-    # implemented it, so the promise is discharged: the guide now names the two
-    # configurations that break exactness and says what to do instead.  The
-    # assertion moves with it rather than being deleted, because the property
+    # implemented it, so the promise is discharged: the guide now names the
+    # configurations that break output-native equivalence and says what to do
+    # instead.  The assertion moves with it rather than being deleted, because
+    # the property
     # being pinned -- that the guide states the boundary rather than implying
     # there is none -- is the same one.
     assert "any non-zero leakage" in collapsed
@@ -1316,7 +1316,7 @@ def test_tier7j_readme_states_the_implemented_jones_capability():
 
     assert "a typed `jones:` section" in text
     assert 'term_status: "implemented"' in text
-    assert "No exported term multiplies by the identity" in text
+    assert "No exported term is an unconditional identity stub" in text
 
 
 def test_tier7j_configuration_guide_shows_every_configurable_term():

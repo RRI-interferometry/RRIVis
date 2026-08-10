@@ -221,8 +221,9 @@ class RIMESimulator(VisibilitySimulator):
             Canonical resolved receptor inventory supplying the C and H terms.
 
         jones_terms : ResolvedJonesTerms
-            The run's resolved Jones-term inventory (Section 22).  Defaults to
-            the empty inventory, which is the historical forward model.
+            The run's resolved optional Jones-term inventory (Section 22).
+            Defaults to the current empty inventory; always-present beam,
+            receptor, reporting-basis, and geometric factors still apply.
 
         solver_execution : ResolvedSolverExecutionConfig, optional
             Resolved solver worker policy (``Tier6HybridRuntimePlan.md``

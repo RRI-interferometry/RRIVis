@@ -1044,7 +1044,7 @@ def test_jones_chain_docstring_records_the_designed_chain_order() -> None:
     assert "J_total = H @ G @ B @ Rc @ Kd @ X @ D @ P @ C @ E @ T @ Z" not in docstring
     assert "commute" in docstring
     collapsed = " ".join(docstring.split())
-    assert "M(basis) R(chi + psi) = C R(psi)" in collapsed
+    assert "M(basis) R(chi_p + alpha_p) = C R(alpha_p)" in collapsed
 
     # The composition really is terms[0] @ ... @ terms[-1], reversed at
     # evaluation time, which is what makes the add order the chain order.
@@ -1162,7 +1162,7 @@ def test_no_solver_or_simulator_accepts_a_jones_config(tmp_path) -> None:
             )
 
 
-def test_build_jones_chain_carries_only_the_terms_that_exist(
+def test_build_jones_chain_with_empty_optional_inventory_carries_owned_terms(
     tmp_path,
 ) -> None:
     """Pins the add order, and with it defect D12's observability status.
@@ -1307,12 +1307,11 @@ def test_the_parallactic_rotation_guard_is_gone_and_the_combination_is_legal(
     no supported entry point could arrange, so its message could never be seen
     by a user of the public API.
 
-    FLIPPED BY: Tier 7F.  The guard is deleted, and what it forbade is now the
-    physics: with ``P`` real and sky-side of ``C``,
-    ``C_p P_p = M(basis) R(chi + psi)`` is the full time-dependent receptor
-    orientation, which is exactly what ``Tier5ReceptorFeedPlan.md`` Section 12.3
-    said would happen "when Tier 7 implements ``P``".  A rotated receptor on a
-    rotating mount is therefore accepted and carried, not rejected.
+    FLIPPED BY: Tier 7F.  The guard is deleted and real ``P`` is sky-side of
+    ``C``; SCI-006 then fixes the native linear matrix. The current composition
+    is ``C_p P_p=M(basis)R(chi_p+alpha_p)``, where
+    ``alpha_p=eta_p psi_p+nasmyth_p el``. A rotated receptor on a rotating mount
+    is therefore accepted and carried, not rejected.
     """
     from radiosim.core.jones_terms import resolve_jones_terms
 
@@ -1773,7 +1772,7 @@ def test_documentation_no_longer_records_a_stub_surface() -> None:
     FLIPPED BY: Tier 7F for one assertion.  The guide's last "When Tier 7
     implements ..." promise was the one about ``P``, and this slice discharges
     it: ``P`` is implemented, the parallactic-angle boundary now states the
-    composition ``C_p P_p = M(basis) R(chi + psi)`` rather than a deferral, and
+    composition ``C_p P_p=M(basis)R(chi_p+alpha_p)`` rather than a deferral, and
     the guide carries no outstanding promise at all.  The property being pinned
     -- that the guide describes what is there rather than what is coming -- is
     strengthened, so the assertion is inverted rather than deleted.
@@ -1824,7 +1823,8 @@ def test_documentation_no_longer_records_a_stub_surface() -> None:
     # what is pinned here -- is the terminal statement itself, in both of the
     # places a reader could look: the opening paragraph and the section that
     # replaced "Planned terms".
-    assert "All fifteen declare ``term_status: implemented``" in guide
+    assert "All thirteen exported concrete terms" in guide
+    assert "declare ``term_status: implemented``" in guide
     assert "No term is planned any more" in guide
     assert "term_status: planned" not in guide
     assert "``M`` and ``Q``" not in guide.split("No term is planned any more")[1]
@@ -1902,9 +1902,9 @@ def test_shipped_default_config_fingerprint_is_unchanged(tmp_path) -> None:
 def test_shipped_circular_receptor_config_fingerprint_is_unchanged(tmp_path) -> None:
     """Re-asserts Tier 6's ``receptor_circular_example.yaml`` pins for Tier 7.
 
-    This is the configuration whose ``C``/``H`` terms are not the identity, so
-    it is the one that would catch a 7B dtype or ordering regression in the
-    receptor path.
+    This is the configuration whose ``C=S`` term is not the identity.  Its
+    matched circular output makes ``H=I2``; together they still catch a 7B
+    dtype or ordering regression in the receptor path.
     """
     result = _run_shipped_config("receptor_circular_example.yaml", tmp_path)
     assert result.visibilities.shape == (6, 15, 3, 4)

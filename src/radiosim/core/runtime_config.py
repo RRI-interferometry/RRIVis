@@ -463,9 +463,9 @@ class ResolvedSimulationConfig:
     execution: ResolvedExecutionConfig
     receptors: ReceptorsConfig = field(default_factory=_default_receptors_config)
     #: The Tier 7 ``jones:`` section, carried through resolution untouched.
-    #: ``None`` means the document had no section, which is the historical
-    #: forward model bit for bit; an empty section never reaches here because
-    #: :func:`~radiosim.core.jones_terms.resolve_jones_terms` rejects it (R2).
+    #: ``None`` means the document selected the current empty optional-term
+    #: inventory.  An authored empty section can reach this record, then Jones
+    #: resolution rejects it under R2 before simulation setup completes.
     jones: JonesConfig | None = None
 
     def __post_init__(self) -> None:

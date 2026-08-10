@@ -339,11 +339,13 @@ Two rules are worth stating because they are what keeps an absent block honest:
 Jones-term declarations
 -----------------------
 
-``jones`` selects which instrumental Jones terms corrupt the simulated
-visibilities. The whole section is optional, every term inside it is optional,
-and omitting it produces exactly the visibilities — and exactly the
-``scientific_sha256`` — that a document without the section produced before it
-existed.
+``jones`` selects which optional instrumental Jones terms corrupt the simulated
+visibilities. The whole section is optional and every term inside it is
+optional. Omitting it selects the current empty optional-term inventory and
+adds no Jones-term component to ``scientific_sha256``. The always-present beam,
+receptor, reporting-basis, and geometric factors still apply. In particular,
+omitting ``jones`` does not restore the pre-SCI-006 receptor convention or its
+polarized linear values.
 
 RadioSim implements eleven configurable terms today, and every letter this
 section accepts names a term that runs. Nine are per-antenna chain terms: ``G``
@@ -564,7 +566,10 @@ multi-feed antenna, elliptical or non-orthogonal feed pairs, independent
 per-feed angles, and a frequency- or time-dependent basis are all rejected.
 ``feed_rotation_deg`` is the **static** part of the orientation; the
 time-dependent part is ``jones.P``, and the two compose into a rotation by
-:math:`\chi + \psi(t)` rather than conflicting. Receptor resolution does not
-look at ``mount_type`` at all — that is ``jones.P``'s pairing, above. The
+:math:`\chi_p+\alpha_p`, where
+:math:`\alpha_p=\eta_p\psi_p+\nu_p\mathrm{el}`. Ordinary alt-az reduces to
+:math:`\chi_p+\psi_p`; Nasmyth mounts retain the signed elevation term.
+Receptor resolution does not look at ``mount_type`` at all — that is
+``jones.P``'s pairing, above. The
 removed top-level ``feeds`` key is rejected with a pointer at this section; see
 :doc:`../migration_guide`.

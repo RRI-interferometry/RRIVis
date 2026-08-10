@@ -140,16 +140,16 @@ JONES_SCHEMA_VERSION = "1.0.0"
 #:
 #:     J = H @ G @ B @ Rc @ Kd @ X @ D @ C @ E @ P @ T @ Z
 #:
-#: The full designed order is written out here even though not every letter is
-#: implemented yet, so that the ordering lives in exactly one place and each
-#: later slice adds physics rather than re-deciding where its term goes.
+#: Every canonical letter is implemented.  The complete order lives in exactly
+#: one place so configuration key order cannot change the matrix product.
 #:
 #: ``P`` sits **sky-side** of ``C`` (Tier 7F, defect D12).  Tier 5 Section 19.1
 #: placed it correlator-side, which is wrong for a circular receptor: the
-#: physical composite is ``M(circular) R(chi + psi) = C R(psi)``, so the field
-#: rotation must be the right-hand factor.  SCI-006 makes the native linear
-#: matrix ``P`` rather than ``I2``; neither ``P`` nor the circular ``S`` may be
-#: commuted across a general field rotation.
+#: physical composite is ``M(circular) R(chi_p + alpha_p) = C R(alpha_p)``,
+#: where ``alpha_p=eta_p psi_p+nasmyth_p el``, so the field rotation must be the
+#: right-hand factor.  SCI-006 makes the native linear matrix ``P`` rather than
+#: ``I2``; neither ``P`` nor the circular ``S`` may be commuted across a general
+#: field rotation.
 CANONICAL_CHAIN_ORDER: tuple[str, ...] = (
     "H",
     "G",
@@ -247,12 +247,14 @@ class JonesProvenance:
     Parameters
     ----------
     enabled_terms
-        Everything that was actually applied: the composed chain in canonical
-        order, including the three the solver always adds (``H``, ``C``, ``E``),
-        followed by the baseline-dependent Hadamard terms.  Leaving the
-        always-on terms out would make the record read as though a run with no
-        ``jones:`` section applied nothing at all, and leaving ``M`` and ``Q``
-        out would make it read as though a smeared run were not.
+        For a non-empty optional-term record, everything that was actually
+        applied: the composed chain in canonical order, including the three the
+        solver always adds (``H``, ``C``, ``E``), followed by the
+        baseline-dependent Hadamard terms.  The current empty optional-term
+        inventory deliberately carries ``()`` and emits no Jones snapshot;
+        always-present factors are fingerprinted by their owning receptor and
+        beam records instead.  In a non-empty record, omitting ``M`` or ``Q``
+        would falsely describe a smeared run as unsmeared.
     chain_order
         The composed **chain** only.  The two tuples were identical until
         Tier 7H, and they differ exactly by the baseline terms: neither ``M``
@@ -376,7 +378,7 @@ class ResolvedJonesTerms:
 
     @property
     def is_empty(self) -> bool:
-        """``True`` when this run configured no Jones term at all."""
+        """``True`` when this run configured no optional Jones or baseline term."""
         return not self.chain_terms and not self.baseline_terms
 
     @property
@@ -405,10 +407,11 @@ class ResolvedJonesTerms:
 
         The empty return is load-bearing.  A run with no ``jones:`` section
         contributes **nothing** to ``scientific_sha256`` -- not an empty object,
-        not a null, nothing -- so its digest is bit-identical to the same
-        configuration before this section existed (invariant I1).  A section
-        that is present but configures no term never reaches here: it is
-        rejected as R2.
+        not a null, nothing -- so equivalent current runs with the empty
+        optional-term inventory have no Jones snapshot distinction (invariant
+        I1).  Always-present factors, including the canonical receptor
+        convention, are fingerprinted elsewhere.  A section that is present
+        but configures no term never reaches here: it is rejected as R2.
         """
         if not self.provenance.enabled_terms:
             return {}
@@ -480,7 +483,7 @@ def _compute_jones_sha256(
 
 
 def _empty_jones_provenance() -> JonesProvenance:
-    """Return the provenance of a run that configured no Jones term."""
+    """Return provenance for the current empty optional Jones/baseline inventory."""
     return JonesProvenance(
         schema_version=JONES_SCHEMA_VERSION,
         enabled_terms=(),
@@ -496,8 +499,8 @@ def _empty_jones_provenance() -> JonesProvenance:
     )
 
 
-#: The inventory of a run with no ``jones:`` section.  Solvers default to it, so
-#: a direct solver call is exactly the pre-Tier-7D forward model.
+#: The empty optional-term inventory used when no ``jones:`` section exists.
+#: Always-present beam/receptor/basis/geometric factors are outside this value.
 EMPTY_JONES_TERMS: ResolvedJonesTerms = ResolvedJonesTerms()
 
 
@@ -590,7 +593,7 @@ def _reject_unsupported_mounts(
       the term would mean a ``phased`` mount, which Tier 5 rejected outright,
       became a silent ``fixed`` in every run that did not enable ``P``.  An
       unspecified mount (``None``) is the ``fixed`` case and is never rejected;
-      that is what invariant I1 rests on.
+      its optional ``P`` contribution is exactly the identity (I1).
     * **R15** -- an antenna's feeds rotate relative to the sky
       (:data:`~radiosim.core.jones.parallactic.ROTATING_MOUNT_TYPES`) and
       ``jones.P`` is not enabled.  ``equatorial`` is deliberately outside that
@@ -1283,9 +1286,8 @@ def resolve_jones_terms(
     ----------
     config
         The strict ``jones:`` input section, or ``None`` when the document has
-        none.  ``None`` returns :data:`EMPTY_JONES_TERMS` without touching
-        anything else, so a configuration that does not mention ``jones:``
-        cannot be perturbed by this function's existence (invariant I1).
+        none.  ``None`` returns :data:`EMPTY_JONES_TERMS` without adding an
+        optional Jones factor or snapshot (invariant I1).
     instrument
         The already-resolved canonical instrument.  Supplies the antenna numbers
         every ``per_antenna`` entry is validated against, the antenna *order*

@@ -191,8 +191,9 @@ Pointing offsets and surface errors
 
 Two optional ``beams`` blocks describe the mount and the dish rather than the
 beam model, so both are accepted in all four modes and both are per-antenna.
-Absent, they change nothing: the cube, every beam fingerprint, and
-``scientific_sha256`` are what they were without them.
+Their absence adds no optional pointing or surface-error effect or snapshot, so
+otherwise equivalent current runs have the same cube, beam fingerprints, and
+``scientific_sha256``.
 
 ``beams.pointing`` is a **deterministic mount mispointing**. The two angles are
 a fixed rotation of that antenna's beam frame relative to the topocentric

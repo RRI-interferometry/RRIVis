@@ -6,6 +6,44 @@ import numpy as np
 
 from tools import wp5_sci006_fingerprint as wp5
 
+_HISTORICAL_HETEROGENEOUS_PY311 = (
+    "c7b51d022de6c917ee8a3359d2f5f20600a8259e52977555b5148dc32a4718c1"
+)
+_POST_SCI006_HETEROGENEOUS_PY311 = (
+    "9f07661c3348515e5fd1acc478606badd2f4c8a143f67008f8922aabedff04c5"
+)
+
+
+def test_historical_dispatch_digest_is_retained_but_not_an_active_pin() -> None:
+    """Keep the old CI-001 proof without accepting pre-correction physics."""
+    adjudication = (
+        wp5.characterization.REPO_ROOT
+        / "docs"
+        / "development"
+        / "ci001_adjudication.md"
+    ).read_text(encoding="utf-8")
+    active = wp5.characterization._WORKLOAD_DIGESTS["heterogeneous_receptor_bases"][
+        "linux-64-py311"
+    ]
+
+    assert _HISTORICAL_HETEROGENEOUS_PY311 in adjudication
+    assert _POST_SCI006_HETEROGENEOUS_PY311 in adjudication
+    for provenance_token in (
+        "31273416758",
+        "424b4b90dcb162f4d54a3cb4f4abf2516269ca44",
+        "93143054023",
+        "9026308532",
+        "ci001-experiment-31273416758-draw3",
+        "AVX512_SKX",
+        "Cooperlake",
+    ):
+        assert provenance_token in adjudication
+    assert _HISTORICAL_HETEROGENEOUS_PY311 not in repr(
+        wp5.characterization._WORKLOAD_DIGESTS
+    )
+    assert _HISTORICAL_HETEROGENEOUS_PY311 not in active
+    assert _POST_SCI006_HETEROGENEOUS_PY311 in active
+
 
 def test_feed_asymmetric_mapping_keeps_gains_on_physical_east_x_and_north_y() -> None:
     before = np.array(

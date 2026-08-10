@@ -3,23 +3,28 @@ Jones Matrix Framework
 
 RadioSim exposes a Jones-term framework in which every exported term carries
 real physics and says so. The high-level ``Simulator`` always applies geometric
-phase (K), the canonical scalar E-Jones primary beam, the receptor
-configuration (C), and the output basis transform (H). Nine further terms —
+phase (K, a separate per-baseline function), the private solver-owned scalar
+E-Jones primary beam, and the exported receptor configuration (C) and output
+basis transform (H). Nine further exported Jones terms —
 gain (G), bandpass (B), cable reflection (Rc), instrumental delay (Kd),
 cross-hand phase and delay (X), polarization leakage (D), parallactic angle (P),
 troposphere (T), and ionosphere (Z) — are applied when the ``jones:`` section
 configures them; see :doc:`jones_terms` for each one's mathematics, units,
-citation, and configuration. Those thirteen are every per-antenna term in the
-chain.
+citation, and configuration. The per-antenna matrix chain contains the three
+solver-owned factors ``H``, ``C``, and ``E`` plus any configured optional term;
+K remains outside that chain.
 
 Two further exported terms — ``M`` (per-baseline closure error) and ``Q`` (time
 and bandwidth smearing) — are **not** ``JonesTerm`` at all: both are
 ``JonesBaselineTerm``, applied by Hadamard product to finished visibilities
-rather than by matrix multiplication. They are implemented too. All fifteen
-declare ``term_status: implemented``; none multiplies by the identity, and none
-can be configured into doing nothing. Tier 7 of the remediation programme is
-what turned each of them from a name into physics, one slice at a time, and
-``M`` and ``Q`` were the last two.
+rather than by matrix multiplication. They are implemented too. All thirteen
+exported concrete terms (eleven ``JonesTerm`` classes plus ``M`` and ``Q``)
+declare ``term_status: implemented``; none is an unconditional identity stub,
+and no optional block may resolve to an identity Jones or baseline factor.
+Parameter-dependent identity cases remain where an always-present physical
+transform is genuinely neutral. Tier 7 of the remediation programme is what
+turned each term from a name into physics, one slice at a time, and ``M`` and
+``Q`` were the last two.
 
 RIME context
 ------------
@@ -79,8 +84,10 @@ canonical sky basis ordered ``(North, East)``, the brightness matrix is
    \begin{bmatrix} I + Q & U + iV \\ U - iV & I - Q \end{bmatrix}.
 
 The one-half factor is RadioSim's half-power convention, so
-:math:`V_{xx} + V_{yy} = I` and :math:`V_{RR} + V_{LL} = I` rather than
-:math:`2I`. The ``U + iV`` placement in the ``[0, 1]`` element is the
+:math:`\operatorname{Tr}(B)=I` rather than :math:`2I`. In an ideal matched
+unit-response system this also gives :math:`V_{xx} + V_{yy} = I` and
+:math:`V_{RR} + V_{LL} = I`; heterogeneous or non-unitary Jones chains need not
+preserve those sums. The ``U + iV`` placement in the ``[0, 1]`` element is the
 literature convention for linear feeds under the IAU definition of :math:`V`;
 earlier RadioSim releases carried the mirror-image sign, which is only
 observable in the cross hands of a source with non-zero :math:`V`. See
@@ -146,39 +153,43 @@ in the linear basis and
 in the circular basis. A linear feed rotation by :math:`\chi` rotates
 :math:`(Q, U)` by :math:`2\chi` and leaves :math:`I` and :math:`V` unchanged; a
 circular rotation leaves :math:`RR` and :math:`LL` unchanged and multiplies
-:math:`RL` by :math:`e^{-2i\chi}`. For an unpolarized source,
-:math:`V[0,0] + V[1,1] = I` and the cross hands vanish in every supported basis
-and at every feed rotation.
+:math:`RL` by :math:`e^{-2i\chi}`. For an unpolarized source with a matched
+unitary receptor/reporting transform and common scalar response :math:`c`, the
+reported matrix is :math:`c I_2`: its trace is :math:`2c` and the cross hands
+vanish in every supported basis. The unit-response case has :math:`c=I/2`.
 
-Modelling assumption
-~~~~~~~~~~~~~~~~~~~~
+Cross-basis reporting and interpretation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Converting a circular-native antenna into a linear output basis, or the reverse,
-is exact **only** when both feeds are ideal, orthogonal, and share a common
-complex gain. Two configurations now break that condition, and both are
-reachable:
+is always an exact unitary coordinate change applied after the antenna's
+native-feed effects. What is conditional is a different interpretation: the
+reported result is equivalent to a hypothetical antenna whose same component
+matrices acted natively in the output basis only when those matrices commute
+with ``H``. Reachable non-commuting cases include:
 
 * ``jones.D`` — any non-zero leakage. ``D`` is not diagonal, so it does not
   commute with the basis change ``H``, and the reported correlations carry
-  ``H D H^{H}`` rather than ``D``. The discrepancy between the reported
-  quantity and an ideal-feed one is first order in :math:`|d|`.
+  ``H D H^{H}`` rather than ``D``. The difference from the hypothetical
+  output-native instrument is first order in :math:`|d|`.
 * ``jones.G``, ``jones.B``, ``jones.Kd`` or ``jones.Rc`` configured **per feed**
   — a gain, bandpass, delay or reflection that differs between an antenna's two
   feeds. Each is diagonal, so it commutes with ``H`` only when its two diagonal
   entries agree; a feed-asymmetric one does not, and the error is first order in
   the feed ratio :math:`(g_0 - g_1)/(g_0 + g_1)`. A feed-symmetric value is
-  scalar and remains exact. ``jones.X`` is per construction a *relative* phase
-  between the two feeds, so it is never feed-symmetric and never commutes with
-  ``H``.
+  scalar and commutes with ``H``. ``jones.X`` is per construction a *relative*
+  phase between the two feeds; whenever its two diagonal entries differ it is
+  not feed-symmetric and generally does not commute with ``H``. If a resolved
+  ``X`` matrix is exactly :math:`I_2`, it is neutral and commutes trivially.
 
-None of this is an approximation RadioSim makes silently: the forward model
-applies each term in the antenna's own basis at its own place in the chain
-(Section 12.2 of ``Tier7JonesSciencePlan.md``), and the reported cube is the
-exact result of that chain. What becomes approximate is the *interpretation* of
-a circular-native run reported in a linear basis — or the reverse — as though it
-were a linear-native one. If you need the exact receptor-frame quantities, set
+RadioSim makes no approximation here: the forward model applies each term in
+the antenna's own basis at its own place in the chain (Section 12.2 of
+``Tier7JonesSciencePlan.md``), and the reported cube is the exact coordinate
+transform of that result. The only invalid shortcut is interpreting a
+cross-basis result as though the same non-commuting electronics belonged to a
+native output-basis antenna. To inspect receptor-frame quantities directly, set
 ``receptors.output_basis`` to the antennas' own basis, which makes ``H`` the
-identity and removes the question.
+identity.
 
 Elliptical and non-orthogonal feed pairs are still rejected rather than
 approximated: those would break the *receptor* model itself, not merely the
@@ -197,14 +208,18 @@ The two compose, and this is the composition the ordering below exists for:
 
 .. math::
 
-   C_p\, P_p = M(\mathrm{basis}_p)\, R(\chi_p)\, R(\psi_p(s, t))
-             = M(\mathrm{basis}_p)\, R(\chi_p + \psi_p(s, t)),
+   \begin{aligned}
+   \alpha_p &= \eta_p\psi_p(s,t)+\nu_p\mathrm{el}(s,t), \\
+   C_p\,P_p &= M(\mathrm{basis}_p)R(\chi_p)R(\alpha_p) \\
+             &= M(\mathrm{basis}_p)R(\chi_p+\alpha_p).
+   \end{aligned}
 
 so the static feed rotation and the field rotation **add**. There is no
 double-rotation and no dropped one: enabling ``jones.P`` on an array with a
 non-zero ``feed_rotation_deg`` is legal, and the composite is the receptor at
-:math:`\chi + \psi`. Earlier releases rejected that combination outright; see
-:doc:`../migration_guide`.
+:math:`\chi_p+\alpha_p`. Ordinary alt-az has :math:`\alpha_p=\psi_p`; Nasmyth
+right/left retain the signed elevation term. Earlier releases rejected that
+combination outright; see :doc:`../migration_guide`.
 
 Which antennas rotate is a property of the **instrument**, not of the
 ``receptors`` section: each antenna's ``mount_type`` decides it. ``alt-az`` and
@@ -248,17 +263,23 @@ What in that order is physical, and what is convention
   ``Kd`` or ``Rc``, nor with ``X``.
 * **Physical, and tested.** ``P`` sits **sky-side** of ``C`` and ``E``. A field
   rotation acts on the incoming field in the linear topocentric frame, before
-  the receptor sees it, so :math:`C_p P_p = M(\mathrm{basis}) R(\chi + \psi)`
-  is a single rotation of the receptor pair. Earlier releases placed ``P``
+  the receptor sees it, so
+  :math:`C_p P_p=M(\mathrm{basis})R(\chi_p+\alpha_p)` is a single rotation of
+  the receptor pair. Earlier releases placed ``P``
   correlator-side of ``C``, following Tier 5's factorization; that is wrong for
   a circular receptor, where it would apply a real 2x2 rotation to the
-  :math:`(R, L)` pair. Since :math:`S R(\psi) = \mathrm{diag}(e^{-i\psi},
-  e^{+i\psi}) S`, the correct effect on circular polarizations is a pair of
-  opposite phases, which multiplies :math:`V_{RL}` by :math:`e^{-2i\psi}` and
-  :math:`V_{LR}` by :math:`e^{+2i\psi}`. The two orders agree exactly for a
-  linear receptor, where :math:`M = I_2` and rotations commute, which is why the
-  error was unobservable while ``P`` did not exist. See
-  :doc:`../migration_guide`.
+  :math:`(R, L)` pair. Since
+  :math:`S R(\alpha_p)=\mathrm{diag}(e^{-i\alpha_p},e^{+i\alpha_p})S`, the
+  correct effect on circular polarizations is a pair of opposite phases, which
+  multiplies :math:`V_{RL}` by :math:`e^{-2i\alpha_p}` and :math:`V_{LR}` by
+  :math:`e^{+2i\alpha_p}`. The retired pre-SCI-006 linear binding
+  used :math:`M_{\mathrm{old}}=I_2`; that special case made the two placements
+  agree and hid the error while ``P`` did not exist. The current east-X binding
+  uses :math:`M(\mathrm{linear})=P`, and
+  :math:`P R(\alpha_p) \ne R(\alpha_p)P` for a generic rotation with
+  :math:`\sin(\alpha_p) \ne 0`. The executable oracle
+  therefore distinguishes the orders for both linear and circular receptors.
+  See :doc:`../migration_guide`.
 * **Not yet observable.** The relative order of ``E`` and ``P``. ``E`` is a
   scalar complex voltage on the diagonal, so it commutes with everything and
   ``C E P`` and ``C P E`` are numerically identical. The order is fixed at

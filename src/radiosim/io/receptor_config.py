@@ -92,8 +92,10 @@ class ReceptorsConfig(StrictFrozenModel):
 
     Notes
     -----
-    The default instance reproduces the pre-Tier-5 behavior exactly: every
-    antenna linear, zero rotation, and a ``linear_xy`` output basis.
+    The default instance resolves every antenna as linear with zero feed
+    rotation and a ``linear_xy`` output basis.  Under the declared east-X
+    convention its receptor matrix is the North/East-to-X/Y permutation, not
+    the historical identity matrix.
     """
 
     default: ReceptorDefinitionConfig = Field(default_factory=ReceptorDefinitionConfig)

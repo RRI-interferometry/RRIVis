@@ -251,7 +251,7 @@ def solver_components_with_jones(
 
 
 def test_an_absent_section_resolves_to_the_empty_inventory(tmp_path) -> None:
-    """The property invariant I1 rests on: absence changes nothing at all."""
+    """Invariant I1: absence enables no optional Jones or baseline term."""
     resolved = resolve_for(tmp_path, None)
 
     assert resolved is EMPTY_JONES_TERMS

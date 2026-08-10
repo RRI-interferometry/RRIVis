@@ -5,12 +5,11 @@ Jones parameter changes ``scientific_sha256``; changing no Jones parameter
 leaves it unchanged; ``instrument_sha256`` is unchanged by every Jones
 configuration.
 
-The absence half of **I1** is here too, at the fingerprint level: a run with no
-``jones:`` section must produce the digest it produced before the section
-existed.  That is not a convenience -- every environment-keyed cube and
-fingerprint pin in the repository depends on it, and a Jones record that hashed
-an empty placeholder would have invalidated all of them for no scientific
-reason.
+The absence half of **I1** is here too, at the fingerprint level: equivalent
+current runs with no ``jones:`` section add no optional Jones snapshot to the
+digest.  Always-present factors, including the canonical receptor convention,
+are fingerprinted independently; this test does not promise pre-SCI-006 digest
+compatibility.
 """
 
 from __future__ import annotations
@@ -53,10 +52,10 @@ def _run(tmp_path, jones: dict[str, Any] | None, name: str = "run"):
 def test_absence_leaves_the_scientific_fingerprint_unchanged(tmp_path) -> None:
     """The I1 property at the digest level, and the cube with it.
 
-    Two runs of the same configuration, one of which merely knows about the
-    ``jones:`` section, must be the same run.  Byte equality of the cube is
-    asserted alongside the digest, because a digest can agree for the wrong
-    reason and a cube cannot.
+    Two current runs of the same configuration and empty optional-term
+    inventory must be the same run.  Byte equality of the cube is asserted
+    alongside the digest, because a digest can agree for the wrong reason and a
+    cube cannot.
     """
     first = _run(tmp_path, None, "a")
     second = _run(tmp_path, None, "b")
@@ -215,12 +214,14 @@ def test_the_summary_json_carries_the_bounded_jones_block(tmp_path) -> None:
     assert block["terms"]["G"]["amplitude_error"] == pytest.approx(0.02)
 
 
-def test_a_summary_from_a_run_with_no_terms_says_so_explicitly(tmp_path) -> None:
+def test_a_summary_from_a_run_with_no_optional_terms_says_so_explicitly(
+    tmp_path,
+) -> None:
     """Empty lists and a ``null`` digest, not an absent key.
 
-    A reader must be able to tell "this run enabled nothing" from "this summary
-    predates the Jones record", and only one of those two is expressible by
-    omitting the block.
+    A reader must be able to tell "this run enabled no optional term" from
+    "this summary predates the optional Jones record", and only one of those
+    two is expressible by omitting the block.
     """
     result = _run(tmp_path, None, "run")
     path = write_result_summary_json(result, tmp_path / "run.summary.json")

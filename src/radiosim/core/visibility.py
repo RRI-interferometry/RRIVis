@@ -62,8 +62,8 @@ from radiosim.core.solver_partition import (
 logger = logging.getLogger(__name__)
 
 #: The factors of a run that configured no baseline-dependent term: both
-#: ``None``, so every ``is not None`` guard below is false and the arithmetic is
-#: exactly the pre-Tier-7H one.
+#: ``None``, so every ``is not None`` guard below is false and no optional
+#: baseline-factor multiplication is executed.
 EMPTY_BASELINE_FACTORS = BaselineFactors()
 
 
@@ -400,9 +400,9 @@ def calculate_visibility(
         The run's resolved Jones-term inventory
         (``Tier7JonesSciencePlan.md`` Section 22), resolved once in
         ``Simulator.setup()`` and spliced into the chain at each term's
-        canonical position.  The default is the empty inventory, which composes
-        exactly ``H @ C @ E`` -- the chain as it stood before the ``jones:``
-        section existed.
+        canonical position.  The default is the current empty optional-term
+        inventory, which composes exactly ``H @ C @ E`` with the canonical
+        receptor convention.
     solver_execution : ResolvedSolverExecutionConfig, optional
         Resolved solver worker policy. ``workers=1`` (the default) is the exact
         serial path; ``workers=N`` distributes contiguous time blocks over a
@@ -832,8 +832,9 @@ def calculate_visibility(
 
             # The baseline-dependent Hadamard terms (Section 15), through the
             # one evaluator both solvers share.  The whole block is skipped when
-            # the run configured none, so a run without them is bit-identical to
-            # one from before they existed (invariant I1).
+            # the run configured none, so equivalent current runs with the
+            # empty optional baseline-term inventory execute no baseline-factor
+            # multiplication (invariant I1).
             baseline_factors = EMPTY_BASELINE_FACTORS
             if baseline_terms:
                 baseline_factors = evaluate_baseline_factors(
@@ -923,9 +924,9 @@ def _build_jones_chain(
 
     ``P`` sits sky-side of ``C`` and ``E``, which is Tier 7F's correction to the
     Tier 5 Section 19.1 order (defect D12): a field rotation acts on the
-    incoming field in the linear topocentric frame, so ``C_p P_p`` is the
-    receptor at ``chi + psi`` rather than a rotation of the receptor's own
-    output pair.
+    incoming field in the linear topocentric frame.  With
+    ``alpha_p=eta_p psi_p+nasmyth_p el``, ``C_p P_p`` is the receptor at
+    ``chi_p+alpha_p`` rather than a rotation of the receptor's own output pair.
 
     ``H``, ``C`` and ``E`` are the three terms the solver always owns: ``H`` and
     ``C`` because they come from the resolved receptor set rather than from

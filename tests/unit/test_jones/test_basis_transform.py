@@ -1,8 +1,12 @@
 """Tier 5C basis-transform Jones (term ``H``) mathematics.
 
-Oracles transcribed from ``Tier5ReceptorFeedPlan.md`` Sections 18.1, 18.3, 18.6,
-and 18.7.  Invariants covered: S6, S9, and the analytic exactness statement of
-Section 11.3 that underpins S10.
+Rotation and invariant oracles come from ``Tier5ReceptorFeedPlan.md`` Sections
+18.1, 18.3, 18.6, and 18.7.  The basis table is that contract as amended by
+SCI-006's east-X permutation.  Invariants covered: S6, S9, and the exact
+coordinate-change contract for ``H`` that underpins S10.  The old Section 11.3
+qualification is superseded: ``H`` is always exact, while equivalence to a
+hypothetical output-native instrument depends on intervening native-feed
+effects.
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ from tests.unit.test_jones.test_receptor import (
     make_receptor_set,
 )
 
-# Section 18.3, transcribed.
+# Tier 5 Section 18.3 as amended by SCI-006.
 PLAN_TRANSFORMS = {
     ("linear", "linear_xy"): IDENTITY,
     ("circular", "circular_rl"): IDENTITY,
@@ -45,12 +49,14 @@ PLAN_TRANSFORMS = {
 
 
 # ---------------------------------------------------------------------------
-# The Section 18.3 table
+# The SCI-006-amended Section 18.3 table
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(("native", "output"), tuple(PLAN_TRANSFORMS))
-def test_transform_table_matches_section_18_3(native: str, output: str) -> None:
+def test_transform_table_matches_sci006_amended_section_18_3(
+    native: str, output: str
+) -> None:
     np.testing.assert_allclose(
         basis_transform_matrix(native, output),
         PLAN_TRANSFORMS[(native, output)],
@@ -215,7 +221,7 @@ def test_the_identity_transforms_are_exactly_the_identity() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Section 11.3 exactness -- the analytic core of S10
+# Exact H @ C representation change with no intervening native-feed effects
 # ---------------------------------------------------------------------------
 
 
@@ -232,10 +238,11 @@ def test_circular_native_into_linear_output_equals_linear_native(
     stokes,
     rotation_deg: float,
 ) -> None:
-    """A change of representation, not of physics: H C is the same product.
+    """With no intervening native-feed effect, ``H @ C`` is one representation.
 
-    This is the per-antenna analytic core of S10; the full solver-level S10
-    lands with Tier 5D's chain wiring.
+    This ideal per-antenna equality is the analytic core of S10.  It does not
+    assert that ``H`` commutes through gains, leakage, or other native-feed
+    effects.
     """
     view = make_instrument_view(2)
     coherency = np.asarray(stokes_to_coherency(*stokes))

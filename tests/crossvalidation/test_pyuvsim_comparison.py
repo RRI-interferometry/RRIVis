@@ -472,10 +472,13 @@ def test_unpolarized_point_sources_match_pyuvsim(tmp_path, unit_beamfits):
     """The geometric half of the RIME agrees to double-precision round-off.
 
     Four unpolarized sources, three coplanar antennas, three times and three
-    frequencies, a unit beam, no ``jones:`` section and a ``fixed`` mount, so
-    the only physics in play is ``K`` (fringe), the coordinate chain, and the
-    flux-to-coherency normalisation.  Under convention mapping 1 the two cubes
-    must agree to round-off; the committed artifact records the measured value.
+    frequencies, a unit beam, no optional ``jones:`` terms and a ``fixed``
+    mount.  The current chain still applies unit ``E``, east-X ``C=P``, and
+    matching-output ``H=I2`` alongside ``K`` (fringe), the coordinate chain,
+    and flux-to-coherency normalization.  For this unpolarized comparison the
+    unitary receptor factor cancels between the two sides of the coherency.
+    Under convention mapping 1 the cubes must agree to round-off; the committed
+    artifact records the measured value.
     """
     skyh5 = tmp_path / "unpolarized.skyh5"
     sky = _write_sky(

@@ -290,9 +290,10 @@ def calculate_visibility_healpix(
         Canonical frequency centers in Hz.
     receptors : ResolvedReceptorSet
         Canonical resolved receptor inventory from ``resolve_receptors()``.
-        Every antenna's beam Jones is left-multiplied by the constant
-        ``H_p @ C_p``, in both the polarized and the scalar path, so cross-hand
-        outputs are zero in the reported basis rather than by assumption.
+        Supplies the always-present ``C`` and ``H`` factors at their canonical
+        positions in the same chain used by the point path.  Reported
+        cross-hands follow the selected basis and the complete configured
+        physics; they are not forced to zero.
     jones_terms : ResolvedJonesTerms, optional
         The run's resolved Jones-term inventory (``Tier7JonesSciencePlan.md``
         Section 22).  It reaches the chain through the *same*
@@ -485,9 +486,9 @@ def calculate_visibility_healpix(
             # The same chain the point solver builds, evaluated through the same
             # shared evaluator: this is what closes defect D4, so a Jones term
             # can no longer apply to point sources and silently not apply to
-            # diffuse sky.  The chain is exactly ``H``, ``C``, ``E`` -- the only
-            # three terms that exist -- but it is now reachable by construction
-            # rather than by a second, private implementation.
+            # diffuse sky.  Optional terms are spliced at their canonical
+            # positions; the current empty optional-term inventory composes
+            # exactly ``H @ C @ E``.
             chain = _build_jones_chain(
                 backend,
                 instrument,
@@ -640,8 +641,9 @@ def calculate_visibility_healpix(
             # same evaluator the point path uses -- which is what stops a
             # configured ``M`` or ``Q`` from corrupting point sources and
             # silently leaving the diffuse sky clean (defect D4, one axis over).
-            # Skipped entirely when the run configured none, so the diffuse path
-            # stays bit-identical (invariant I1).
+            # Skipped entirely when the run configured none, so equivalent
+            # current runs with the empty optional baseline-term inventory
+            # execute no baseline-factor multiplication (invariant I1).
             baseline_factors = EMPTY_BASELINE_FACTORS
             envelope: Any = 1.0
             if baseline_terms:

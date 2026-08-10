@@ -729,8 +729,10 @@ _JONES_SNAPSHOT_KEYS = (
 def _jones_result_snapshot(jones_terms: object) -> Mapping[str, object]:
     """Return the JSON-safe Jones snapshot for a live resolved inventory.
 
-    Returns an empty mapping when no term was configured, which is what keeps
-    the scientific fingerprint of a ``jones:``-free run unchanged (I1).
+    Returns an empty mapping when no optional term was configured, so equivalent
+    current runs with an empty optional-term inventory add no Jones snapshot to
+    the scientific fingerprint (I1).  Always-present factors are fingerprinted
+    independently.
     """
     from radiosim.core.jones_terms import ResolvedJonesTerms
 
@@ -744,9 +746,10 @@ def _loaded_jones_snapshot(
 ) -> Mapping[str, object]:
     """Validate a Jones snapshot read back from a file.
 
-    ``None`` and an empty mapping both mean "no term was enabled", which is how
-    a file written without a ``jones/`` group is read (Section 25.2).  Anything
-    else must carry exactly the six recorded keys and a well-formed digest.
+    ``None`` and an empty mapping both mean "no optional Jones or baseline term
+    was enabled", which is how a file written without a ``jones/`` group is read
+    (Section 25.2).  Anything else must carry exactly the six recorded keys and
+    a well-formed digest.
     """
     if snapshot is None:
         return MappingProxyType({})
@@ -831,11 +834,13 @@ def _scientific_hash(
     _hash_json(digest, "solver", solver_snapshot)
     # The Jones record is hashed only when a term was actually configured.  An
     # empty snapshot contributes *nothing* -- not an empty object, not a null --
-    # so a run with no ``jones:`` section produces the same digest it produced
-    # before the section existed (``Tier7JonesSciencePlan.md`` Section 25.1,
-    # invariant I1).  Hashing an empty placeholder would have been simpler and
-    # would have invalidated every pinned fingerprint in the repository for no
-    # scientific reason.
+    # so the current empty optional-term inventory adds no Jones component
+    # (``Tier7JonesSciencePlan.md`` Section 25.1, invariant I1).  Other
+    # scientific inputs, including the always-present receptor convention,
+    # remain part of the digest; this is not a compatibility promise for
+    # pre-SCI-006 fingerprints.  Hashing an empty placeholder would add a
+    # scientifically meaningless distinction between otherwise equivalent
+    # current runs.
     if jones_snapshot:
         _hash_json(digest, "jones", jones_snapshot)
     return digest.hexdigest()
