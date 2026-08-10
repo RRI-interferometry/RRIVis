@@ -728,21 +728,26 @@ What ``P`` does and does not change
 
 * ``P`` is real and orthogonal, so :math:`P P^{T} = I_2` exactly. It moves no
   power.
-* On a homogeneous array, an **unpolarized** sky is untouched: the same rotation
-  on both antennas leaves :math:`R\, I_2\, R^{T} = I_2`. Stokes ``I`` and ``V``
-  are invariant in general.
-* In the linear basis it rotates :math:`(Q, U)` by :math:`2\psi`. In the
-  circular basis it multiplies :math:`V_{RL}` by :math:`e^{-2i\psi}` and
-  :math:`V_{LR}` by :math:`e^{+2i\psi}`, leaving :math:`RR` and :math:`LL`
-  alone.
+* On a homogeneous array whose antennas share the same effective mount angle
+  :math:`\alpha`, an **unpolarized** sky is untouched:
+  :math:`R(\alpha)\,I_2\,R(\alpha)^T=I_2`. For a polarized sky that common
+  two-sided rotation leaves Stokes ``I`` and ``V`` invariant and rotates
+  :math:`(Q,U)` by :math:`2\alpha`. In matching circular coordinates it
+  multiplies :math:`V_{RL}` by :math:`e^{-2i\alpha}` and :math:`V_{LR}` by
+  :math:`e^{+2i\alpha}`, leaving :math:`RR` and :math:`LL` alone.
 * On a **heterogeneous** array — two mounts, or a Nasmyth pair of opposite hand
   — even an unpolarized sky is affected, because the two antennas no longer
-  receive the same rotation.
+  receive the same rotation. In matching circular coordinates, a baseline
+  :math:`pq` acquires factors
+  :math:`(e^{-i(\alpha_p-\alpha_q)},e^{-i(\alpha_p+\alpha_q)},
+  e^{+i(\alpha_p+\alpha_q)},e^{+i(\alpha_p-\alpha_q)})` on
+  :math:`(RR,RL,LR,LL)` respectively; there is no single :math:`2\alpha`
+  Stokes rotation when :math:`\alpha_p\ne\alpha_q`.
 * ``P`` is achromatic. The rotation is geometric; nothing in it depends on
   frequency.
-* ``psi`` is evaluated at the array's own geodetic latitude, the same one the
-  direction batch inverted the horizontal transform with, so the two halves of
-  the geometry cannot disagree.
+* The parallactic component ``psi`` is evaluated at the array's own geodetic
+  latitude, the same one the direction batch inverted the horizontal transform
+  with, so the two halves of the geometry cannot disagree.
 
 
 T — troposphere: delay and opacity

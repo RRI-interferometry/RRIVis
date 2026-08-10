@@ -1227,6 +1227,21 @@ TIER7J_FALSIFIED_CLAIMS = (
 )
 
 
+def test_parallactic_guide_uses_effective_mount_angles_for_observables() -> None:
+    """Nasmyth and heterogeneous baselines must not be described by plain psi."""
+    text = " ".join(
+        (REPOSITORY_ROOT / "docs" / "user_guide" / "jones_terms.rst")
+        .read_text(encoding="utf-8")
+        .split()
+    )
+
+    assert r":math:`2\alpha`" in text
+    assert r"\alpha_p-\alpha_q" in text
+    assert r"\alpha_p+\alpha_q" in text
+    assert r"2\psi" not in text
+    assert r"e^{-2i\psi}" not in text
+
+
 @pytest.mark.parametrize("path", TIER7J_JONES_SURFACES, ids=lambda path: path.name)
 def test_tier7j_no_truth_surface_still_denies_an_implemented_term(path):
     text = " ".join(path.read_text(encoding="utf-8").split())
