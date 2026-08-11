@@ -683,7 +683,7 @@ post-correction implementation `1efcbc6b`, under Python `3.11.13` and NumPy
 was:
 
 ```text
-pixi run python tools/wp5_sci006_fingerprint.py compare \
+pixi run -e default python tools/wp5_sci006_fingerprint.py compare \
   output/wp5-sci006/before-with-feed/osx-arm64-py311 \
   output/wp5-sci006/after-with-feed/osx-arm64-py311 \
   --output output/wp5-sci006/comparison-with-feed-osx-arm64-py311.json
