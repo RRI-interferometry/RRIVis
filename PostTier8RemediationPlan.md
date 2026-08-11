@@ -79,7 +79,7 @@ This plan was assembled from, and cites only:
 | 5 | `SCI-007` | Reconciled and closed as a documented, test-pinned fixture bound | S–M | DONE 2026-08-11 (WP-6) |
 | 6 | `PERF-001` | Four CPU legs landed and exact-SHA CI green; retained CPU acceptance pending; GPU evidence hardware-gated | M + gated | CPU evidence and acceptance now (WP-7) |
 | 7 | `SCI-005` | Staged successor tier, own plan document; scalar-preserving items first | XL | Plan doc now; stages gated (WP-8) |
-| 8 | `SCI-004` | Feature, not remediation; design gate only when a science driver exists | XL | Unscheduled (WP-9) |
+| 8 | `SCI-004` | Feature, not remediation; Q5 driver adopted and full design gate now drafted | XL | Design review now; production phase-gated (WP-9) |
 
 Effort classes: **XS** ≤ half a day · **S** ≈ 1–2 days · **M** ≈ 3–7 days ·
 **L** ≈ 2–3 weeks · **XL** = month or more.
@@ -106,8 +106,11 @@ Effort classes: **XS** ≤ half a day · **S** ≈ 1–2 days · **M** ≈ 3–7
   gate does not depend on that acceptance.
 - **E4 — `SCI-004` last.** `Tier7JonesSciencePlan.md` §18.3 already enumerates
   its contract surface (Tier 4 time grid, Tier 5 correlation axis, Tier 6
-  worker/fingerprint contracts, harmonic beam representations); it wants at
-  least `SCI-005` stage 2 and the `CI-001` successor gate settled first.
+  worker/fingerprint contracts, harmonic beam representations). Q5 is now
+  resolved, so the design gate may be reviewed. Production M1 waits for
+  accepted WP-7 CPU work; the output/characterization phase waits for accepted
+  `SCI-005` Stage 2. `CI-001` itself is closed, while its successor-gate
+  discipline still governs every new m-mode fingerprint.
 
 **Standing rule:** one fingerprint-regeneration event per landing, each with a
 scripted proof of what changed and what stayed bit-identical — the
@@ -126,7 +129,7 @@ never accepted by loosening the pin").
 | WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | DONE — independently accepted 2026-08-11 |
 | WP-7 | `PERF-001` CPU legs P-a…P-d + docs notes; P-e GPU leg | M; P-e gated | P-e on Q4 (hardware) |
 | WP-8 | `SCI-005` design gate, then separately accepted stages 1→3 | XL | Stage 1 after accepted WP-7 CPU scope (E3); stages 2–3 also require their accepted predecessor; WP-5/E2 is satisfied |
-| WP-9 | `SCI-004` design gate | XL | Q5 (science driver); soft on WP-8, WP-3 |
+| WP-9 | `SCI-004` design gate and phase-separated successor | XL | Design review now; M1 on accepted WP-7 CPU, M3 on accepted WP-8 Stage 2 |
 
 **Original 2026-08-05 sequencing:** WP-1, WP-2, WP-4, WP-7 (P-a…P-d),
 WP-8's plan document, and WP-6's prediction computation could start in
@@ -664,26 +667,36 @@ separate whole-row review accepts all three stages.
 ## 12. WP-9 — `SCI-004`: the m-mode simulator
 
 A **feature, not remediation** — `Tier7JonesSciencePlan.md` §18.3's words: "a
-second complete forward model", with the design-gate checklist already
-enumerated there: a defined and enforced observing regime (drift scan); a
-spherical-harmonic sky **including polarized components** (spin-2 harmonics
-for `Q ± iU`); per-antenna beam harmonics (why it wants `SCI-005` maturity);
-the `B_lm` transfer construction per baseline per frequency; the m-mode
-transform of the time axis against the Tier 4 time-grid contract, with
-verbatim typed rejections for non-uniform-sidereal configurations; per-`m`
-solves; and a validation program of direct-sum agreement on small skies with
-stated truncation bounds. Mechanically it is what the registry was built for:
-a new entry in `simulator/__init__.py`, `execution.simulator: mmode`, "no
-schema surgery required" (invariant I15). It extends the characterization
-discipline with a second solver's observation families, so it inherits the
-`CI-001` successor gate. Starting citations for the eventual design gate:
-Shaw et al. 2014 (ApJ 781, 57) and Shaw et al. 2015 (PRD 91, 083514).
-Performance claims only via records, as everywhere.
+second complete forward model". Q5 is resolved by the adopted bounded driver:
+a HERA-like fixed-zenith drift survey requiring repeated full-sidereal
+visibility evaluation, direct-RIME agreement on small polarized skies, and
+controlled harmonic truncation error.
 
-**Recommendation:** write the design gate only when a science driver (a
-drift-scan survey use case) is named — gated question Q5. Until then the row
-correctly sits as ROADMAP and is not scheduled by register pressure. Effort XL
-when it comes.
+The design candidate is
+`docs/development/sci004_mmode_design.md`. It corrects an important live-code
+assumption: the current simulator registry selects only the point-source
+kernel, while `Simulator.run()` always enters `core.hybrid.solve_sky()` and the
+HEALPix branch is hard-coded direct. M1 therefore first lifts the registry to a
+whole-`SkyModel` request/outcome boundary; `rime` wraps the maintained direct
+point/HEALPix/hybrid path and `mmode` becomes a true second strategy.
+
+The candidate freezes a complete uniform `2*pi` ERA grid mapped explicitly to
+UTC/UT1, a frozen-CIRS rigid-ERA operational frame with an SCI-007-linked error
+budget, IAU North/East tangent metadata, the exact RadioSim-to-Shaw
+polarization/Stokes-V bridge, scalar and spin-2 harmonic conventions,
+per-antenna and baseline/frequency `B_lm` construction, signed-m DFT
+normalization, alias/truncation/quadrature rules, NumPy/JAX/Dask and memory
+policy, result/output provenance, fingerprint/CI-001 handling, strict evidence
+schemas, and red/source/evidence/acceptance succession.
+
+The public selector remains `execution.simulator`; the removed
+`visibility.calculation_type` does not return. A new full-sidereal
+`obs_time` variant is necessary because the current uniform-UTC duration and
+cadence cannot truthfully stand in for the ERA group coordinate. Design
+approval licenses no production claim. M1 waits for accepted WP-7 CPU work;
+M3 and whole-row closure require accepted SCI-005 Stage 2. `SCI-004` remains
+ROADMAP throughout the phase acceptances and closes only after the final
+whole-row review.
 
 ## 13. Dispositions argued (close-as-documented and anti-candidates)
 
@@ -701,8 +714,10 @@ when it comes.
    reference; the committed records already say JAX-CPU is slower and that is
    acceptable. The row itself stays open for the memory/retrace legs and the
    hardware-gated GPU leg.
-4. **`SCI-004` — not closable, and not remediation.** Scheduled by science
-   need; its ROADMAP status is the register already saying so.
+4. **`SCI-004` — now scheduled by a named need, but not closable by design.**
+   Q5 authorizes the reviewed design/phase succession; ROADMAP remains the
+   truthful state until the complete simulator and validation programme are
+   independently accepted.
 5. **Anti-candidates.** `CI-001` cannot be closed as "documented flakiness" —
    its row blocks CI-green claims and the discipline forbids reflexive appends.
    `SCI-006` must be *ruled*, not documented around — it decides what
@@ -758,8 +773,11 @@ Each work package runs in the established style:
 - **Q4 (blocks WP-7 P-e evidence only):** name the GPU hardware and access path
   (cloud runner or workstation). Until answered, GPU-ready infrastructure may
   land, but no accelerator measurement, evidence, or claim may be accepted.
-- **Q5 (blocks WP-9):** name the science driver (drift-scan survey use case)
-  that schedules the m-mode design gate, or leave WP-9 unscheduled.
+- **Q5 (WP-9 science driver):** *resolved 2026-08-11 by program adoption* — a
+  HERA-like fixed-zenith drift-scan survey requiring repeated full-sidereal
+  visibility evaluation, direct-RIME agreement on small polarized skies, and
+  controlled spherical-harmonic truncation error. This schedules the design
+  gate; it does not accept a production phase or close `SCI-004`.
 
 ## 16. Status ledger
 
@@ -773,4 +791,4 @@ Each work package runs in the established style:
 | WP-6 | DONE — independently accepted 2026-08-11; SCI-007 closed as a retained-fixture accuracy bound |
 | WP-7 | P-a…P-d implementation and runtime readiness landed; exact-SHA CI green; retained CPU evidence and whole CPU-slice independent acceptance pending; P-e infrastructure authorized, evidence blocked on Q4; PERF-001 remains ROADMAP |
 | WP-8 | Stage-1 numerical design accepted at `8935052`; acceptance-succession amendment pending `D1`; Stage 1 blocked on accepted WP-7 CPU scope; WP-5/E2 satisfied for later stages; SCI-005 remains ROADMAP |
-| WP-9 | Unscheduled pending Q5 |
+| WP-9 | Design candidate drafted; Q5 resolved; independent design approval pending; production phase-gated; SCI-004 remains ROADMAP |
