@@ -20,6 +20,8 @@ from __future__ import annotations
 import json
 from dataclasses import fields
 from datetime import UTC, datetime
+from hashlib import sha256
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -345,3 +347,15 @@ def test_p3_benchmark_output_goes_to_the_documented_location() -> None:
 
     assert filename.startswith("20260731T120000Z-")
     assert filename.endswith(".json")
+
+
+def test_frozen_v1_reference_record_remains_byte_identical() -> None:
+    """WP-7 adds new types; it may not rewrite the retained Tier 6 artifact."""
+    reference = (
+        Path(__file__).parents[3]
+        / "output/benchmarks/reference/20260731T104303Z-darwin-arm64.json"
+    )
+
+    assert sha256(reference.read_bytes()).hexdigest() == (
+        "00a02edd98903254e1f5f04569e88def0fff5ff239fbff40f2f5f34c5dc8b225"
+    )
