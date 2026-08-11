@@ -77,7 +77,7 @@ This plan was assembled from, and cites only:
 | 3 | `API-001` | Fix: implement broadcasting | XS | DONE 2026-08-11 (WP-1) |
 | 4 | `SCI-006` | Selected east-X correction implemented and independently accepted in WP-5 | S + M | DONE 2026-08-11 |
 | 5 | `SCI-007` | Reconciled and closed as a documented, test-pinned fixture bound | S–M | DONE 2026-08-11 (WP-6) |
-| 6 | `PERF-001` | Four CPU legs designed and ready; GPU evidence hardware-gated | M + gated | CPU implementation now (WP-7) |
+| 6 | `PERF-001` | Four CPU legs landed and exact-SHA CI green; retained CPU acceptance pending; GPU evidence hardware-gated | M + gated | CPU evidence and acceptance now (WP-7) |
 | 7 | `SCI-005` | Staged successor tier, own plan document; scalar-preserving items first | XL | Plan doc now; stages gated (WP-8) |
 | 8 | `SCI-004` | Feature, not remediation; design gate only when a science driver exists | XL | Unscheduled (WP-9) |
 
@@ -559,8 +559,9 @@ later independent record owns the DONE transition.
 
 ## 10. WP-7 — `PERF-001`: split into five legs
 
-**Design gate recorded 2026-08-11; not implementation or acceptance.** The
-normative design is
+**Design gate recorded 2026-08-11; P-a through P-d implementation and P-e
+readiness landed; retained CPU evidence and independent acceptance pending.**
+The normative design is
 `docs/development/perf001_runtime_mitigations.md`. `PERF-001` remains
 **ROADMAP** until real accelerator evidence is accepted or its scope is
 formally re-adjudicated.
@@ -609,15 +610,18 @@ Fold in the `Tier6HybridRuntimePlan.md` §39 methodology note (tracemalloc
 `peak_host_bytes` under-represents JAX's native allocations: `6,115,963` vs
 `1,253,968` bytes for the same workload) as a docs line. Freeze the v1 schemas
 and retain a separate strict PERF-001 document with memory, solver-memory,
-retracing, and backend-resolution records. Accepted P-a through P-d satisfy
-WP-8 edge E3; they do not close P-e.
+retracing, and backend-resolution records. P-a through P-d are landed with
+exact-SHA CI green, but do not satisfy WP-8 edge E3 until the retained CPU
+record and whole-slice independent acceptance exist; they do not close P-e.
 
 ## 11. WP-8 — `SCI-005`: beam physics beyond scalar `E`
 
 The proposed dedicated gate is
-`docs/development/sci005_beam_physics_plan.md`. It is a design-only candidate
-anchored at `e63770c`; it requires independent design approval and provides no
-implementation or acceptance evidence. `SCI-005` remains **ROADMAP**.
+`docs/development/sci005_beam_physics_plan.md`. It was first introduced at
+`42a1f27`; its Stage-1 numerical correction is independently approved, while
+the acceptance-succession amendment is under fresh independent review and has
+not yet become `D1`. Neither record provides implementation or stage-acceptance
+evidence. `SCI-005` remains **ROADMAP**.
 Near-field simulation remains a permanent non-goal. Station element beams,
 array factors, and mutual coupling remain future work outside this closure.
 
@@ -767,6 +771,6 @@ Each work package runs in the established style:
 | WP-4 | DONE — ruled 2026-08-08; Branch A selected; no runtime change |
 | WP-5 | DONE — independently accepted 2026-08-11; SCI-006 closed |
 | WP-6 | DONE — independently accepted 2026-08-11; SCI-007 closed as a retained-fixture accuracy bound |
-| WP-7 | P-a…P-d ready to start; P-e infrastructure authorized, evidence blocked on Q4 |
-| WP-8 | Design candidate drafted at `e63770c`; independent design approval pending; Stage 1 blocked on accepted WP-7 CPU scope; WP-5/E2 satisfied for later stages; SCI-005 remains ROADMAP |
+| WP-7 | P-a…P-d implementation and runtime readiness landed; exact-SHA CI green; retained CPU evidence and whole CPU-slice independent acceptance pending; P-e infrastructure authorized, evidence blocked on Q4; PERF-001 remains ROADMAP |
+| WP-8 | Stage-1 numerical design accepted at `8935052`; acceptance-succession amendment pending `D1`; Stage 1 blocked on accepted WP-7 CPU scope; WP-5/E2 satisfied for later stages; SCI-005 remains ROADMAP |
 | WP-9 | Unscheduled pending Q5 |
