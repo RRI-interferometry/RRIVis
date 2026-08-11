@@ -1,17 +1,27 @@
 # SCI-005 staged beam-physics design gate
 
-**WP-8 design-gate candidate — 2026-08-11**
+**WP-8 original design gate — 2026-08-11**
+
+**Bounded Stage-1 numerical-contract correction candidate — 2026-08-11.** The
+original design accepted at
+`42a1f27e5f6078ce72960f7d200e8b1e94d399c2` remains the governing record outside
+Sections 3, 6, 7.2, 8, and 9. This correction closes design ambiguities found
+during implementation preflight; it is itself design-only and requires a fresh
+independent science/computational review before any Stage-1 red-test slice is
+authorized.
 
 **Source reviewed:** `e63770c3e27e5aee4e09570c53eb1367099b1ae4`, the
 accepted WP-7 design commit. Ambient WP-7 implementation work is not evidence
 for this memo and does not change its source anchor.
 
-**Status:** design only. This candidate requires an independent design review
-before it can authorize a production slice. It implements no beam physics,
-accepts no stage, and does not close the register row. `SCI-005` remains
-**ROADMAP**. Stage 1 cannot begin until the CPU portion of WP-7 is independently
-accepted. Stages 2 and 3 additionally remain sequential, independently accepted
-slices even though WP-5 has satisfied their polarization-convention dependency.
+**Status:** design only. The original design gate was accepted; this bounded
+correction candidate requires an independent science/computational review
+before it can authorize a Stage-1 red-test or production slice. It implements
+no beam physics, accepts no stage, and does not close the register row.
+`SCI-005` remains **ROADMAP**. Stage 1 still requires both this correction's
+acceptance and the WP-7 dependency recorded in the programme ledger. Stages 2
+and 3 remain sequential, independently accepted slices even though WP-5 has
+satisfied their polarization-convention dependency.
 
 ## 1. Ruling and bounded scope
 
@@ -112,18 +122,98 @@ rejected.
 
 The aperture axes are `(north, east)`. Aperture azimuth $\varphi=0$ points
 north and increases through east, matching RadioSim's topocentric azimuth.
-Positive surface height is defined in the signed local-normal direction that
-increases the one-way geometrical path. Reflection gives excess path `2*h`, so
-RadioSim's positive-delay convention produces
-`exp(-i * 4*pi*h/lambda)`. The convention literal is
+Here $h$ is **aperture-equivalent reflector surface-height error**, defined as
+one half of the signed reflected optical-path difference. It is not asserted to
+be the literal local-normal displacement of a shaped reflector. To first order,
+a physical normal displacement $\delta_n$ at incidence angle $i$ maps to
+$h=\delta_n\cos i$; Stage 1 never invents $i$ from the beam model. At normal
+incidence $h=\delta_n$. Thus the signed excess path is exactly `2*h`, and
+RadioSim's positive-delay convention produces `exp(-i * 4*pi*h/lambda)`.
+The convention literal is
 `radiosim.real_unit_rms_disk_surface_height.v1`.
 
-Stage 1 supports the reflector-like circular analytic families
-`circular_aperture`, `analytical_illumination`, and
-`numerical_illumination`. Applying a reflector blockage or disk Zernike map to
-`rectangular_aperture`, `elliptical_aperture`, or a FITS beam is rejected. A
-FITS file already contains its aperture physics; applying it again would double
-count an effect that cannot be separated from the file.
+Stage 1 v1 supports only reflector-like circular analytic models for which the
+existing scalar far field determines one exact compact aperture-plane profile.
+Let $R=D/2$, $\rho=|\mathbf u|/R$, $p=10^{-T/20}$ for the existing
+`edge_taper_db` value $T$, and define, on $0\leq\rho\leq1$,
+
+$$
+U(\rho)=1,\qquad
+P(\rho)=2(1-\rho^2),\qquad
+P_2(\rho)=3(1-\rho^2)^2.
+$$
+
+All three have $\int_0^1 A(\rho)\rho\,d\rho=1/2$. Their normalized Hankel
+transforms are respectively $2J_1(x)/x$, $8J_2(x)/x^2$, and
+$48J_3(x)/x^3$, including their continuous values at $x=0$. The exact Stage-1
+profile table is:
+
+| Existing analytic model | Stage-1 aperture profile $A(\rho)$ |
+|---|---|
+| `circular_aperture`, `taper.kind: uniform` | $U(\rho)$ |
+| `circular_aperture`, `taper.kind: parabolic` | $pU(\rho)+(1-p)P(\rho)$ |
+| `circular_aperture`, `taper.kind: parabolic_squared` | $pU(\rho)+(1-p)P_2(\rho)$ |
+| `analytical_illumination`, `taper_profile.kind: parabolic` | the preceding parabolic expression, with $T$ equal to the existing derived edge taper |
+| `analytical_illumination`, `taper_profile.kind: parabolic_squared` | the preceding parabolic-squared expression, with $T$ equal to the existing derived edge taper |
+
+The profile-set convention literal is
+`radiosim.circular_stage1_pupil_profiles.v1`; it enters the scientific
+fingerprint whenever either Stage-1 feature is explicit.
+
+The table deliberately gives $p$ its existing mixture-weight meaning; it does
+not relabel $p$ as the ratio $A(1)/A(0)$. Its normalized analytic Hankel
+transform is therefore the current unmodified scalar response; implementation
+must recover that response within the existing dtype tolerance before adding a
+mask or phase. An analytical model is supported only when its already derived
+$T$ is finite and non-negative.
+
+The current direct and derived `gaussian` far-field shortcut does not uniquely
+specify a compact disk pupil, and the current direct `cosine` shortcut likewise
+has no declared radial-pupil inverse. The accepted `numerical_illumination`
+response is a fixed 256-node trapezoidal Hankel rule, not the continuum
+transform of a uniquely retained compact-pupil discretization; replacing that
+rule when Stage 1 is enabled would change accepted beam physics. Stage 1 v1
+therefore rejects
+`circular_aperture` with `gaussian` or `cosine`, and
+`analytical_illumination` with a `gaussian` taper profile, as well as every
+`numerical_illumination` model, using `UnsupportedConfigError` and stable issue
+code
+`beam.aperture_physics.unsupported_pupil_profile` when `aperture_physics` is
+present, or `beam.ruze_power_diagnostic.unsupported_pupil_profile` when only
+the diagnostic is present. If both are present, aperture validation runs first
+and owns the issue path. These rejections occur only when one of those two
+features is explicit; no existing beam with both absent is re-resolved or
+changed. Applying a reflector blockage, disk Zernike map, or Ruze diagnostic to
+`rectangular_aperture`, `elliptical_aperture`, or a FITS beam is rejected with
+the same exception and respective exact issue code
+`beam.aperture_physics.unsupported_beam_family` or
+`beam.ruze_power_diagnostic.unsupported_beam_family`, under the same
+aperture-first ordering. A FITS file already contains its aperture physics;
+applying it again would double count an effect that cannot be separated from
+the file.
+
+The emitted `ConfigIssue.path` is exactly `beams.aperture_physics` for the
+aperture-owned cases. A diagnostic-owned issue uses the exact authored path
+`beams.surface_error.default.error_beam_diagnostic` or
+`beams.surface_error.per_antenna[i].error_beam_diagnostic`, with the resolved
+zero-based `i`. Unsupported-profile messages use exactly
+`Stage-1 {feature} requires a canonical circular pupil; resolved model
+{model_kind!r} with taper {taper_kind!r} has no supported v1 profile.`, and
+unsupported-family messages use exactly
+`Stage-1 {feature} does not support resolved beam family {model_kind!r}.`,
+where `feature` is the lower-case literal `aperture physics` or
+`Ruze power diagnostic`, and an absent taper is rendered as Python `None`.
+
+The deterministic aperture transform retains every resolved real/complex
+precision already supported by the analytic beam. Its target-width quadrature
+nodes, weights, and accumulation may not pass through float64 when the resolved
+dtype is wider. The optional Ruze power diagnostic is narrower in v1: it
+supports only `float32`/`complex64` and `float64`/`complex128`. Configuring it
+under an extended-precision beam raises `UnsupportedConfigError`, issue code
+`beam.ruze_power_diagnostic.unsupported_precision`, and exact message
+`Ruze power diagnostics support only float32/complex64 and
+float64/complex128 beam precision.` The same beam without the nested diagnostic
+retains its existing extended-precision behavior.
 
 ### 3.2 Blockage geometry
 
@@ -140,6 +230,41 @@ angle. Masks combine by set union, so overlapping shadows are removed once.
 At instrument resolution a leg wider than the resolved aperture diameter is
 rejected. No scattering or phase from a support structure is claimed; Stage 1
 models only the geometrical aperture shadow.
+
+The mask is not left to a drawing convention. For aperture coordinates
+$\mathbf u=(n,e)$ in metres, $R=D/2$, $r=\|\mathbf u\|$, normalized blockage
+diameter $\epsilon$, and leg angle $\beta$ measured North through East, define
+
+$$
+\mathbf d_\beta=(\cos\beta,\sin\beta),\qquad
+\mathbf p_\beta=(-\sin\beta,\cos\beta),
+$$
+
+$$
+\begin{aligned}
+\mathcal P_0&=\{\mathbf u:r\leq R\},\\
+\mathcal C_\epsilon&=\{\mathbf u:r\leq\epsilon R\},\\
+\mathcal L(\beta,w)&=\{\mathbf u\in\mathcal P_0:
+\epsilon R\leq r\leq R,
+\ \mathbf u\!\cdot\!\mathbf d_\beta\geq0,
+\ |\mathbf u\!\cdot\!\mathbf p_\beta|\leq w/2\},\\
+M(\mathbf u)&=\mathbf 1_{\mathcal P_0\setminus
+(\mathcal C_\epsilon\cup\bigcup_j\mathcal L(\beta_j,w_j))}.
+\end{aligned}
+$$
+
+The corresponding scientific-convention literal is
+`radiosim.central_disk_outward_half_strip_ne.v1`.
+
+Thus a leg is one outward half-strip, not an infinite chord and not a pair of
+diametrically opposed legs. A physical structure on both sides is authored as
+two records separated by 180 degrees. Closed-set boundaries are fixed as
+written and have zero continuum measure; all numerical methods use the same
+inequalities. `position_angle_deg` is converted once to radians after its
+canonical interval resolution. A duplicate means the same resolved angle, not
+an antipodal angle. The central disk is unioned with every leg before the
+single mask is evaluated, so its shared boundary and leg overlaps cannot be
+double-counted.
 
 For uniform illumination, no support legs, and
 $x=\pi D\sin\theta/\lambda$, the exact oracle is
@@ -163,10 +288,24 @@ implementation must recover the closed uniform formula before it may land.
 
 ### 3.3 Real unit-RMS Zernike surface convention
 
-`beams.aperture_physics.zernike_surface` contains the exact convention literal
-above and a non-empty ordered tuple of mode records. Each record contains a
-strict integer pair `(n,m)` and a strict finite `surface_height_coefficient_m`.
-Validation requires
+`beams.aperture_physics.zernike_surface` has exactly two fields:
+`convention` and `modes`. The latter is a non-empty YAML sequence resolved to
+an immutable tuple. Every mode is a strict record with exactly the three keys
+`n`, `m`, and `surface_height_coefficient_m`; the first two are exact Python
+integers (not booleans), and the coefficient is an exact finite Python float.
+For example:
+
+```yaml
+zernike_surface:
+  convention: radiosim.real_unit_rms_disk_surface_height.v1
+  modes:
+    - n: 2
+      m: 0
+      surface_height_coefficient_m: 0.0005
+```
+
+No pair-valued `mode`, Noll/OSA index, map/dictionary shorthand, or additional
+mode field is accepted. Validation requires
 
 $$
 0\leq n\leq32,\qquad |m|\leq n,\qquad n-|m|\;\text{even}.
@@ -208,32 +347,204 @@ Z_n^m Z_{n'}^{m'}\rho\,d\rho\,d\varphi
 =\delta_{nn'}\delta_{mm'}.
 $$
 
-Thus each coefficient is a signed reflector-surface height in metres in a
-unit-RMS **unobscured disk** basis. After a blockage mask is applied these
-ordinary disk functions cease to be orthogonal over the transmitting annulus;
-the configuration must not describe the quadrature sum of coefficients as the
-RMS over that annulus. No Noll or OSA single integer is accepted, and no OPD
-coefficient is accepted under a surface-height field.
+Thus each coefficient is signed aperture-equivalent reflector surface-height
+error in metres--one half of reflected OPD--in a unit-RMS **unobscured disk**
+basis. It is a literal physical normal displacement only at normal incidence.
+After a blockage mask is applied these ordinary disk functions cease to be
+orthogonal over the transmitting annulus; the configuration must not describe
+the quadrature sum of coefficients as the RMS over that annulus. No Noll or OSA
+single integer is accepted, and neither full OPD nor an unprojected off-axis
+normal-displacement coefficient is accepted under the field.
 
 The upper radial order `32` is a v1 computation bound, not a statement that
 higher physical modes do not exist. The same aperture transform evaluates mask
-and phase together. Quadrature uses tensor-product Gauss-Legendre radial nodes
-and uniform midpoint azimuth nodes. It starts with
-`n_rho=max(64,4*(n_max+1))` and `n_phi=max(128,8*(2*n_max+1))`, doubles both
-counts together, and accepts the refined result when the maximum change is no
-larger than `atol + rtol*max(abs(refined))`. The fixed dtype-derived values are
-`atol=max(1e-12,32*eps)` and `rtol=max(1e-10,32*eps)`, matching the existing
-beam tolerance rule. Four failed refinements raise
-`BeamSamplingDerivationError`; no unconverged result is returned. Counts and
-tolerances are internal and cannot be authored in YAML. Red tests must show
-disk orthonormality, the exact defocus/conjugation relation under sign reversal,
-the uniform blocked Airy invariant, and convergence or typed failure under this
-production rule.
+and phase together. Its only v1 numerical-method literal is
+`boundary_fitted_polar_gauss_legendre_v1`. For every supported profile,
+$N_0=\pi R^2$ analytically; it is never re-estimated from numerical nodes. In
+normalized coordinates the production integral is
+
+$$
+e(\mathbf q)=\frac{1}{\pi}
+\sum_p\int_{\rho_{p,0}}^{\rho_{p,1}}A(\rho)\rho
+\sum_k\int_{\Phi_k(\rho)}
+\exp\{-i[\kappa h(\rho,\varphi)+
+\rho(Q_N\cos\varphi+Q_E\sin\varphi)]\}
+\,d\varphi\,d\rho,
+$$
+
+where $Q_{N,E}=Rq_{N,E}$, $\kappa=4\pi/\lambda$, and
+$\Phi_k(\rho)$ are the disjoint transmitting angular intervals. This form is
+also the one deterministic transform reused by the Ruze diagnostic below.
+For an outer resolved beam-frame direction,
+$q_N=(2\pi/\lambda)\cos(\mathrm{alt})\cos(\mathrm{az})$ and
+$q_E=(2\pi/\lambda)\cos(\mathrm{alt})\sin(\mathrm{az})$. The existing
+pointing transform and true-horizon gate remain exactly where they are in the
+canonical beam runtime.
+
+The integration panels fit every hard boundary. With $a_j=w_j/D$, leg $j$
+blocks the periodic angular interval
+$[\beta_j-\alpha_j(\rho),\beta_j+\alpha_j(\rho)]$, where
+
+$$
+\alpha_j(\rho)=
+\begin{cases}
+\pi/2,&\rho\leq a_j,\\
+\operatorname{atan2}\!\left(a_j,\sqrt{\rho^2-a_j^2}\right),&\rho>a_j.
+\end{cases}
+$$
+
+The intervals are split at zero, mapped into $[0,2\pi)$, sorted by their exact
+target-dtype endpoints, and unioned before their complement is integrated.
+There is no merge tolerance. The radial panels begin at $\epsilon$ when a
+central blockage exists and at zero otherwise. They split at one, every
+in-domain saturation radius $a_j$, and every in-domain support-topology radius
+where, for circular separation $\delta_{ij}\in[0,\pi]$,
+
+$$
+\delta_{ij}=\alpha_i+\alpha_j
+\quad\hbox{or}\quad
+\delta_{ij}=|\alpha_i-\alpha_j|,
+$$
+
+as well as every radius where an endpoint crosses the fixed periodic cut,
+
+$$
+\beta_j-\alpha_j(\rho)=0\pmod{2\pi}
+\quad\hbox{or}\quad
+\beta_j+\alpha_j(\rho)=0\pmod{2\pi}.
+$$
+
+Consequently the ordered non-wrapping interval topology and interval count are
+constant on the interior of every radial panel.
+
+Topology roots are isolated on the analytic segments formed by the saturation
+radii. If a root is exactly representable in the resolved real dtype, that
+value is its breakpoint. Otherwise target-dtype bisection continues to adjacent
+representable bracketing values $(\rho_-,\rho_+)$ with the pre-root topology at
+$\rho_-$ and post-root topology at $\rho_+$; the canonical breakpoint is always
+$\rho_+$. Radial panels are left-closed/right-open at every internal breakpoint
+and the final panel is right-closed at one, so the rounded topology root belongs
+to the post-root panel. Gauss-Legendre never samples a panel endpoint. Two
+unequal mathematical root values, or an unequal root and authored/saturation
+boundary, that resolve to the same canonical breakpoint raise
+`BeamSamplingDerivationError`. Symmetric configurations may make different
+leg-pair events share the same mathematical root value; certified-equal values
+are deduplicated together with repeated discovery of one event. Immediately
+above a saturation radius $a_j$, the panel uses
+$\rho=a_j+(\rho_{\rm hi}-a_j)t^2$, $0\leq t\leq1$, including its Jacobian, so
+the square-root endpoint behavior is not presented to Gauss-Legendre as a
+smooth function. A width ratio that underflows, a distinct boundary or topology
+root that collides under the preceding rule, or a non-finite/unsortable endpoint
+raises `BeamSamplingDerivationError`; a thin leg can never disappear because a
+midpoint missed it.
+
+Initial quadrature order is derived from both polynomial and phase bandwidth.
+For $N_{nm}=\sqrt{n+1}$ when $m=0$ and
+$N_{nm}=\sqrt{2(n+1)}$ otherwise, define
+
+$$
+H_\rho=\sum_{nm}|c_{nm}|N_{nm}n^2,\qquad
+H_\varphi=\sum_{nm}|c_{nm}|N_{nm}|m|,
+$$
+
+using the bounds $|R_n^{|m|}|\leq1$ and
+$|dR_n^{|m|}/d\rho|\leq n^2$. For the complete direction batch,
+$n_{\max}=m_{\max}=0$ when there is no Zernike child; otherwise they are the
+largest $n$ and $|m|$ in the resolved modes. Then
+
+$$
+Q_{\max}=\max_s R\sqrt{q_{N,s}^2+q_{E,s}^2},\qquad
+B_\rho=Q_{\max}+\kappa H_\rho,\qquad
+B_\varphi=Q_{\max}+\kappa H_\varphi.
+$$
+
+For the seed below, $L_p$ is an exact bound on coordinate travel in the
+quadrature parameter:
+
+- an ordinary radial panel $\rho\in[\rho_0,\rho_1]$ uses
+  $L_p=\rho_1-\rho_0$ and $B=B_\rho$;
+- a saturation panel
+  $\rho=a+(\rho_1-a)t^2$, $t\in[0,1]$, uses
+  $L_p=\max|d\rho/dt|=2(\rho_1-a)$ and $B=B_\rho$; and
+- a non-wrapping transmitting angular interval
+  $\varphi\in[\varphi_0,\varphi_1]$ uses
+  $L_p=\varphi_1-\varphi_0$ in radians and $B=B_\varphi$.
+
+Zero-length panels/intervals are absent, not evaluated. On each positive panel
+the seed is exactly
+
+$$
+\operatorname{order}(B,L_p,d)=
+\max\!\left(16,2(d+1),
+8+\left\lceil\frac{8BL_p}{\pi}\right\rceil\right),
+$$
+
+with $d=n_{\max}$ for both ordinary and transformed radial panels and
+$d=m_{\max}$ angularly. Thus an authored
+frequency, diameter, or surface coefficient cannot create an unseeded
+far-field or phase oscillation. Gauss-Legendre nodes and weights are generated
+at `ceil(-log10(eps))+16` decimal digits, rounded once to the resolved dtype,
+and rejected unless they are finite, symmetric, strictly ordered, positive in
+weight, and sum to two within `32*eps`. Wider-than-float64 beams never reuse
+float64 nodes or accumulation.
+
+At fixed radial order, all angular panels are converged first by doubling their
+orders and comparing the complete direction array. Only then is radial order
+doubled and the two angularly converged arrays compared. Each dimension needs
+two consecutive successful comparisons under
+`atol + rtol*max(abs(refined))`; the fixed values remain
+`atol=max(1e-12,32*eps)` and `rtol=max(1e-10,32*eps)`. At most four doublings
+per dimension are permitted. Before an initial evaluation or doubling, a
+per-panel order above 4096, more than `2**24` quadrature nodes per direction,
+more than `2**28` direction-node phase evaluations, or a conservative peak
+workspace above `2**31` bytes raises `BeamSamplingDerivationError` before
+allocation. For one nested aperture evaluation, let radial node $a$ in radial
+panel $p$ have $K_{pa}$ disjoint transmitting intervals with current angular
+orders $n_{pak}$. The exact two-dimensional node count is
+
+$$
+Q=\sum_p\sum_{a=1}^{n_{\rho,p}}
+\sum_{k=1}^{K_{pa}}n_{pak}.
+$$
+
+The sums run only over topology panels with a positive-measure transmitting
+complement. A fully blocked panel is proven zero from its exact interval union
+and receives no radial or angular quadrature nodes. Thus `Q=0` only when the
+entire transmitting pupil is empty, in which case the aperture transform is
+exact `0+0j` with positive-zero components and zero refinement residuals. `Q`
+is shared by a
+direction batch but is the value governed by the `2**24` per-transform cap. A
+batch of $B$ wavevectors consumes exactly $BQ$ direction-node phase evaluations
+at that refinement; the `2**28` cap applies to the cumulative sum across every
+seed and refinement in the public call. For current node count $Q$, direction
+count $S$, and internal
+direction batch $B\leq\min(S,256)$, the exact conservative estimate is
+
+$$
+E_{\rm aperture}=
+r(16Q+12B+8S)+c(4BQ+8B+4S),
+$$
+
+where $r$ and $c$ are the resolved real/complex byte widths. The implementation
+must reuse buffers within those declared multiplicities; needing another live
+buffer requires a design correction. $B$ is the largest power of two that
+satisfies the phase-product and byte caps, with a smaller final remainder.
+`S=0` returns the existing correctly shaped empty Jones batch without invoking
+quadrature. Counts and tolerances are internal and cannot be authored in YAML.
+No one-pair or unconverged non-empty result is returned.
+
+Red tests must show disk orthonormality, the exact defocus/conjugation relation
+under sign reversal, the uniform blocked Airy invariant, support intervals and
+overlaps that cannot be missed by nodes, high-$q$ and high-surface-phase seed
+growth, target-width node generation, two-pass convergence, and every typed
+pre-allocation or geometry-representability failure under this production rule.
 
 ### 3.4 Ruze coherent loss and scattered-power diagnostic
 
 The existing `beams.surface_error` field keeps its accepted coherent-voltage
-meaning. With reflector-surface RMS $\sigma_h$ and
+meaning. In this contract its RMS is likewise aperture-equivalent
+surface-height error (half reflected OPD), not an automatically incidence-
+corrected physical normal displacement. With RMS $\sigma_h$ and
 $s=4\pi\sigma_h/\lambda$,
 
 $$
@@ -253,11 +564,27 @@ surface_error:
       correlation_length_m: 0.25
 ```
 
-The literal `gaussian_covariance_power` fully specifies
-$\rho_h(\Delta)=\exp[-(|\Delta|/L)^2]$; `L` is its one-over-e correlation
-length. Here `rms_surface_error_m` is the zero-mean random residual after the
-configured deterministic Zernike map, not a value inferred from those
-coefficients, and
+This fragment assumes the assigned analytic beam uses one of Section 3.1's
+supported pupil profiles. Adding it to the existing default Gaussian beam is a
+typed unsupported-pupil error, not an implicit change of taper.
+
+The literal `gaussian_covariance_power` specifies a real, zero-mean, jointly
+Gaussian, second-order stationary aperture-equivalent surface-error field
+$\delta h(\mathbf r)$ with
+
+$$
+\operatorname{Cov}[\delta h(\mathbf r),\delta h(\mathbf r')]
+=\sigma_h^2\rho_h(\mathbf r-\mathbf r'),\qquad
+\rho_h(\boldsymbol\Delta)=\exp[-(|\boldsymbol\Delta|/L)^2].
+$$
+
+Thus `L` is its one-over-e correlation length and the Gaussian characteristic
+function, rather than covariance alone, licenses the mutual-coherence kernel
+below. The result literal `gaussian_one_over_e_surface_covariance_v1` names this
+complete jointly Gaussian field law plus covariance kernel, not merely the
+radial function. Here `rms_surface_error_m` is $\sigma_h$, the pointwise standard
+deviation of the random residual after the configured deterministic Zernike
+map, not a value inferred from those coefficients, and
 $\phi_{\rm det}(\mathbf r)=4\pi h_{\rm det}(\mathbf r)/\lambda$. The
 ensemble-average power therefore includes the deterministic phase difference:
 
@@ -272,23 +599,148 @@ A^*(\mathbf r')M(\mathbf r')
 $$
 
 The diagnostic reports coherent-main power, total ensemble power, and their
-non-negative scattered difference on the exact two-dimensional direction grid
-passed to the public method. A one-dimensional radial result is permitted only
-when the resolved mask, deterministic phase, and illumination are all
-rotationally symmetric; support legs or any `m != 0` Zernike mode force the 2-D
-result. It may support an autocorrelation analysis, but it does not enter a
-cross-correlation Jones matrix. For independent antenna surfaces,
+non-negative scattered difference at every direction passed to the public
+method. Stage 1 never collapses those directions to a radial profile, even when
+the model is rotationally symmetric. It does not enter a cross-correlation
+Jones matrix. For independent antenna surfaces,
 `<e_p e_q*> = <e_p><e_q*>` when `p != q`; the scattered error power belongs to
 the same-surface second moment. Taking `sqrt(B_main+B_error)` would invent a
 phase and perfectly correlated structure, so that operation is forbidden.
 
-The implementation evaluates the double integral directly or through its
-mathematically equivalent aperture autocorrelation using the same pupil nodes,
-dtype-derived tolerances, and four-refinement failure rule as Section 3.3.
-Coherent-main, total, and scattered power must all converge on the complete
-queried 2-D grid; otherwise `BeamSamplingDerivationError` is raised. The
-diagnostic records the method literal, final node counts, residuals, and fixed
-tolerances.
+#### 3.4.1 Required positive covariance-mixture algorithm
+
+Direct evaluation of the displayed double integral is forbidden in production:
+for $Q$ aperture nodes it would form $O(SQ^2)$ node pairs. A binary Cartesian
+raster and local FFT interpolation are also forbidden: their hard-disk and
+off-grid errors cannot satisfy the unchanged beam tolerance at a tractable
+grid size. The only Stage-1 production method literal is
+`poisson_gauss_hermite_aperture_v1`, defined here.
+
+Let $\mu=s^2$. The scattered covariance is the positive Poisson mixture
+
+$$
+K_{\rm sc}(\boldsymbol\Delta)=
+e^{-\mu}\sum_{m=1}^{\infty}
+\frac{\mu^m}{m!}
+\exp\!\left(-\frac{m|\boldsymbol\Delta|^2}{L^2}\right).
+$$
+
+For every integer $m\geq1$,
+
+$$
+\frac{1}{\pi}\int_{\mathbb R^2}e^{-|\mathbf t|^2}
+\exp\!\left(i\frac{2\sqrt m}{L}
+\mathbf t\!\cdot\!\boldsymbol\Delta\right)d^2t
+=\exp\!\left(-\frac{m|\boldsymbol\Delta|^2}{L^2}\right).
+$$
+
+With the negative-forward deterministic aperture transform from Section 3.3,
+the scattered power is therefore
+
+$$
+B_{\rm sc}(\mathbf q)=e^{-\mu}
+\sum_{m=1}^{\infty}\frac{\mu^m}{m!}
+\frac{1}{\pi}\int_{\mathbb R^2}e^{-|\mathbf t|^2}
+\left|e_{\rm det}\!\left(
+\mathbf q-\frac{2\sqrt m}{L}\mathbf t\right)\right|^2d^2t.
+$$
+
+The internal aperture-transform helper accepts every finite real two-vector;
+Hermite-shifted wavevectors need not correspond to a physical sky direction.
+It uses the same boundary-fitted panels, phase-bandwidth seeds, convergence,
+and target-width accumulation as Section 3.3, but never calls
+`evaluate_jones` and never applies a sky angular-domain or horizon check. The
+outer requested directions alone receive the existing pointing transform and
+true-horizon gate.
+
+Every supported $U/P/P_2$ mixture has $A\geq0$ and $N_0=\int A>0$; the mask is
+zero/one and the deterministic phase has unit modulus. Consequently
+
+$$
+|e_{\rm det}(\mathbf k)|\leq
+\frac{\int AM}{\int A}\leq1
+$$
+
+for every shifted wavevector. This both proves non-negative scattered power and
+makes omitted Poisson probability mass a rigorous absolute power-error bound.
+
+The Poisson support is a contiguous integer interval
+`[poisson_first_order, poisson_last_order]`. With
+$p_m=\exp[-\mu+m\log\mu-\lgamma(m+1)]$, resolution chooses the fewest retained
+terms, breaking a tie toward the smaller first order, for which
+
+$$
+\sum_{m=1}^{m_{\rm first}-1}p_m+
+\sum_{m=m_{\rm last}+1}^{\infty}p_m\leq
+\tau_P,\qquad \tau_P=\mathrm{atol}/8.
+$$
+
+Lower and upper tails are evaluated independently with complemented Poisson
+CDFs; retained log-weights are generated outward from the Poisson mode and
+summed with `fsum`. Production never evaluates
+`exp(-mu) * mu**m / factorial(m)` directly and never renormalizes retained
+weights. The total scattered mass is computed as `-expm1(-mu)`. If it is no
+larger than $\tau_P$, the exact resolved interval is `[0,0]`, its term count is
+zero, and scattered power is positive zero with the whole mass recorded as the
+omitted upper bound. More than 256 retained terms raises
+`BeamSamplingDerivationError` before any aperture evaluation.
+
+Each retained Gaussian uses tensor-product physicists' Gauss-Hermite nodes.
+For raw positive weights $w_i$, the exact computational weights are
+$\bar w_i=w_i/\operatorname{fsum}(w)$, so
+$\sum_{ij}\bar w_i\bar w_j=1$. Nodes and weights are generated and validated
+under the target-width rule in Section 3.3. Allowed one-axis orders are exactly
+`(8,16,32,64,128,256,512)`. To prevent two unresolved narrow results from
+falsely agreeing, no convergence comparison may count below the first allowed
+order not less than
+
+$$
+H_{\rm floor}=8+\left\lceil4\sqrt{m_{\rm last}}D/L\right\rceil.
+$$
+
+There must be room for two higher allowed orders or evaluation fails before it
+starts. Starting at that allowed floor, two consecutive complete-array
+comparisons must satisfy one quarter of
+`atol + rtol*max(abs(refined))`; otherwise the diagnostic raises
+`BeamSamplingDerivationError`. The aperture helper independently requires at
+least two levels and at most four refinements, and its complex result must
+converge over every base and Hermite-shifted wavevector, not merely after the
+weighted powers are summed.
+
+The diagnostic supports at most 65,536 aperture nodes in any transform,
+`2**20` cumulative transformed wavevectors, `2**28` cumulative
+aperture-node/wavevector phase products, and `8*2**30` estimated workspace
+bytes. It uses an internal batch size equal to the largest power of two no
+greater than 256 that satisfies all remaining phase-product and byte caps; a
+smaller non-power-of-two final batch is permitted. Counts and the conservative
+shape-by-shape byte estimate are checked before every Poisson, Hermite, aperture,
+or batch refinement. For $r=\max(8,\text{beam real bytes})$,
+$c=\max(16,\text{beam complex bytes})$, and the current $J,H,Q,B,S$, that
+estimate is exactly
+
+$$
+E_{\rm Ruze}=r(16Q+6H^2+8BQ+16B+12S+4J)
++c(4BQ+8B+6S).
+$$
+
+Buffers must be reused within those multiplicities. Exceeding a cap returns no
+partial result and raises
+`BeamSamplingDerivationError`. The worst-case work is
+$O(SJH^2Q)$ and memory is $O(Q+H^2+BQ+S)$ for retained-term count $J$, final
+Hermite order $H$, maximum aperture-node count $Q$, and batch size $B$; no
+$Q^2$ pair array exists in production.
+
+At least float64 weights and accumulation are used for both supported output
+widths. Coherent and scattered arrays are cast separately to the beam real
+dtype, checked finite and non-negative, and only then is
+`total_ensemble_power = coherent_main_power + scattered_power` formed in that
+same dtype. There is no clipping: a negative or non-finite weighted sum is an
+internal numerical failure and raises `BeamSamplingDerivationError`. The
+returned balance is exact in the result dtype; maximum observed
+$|e_{\rm det}|$ must not exceed one beyond the unchanged tolerance, and total
+power must not exceed one beyond it. Poisson tail, two successive Hermite
+residuals, and the aperture-transform residuals are retained separately; none
+is hidden in a single convergence boolean.
 
 This is an explicit scientific narrowing of Phase 5's generic
 "effect-changes-visibility" rule: the existing coherent Ruze term must still
@@ -304,14 +756,134 @@ policy. Such a realization must be mutually exclusive with applying Ruze loss
 for the same residual error. No such stochastic or seeded surface is authorized
 by Stage 1.
 
+#### 3.4.2 Frozen public result
+
 The typed public diagnostic is
 `BeamSystem.evaluate_ruze_power_diagnostic(antenna_id, *, altitude_rad,
 azimuth_rad, frequency_hz, time_mjd)`. It returns an immutable
-`RuzePowerDiagnostic` carrying the queried directions, coherent-main power,
-total ensemble power, scattered power, covariance convention, and convergence
-metadata. It is available only when the resolved antenna carries the diagnostic
-block and otherwise raises `BeamEvaluationError` with a stable exact message.
-It never mutates or substitutes the matrix returned by `evaluate_jones`.
+`RuzePowerDiagnostic`. Inputs otherwise obey the `evaluate_jones` contract:
+`antenna_id` is a canonical `AntennaId`; direction arguments are one-dimensional
+NumPy arrays with identical shape `(S,)`; and frequency/time are exact finite
+Python floats, with positive frequency. Unlike `evaluate_jones`, the diagnostic
+requires `S >= 1` because convergence maxima are part of its result. An empty
+pair raises `BeamAngularDomainError` with exact message
+`Ruze power diagnostic requires at least one direction.` The result has exactly
+these fields:
+
+| Field | Exact resolved type and value |
+|---|---|
+| `schema_version` | `Literal["radiosim.ruze_power_diagnostic.v1"]` |
+| `method` | `Literal["poisson_gauss_hermite_aperture_v1"]` |
+| `antenna_id` | canonical immutable `AntennaId` |
+| `covariance_convention` | `Literal["gaussian_one_over_e_surface_covariance_v1"]` |
+| `normalization_convention` | `Literal["unmodified_ideal_aperture_v1"]` |
+| `frequency_hz`, `time_mjd`, `rms_surface_error_m`, `correlation_length_m` | exact finite Python `float`; the first, third, and fourth are positive |
+| `altitude_rad`, `azimuth_rad` | owned, C-contiguous, read-only `float64` arrays of shape `(S,)` |
+| `coherent_main_power`, `total_ensemble_power`, `scattered_power` | owned, C-contiguous, read-only arrays of shape `(S,)` in the real component dtype of the beam |
+| `convergence` | immutable `RuzePowerConvergence` below |
+
+`RuzePowerConvergence` has exactly these fields, in this order:
+
+```text
+real_dtype, complex_dtype,
+poisson_mu, poisson_first_order, poisson_last_order, poisson_term_count,
+poisson_lower_omitted_mass, poisson_upper_omitted_mass,
+poisson_total_omitted_mass, poisson_retained_weight_sum,
+hermite_order, hermite_evaluation_count,
+hermite_penultimate_max_abs_delta, hermite_final_max_abs_delta,
+aperture_method, aperture_partition_count,
+aperture_topology_breakpoint_count, aperture_topology_sha256,
+aperture_refinement_count, aperture_max_node_count,
+aperture_penultimate_max_abs_delta, aperture_final_max_abs_delta,
+aperture_q_max, surface_phase_kappa,
+surface_radial_derivative_bound, surface_angular_derivative_bound,
+fhat_evaluation_count, phase_product_count, batch_size,
+atol, rtol, estimated_peak_bytes,
+maximum_abs_e_deterministic, minimum_scattered_power, maximum_total_power,
+returned_balance_max_abs_residual
+```
+
+`real_dtype`/`complex_dtype` are exactly `float32`/`complex64` or
+`float64`/`complex128`; `aperture_method` is exactly
+`boundary_fitted_polar_gauss_legendre_v1`; and
+`aperture_topology_sha256` is lower-case SHA-256 over the canonical
+target-dtype radial-breakpoint and periodic-angular-partition manifest. The
+manifest byte stream begins with the ASCII domain
+`radiosim.aperture_topology.v1\0`, then length-prefixes the real-dtype literal,
+resolved central ratio or the literal `none`, ordered `(beta,a)` leg pairs,
+ordered radial panels with transformation literal and canonical endpoints, and,
+for each radial node of the final
+accepted aperture solve in panel/node order, its ordered disjoint transmitting
+angular intervals. Earlier failed/refined solves do not enter this digest.
+Counts are unsigned little-endian 64-bit;
+finite floats are normalized to positive zero, converted to the declared
+little-endian real dtype, and emitted as raw bytes; every variable-length byte
+string or sequence is preceded by its element count in the same integer
+encoding. SHA-256 covers exactly that stream.
+
+All orders, counts, batch size, and byte fields are exact non-negative Python
+integers. `hermite_order` is zero only for the resolved zero-term Poisson case;
+otherwise it is an allowed positive order. Every other field from
+`poisson_mu` through `returned_balance_max_abs_residual` not already classified
+as a string, digest, or integer is an exact finite non-negative Python float.
+Lower plus upper omitted mass equals total omitted mass in float64 arithmetic;
+term count is zero exactly with Poisson interval `[0,0]` and otherwise equals
+`last - first + 1`. In the zero-term case retained weight, Hermite evaluation
+count, Hermite order, and both Hermite residuals are exactly zero; lower omitted
+mass is zero and upper and total omitted mass both equal `-expm1(-poisson_mu)`.
+
+Evaluation counts, transform counts, phase products, and refinement counts are
+cumulative over the whole public call. Orders describe the returned
+refinement. `aperture_partition_count` is exactly
+$\sum_p K_p$, where $K_p$ is the constant number of disjoint transmitting
+angular intervals at any interior radius of topology-fitted radial panel $p$;
+fully blocked panels contribute zero. `aperture_topology_breakpoint_count` is
+the cardinality of the sorted unique normalized radial-panel boundary set,
+including the active lower boundary (zero or $\epsilon$), every saturation and
+canonical topology root, and outer boundary one. Both counts describe the
+returned topology and are independent of quadrature node order.
+
+`aperture_q_max` is dimensionless and equals
+$\max R\|\mathbf k\|_2$ over every base or Hermite-shifted wavevector actually
+presented to any aperture solve in the whole call; it is not physical
+$\|\mathbf k\|$ in inverse metres. `aperture_max_node_count` is the maximum
+Section 3.3 value of $Q$ over all seed/refinement evaluations; `batch_size` is
+the largest wavevector batch actually scheduled; and `estimated_peak_bytes` is
+the maximum declared estimate. `surface_phase_kappa` is exactly
+$4\pi/\lambda$; the two surface derivative fields are the Section 3.3
+$H_\rho,H_\varphi$ bounds. The named amplitude and power extrema have their
+literal maximum/minimum meanings over all evaluated or returned values as
+applicable.
+
+For Hermite convergence, `penultimate` and `final` are the first and second of
+the final two consecutive successful complete-array comparisons. For aperture
+convergence, every angular sequence that licenses a radial result and the
+radial sequence itself has two final successful comparisons;
+`aperture_penultimate_max_abs_delta` is the maximum of the first such licensing
+deltas and `aperture_final_max_abs_delta` the maximum of the second, across both
+dimensions, every relevant direction, shifted wavevector, and retained Poisson
+term. These are not merely the final radial pair. There is no `converged` field
+and no false state: failure returns no record.
+
+`hermite_evaluation_count` counts every scheduled tuple
+`(outer_direction, poisson_order, hermite_i, hermite_j)` across all attempted
+Hermite orders, including repeated abscissae after refinement.
+`fhat_evaluation_count` counts every wavevector element presented to an
+aperture-transform refinement, so reevaluating one wavevector at a new aperture
+order increments it again. `phase_product_count` counts every scalar
+aperture-node/wavevector exponential formed. `aperture_refinement_count` counts
+every evaluated angular or radial order increase after its seed evaluation;
+seed evaluations do not increment that field. These definitions, rather than
+wall-clock implementation details or cache hits, own the operation caps.
+
+The dataclasses are frozen, final, and slotted; array fields are detached owned
+copies with writes disabled. Unknown fields are impossible through their
+constructors and are rejected by the retained-evidence schema. The diagnostic
+is available only when the resolved antenna carries the nested diagnostic block
+and otherwise raises `BeamEvaluationError` with the stable exact message
+`A Ruze power diagnostic is not configured for this antenna.` It never mutates
+or substitutes the matrix returned by `evaluate_jones` and never accepts a
+backend argument: the complete algorithm is host-side.
 
 ### 3.5 Stage-1 rejections and acceptance invariants
 
@@ -319,25 +891,89 @@ Typed errors must preserve these exact semantic families:
 
 - an explicitly present aperture block enables neither blockage nor a non-zero
   allowed Zernike mode;
-- aperture physics is attached to a non-circular analytic family or a FITS
-  source;
+- aperture physics or a Ruze diagnostic is attached to a non-circular analytic
+  family, a FITS source, or a direct/derived/discrete pupil profile excluded by
+  Section 3.1;
 - a blockage ratio, support width, or resolved support geometry is outside its
   physical domain;
 - the unmodified ideal aperture integral `N0` is zero or non-finite;
-- a Zernike index is invalid, repeated, piston, or tip/tilt;
+- `zernike_surface.modes` is absent, empty, not a sequence of exact three-field
+  records, or contains an invalid, repeated, piston, or tip/tilt index;
 - all Zernike coefficients are zero;
 - a diagnostic lacks a positive correlation length, or is authored without a
-  positive surface RMS; and
-- an unknown normalization, covariance, or Zernike convention is supplied.
+  positive surface RMS, uses unsupported extended precision, or receives an
+  empty direction batch;
+- an unknown normalization, covariance, or Zernike convention is supplied; or
+- a boundary/topology value is not representable, or the fixed quadrature,
+  Poisson-tail, Hermite-order, transform-count, phase-product, memory,
+  convergence, finite-value, amplitude-bound, power-bound, or exact-balance
+  predicate cannot be satisfied.
+
+When multiple Stage-1 unsupported conditions coexist after schema/semantic
+validation, aperture-owned family/profile checks run before any diagnostic
+check. Within one feature, family precedes profile and profile precedes
+diagnostic precision. Diagnostic paths are visited as `default` followed by
+ascending `per_antenna` index. Duplicate diagnostic unsupported issues already
+owned by the explicit aperture feature are suppressed. This order, together
+with `ConfigIssue` sorting, fixes the first rejection recorded in evidence.
 
 Acceptance requires all of:
 
+- every supported profile in Section 3.1 reproduces its pre-Stage-1 normalized
+  scalar Hankel formula within the existing dtype tolerance, while every
+  excluded profile fails with the exact typed issue code and absent/default
+  Gaussian configurations remain byte-identical;
 - the closed blocked-uniform-aperture formula, including boresight loss;
+- exact North/East support-leg masks at 0, 90, and 180 degrees, an antipodal-leg
+  control, central-to-edge extent, boundary rules, and union-without-double-loss
+  overlap cases;
 - numerical unit-RMS/orthogonality checks for the declared Zernike basis;
+- strict `modes` shape/type/unknown-field rejection and stable `(n,m)` sorting;
+- a normal-incidence control and an off-axis control proving that authored $h$
+  is half reflected OPD, with a supplied physical normal displacement mapped as
+  $h=\delta_n\cos i$ rather than silently treated as $\delta_n$;
+- available-platform NumPy `complex256` unmodified-profile and composed
+  mask-plus-Zernike projections whose nodes, accumulation, and independent
+  oracle never pass through complex128;
+- boundary-fitted radial/angular partitions, saturation and topology roots,
+  periodic-cut roots, canonical upper-float root ownership/collision failures,
+  endpoint transformations, exact per-panel $L_p$ and nested-node $Q$ counts,
+  target-width nodes, phase-bandwidth seeds, two consecutive dimensional
+  convergence checks, and every fixed resource cap;
 - blockage and Zernike each change a visibility when enabled;
 - the composed mask-plus-phase result differs from a deliberately wrong
   product of two far-field factors;
 - coherent Ruze cross-baseline scaling and ensemble power balance;
+- a jointly Gaussian field characteristic-function oracle, plus a non-Gaussian
+  covariance-matched counterexample showing that covariance alone does not
+  license the declared kernel;
+- a small-node independent $O(Q^2)$ pair oracle in tests only that agrees with
+  the Poisson/Gauss-Hermite result, catches the factor-two, $1/\pi$,
+  deterministic-phase, negative-forward aperture-transform sign, and
+  normalization controls, and is never imported by production; the Hermite
+  shift sign itself is not an oracle because the symmetric whole-plane integral
+  is invariant under $\mathbf t\mapsto-\mathbf t$;
+- stable low/high-$\mu$ two-sided Poisson tails, the $\mu\to0$ first-order
+  limit, and the $L\to\infty$ identity
+  $B_{\rm sc}=(1-e^{-\mu})|e_{\rm det}|^2$;
+- a deliberately narrow Hermite integrand that converges only after refinement
+  or fails with the typed cap, plus entire-plane shifted-wavevector evaluation
+  without a sky-domain rejection;
+- non-negative scattered power without clipping, $|e_{\rm det}|\leq1$, total
+  power no greater than one within the unchanged tolerance, exact returned
+  balance, and every operation/memory cap firing before prohibited work;
+- the exact frozen diagnostic fields, scalar types, array shapes/dtypes,
+  ownership/read-only behavior, method/convention literals, and no-backend
+  signature;
+- proof by spy and data-flow test that requesting the diagnostic neither calls
+  nor changes `evaluate_jones`, creates no Jones voltage, and leaves every
+  cross-baseline visibility unchanged relative to the same surface RMS without
+  the nested diagnostic; configuring the diagnostic does change the scientific
+  fingerprint and retained ensemble-power record, while repeated evaluation
+  does not mutate either;
+- exact diagnostic-only unsupported-pupil, unsupported-family,
+  unsupported-precision, and empty-direction rejections while the same beams
+  with both Stage-1 features absent retain their prior behavior;
 - point and HEALPix coverage;
 - NumPy/Dask byte identity and JAX agreement at existing tolerances;
 - disabled/default result and fingerprint byte identity; and
@@ -681,6 +1317,9 @@ The minimum new modules are:
 - `tests/unit/test_io/test_sci005_beam_config.py` for strict parse and typed
   rejection;
 - `tests/unit/test_core/test_sci005_aperture_physics.py` for Stage 1;
+- `tests/unit/test_core/test_sci005_ruze_diagnostic.py` for the independent
+  small-node pair oracle, Poisson/Hermite/refinement/resource predicates, and
+  frozen result;
 - `tests/unit/test_core/test_sci005_beam_squint.py` for Stage 2;
 - `tests/unit/test_core/test_sci005_full_efield.py` for Stage 3;
 - `tests/integration/test_sci005_beam_physics.py` for point/HEALPix, outputs,
@@ -714,11 +1353,15 @@ correction before it is edited.
 - `src/radiosim/io/config_resolution.py`
 - `src/radiosim/core/beam/models.py`
 - `src/radiosim/core/beam/resolution.py`
+- `src/radiosim/core/beam/aperture.py` (new; the only production owner of the
+  pupil profiles, support mask, Zernike phase, Ruze power diagnostic, and
+  frozen diagnostic records)
 - `src/radiosim/core/beam/analytic.py`
 - `src/radiosim/core/beam/runtime.py`
 - `src/radiosim/core/beam/__init__.py`
 - `tests/unit/test_io/test_sci005_beam_config.py` (new)
 - `tests/unit/test_core/test_sci005_aperture_physics.py` (new)
+- `tests/unit/test_core/test_sci005_ruze_diagnostic.py` (new)
 - `tests/unit/test_core/test_beam_models.py`
 - `tests/unit/test_core/test_beam_resolution.py`
 - `tests/unit/test_core/test_beam_runtime.py`
@@ -729,6 +1372,8 @@ correction before it is edited.
 - `tests/characterization/test_tier8_current_behavior.py`
 - `tests/unit/test_sci005_evidence.py` (new)
 - `tools/sci005_stage_evidence.py` (new)
+- `docs/development/sci005_stage1_evidence.schema.json` (new; normative schema
+  transcription authenticated by the evidence tool)
 - `docs/user_guide/configuration.rst`
 - `docs/user_guide/configuration_support.rst`
 - `docs/user_guide/beam_models.rst`
@@ -843,34 +1488,254 @@ bounded design correction rather than silently expanding the slice.
 
 ## 8. Retained evidence schema and commit succession
 
-Each `docs/development/sci005_stageN_evidence.json` is strict and has exactly:
+Each `docs/development/sci005_stageN_evidence.json` is strict and has exactly
+the following common fields, in this order:
 
-- `schema_version`, `stage`, `status`, `generated_at_utc`;
-- `design_sha`, `red_test_sha`, `source_sha`, `evidence_sha`, and
-  `working_tree_clean`;
-- `radiosim_version`, `python_version`, `platform`, `machine`,
-  `pixi_environment`, and `pixi_lock_sha256`;
-- `scientific_conventions`, `config_cases`, `analytic_invariants`,
-  `rejection_probes`, `backend_parity`, and `solver_cases`;
-- `output_cases`, `fingerprint_diff`, `commands`, `artifacts`, `limitations`,
-  and `claims_not_licensed`.
+```text
+schema_version, stage, status, generated_at_utc,
+design_sha, red_test_sha, source_sha, evidence_sha, working_tree_clean,
+radiosim_version, python_version, platform, machine, pixi_environment,
+pixi_lock_sha256, scientific_conventions, config_cases, analytic_invariants,
+rejection_probes, backend_parity, solver_cases, output_cases,
+fingerprint_diff, commands, artifacts, limitations, claims_not_licensed
+```
 
 `schema_version` is respectively `radiosim.sci005.stage1.v1`,
 `radiosim.sci005.stage2.v1`, or `radiosim.sci005.stage3.v1`. Missing and unknown
-fields fail validation. Every digest is lower-case SHA-256; every count is a
-non-negative JSON integer; every residual and tolerance is finite and
-non-negative; absent measurements are explicit JSON null with a named reason,
-never omitted or encoded as zero.
+fields fail validation. The bounded correction freezes the complete Stage-1
+envelope below; Stages 2 and 3 retain their accepted common envelope and must
+freeze any stage-specific row extension before their red slices.
 
-Every analytic-invariant row names the equation/convention, test node ID,
-inputs, expected value, observed value, absolute residual, and fixed tolerance.
-Every rejection row names the config path, exception type, exact message, and
-test node ID. Backend rows name the backend, actual device, dtype, source and
-result digests, maximum absolute/relative difference, and tolerance. Output
-rows cover in-memory, summary, HDF5, UVFITS, MS, and reader projections as
-applicable. Fingerprint rows name environment, workload, old/new scientific
-hashes, old/new raw-cube hashes, changed element count, maximum delta, and
-whether change was expected.
+For the following contract, JSON `number` means finite, non-boolean binary64;
+`integer` means a non-negative, non-boolean JSON integer unless the field says
+otherwise; `git_sha` means exactly 40 lower-case hexadecimal characters; and
+`sha256` means exactly 64. A `timestamp` is canonical UTC
+`YYYY-MM-DDTHH:MM:SSZ` with no fractional seconds. Every unspecified string is
+non-empty. Every object has `additionalProperties: false`; every listed key is
+required, including keys whose value may be null. Every count, residual, and
+tolerance is non-negative. Arrays declared sorted are strictly lexical by the
+named key and contain no duplicate key.
+
+`numeric_projection` is exactly
+`{dtype, shape, c_order_sha256, minimum_abs, maximum_abs}`. Its `dtype` is one of
+`float32`, `float64`, `float128`, `complex64`, `complex128`, or `complex256`;
+`shape` is a non-empty array of integers; its product is positive; the digest
+authenticates the C-contiguous raw bytes in that dtype; and extrema are finite
+numbers over absolute values. The two extended literals are legal only when
+NumPy exposes 16-byte `longdouble`, 32-byte `clongdouble`, and
+`finfo(longdouble).nmant > 52`; an alias to float64 is not extended evidence.
+`array_projection` is exactly
+`{dtype, shape, c_order_sha256, minimum, maximum}`: `dtype` is `float32` or
+`float64`, `shape` is the one-element array `[S]` with `S >= 1`, the digest
+authenticates the owned C-order raw bytes, and extrema are numbers.
+`antenna_projection` is exactly `{number, name}`, with a signed, non-boolean
+JSON integer and a non-empty string.
+
+Stage 1 appends, in order, the top-level arrays `pupil_profiles`,
+`support_masks`, and `ruze_power_diagnostics` to the common field sequence.
+Its exact top-level scalar contract is:
+
+- `schema_version` is `radiosim.sci005.stage1.v1`, `stage` is integer `1`,
+  `status` is `candidate`, `generated_at_utc` is a timestamp,
+  `working_tree_clean` is true, and `evidence_sha` is JSON null;
+- `design_sha`, `red_test_sha`, and `source_sha` are `git_sha`; the last names
+  the clean checked-out Stage-1 implementation candidate `S1`;
+- `radiosim_version`, `python_version`, `platform`, `machine`, and
+  `pixi_environment` are strings, and `pixi_lock_sha256` is a `sha256`; and
+- every array field is non-empty except that `limitations` may be empty.
+
+The official `E1` artifact is generated on an available NumPy platform meeting
+the extended-width predicate above. This is required because the deterministic
+aperture contract retains wider-than-float64 behavior even though the optional
+Ruze diagnostic rejects it.
+
+`scientific_conventions` has exactly:
+
+```text
+pupil_profile_set: radiosim.circular_stage1_pupil_profiles.v1
+aperture_normalization: unmodified_ideal_aperture_v1
+aperture_axes: north_east_azimuth_north_through_east_v1
+support_mask: radiosim.central_disk_outward_half_strip_ne.v1
+zernike_surface: radiosim.real_unit_rms_disk_surface_height.v1
+aperture_method: boundary_fitted_polar_gauss_legendre_v1
+ruze_covariance: gaussian_one_over_e_surface_covariance_v1
+ruze_method: poisson_gauss_hermite_aperture_v1
+```
+
+Every `config_cases` row has exactly
+`{case_id, test_node_id, input_sha256, expected_outcome, observed_outcome,
+resolved_scientific_sha256, exception_type, issue_code, exact_message, passed}`.
+The first two are strings, the input is a `sha256`, outcomes are each
+`accepted` or `rejected`, and `passed` is boolean. An accepted observation has a
+non-null `sha256` resolution and null error fields; a rejected observation has
+a null resolution and three non-null exact error strings. Expected and observed
+outcomes must agree. Rows are sorted by unique `case_id`.
+
+Every `analytic_invariants` row has exactly
+`{case_id, invariant_id, backend, test_node_id, input_manifest_sha256, expected,
+observed, max_abs_residual, max_rel_residual, atol, rtol, passed}`. The first
+two and `test_node_id` are strings; `backend` is `numpy`, `jax`, `dask`, or
+`independent_oracle`; the input is a `sha256`; expected and observed are
+`numeric_projection`; the four metrics are numbers; and `passed` is boolean.
+The projections have identical dtype and shape. Rows are sorted by unique
+`case_id`. Exactly one `numpy` row each for
+`extended_precision_unmodified_profile` and
+`extended_precision_mask_plus_zernike` uses `complex256` observed/expected
+projections and target-width tolerances; converting either computation or
+oracle through complex128 invalidates the row.
+
+Every `rejection_probes` row has exactly
+`{case_id, config_path, exception_type, issue_code, exact_message, test_node_id,
+input_sha256, passed}`: all except the digest and boolean are strings. It records
+the full rendered message and the first owning issue path/code, not a substring.
+Rows are sorted by unique `case_id`.
+
+Every `backend_parity` row has exactly
+`{case_id, backend, actual_device, real_dtype, complex_dtype, input_sha256,
+reference_result_sha256, observed_result_sha256, max_abs_difference,
+max_rel_difference, atol, rtol, passed}`. `backend` is `numpy`, `jax`, or `dask`;
+the dtype pair is one of the two diagnostic pairs in Section 3.4.2; digests are
+`sha256`; difference/tolerance fields are numbers; and `passed` is boolean.
+Rows are sorted by `(case_id, backend)` and each retained case contains all
+three backends. These parity rows own standard-width Jones/diagnostic parity;
+the preceding NumPy analytic-invariant rows exclusively authenticate the
+deterministic extended-width contract.
+
+Every `solver_cases` row has exactly
+`{case_id, effect, test_node_id, input_sha256, jones_sha256,
+visibility_sha256, diagnostic_sha256, jones_call_count,
+visibility_changed_element_count, visibility_change_expected, passed}`.
+`effect` is one of `blockage`, `zernike`, `ruze_coherent_voltage`, or
+`ruze_power_diagnostic_non_visibility`; hashes are `sha256` except that
+`diagnostic_sha256` is null for the first three; counts are integers; and the
+last two fields are boolean. A diagnostic-only row requires zero Jones calls,
+zero changed visibility elements, and false `visibility_change_expected`.
+Rows are sorted by unique `case_id`.
+
+Every `output_cases` row has exactly
+`{case_id, format, writer_test_node_id, reader_test_node_id, artifact_sha256,
+in_memory_sha256, observed_projection_sha256, roundtrip_max_abs_difference,
+tolerance, passed}`. `format` is one of `in_memory`, `summary_json`, `hdf5`,
+`uvfits`, `measurement_set`, or `reader_projection`; hashes are `sha256` when
+non-null; residual/tolerance are numbers when non-null; and `passed` is boolean.
+Only `in_memory` may have null reader, artifact, round-trip, and tolerance
+fields; every other row has them non-null. Rows are sorted by unique `case_id`.
+
+Every `fingerprint_diff` row has exactly
+`{environment, workload, old_scientific_sha256, new_scientific_sha256,
+old_raw_cube_sha256, new_raw_cube_sha256, changed_element_count, maximum_delta,
+change_expected, test_node_id, passed}`. Digests are `sha256`, count is integer,
+maximum delta is a number, the two final state fields are boolean, and remaining
+fields are strings. Rows are sorted by `(environment, workload)` and must
+include enabled and disabled/default controls.
+
+Every `commands` row has exactly
+`{argv, cwd, pixi_environment, started_at_utc, duration_seconds, exit_code,
+stdout_sha256, stderr_sha256}`. `argv` is a non-empty string array executed
+without a shell; `cwd` is repository-relative `.`; start is a timestamp;
+duration is a number; exit code is a signed non-boolean integer and must be zero
+for candidate evidence; and the final fields are `sha256`. Command rows retain
+execution order. Every `artifacts` row has exactly
+`{path, sha256, media_type, role}`; path is a normalized repository-relative
+string, digest is `sha256`, and role is one of `schema`, `command_log`,
+`output`, `fingerprint`, or `auxiliary`. Artifact rows are sorted by unique
+path. `limitations` and `claims_not_licensed` are sorted unique string arrays;
+the latter must name Stage-1 acceptance, Stages 2/3, whole-row closure, and a
+deterministic Ruze Jones/error voltage as claims not licensed.
+
+The implementation checks in
+`docs/development/sci005_stage1_evidence.schema.json` (new) as a literal JSON
+Schema transcription of this normative key/type/cross-field contract. That
+schema is on the Stage-1 writable list; an `artifacts` row with role `schema`
+authenticates its exact bytes. The prose here wins if the red slice exposes a
+transcription difference.
+
+Each `pupil_profiles` row has exactly:
+
+```text
+case_id: string
+model_kind: enum[circular_aperture, analytical_illumination,
+                 numerical_illumination, rectangular_aperture,
+                 elliptical_aperture, fits]
+taper_kind: enum[uniform, parabolic, parabolic_squared, gaussian, cosine] | null
+edge_taper_db: number | null
+mixture_weight: number | null
+profile_convention: enum[U, pU_plus_one_minus_p_P,
+                         pU_plus_one_minus_p_P2] | null
+hankel_convention: enum[two_J1_over_x, eight_J2_over_x2,
+                        forty_eight_J3_over_x3,
+                        weighted_linear_combination] | null
+outcome: enum[accepted, rejected]
+exception_type: string | null
+issue_code: string | null
+test_node_id: string
+max_abs_residual: number | null
+tolerance: number | null
+```
+
+Accepted rows require non-null profile/Hankel literals, residual, and tolerance,
+and null exception/code. Rejected rows require null profile/Hankel/residual/
+tolerance and non-null exact exception/code. `edge_taper_db` and
+`mixture_weight` are null only where the selected model/taper has neither.
+
+Each `support_masks` row has exactly
+`{case_id, diameter_m, central_diameter_ratio, legs, probes,
+union_control_id, antipodal_control_id, topology_sha256, test_node_id, passed}`.
+`case_id`, `union_control_id`, `antipodal_control_id`, and `test_node_id` are
+strings; `topology_sha256` is a `sha256`; diameter and ratio are numbers; and
+`passed` is boolean. `legs` is an array of
+exact objects `{position_angle_deg: number, width_m: number}` in resolved angle
+order. `probes` is an array of exact objects
+`{north_m: number, east_m: number, expected_transmitting: boolean,
+observed_transmitting: boolean}` in authored probe order. Empty legs are legal;
+empty probes are not.
+
+Each `ruze_power_diagnostics` row has exactly
+`{case_id, resolved_aperture_scientific_sha256, diagnostic,
+direct_pair_oracle, limit_oracles, test_node_ids}`. The first is a string, the
+second a sha256, and the last a non-empty array of unique strings in lexical
+order. `direct_pair_oracle` is exactly
+`{test_node_id: string, aperture_node_count: integer,
+direction_count: integer, max_abs_residual: number, tolerance: number}`; both
+counts are positive.
+`limit_oracles` is an array, ordered by `kind`, of exact objects
+`{kind, test_node_id, input_sha256, max_abs_residual, tolerance}`, where the
+digest is a `sha256`, `kind` is one of
+`mu_first_order`, `infinite_correlation_length`, `asymmetric_phase`,
+`entire_plane_shift`, `gaussian_characteristic_function`, or
+`covariance_only_counterexample`, and the remaining fields have the preceding
+types. Every row contains each of those six kinds exactly once. Rows are sorted
+by unique `case_id`.
+
+The `diagnostic` object is the exact JSON projection of the public record. It
+has scalar keys `schema_version`, `method`, `covariance_convention`, and
+`normalization_convention` with the exact literals in Section 3.4.2;
+`antenna_id: antenna_projection`; numeric keys `frequency_hz`, `time_mjd`,
+`rms_surface_error_m`, and `correlation_length_m`; projection keys
+`altitude_rad`, `azimuth_rad`, `coherent_main_power`,
+`total_ensemble_power`, and `scattered_power`; and `convergence` below. It does
+not embed array values or a complex voltage.
+
+The `convergence` object has every key in Section 3.4.2's declared order.
+`real_dtype`, `complex_dtype`, and `aperture_method` use their exact declared
+enums; `aperture_topology_sha256` is a sha256. Integer keys are exactly the
+following fields:
+
+```text
+poisson_first_order, poisson_last_order, poisson_term_count,
+hermite_order, hermite_evaluation_count,
+aperture_partition_count, aperture_topology_breakpoint_count,
+aperture_refinement_count, aperture_max_node_count,
+fhat_evaluation_count, phase_product_count, batch_size, estimated_peak_bytes
+```
+
+All remaining convergence keys not already classified as dtype/method strings
+or a digest are JSON numbers. Cross-field validation enforces the zero-term
+Poisson case, retained interval count, tail sum, allowed Hermite order, caps,
+two residuals, dtype pair, non-negative powers, amplitude/total bounds, and
+exact result-dtype balance from Section 3.4. Unknown or missing projection keys,
+nulls, a backend field, a `converged` boolean, clipping metadata, FFT metadata,
+or any direction-sized complex value fail authentication.
 
 Stage 3 additionally embeds the cross-validation artifact path and digest,
 reference package versions, input-content hashes, explicit convention mappings,
@@ -910,7 +1775,8 @@ pixi run doctest
 pixi run lint
 pixi run check-format
 pixi run typecheck
-make -C docs html
+make -C docs clean html SPHINXOPTS="-W --keep-going"
+pixi run test -- tests/unit/test_tier8_release_acceptance.py
 git diff --check
 ```
 
