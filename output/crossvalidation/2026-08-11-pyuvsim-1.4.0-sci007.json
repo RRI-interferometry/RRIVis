@@ -1,0 +1,1318 @@
+{
+  "axes": {
+    "aggregate_cube": {
+      "order": [
+        "time",
+        "baseline",
+        "frequency",
+        "polarization"
+      ],
+      "shape": [
+        3,
+        3,
+        3,
+        4
+      ]
+    },
+    "baseline": {
+      "order": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          1,
+          2
+        ]
+      ],
+      "shape": [
+        3
+      ],
+      "value_shape": [
+        3,
+        2
+      ]
+    },
+    "exact_angle_grid": {
+      "order": [
+        "time",
+        "source"
+      ],
+      "shape": [
+        3,
+        3
+      ]
+    },
+    "frequency": {
+      "order": [
+        120000000.0,
+        130000000.0,
+        140000000.0
+      ],
+      "shape": [
+        3
+      ],
+      "units": "Hz"
+    },
+    "polarization": {
+      "order": [
+        "XX",
+        "XY",
+        "YX",
+        "YY"
+      ],
+      "shape": [
+        4
+      ]
+    },
+    "public_angle_grid": {
+      "order": [
+        "time",
+        "source"
+      ],
+      "shape": [
+        3,
+        3
+      ]
+    },
+    "source": {
+      "order": [
+        "S0",
+        "S1",
+        "S2"
+      ],
+      "shape": [
+        3
+      ]
+    },
+    "source_cube": {
+      "order": [
+        "time",
+        "source",
+        "baseline",
+        "frequency",
+        "polarization"
+      ],
+      "shape": [
+        3,
+        3,
+        3,
+        3,
+        4
+      ]
+    },
+    "time": {
+      "jd1": [
+        2460677.0,
+        2460677.0,
+        2460677.0
+      ],
+      "jd2": [
+        -0.49999999999999994,
+        -0.49861111111111106,
+        -0.4972222222222222
+      ],
+      "order": [
+        "T0",
+        "T1",
+        "T2"
+      ],
+      "shape": [
+        3
+      ]
+    },
+    "unpolarized_control": {
+      "baseline": {
+        "order": [
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            2
+          ],
+          [
+            1,
+            2
+          ]
+        ],
+        "shape": [
+          3
+        ],
+        "value_shape": [
+          3,
+          2
+        ]
+      },
+      "cube": {
+        "order": [
+          "time",
+          "baseline",
+          "frequency",
+          "polarization"
+        ],
+        "shape": [
+          3,
+          3,
+          3,
+          4
+        ]
+      },
+      "frequency": {
+        "order": [
+          120000000.0,
+          130000000.0,
+          140000000.0
+        ],
+        "shape": [
+          3
+        ],
+        "units": "Hz"
+      },
+      "polarization": {
+        "order": [
+          "XX",
+          "XY",
+          "YX",
+          "YY"
+        ],
+        "shape": [
+          4
+        ]
+      },
+      "source": {
+        "order": [
+          "S0",
+          "S1",
+          "S2",
+          "S3"
+        ],
+        "shape": [
+          4
+        ]
+      },
+      "time": {
+        "jd1": [
+          2460677.0,
+          2460677.0,
+          2460677.0
+        ],
+        "jd2": [
+          -0.49999999999999994,
+          -0.49861111111111106,
+          -0.4972222222222222
+        ],
+        "order": [
+          "T0",
+          "T1",
+          "T2"
+        ],
+        "shape": [
+          3
+        ]
+      }
+    }
+  },
+  "correction": {
+    "granularity": "per source and time before source summation",
+    "opposite_direction": {
+      "factor": "exp(+2j*Delta)"
+    },
+    "radiosim_to_pyuvsim": {
+      "factor": "exp(-2j*Delta)"
+    },
+    "single_global_angle_allowed": false
+  },
+  "equations": {
+    "B_NE": "ICRS catalogue coherency in a North/East tangent basis",
+    "Delta": "Delta=wrap_pi(psi_RS+atan2(K[0,1],K[0,0]))",
+    "K": "pinned pyradiosky two-dimensional coherency-basis rotation",
+    "L": "L=Q+iU",
+    "R": "R(a)=[[cos(a),sin(a)],[-sin(a),cos(a)]]",
+    "S": "S=[[0,1],[1,0]]",
+    "alpha_PY": "K.T=R(alpha_PY)",
+    "fringe_mapping": "conj([XX,YX,XY,YY])",
+    "v_mapping": "V_RS compared with -V_PY",
+    "wrap_interval": "[-pi, pi)"
+  },
+  "fixture": {
+    "controls": {
+      "unpolarized": {
+        "antennas": {
+          "authored": [
+            {
+              "diameter_m": 10.0,
+              "name": "A000",
+              "number": 0,
+              "position_enu_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "diameter_m": 10.0,
+              "name": "A001",
+              "number": 1,
+              "position_enu_m": [
+                50.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "diameter_m": 10.0,
+              "name": "A002",
+              "number": 2,
+              "position_enu_m": [
+                0.0,
+                70.0,
+                0.0
+              ]
+            }
+          ],
+          "resolved": [
+            {
+              "diameter_m": 10.0,
+              "instrument_mount_type": null,
+              "name": "A000",
+              "number": 0,
+              "position_enu_m": [
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "diameter_m": 10.0,
+              "instrument_mount_type": null,
+              "name": "A001",
+              "number": 1,
+              "position_enu_m": [
+                50.0,
+                0.0,
+                0.0
+              ]
+            },
+            {
+              "diameter_m": 10.0,
+              "instrument_mount_type": null,
+              "name": "A002",
+              "number": 2,
+              "position_enu_m": [
+                0.0,
+                70.0,
+                0.0
+              ]
+            }
+          ]
+        },
+        "array": {
+          "antenna_position_source": "layout_file",
+          "format": "radiosim",
+          "site_source": "explicit_config",
+          "source_kind": "layout_file"
+        },
+        "beam": {
+          "beam_type": "efield",
+          "beamfits_mount_type": "fixed",
+          "data_normalization": "peak",
+          "data_shape": [
+            2,
+            2,
+            4,
+            5,
+            8
+          ],
+          "feed_array": [
+            "x",
+            "y"
+          ],
+          "format": "BeamFITS",
+          "intrinsic_frequencies_hz": [
+            100000000.0,
+            120000000.0,
+            140000000.0,
+            160000000.0
+          ],
+          "native_dtype": "complex128",
+          "response": "exact unit diagonal",
+          "x_orientation": "east"
+        },
+        "channel_widths_hz": [
+          1000000.0,
+          1000000.0,
+          1000000.0
+        ],
+        "correlations": [
+          "XX",
+          "XY",
+          "YX",
+          "YY"
+        ],
+        "frequencies_hz": [
+          120000000.0,
+          130000000.0,
+          140000000.0
+        ],
+        "instrument_mount": {
+          "comparison_semantics": "fixed/unspecified",
+          "layout_mount_column_present": false,
+          "resolved_per_antenna": [
+            null,
+            null,
+            null
+          ]
+        },
+        "jones": {
+          "always_present_chain": [
+            "H",
+            "C",
+            "E"
+          ],
+          "p_enabled": false,
+          "resolved_optional_snapshot_empty": true
+        },
+        "pressure": {
+          "pyradiosky_hpa": 0.0,
+          "pyradiosky_mode": "effective pinned Astropy default",
+          "radiosim_hpa": 0.0,
+          "radiosim_mode": "effective pinned Astropy default"
+        },
+        "receptors": {
+          "feed_angle_rad": [
+            1.5707963267948966,
+            0.0
+          ],
+          "feed_array": [
+            "x",
+            "y"
+          ],
+          "feed_rotation_rad": 0.0,
+          "native_basis": "linear",
+          "output_basis": "linear_xy",
+          "receptor_sha256": "ed44122dfaf90f4155c15b029f8286450317d1985dad5f5b9287fd8335a7a721"
+        },
+        "shape": [
+          3,
+          3,
+          3,
+          4
+        ],
+        "site": {
+          "authored": {
+            "geodetic_frame": "WGS84",
+            "height_m": 1073.0,
+            "latitude_deg": -30.72152,
+            "longitude_deg": 21.4283
+          },
+          "resolved": {
+            "height_m": 1073.0000000011523,
+            "latitude_deg": -30.721519999999995,
+            "longitude_deg": 21.4283,
+            "source": "explicit_config"
+          }
+        },
+        "sources": [
+          {
+            "dec_deg": -30.72,
+            "frame": "icrs",
+            "iquv_jy": [
+              3.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "name": "S0",
+            "ra_deg": 20.0
+          },
+          {
+            "dec_deg": -26.0,
+            "frame": "icrs",
+            "iquv_jy": [
+              1.5,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "name": "S1",
+            "ra_deg": 25.0
+          },
+          {
+            "dec_deg": -35.0,
+            "frame": "icrs",
+            "iquv_jy": [
+              2.25,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "name": "S2",
+            "ra_deg": 15.0
+          },
+          {
+            "dec_deg": -31.5,
+            "frame": "icrs",
+            "iquv_jy": [
+              0.75,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "name": "S3",
+            "ra_deg": 22.0
+          }
+        ],
+        "spectral_type": "full",
+        "times": {
+          "cadence_seconds": 120.0,
+          "jd1": [
+            2460677.0,
+            2460677.0,
+            2460677.0
+          ],
+          "jd2": [
+            -0.49999999999999994,
+            -0.49861111111111106,
+            -0.4972222222222222
+          ],
+          "scale": "utc",
+          "start_iso": {
+            "authored": "2025-01-01T00:00:00",
+            "resolved": "2025-01-01T00:00:00.000"
+          }
+        }
+      }
+    },
+    "primary": {
+      "aggregate_shape": [
+        3,
+        3,
+        3,
+        4
+      ],
+      "antennas": {
+        "authored": [
+          {
+            "diameter_m": 10.0,
+            "name": "A000",
+            "number": 0,
+            "position_enu_m": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "diameter_m": 10.0,
+            "name": "A001",
+            "number": 1,
+            "position_enu_m": [
+              50.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "diameter_m": 10.0,
+            "name": "A002",
+            "number": 2,
+            "position_enu_m": [
+              0.0,
+              70.0,
+              0.0
+            ]
+          }
+        ],
+        "resolved": [
+          {
+            "diameter_m": 10.0,
+            "instrument_mount_type": "alt-az",
+            "name": "A000",
+            "number": 0,
+            "position_enu_m": [
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          {
+            "diameter_m": 10.0,
+            "instrument_mount_type": "alt-az",
+            "name": "A001",
+            "number": 1,
+            "position_enu_m": [
+              50.00000000007367,
+              5.488679487023014e-11,
+              9.236001072891127e-11
+            ]
+          },
+          {
+            "diameter_m": 10.0,
+            "instrument_mount_type": "alt-az",
+            "name": "A002",
+            "number": 2,
+            "position_enu_m": [
+              -3.111551230988278e-11,
+              69.99999999981858,
+              3.220245012585864e-11
+            ]
+          }
+        ]
+      },
+      "array": {
+        "antenna_position_source": "embedded_dataset",
+        "format": "uvfits",
+        "site_source": "embedded_dataset",
+        "source_kind": "layout_file"
+      },
+      "beam": {
+        "beam_type": "efield",
+        "beamfits_mount_type": "fixed",
+        "data_normalization": "peak",
+        "data_shape": [
+          2,
+          2,
+          4,
+          5,
+          8
+        ],
+        "feed_array": [
+          "x",
+          "y"
+        ],
+        "format": "BeamFITS",
+        "intrinsic_frequencies_hz": [
+          100000000.0,
+          120000000.0,
+          140000000.0,
+          160000000.0
+        ],
+        "native_dtype": "complex128",
+        "response": "exact unit diagonal",
+        "x_orientation": "east"
+      },
+      "channel_widths_hz": [
+        1000000.0,
+        1000000.0,
+        1000000.0
+      ],
+      "correlations": [
+        "XX",
+        "XY",
+        "YX",
+        "YY"
+      ],
+      "frequencies_hz": [
+        120000000.0,
+        130000000.0,
+        140000000.0
+      ],
+      "instrument_mount": {
+        "resolved_per_antenna": [
+          "alt-az",
+          "alt-az",
+          "alt-az"
+        ],
+        "type": "alt-az"
+      },
+      "jones": {
+        "p_enabled": true,
+        "resolved_chain_order": [
+          "H",
+          "C",
+          "E",
+          "P"
+        ],
+        "resolved_enabled_terms": [
+          "H",
+          "C",
+          "E",
+          "P"
+        ]
+      },
+      "pressure": {
+        "public_oracle_hpa": 0.0,
+        "public_oracle_mode": "explicit",
+        "pyradiosky_hpa": 0.0,
+        "pyradiosky_mode": "effective pinned Astropy default",
+        "radiosim_hpa": 0.0,
+        "radiosim_mode": "effective pinned Astropy default"
+      },
+      "receptors": {
+        "feed_angle_rad": [
+          1.5707963267948966,
+          0.0
+        ],
+        "feed_array": [
+          "x",
+          "y"
+        ],
+        "feed_rotation_rad": 0.0,
+        "native_basis": "linear",
+        "output_basis": "linear_xy",
+        "receptor_sha256": "ed44122dfaf90f4155c15b029f8286450317d1985dad5f5b9287fd8335a7a721"
+      },
+      "site": {
+        "authored": {
+          "geodetic_frame": "WGS84",
+          "height_m": 1073.0,
+          "latitude_deg": -30.72152,
+          "longitude_deg": 21.4283
+        },
+        "resolved": {
+          "height_m": 1073.0000000011523,
+          "latitude_deg": -30.721519999999995,
+          "longitude_deg": 21.4283,
+          "source": "embedded_dataset"
+        }
+      },
+      "source_decomposed_shape": [
+        3,
+        3,
+        3,
+        3,
+        4
+      ],
+      "sources": [
+        {
+          "dec_deg": -30.72,
+          "frame": "icrs",
+          "iquv_jy": [
+            3.0,
+            0.6,
+            -0.4,
+            0.2
+          ],
+          "name": "S0",
+          "ra_deg": 20.0
+        },
+        {
+          "dec_deg": -26.0,
+          "frame": "icrs",
+          "iquv_jy": [
+            1.5,
+            -0.3,
+            0.5,
+            -0.1
+          ],
+          "name": "S1",
+          "ra_deg": 25.0
+        },
+        {
+          "dec_deg": -35.0,
+          "frame": "icrs",
+          "iquv_jy": [
+            2.25,
+            0.0,
+            0.0,
+            0.9
+          ],
+          "name": "S2",
+          "ra_deg": 15.0
+        }
+      ],
+      "spectral_type": "full",
+      "times": {
+        "cadence_seconds": 120.0,
+        "jd1": [
+          2460677.0,
+          2460677.0,
+          2460677.0
+        ],
+        "jd2": [
+          -0.49999999999999994,
+          -0.49861111111111106,
+          -0.4972222222222222
+        ],
+        "scale": "utc",
+        "start_iso": {
+          "authored": "2025-01-01T00:00:00",
+          "resolved": "2025-01-01T00:00:00.000"
+        }
+      }
+    }
+  },
+  "gating": false,
+  "history": {
+    "cirs_probe": {
+      "licensed_as_bound": false,
+      "reported_range_deg": [
+        0.041,
+        0.063
+      ],
+      "reproduced_range_deg": [
+        0.0412766,
+        0.0626888
+      ],
+      "status": "corroborated/superseded"
+    },
+    "pre_sci006_fit": {
+      "included_retired_q_compensation": true,
+      "licensed_as_bound": false,
+      "status": "historical/superseded",
+      "value_deg": -0.057568764952046436
+    },
+    "unreproduced_scalar": {
+      "licensed_as_bound": false,
+      "licensed_as_denominator": false,
+      "status": "historical/unreproduced/superseded",
+      "value_deg": 0.2
+    }
+  },
+  "identity": {
+    "artifact_absent_at_generation": true,
+    "artifact_path": "output/crossvalidation/2026-08-11-pyuvsim-1.4.0-sci007.json",
+    "clean_tree_at_generation": true,
+    "evidence_relationship": "This committed artifact is an evidence successor of generating_source_sha; the measurement was made with that commit at clean HEAD before this artifact existed.",
+    "generating_source_sha": "9b50805cf9fe32124800d1e3946a87e3911c376b",
+    "generation_command": "pixi run --environment crossval -- python tools/wp6_sci007_evidence.py generate --approved-source-sha 9b50805cf9fe32124800d1e3946a87e3911c376b --output output/crossvalidation/2026-08-11-pyuvsim-1.4.0-sci007.json",
+    "lockfile": {
+      "path": "pixi.lock",
+      "sha256": "37db432e6ade2dd3e64222d5ccfe532be5671893b24ce29e717a3bbb12f38ade"
+    }
+  },
+  "iers": {
+    "auto_download": false,
+    "bundled_basename": "finals2000A.all",
+    "bundled_package_relative_path": "astropy_iers_data/data/finals2000A.all",
+    "package": "astropy-iers-data",
+    "package_version": "0.2025.8.25.0.36.58",
+    "policy": "bundled-IERS_A-with-auto_download-false",
+    "samples": [
+      {
+        "dut1_seconds": 0.0463221,
+        "dut1_status": {
+          "code": 0,
+          "name": "FROM_IERS_B"
+        },
+        "jd1": 2460677.0,
+        "jd2": -0.49999999999999994,
+        "polar_motion_status": {
+          "code": 0,
+          "name": "FROM_IERS_B"
+        },
+        "time_index": 0,
+        "xp_arcsec": 0.144124,
+        "yp_arcsec": 0.305086
+      },
+      {
+        "dut1_seconds": 0.04632230777777777,
+        "dut1_status": {
+          "code": 0,
+          "name": "FROM_IERS_B"
+        },
+        "jd1": 2460677.0,
+        "jd2": -0.49861111111111106,
+        "polar_motion_status": {
+          "code": 0,
+          "name": "FROM_IERS_B"
+        },
+        "time_index": 1,
+        "xp_arcsec": 0.14412235277777777,
+        "yp_arcsec": 0.3050858652777778
+      },
+      {
+        "dut1_seconds": 0.046322515555555555,
+        "dut1_status": {
+          "code": 0,
+          "name": "FROM_IERS_B"
+        },
+        "jd1": 2460677.0,
+        "jd2": -0.4972222222222222,
+        "polar_motion_status": {
+          "code": 0,
+          "name": "FROM_IERS_B"
+        },
+        "time_index": 2,
+        "xp_arcsec": 0.14412070555555556,
+        "yp_arcsec": 0.3050857305555556
+      }
+    ],
+    "table_class": "astropy.utils.iers.iers.IERS_A",
+    "table_sha256": "ff2d22108e982bd86e326e01d797fa8bd545d51483359dd98e6c08fa5737f667"
+  },
+  "limits": {
+    "all_sky_claim": false,
+    "environment": "optional crossval py311; non-gating",
+    "fixture_scope": "retained HERA-site three-source three-time fixture only",
+    "host_scope": "osx-arm64 only",
+    "private_api_pin": "pyradiosky==1.1.0",
+    "production_code_changed": false,
+    "production_frame_policy_changed": false,
+    "sci007_status": "OPEN pending independent acceptance",
+    "unlicensed_claims": [
+      "production tangent-basis transport",
+      "PrecisionConfig.ultra() tangent-basis transport",
+      "validation against other simulators",
+      "validation on other platforms",
+      "generalized all-sky frame accuracy"
+    ],
+    "validator_metric_pin": {
+      "absolute_tolerance": 5e-15,
+      "relative_tolerance": 0.0,
+      "scope": "every numeric metrics leaf, in that leaf's recorded units"
+    }
+  },
+  "metrics": {
+    "circular_relative": {
+      "definition": "max(abs(V_RS+V_PY))/intensity_scale",
+      "denominator_name": "intensity_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 6.058726131385967,
+      "numerator_units": "Jy",
+      "numerator_value": 2.4660115757860614e-10,
+      "value": 4.0701816228520426e-11
+    },
+    "exact_source_time_relative": {
+      "definition": "max(abs(sum_source(L_RS_source*exp(-2j*Delta))-L_PY))[valid]/linear_scale",
+      "denominator_name": "linear_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 1.1429708580823248,
+      "numerator_units": "Jy",
+      "numerator_value": 2.744107869637716e-10,
+      "value": 2.400855498837282e-10
+    },
+    "fitted_complex_ratio": {
+      "definition": "vdot(L_PY,L_RS)/vdot(L_PY,L_PY) over valid cells",
+      "half_phase_rotation_deg": 0.057991427331288835,
+      "half_phase_rotation_rad": 0.0010121413448620185,
+      "imaginary": 0.002024449363134283,
+      "modulus": 1.0000830200328927,
+      "phase_deg": 0.11598285466257767,
+      "phase_rad": 0.002024282689724037,
+      "real": 1.000080971003292
+    },
+    "intensity_relative": {
+      "definition": "max(abs(I_RS-I_PY))/intensity_scale",
+      "denominator_name": "intensity_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 6.058726131385967,
+      "numerator_units": "Jy",
+      "numerator_value": 1.4019634164363787e-09,
+      "value": 2.3139573996814273e-10
+    },
+    "intensity_scale": {
+      "definition": "max(abs(I_PY))",
+      "units": "Jy",
+      "value": 6.058726131385967
+    },
+    "linear_cells": {
+      "mask_definition": "abs(L_reference) > linear_scale * 1e-12",
+      "total": 27,
+      "valid": 27
+    },
+    "linear_scale": {
+      "definition": "max(abs(L_PY))",
+      "units": "Jy",
+      "value": 1.1429708580823248
+    },
+    "linear_to_intensity_scale": {
+      "definition": "linear_scale/intensity_scale",
+      "denominator_name": "intensity_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 6.058726131385967,
+      "numerator_units": "Jy",
+      "numerator_value": 1.1429708580823248,
+      "value": 0.18864870820970148
+    },
+    "public_exact_angle_max_relative": {
+      "definition": "max(abs(Delta_public-Delta_exact)/abs(Delta_exact))",
+      "denominator_name": "exact_angle_at_max_relative_cell",
+      "denominator_units": "rad",
+      "denominator_value": 0.0007500052867186469,
+      "numerator_units": "rad",
+      "numerator_value": 1.4685792576241141e-05,
+      "value": 0.019580918743243865
+    },
+    "raw_linear_relative": {
+      "definition": "max(abs(L_RS-L_PY))[valid]/linear_scale",
+      "denominator_name": "linear_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 1.1429708580823248,
+      "numerator_units": "Jy",
+      "numerator_value": 0.0023454340841143435,
+      "value": 0.002052050642874229
+    },
+    "retired_q_control": {
+      "definition": "max(abs(L_RS-(-Q_PY+iU_PY)))/linear_scale",
+      "denominator_name": "linear_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 1.1429708580823248,
+      "numerator_units": "Jy",
+      "numerator_value": 0.7973094366696302,
+      "value": 0.697576347665902
+    },
+    "single_global_angle_relative": {
+      "definition": "max(abs(L_RS*exp(-1j*arg(fitted_ratio))-L_PY))[valid]/linear_scale",
+      "denominator_name": "linear_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 1.1429708580823248,
+      "numerator_units": "Jy",
+      "numerator_value": 0.0002240974558010066,
+      "value": 0.00019606576512107846
+    },
+    "source_additivity": {
+      "pyuvsim": {
+        "definition": "max(abs(sum_source(cube_PY_source)-cube_PY))/cube_scale",
+        "denominator_name": "pyuvsim_cube_scale",
+        "denominator_units": "Jy",
+        "denominator_value": 3.1284630458973512,
+        "numerator_units": "Jy",
+        "numerator_value": 0.0,
+        "value": 0.0
+      },
+      "radiosim": {
+        "definition": "max(abs(sum_source(cube_RS_source)-cube_RS))/cube_scale",
+        "denominator_name": "radiosim_cube_scale",
+        "denominator_units": "Jy",
+        "denominator_value": 3.1284242960457243,
+        "numerator_units": "Jy",
+        "numerator_value": 0.0,
+        "value": 0.0
+      }
+    },
+    "unpolarized_no_fringe_control": {
+      "definition": "max(abs(cube_RS-fringe_mapping(cube_PY_mapped)))/unpolarized_cube_scale",
+      "denominator_name": "unpolarized_cube_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 3.390378673061746,
+      "numerator_units": "Jy",
+      "numerator_value": 6.626400054125158,
+      "value": 1.9544719611337873
+    },
+    "unpolarized_relative": {
+      "definition": "max(abs(cube_RS-cube_PY))/unpolarized_cube_scale",
+      "denominator_name": "unpolarized_cube_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 3.390378673061746,
+      "numerator_units": "Jy",
+      "numerator_value": 9.515252560102877e-14,
+      "value": 2.8065456627916864e-14
+    },
+    "wrong_sign_control": {
+      "definition": "max(abs(sum_source(L_RS_source*exp(+2j*Delta))-L_PY))[valid]/linear_scale",
+      "denominator_name": "linear_scale",
+      "denominator_units": "Jy",
+      "denominator_value": 1.1429708580823248,
+      "numerator_units": "Jy",
+      "numerator_value": 0.004690635765404911,
+      "value": 0.004103897953509379
+    }
+  },
+  "predictions": {
+    "exact": {
+      "degrees": [
+        [
+          0.054345212925135854,
+          0.06450005592110125,
+          0.04297043726518762
+        ],
+        [
+          0.05434599062708946,
+          0.06450075625817411,
+          0.04297128951606063
+        ],
+        [
+          0.05434676529779634,
+          0.06450145458310087,
+          0.04297213754147768
+        ]
+      ],
+      "radians": [
+        [
+          0.0009485028982409993,
+          0.0011257383435436807,
+          0.0007499756112991918
+        ],
+        [
+          0.0009485164717006889,
+          0.001125750566731476,
+          0.0007499904858829787
+        ],
+        [
+          0.0009485299922551427,
+          0.0011257627548006965,
+          0.0007500052867186469
+        ]
+      ]
+    },
+    "extrema": {
+      "exact_max_abs_rad": 0.0011257627548006965,
+      "exact_min_abs_rad": 0.0007499756112991918,
+      "public_exact_max_relative": 0.019580918743243865,
+      "public_max_abs_rad": 0.0011200433324138892,
+      "public_min_abs_rad": 0.0007644842652547723,
+      "public_spin2_effect_max": 0.0022400861964641163
+    },
+    "public": {
+      "degrees": [
+        [
+          0.05460993435913389,
+          0.06416651539064856,
+          0.04380172190325818
+        ],
+        [
+          0.05461505439331278,
+          0.064170207055811,
+          0.04380774664173799
+        ],
+        [
+          0.05462000700250802,
+          0.06417375581908416,
+          0.04381357147490086
+        ]
+      ],
+      "radians": [
+        [
+          0.0009531231588648659,
+          0.001119916963098433,
+          0.0007644842652547723
+        ],
+        [
+          0.0009532125203191022,
+          0.0011199813948103987,
+          0.0007645894167778167
+        ],
+        [
+          0.0009532989596561237,
+          0.0011200433324138892,
+          0.000764691079294888
+        ]
+      ]
+    },
+    "public_minus_exact": {
+      "absolute_rad": [
+        [
+          4.620260623866557e-06,
+          5.821380445247826e-06,
+          1.4508653955580542e-05
+        ],
+        [
+          4.696048618413329e-06,
+          5.769171921077287e-06,
+          1.4598930894837991e-05
+        ],
+        [
+          4.7689674009809835e-06,
+          5.719422386807338e-06,
+          1.4685792576241141e-05
+        ]
+      ],
+      "degrees": [
+        [
+          0.0002647214339980344,
+          -0.0003335405304526884,
+          0.0008312846380705524
+        ],
+        [
+          0.00026906376622332496,
+          -0.00033054920236310985,
+          0.0008364571256773631
+        ],
+        [
+          0.00027324170471168367,
+          -0.0003276987640167003,
+          0.0008414339334231737
+        ]
+      ],
+      "radians": [
+        [
+          4.620260623866557e-06,
+          -5.821380445247826e-06,
+          1.4508653955580542e-05
+        ],
+        [
+          4.696048618413329e-06,
+          -5.769171921077287e-06,
+          1.4598930894837991e-05
+        ],
+        [
+          4.7689674009809835e-06,
+          -5.719422386807338e-06,
+          1.4685792576241141e-05
+        ]
+      ],
+      "relative": [
+        [
+          0.004871108599072116,
+          0.005171166531400949,
+          0.019345501022955968
+        ],
+        [
+          0.004950940503957005,
+          0.005124733747927485,
+          0.01946548812235982
+        ],
+        [
+          0.005027745500848845,
+          0.005080486419023426,
+          0.019580918743243865
+        ]
+      ]
+    }
+  },
+  "recorded_utc": "2026-08-11T05:04:03Z",
+  "reference": {
+    "pyradiosky": {
+      "coherency_operation": "K.T @ B_ICRS @ K",
+      "k_extraction_path": [
+        "SkyModel.update_positions",
+        "SkyModel._calc_coherency_rotation",
+        "SkyModel._calc_rotation_matrix",
+        "SkyModel._calc_average_rotation_matrix"
+      ],
+      "package": "pyradiosky",
+      "version": "1.1.0",
+      "visibility_path": [
+        "SkyModel.update_positions",
+        "SkyModel.coherency_calc",
+        "SkyModel._calc_coherency_rotation",
+        "SkyModel._calc_rotation_matrix",
+        "SkyModel._calc_average_rotation_matrix"
+      ]
+    },
+    "pyuvsim": {
+      "beam_entry_point": "pyuvsim.UVEngine.apply_beam",
+      "entry_point": "pyuvsim.UVEngine.make_visibility",
+      "package": "pyuvsim",
+      "task": "pyuvsim.uvsim.UVTask",
+      "version": "1.4.0"
+    }
+  },
+  "runtime": {
+    "host": {
+      "machine": "arm64",
+      "platform": "macOS-26.6.1-arm64-arm-64bit",
+      "release": "25.6.0",
+      "scope": "osx-arm64 only",
+      "system": "Darwin"
+    },
+    "packages": {
+      "astropy": "7.1.0",
+      "numpy": "2.3.2",
+      "pyradiosky": "1.1.0",
+      "python": "3.11.13",
+      "pyuvdata": "3.2.1",
+      "pyuvsim": "1.4.0",
+      "radiosim": "0.3.0"
+    },
+    "pixi_environment": "crossval",
+    "solve_group": "py311"
+  },
+  "schema": "radiosim-crossvalidation-1.2.0",
+  "slice": "Post-Tier-8 WP-6 SCI-007",
+  "tolerances": {
+    "normal": {
+      "public_max_abs_rad": {
+        "operator": "<",
+        "scope": "retained HERA-site three-source three-time fixture; default and py312",
+        "units": "rad",
+        "value": 0.0012
+      },
+      "public_min_abs_rad": {
+        "operator": ">",
+        "scope": "retained HERA-site three-source three-time fixture; default and py312",
+        "units": "rad",
+        "value": 0.0006
+      },
+      "public_spin2_effect": {
+        "operator": "<",
+        "scope": "retained HERA-site three-source three-time fixture; default and py312",
+        "units": "dimensionless",
+        "value": 0.0024
+      }
+    },
+    "optional": {
+      "circular_relative": {
+        "operator": "<",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 1e-08
+      },
+      "exact_source_time_relative": {
+        "operator": "<",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 5e-10
+      },
+      "intensity_relative": {
+        "operator": "<",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 1e-08
+      },
+      "linear_mask_fraction": {
+        "operator": ">",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "fraction of linear_scale",
+        "value": 1e-12
+      },
+      "linear_to_intensity_scale": {
+        "operator": ">",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 0.1
+      },
+      "public_exact_max_relative": {
+        "operator": "<",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 0.1
+      },
+      "raw_linear_relative_lower": {
+        "operator": ">",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 0.001
+      },
+      "raw_linear_relative_upper": {
+        "operator": "<",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 0.005
+      },
+      "retired_q_control": {
+        "operator": ">",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 0.5
+      },
+      "single_global_angle_improves_raw": {
+        "operator": "<",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": "metrics.raw_linear_relative.value"
+      },
+      "single_global_angle_relative": {
+        "operator": ">",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 0.0001
+      },
+      "unpolarized_no_fringe_control": {
+        "operator": ">",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 0.1
+      },
+      "unpolarized_relative": {
+        "operator": "<",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": 1e-11
+      },
+      "wrong_sign_control": {
+        "operator": ">",
+        "scope": "retained fixture; crossval py311; non-gating",
+        "units": "relative",
+        "value": "metrics.raw_linear_relative.value"
+      }
+    }
+  }
+}

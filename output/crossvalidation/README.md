@@ -16,6 +16,7 @@ unit suite and runs in every gate. This directory exists because a second
 | --- | --- |
 | `2026-08-02-pyuvsim-1.4.0.json` | RadioSim vs `pyuvsim 1.4.0`, measured on `osx-arm64`, 2026-08-02 |
 | `2026-08-08-pyuvsim-1.4.0.json` | SCI-006 east-X rerun: direct Q/U, explicit V mapping, and refitted SCI-007 residual |
+| `2026-08-11-pyuvsim-1.4.0-sci007.json` | SCI-007 schema 1.2.0: public and exact source-time frame grids, correction controls, fixture/IERS provenance, and deeply pinned residuals |
 
 ## Reproducing it
 
@@ -30,6 +31,27 @@ pixi run --environment crossval -- \
 
 Set ``RADIOSIM_CROSSVAL_METRICS=1`` and add ``-s`` to emit the two measured
 case records as machine-readable JSON, matching the dated artifact.
+
+The SCI-007 record is a stricter evidence successor. It was generated from the
+clean source commit
+`9b50805cf9fe32124800d1e3946a87e3911c376b`, before the artifact existed, with:
+
+```bash
+pixi run --environment crossval -- python \
+    tools/wp6_sci007_evidence.py generate \
+    --approved-source-sha 9b50805cf9fe32124800d1e3946a87e3911c376b \
+    --output output/crossvalidation/2026-08-11-pyuvsim-1.4.0-sci007.json
+```
+
+The generator deliberately refuses to overwrite the committed record. Validate
+its exact bytes and full schema from any standard environment with:
+
+```bash
+pixi run python tools/wp6_sci007_evidence.py validate \
+    --approved-source-sha 9b50805cf9fe32124800d1e3946a87e3911c376b \
+    --artifact-sha256 3a441ad606f365ac4110e30d9d8c2f3d7f5ea91c481aa70488dea72487e570ba \
+    --input output/crossvalidation/2026-08-11-pyuvsim-1.4.0-sci007.json
+```
 
 The `crossval` environment shares a solve group with `default`, so it is
 `default` plus exactly one package — `pyuvsim-1.4.0-py3-none-any.whl` — on all
