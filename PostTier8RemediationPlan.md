@@ -77,7 +77,7 @@ This plan was assembled from, and cites only:
 | 3 | `API-001` | Fix: implement broadcasting | XS | DONE 2026-08-11 (WP-1) |
 | 4 | `SCI-006` | Selected east-X correction implemented and independently accepted in WP-5 | S + M | DONE 2026-08-11 |
 | 5 | `SCI-007` | Reconciled and closed as a documented, test-pinned fixture bound | S–M | DONE 2026-08-11 (WP-6) |
-| 6 | `PERF-001` | Four CPU legs now with bit-identity proofs; GPU leg hardware-gated | M + gated | CPU legs now (WP-7) |
+| 6 | `PERF-001` | Four CPU legs designed and ready; GPU evidence hardware-gated | M + gated | CPU implementation now (WP-7) |
 | 7 | `SCI-005` | Staged successor tier, own plan document; scalar-preserving items first | XL | Plan doc now; stages gated (WP-8) |
 | 8 | `SCI-004` | Feature, not remediation; design gate only when a science driver exists | XL | Unscheduled (WP-9) |
 
@@ -557,46 +557,58 @@ later independent record owns the DONE transition.
 
 ## 10. WP-7 — `PERF-001`: split into five legs
 
+**Design gate recorded 2026-08-11; not implementation or acceptance.** The
+normative design is
+`docs/development/perf001_runtime_mitigations.md`. `PERF-001` remains
+**ROADMAP** until real accelerator evidence is accepted or its scope is
+formally re-adjudicated.
+
 Backend correctness parity is complete (Dask bit-identical; JAX-CPU within
 `rtol=1e-12`). The row's substance, against the committed records
 (`output/benchmarks/reference/20260731T104303Z-darwin-arm64.json`: JAX-CPU
 3–18× slower steady-state per workload; `max_first_to_repeat_ratio` 493.9;
 ~208 B per `(baseline, source)` pair):
 
-- **P-a — chunk the baseline axis inside `baseline_contraction_for`** — the
-  mitigation `Tier6HybridRuntimePlan.md` §39 names verbatim, in that exact
-  location. The wrapper splits `B`, calls the (compiled) kernel per chunk,
-  reassembles. The kernel's own signature stays frozen — the Tier 7 I16
-  invariant ("exactly one `backend.compile` site, signature unchanged") keeps
-  passing. Fixed chunk size → at most two traced shapes (full + tail, or a
-  padded tail). **Bit-identity is provable**: chunking `B` partitions
-  baselines only; each visibility's source-sum order is untouched — assert
-  byte equality across chunk sizes including chunk=∞ on the reference
-  workloads. Evidence: `MemoryScalingRecord` before/after. The one design
-  note: chunk-size policy (fixed vs derived from a memory budget — the
-  `Tier7JonesSciencePlan.md` §41 Q2 precedent). Effort M.
-- **P-b — retrace amortization**: pad the visible-source axis to bucket
-  boundaries with zero-flux masking, caller-side; appended zeros preserve
-  summation order → bit-identical on the NumPy reference path; JAX stays
-  inside its existing parity tolerance. Bounds distinct traced shapes to
-  ~log₂ buckets per run. Evidence: `RetracingRecord` before/after. Effort S–M.
-- **P-c — lazy auto-probe**: `get_backend("auto")` eagerly imports JAX when
-  installed (~450–950 ms first call, `Tier6HybridRuntimePlan.md` §39). Make
-  the device probe lazy. XS.
+- **P-a — baseline-axis contraction chunking:** keep the one-parameter public
+  factory, six-input compiled leaf, source summation order, and single compile
+  site. Target `131072` baseline-source pairs per leaf and split only `B`.
+  This bounds source-dependent contraction-leaf working temporaries, not the
+  already-materialized `J_p`, `J_q`, phase, or envelope inputs, nor the
+  unavoidable baseline-dependent output/assembly storage. When `S > 131072`,
+  one baseline is the irreducible exception. Evidence uses frozen v1 records
+  plus matched v2 unbounded/production rows. Effort M.
+- **P-b — retrace amortization:** for compiling backends only, pad the visible
+  source axis on the host to the next power of two after horizon selection but
+  before backend conversion, `DirectionBatch`, Jones, phase, and morphology.
+  Append a finite copied direction and exact-zero signal. NumPy/Dask stay
+  unpadded and byte-identical; JAX retains its existing tolerance. Late JAX
+  padding is rejected because its own primitives compile per logical shape.
+  Evidence distinguishes logical counts, buckets, and complete leaf shapes.
+  Effort S–M.
+- **P-c — deterministic automatic selection:** `get_backend("auto")` returns
+  precision-compatible NumPy without importing or probing JAX. Explicit
+  `list_backends()`/`get_backend_info()` own discovery. Plain `jax` uses its
+  runtime-default device; explicit GPU/TPU requests are strict and never fall
+  back to CPU. Generic device-resource discovery also stops importing JAX.
+  Cold-path timing is recorded but never gated. Effort XS–S.
 - **P-d — flip `VisibilitySimulator.supports_gpu`'s ABC default to `False`**
   — the behavior change 8E explicitly parked with `PERF-001`
   (`Fix.md` ~15316-15334). XS.
-- **P-e — GPU leg, hardware-blocked.** When hardware exists (Q4): an optional
-  `gpu` pixi environment mirroring the `crossval` pattern (shared solve group,
-  never gates — `Tier7JonesSciencePlan.md` §34), `jax[cuda]` unlocked there
-  only, the **existing** benchmark harness run as-is, records committed. Only
-  then may any acceleration sentence exist, citing the record. Until then this
-  leg cannot start and nothing should pretend otherwise.
+- **P-e — GPU-ready infrastructure now; evidence hardware-blocked:** add a
+  Linux-only, optional, non-gating `jax-gpu` Pixi feature carrying pinned
+  `jax[cuda13]`, a strict preflight, and the unchanged full benchmark matrix.
+  It uses a separate solve group because the default group pins `jaxlib` to
+  `cpu*`; CPU environment package identities must remain unchanged. No workflow
+  or public GPU extra is added. Only a real clean-SHA GPU record can support
+  acceleration or closure. Until an authorized compatible host is available,
+  `supports_gpu` remains false and the row stays ROADMAP.
 
 Fold in the `Tier6HybridRuntimePlan.md` §39 methodology note (tracemalloc
 `peak_host_bytes` under-represents JAX's native allocations: `6,115,963` vs
-`1,253,968` bytes for the same workload) as a docs line. All CPU legs are
-bit-identical by construction → zero pin churn; land before WP-8 (edge E3).
+`1,253,968` bytes for the same workload) as a docs line. Freeze the v1 schemas
+and retain a separate strict PERF-001 document with memory, solver-memory,
+retracing, and backend-resolution records. Accepted P-a through P-d satisfy
+WP-8 edge E3; they do not close P-e.
 
 ## 11. WP-8 — `SCI-005`: beam physics beyond scalar `E`
 
@@ -739,9 +751,9 @@ Each work package runs in the established style:
   exported-product semantics follow the IAU definitions as instantiated by
   pyuvdata's declared feed angles. The memo rules RadioSim non-normative, so
   Branch A is selected with its pin regeneration and migration entry.
-- **Q4 (blocks WP-7 P-e only):** name the GPU hardware and access path (cloud
-  runner or workstation). Until answered, no accelerator work and no
-  accelerator claims.
+- **Q4 (blocks WP-7 P-e evidence only):** name the GPU hardware and access path
+  (cloud runner or workstation). Until answered, GPU-ready infrastructure may
+  land, but no accelerator measurement, evidence, or claim may be accepted.
 - **Q5 (blocks WP-9):** name the science driver (drift-scan survey use case)
   that schedules the m-mode design gate, or leave WP-9 unscheduled.
 
@@ -755,6 +767,6 @@ Each work package runs in the established style:
 | WP-4 | DONE — ruled 2026-08-08; Branch A selected; no runtime change |
 | WP-5 | DONE — independently accepted 2026-08-11; SCI-006 closed |
 | WP-6 | DONE — independently accepted 2026-08-11; SCI-007 closed as a retained-fixture accuracy bound |
-| WP-7 | P-a…P-d ready to start; P-e blocked on Q4 |
+| WP-7 | P-a…P-d ready to start; P-e infrastructure authorized, evidence blocked on Q4 |
 | WP-8 | Plan document ready to draft; stage 1 after WP-7; WP-5/E2 satisfied for stages 2–3 |
 | WP-9 | Unscheduled pending Q5 |
