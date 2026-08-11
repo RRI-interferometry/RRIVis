@@ -67,12 +67,14 @@ Two explicit convention mappings, each derived rather than fitted
    Stokes ``V`` between the two forward models.
 
 SCI-006 removed the former third compensation: both simulators now report the
-same ``(X=east, Y=north)`` frame, so ``Q`` and ``U`` are compared directly.
-Only the independently documented Stokes-V sign mapping remains explicit.  The
-small residual polarization-frame rotation is recorded as SCI-007; it is not
-hidden by a Q-axis swap or a refitted convention.  Section 29.2's forbidden
-claims stay forbidden: nothing in this module licenses the sentence "validated
-against pyuvsim" without naming exactly which quantity, at which tolerance.
+same ``(X=east, Y=north)`` frame, so raw ``Q`` and ``U`` are compared directly.
+Only the independently documented Stokes-V sign mapping remains explicit.
+SCI-007 additionally decomposes the retained fixture by source and time and
+reconciles the raw milli-radian frame residual with the exact pinned
+``pyradiosky`` tangent-basis rotation, without changing RadioSim production
+code.  Section 29.2's forbidden claims stay forbidden: nothing in this module
+licenses the sentence "validated against pyuvsim" without naming exactly which
+quantity, at which tolerance.
 """
 
 from __future__ import annotations
@@ -80,6 +82,7 @@ from __future__ import annotations
 import json
 import os
 import warnings
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -97,6 +100,8 @@ pyuvsim = pytest.importorskip(
 )
 
 REFERENCE_PYUVSIM_VERSION = "1.4.0"
+REFERENCE_PYRADIOSKY_VERSION = "1.1.0"
+REFERENCE_ASTROPY_VERSION = "7.1.0"
 
 LATITUDE_DEG = -30.72152
 LONGITUDE_DEG = 21.42830
@@ -113,6 +118,48 @@ CHANNEL_WIDTH_HZ = 1.0e6
 START_TIME_ISO = "2025-01-01T00:00:00"
 CADENCE_SECONDS = 120.0
 TIME_SAMPLES = 3
+
+POLARIZED_IQUV_BY_SOURCE = (
+    (3.0, 0.6, -0.4, 0.2),
+    (1.5, -0.3, 0.5, -0.1),
+    (2.25, 0.0, 0.0, 0.9),
+)
+POLARIZED_RA_DEG = (20.0, 25.0, 15.0)
+POLARIZED_DEC_DEG = (-30.72, -26.0, -35.0)
+
+
+@dataclass(frozen=True)
+class Sci007Comparison:
+    """Structured optional evidence shared by pytest and the artifact generator."""
+
+    result: object
+    sky: object
+    iers_table: object
+    ours: np.ndarray
+    ours_by_source: np.ndarray
+    theirs: np.ndarray
+    theirs_by_source: np.ndarray
+    exact_rotations: np.ndarray
+    public_angles: np.ndarray
+    exact_angles: np.ndarray
+    ours_linear: np.ndarray
+    theirs_linear: np.ndarray
+    theirs_source_linear: np.ndarray
+    exact_corrected_linear: np.ndarray
+    valid_linear: np.ndarray
+    metrics: dict[str, float]
+
+
+@dataclass(frozen=True)
+class UnpolarizedComparison:
+    """Structured four-source fixed-mount control, separate from SCI-007."""
+
+    result: object
+    sky: object
+    iers_table: object
+    ours: np.ndarray
+    theirs: np.ndarray
+    metrics: dict[str, float]
 
 
 def _emit_metrics(case: str, metrics: dict[str, float]) -> None:
@@ -394,6 +441,194 @@ def _pyuvsim_cube(result, beamfits: Path, sky) -> np.ndarray:
     return cube
 
 
+def _pyuvsim_source_cubes_and_rotations(
+    result, beamfits: Path, sky
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return source-resolved cubes and pyradiosky's exact frame rotations.
+
+    The private call is deliberately confined to this pinned optional
+    environment.  It follows the path used by ``pyuvsim`` itself: after
+    ``update_positions``, ``UVEngine.apply_beam`` calls ``coherency_calc``,
+    whose private rotation chain is ``_calc_coherency_rotation`` ->
+    ``_calc_rotation_matrix`` -> ``_calc_average_rotation_matrix`` before
+    ``UVEngine.make_visibility`` sums the source contributions.  The returned
+    rotations have axes ``[time, source, receptor, tangent_basis]`` and the
+    visibility cubes have axes ``[time, source, baseline, frequency, pol]``.
+    """
+    import pyradiosky
+    from astropy.time import Time
+    from pyuvdata import UVBeam
+    from pyuvsim import Antenna, Baseline, BeamList, SkyModelData, Telescope, UVEngine
+    from pyuvsim.uvsim import UVTask
+
+    assert pyradiosky.__version__ == REFERENCE_PYRADIOSKY_VERSION
+    assert callable(getattr(type(sky), "_calc_average_rotation_matrix", None))
+    assert callable(getattr(type(sky), "_calc_rotation_matrix", None))
+    assert callable(getattr(type(sky), "_calc_coherency_rotation", None))
+
+    beam_list = BeamList([UVBeam.from_file(str(beamfits))])
+    telescope = Telescope(TELESCOPE_NAME, _earth_location(), beam_list)
+    antennas = {
+        antenna.id.number: Antenna(
+            f"A{antenna.id.number:03d}",
+            int(antenna.id.number),
+            np.asarray(antenna.position_enu_m, dtype=np.float64),
+            0,
+        )
+        for antenna in result.instrument.antennas
+    }
+    grid = result.time_grid
+    jd1 = np.asarray(grid.utc_jd1)
+    jd2 = np.asarray(grid.utc_jd2)
+    frequencies = np.asarray(result.frequencies_hz, dtype=np.float64)
+    pairs = [
+        (baseline.ant1.number, baseline.ant2.number)
+        for baseline in result.selection.baselines
+    ]
+    source_count = int(sky.Ncomponents)
+    cubes = np.zeros(
+        (jd1.size, source_count, len(pairs), frequencies.size, 4),
+        dtype=np.complex128,
+    )
+    rotations = np.zeros((jd1.size, source_count, 2, 2), dtype=np.float64)
+    sky_data = SkyModelData(sky)
+
+    for time_index in range(jd1.size):
+        time = Time(jd1[time_index], jd2[time_index], format="jd", scale="utc")
+        all_sources = sky_data.get_skymodel(np.arange(source_count))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # pyradiosky 1.1.0 exposes no pressure argument here.  Its AltAz
+            # construction therefore uses Astropy's effective 0 hPa default;
+            # the separate public oracle below spells pressure=0 out.
+            all_sources.update_positions(time, telescope.location)
+        assert np.all(all_sources.above_horizon)
+        exact_rotation = all_sources._calc_coherency_rotation()
+        assert exact_rotation.shape == (2, 2, source_count)
+        rotations[time_index] = np.moveaxis(exact_rotation, -1, 0)
+
+        source_models = [
+            sky_data.get_skymodel(np.array([source_index]))
+            for source_index in range(source_count)
+        ]
+        for source_index, sources in enumerate(source_models):
+            for baseline_index, (first, second) in enumerate(pairs):
+                baseline = Baseline(antennas[first], antennas[second])
+                for freq_index, frequency in enumerate(frequencies):
+                    task = UVTask(
+                        sources,
+                        time,
+                        frequency,
+                        baseline,
+                        telescope,
+                        freq_i=freq_index,
+                    )
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        visibility = UVEngine(task).make_visibility()
+                    cubes[time_index, source_index, baseline_index, freq_index] = (
+                        np.asarray(
+                            [
+                                visibility[0],
+                                visibility[2],
+                                visibility[3],
+                                visibility[1],
+                            ]
+                        )
+                    )
+    return cubes, rotations
+
+
+def _radiosim_source_cubes(
+    *, tmp_path: Path, uvfits: Path, beamfits: Path
+) -> np.ndarray:
+    """Run the retained fixture one source at a time without changing its RIME."""
+    cubes = []
+    for source_index, iquv in enumerate(POLARIZED_IQUV_BY_SOURCE):
+        skyh5 = tmp_path / f"polarized-source-{source_index}.skyh5"
+        _write_sky(
+            skyh5,
+            iquv_by_source=(iquv,),
+            ra_deg=(POLARIZED_RA_DEG[source_index],),
+            dec_deg=(POLARIZED_DEC_DEG[source_index],),
+        )
+        source_result = _run_radiosim(
+            array=uvfits,
+            beamfits=beamfits,
+            skyh5=skyh5,
+            jones={"P": {"enabled": True}},
+            output=tmp_path / f"source-{source_index}-out",
+        )
+        cubes.append(np.asarray(source_result.visibilities))
+    return np.stack(cubes, axis=1)
+
+
+def _wrap_pi(angle: np.ndarray) -> np.ndarray:
+    return np.mod(angle + np.pi, 2.0 * np.pi) - np.pi
+
+
+def _sci007_frame_angles(
+    result, sky, exact_rotations: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Derive public and exact RadioSim-minus-pyradiosky frame angles."""
+    from astropy import units
+    from astropy.coordinates import AltAz, SkyCoord
+    from astropy.time import Time
+
+    from radiosim.core.jones.directions import DirectionBatch
+    from radiosim.core.jones.parallactic import parallactic_angle
+
+    location = _earth_location()
+    grid = result.time_grid
+    jd1 = np.asarray(grid.utc_jd1)
+    jd2 = np.asarray(grid.utc_jd2)
+    public = np.zeros((jd1.size, sky.Ncomponents), dtype=np.float64)
+    exact = np.zeros_like(public)
+
+    for time_index in range(jd1.size):
+        time = Time(jd1[time_index], jd2[time_index], format="jd", scale="utc")
+        altaz_frame = AltAz(
+            obstime=time,
+            location=location,
+            pressure=0.0 * units.hPa,
+        )
+        horizontal = sky.skycoord.transform_to(altaz_frame)
+        altitude = np.asarray(horizontal.alt.rad, dtype=np.float64)
+        azimuth = np.asarray(horizontal.az.rad, dtype=np.float64)
+        directions = DirectionBatch.from_horizontal(
+            alt_rad=altitude,
+            az_rad=azimuth,
+            dir_l=np.cos(altitude) * np.sin(azimuth),
+            dir_m=np.cos(altitude) * np.cos(azimuth),
+            dir_n=np.sin(altitude),
+            latitude_rad=location.lat.rad,
+            local_sidereal_time_rad=time.sidereal_time(
+                "apparent", longitude=location.lon
+            ).rad,
+        )
+        psi_rs = parallactic_angle(
+            hour_angle_rad=directions.hour_angle_rad,
+            dec_rad=directions.dec_rad,
+            latitude_rad=location.lat.rad,
+        )
+
+        zenith_icrs = SkyCoord(
+            az=0.0 * units.deg,
+            alt=90.0 * units.deg,
+            frame=altaz_frame,
+        ).transform_to("icrs")
+        public_basis_angle = sky.skycoord.position_angle(zenith_icrs).rad
+        public[time_index] = _wrap_pi(psi_rs - public_basis_angle)
+
+        # K.T = R(alpha_PY), so atan2(K[0, 1], K[0, 0]) = -alpha_PY.
+        rotation = exact_rotations[time_index]
+        exact[time_index] = _wrap_pi(
+            psi_rs + np.arctan2(rotation[:, 0, 1], rotation[:, 0, 0])
+        )
+
+    return public, exact
+
+
 def _apply_fringe_hermitian_mapping(cube: np.ndarray) -> np.ndarray:
     """Apply convention mapping 1: the per-baseline Hermitian conjugate."""
     return np.conj(cube[..., [0, 2, 1, 3]])
@@ -402,6 +637,211 @@ def _apply_fringe_hermitian_mapping(cube: np.ndarray) -> np.ndarray:
 def _local_stokes(cube: np.ndarray) -> np.ndarray:
     xx, xy, yx, yy = (cube[..., index] for index in range(4))
     return np.stack([xx + yy, xx - yy, xy + yx, -1j * (xy - yx)], axis=-1)
+
+
+def _run_sci007_comparison(tmp_path: Path, unit_beamfits: Path) -> Sci007Comparison:
+    """Run the hermetic SCI-007 fixture once and return all evidence axes."""
+    import astropy
+    import pyradiosky
+    from astropy.utils import iers
+
+    assert astropy.__version__ == REFERENCE_ASTROPY_VERSION
+    assert pyradiosky.__version__ == REFERENCE_PYRADIOSKY_VERSION
+    assert pyuvsim.__version__ == REFERENCE_PYUVSIM_VERSION
+
+    iers_table = iers.IERS_A.open(iers.IERS_A_FILE)
+    assert type(iers_table).__name__ == "IERS_A"
+    with (
+        iers.conf.set_temp("auto_download", False),
+        iers.earth_orientation_table.set(iers_table),
+    ):
+        skyh5 = tmp_path / "polarized.skyh5"
+        sky = _write_sky(
+            skyh5,
+            iquv_by_source=POLARIZED_IQUV_BY_SOURCE,
+            ra_deg=POLARIZED_RA_DEG,
+            dec_deg=POLARIZED_DEC_DEG,
+        )
+        uvfits = _write_uvfits_array(tmp_path / "altaz.uvfits", "alt-az")
+        result = _run_radiosim(
+            array=uvfits,
+            beamfits=unit_beamfits,
+            skyh5=skyh5,
+            jones={"P": {"enabled": True}},
+            output=tmp_path / "out",
+        )
+        ours = np.asarray(result.visibilities)
+        ours_by_source = _radiosim_source_cubes(
+            tmp_path=tmp_path,
+            uvfits=uvfits,
+            beamfits=unit_beamfits,
+        )
+        theirs_by_source, exact_rotations = _pyuvsim_source_cubes_and_rotations(
+            result, unit_beamfits, sky
+        )
+        theirs_by_source = _apply_fringe_hermitian_mapping(theirs_by_source)
+        theirs = _apply_fringe_hermitian_mapping(
+            _pyuvsim_cube(result, unit_beamfits, sky)
+        )
+        public_angles, exact_angles = _sci007_frame_angles(result, sky, exact_rotations)
+
+    ours_stokes = _local_stokes(ours)
+    theirs_stokes = _local_stokes(theirs)
+    intensity_scale = float(np.max(np.abs(theirs_stokes[..., 0])))
+    intensity = float(np.max(np.abs(ours_stokes[..., 0] - theirs_stokes[..., 0])))
+    circular = float(np.max(np.abs(ours_stokes[..., 3] + theirs_stokes[..., 3])))
+
+    ours_linear = ours_stokes[..., 1] + 1j * ours_stokes[..., 2]
+    theirs_linear = theirs_stokes[..., 1] + 1j * theirs_stokes[..., 2]
+    linear_scale = float(np.max(np.abs(theirs_linear)))
+    valid = np.abs(theirs_linear) > linear_scale * 1e-12
+    raw_residual = (
+        float(np.max(np.abs(ours_linear[valid] - theirs_linear[valid]))) / linear_scale
+    )
+
+    reference = theirs_linear[valid]
+    measured = ours_linear[valid]
+    fitted_ratio = np.vdot(reference, measured) / np.vdot(reference, reference)
+    global_corrected = ours_linear * np.exp(-1j * np.angle(fitted_ratio))
+    global_residual = (
+        float(np.max(np.abs(global_corrected[valid] - theirs_linear[valid])))
+        / linear_scale
+    )
+
+    ours_source_stokes = _local_stokes(ours_by_source)
+    theirs_source_stokes = _local_stokes(theirs_by_source)
+    ours_source_linear = ours_source_stokes[..., 1] + 1j * ours_source_stokes[..., 2]
+    theirs_source_linear = (
+        theirs_source_stokes[..., 1] + 1j * theirs_source_stokes[..., 2]
+    )
+    exact_corrected = np.sum(
+        ours_source_linear * np.exp(-2j * exact_angles[:, :, None, None]),
+        axis=1,
+    )
+    exact_residual = (
+        float(np.max(np.abs(exact_corrected[valid] - theirs_linear[valid])))
+        / linear_scale
+    )
+    wrong_sign = np.sum(
+        ours_source_linear * np.exp(2j * exact_angles[:, :, None, None]),
+        axis=1,
+    )
+    wrong_sign_residual = (
+        float(np.max(np.abs(wrong_sign[valid] - theirs_linear[valid]))) / linear_scale
+    )
+    old_q_compensation = -theirs_stokes[..., 1] + 1j * theirs_stokes[..., 2]
+    old_q_control = (
+        float(np.max(np.abs(ours_linear - old_q_compensation))) / linear_scale
+    )
+    public_exact_relative = float(
+        np.max(np.abs(public_angles - exact_angles) / np.abs(exact_angles))
+    )
+    metrics = {
+        "intensity_scale_jy": intensity_scale,
+        "linear_scale_jy": linear_scale,
+        "measured_intensity_absolute_jy": intensity,
+        "measured_intensity_relative": intensity / intensity_scale,
+        "measured_circular_absolute_jy": circular,
+        "measured_circular_relative_after_explicit_v_mapping": circular
+        / intensity_scale,
+        "measured_linear_relative_direct_q_u": raw_residual,
+        "measured_linear_relative_single_global_angle": global_residual,
+        "measured_linear_relative_exact_source_time": exact_residual,
+        "control_relative_with_wrong_exact_sign": wrong_sign_residual,
+        "control_relative_with_retired_q_compensation": old_q_control,
+        "fitted_residual_frame_rotation_deg": 0.5
+        * float(np.degrees(np.angle(fitted_ratio))),
+        "fitted_linear_ratio_modulus": float(abs(fitted_ratio)),
+        "linear_scale_over_intensity_scale": linear_scale / intensity_scale,
+        "public_exact_angle_max_relative": public_exact_relative,
+    }
+    return Sci007Comparison(
+        result=result,
+        sky=sky,
+        iers_table=iers_table,
+        ours=ours,
+        ours_by_source=ours_by_source,
+        theirs=theirs,
+        theirs_by_source=theirs_by_source,
+        exact_rotations=exact_rotations,
+        public_angles=public_angles,
+        exact_angles=exact_angles,
+        ours_linear=ours_linear,
+        theirs_linear=theirs_linear,
+        theirs_source_linear=theirs_source_linear,
+        exact_corrected_linear=exact_corrected,
+        valid_linear=valid,
+        metrics=metrics,
+    )
+
+
+def _run_unpolarized_comparison(
+    tmp_path: Path, unit_beamfits: Path
+) -> UnpolarizedComparison:
+    """Run the separate four-source fixed-mount control hermetically."""
+    import astropy
+    import pyradiosky
+    from astropy.utils import iers
+
+    assert astropy.__version__ == REFERENCE_ASTROPY_VERSION
+    assert pyradiosky.__version__ == REFERENCE_PYRADIOSKY_VERSION
+    assert pyuvsim.__version__ == REFERENCE_PYUVSIM_VERSION
+
+    iers_table = iers.IERS_A.open(iers.IERS_A_FILE)
+    assert type(iers_table).__name__ == "IERS_A"
+    with (
+        iers.conf.set_temp("auto_download", False),
+        iers.earth_orientation_table.set(iers_table),
+    ):
+        skyh5 = tmp_path / "unpolarized.skyh5"
+        sky = _write_sky(
+            skyh5,
+            iquv_by_source=(
+                (3.0, 0.0, 0.0, 0.0),
+                (1.5, 0.0, 0.0, 0.0),
+                (2.25, 0.0, 0.0, 0.0),
+                (0.75, 0.0, 0.0, 0.0),
+            ),
+            ra_deg=(20.0, 25.0, 15.0, 22.0),
+            dec_deg=(-30.72, -26.0, -35.0, -31.5),
+        )
+        layout = _write_layout(tmp_path / "array.txt")
+        result = _run_radiosim(
+            array=layout,
+            beamfits=unit_beamfits,
+            skyh5=skyh5,
+            jones=None,
+            output=tmp_path / "out",
+        )
+        ours = np.asarray(result.visibilities)
+        theirs = _apply_fringe_hermitian_mapping(
+            _pyuvsim_cube(result, unit_beamfits, sky)
+        )
+
+    scale = float(np.max(np.abs(theirs)))
+    absolute = float(np.max(np.abs(ours - theirs)))
+    without_mapping = _apply_fringe_hermitian_mapping(theirs)
+    stokes = _local_stokes(ours)
+    metrics = {
+        "cube_scale_jy": scale,
+        "measured_absolute_jy": absolute,
+        "measured_relative": absolute / scale,
+        "control_relative_without_fringe_mapping": float(
+            np.max(np.abs(ours - without_mapping))
+        )
+        / scale,
+        "stokes_q_relative_max": float(np.max(np.abs(stokes[..., 1]))) / scale,
+        "stokes_u_relative_max": float(np.max(np.abs(stokes[..., 2]))) / scale,
+        "stokes_v_relative_max": float(np.max(np.abs(stokes[..., 3]))) / scale,
+    }
+    return UnpolarizedComparison(
+        result=result,
+        sky=sky,
+        iers_table=iers_table,
+        ours=ours,
+        theirs=theirs,
+        metrics=metrics,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -480,132 +920,107 @@ def test_unpolarized_point_sources_match_pyuvsim(tmp_path, unit_beamfits):
     Under convention mapping 1 the cubes must agree to round-off; the committed
     artifact records the measured value.
     """
-    skyh5 = tmp_path / "unpolarized.skyh5"
-    sky = _write_sky(
-        skyh5,
-        iquv_by_source=(
-            (3.0, 0.0, 0.0, 0.0),
-            (1.5, 0.0, 0.0, 0.0),
-            (2.25, 0.0, 0.0, 0.0),
-            (0.75, 0.0, 0.0, 0.0),
-        ),
-        ra_deg=(20.0, 25.0, 15.0, 22.0),
-        dec_deg=(-30.72, -26.0, -35.0, -31.5),
-    )
-    layout = _write_layout(tmp_path / "array.txt")
-    result = _run_radiosim(
-        array=layout,
-        beamfits=unit_beamfits,
-        skyh5=skyh5,
-        jones=None,
-        output=tmp_path / "out",
-    )
-    ours = np.asarray(result.visibilities)
-    theirs = _apply_fringe_hermitian_mapping(_pyuvsim_cube(result, unit_beamfits, sky))
+    comparison = _run_unpolarized_comparison(tmp_path, unit_beamfits)
+    metrics = comparison.metrics
 
-    assert ours.shape == theirs.shape == (3, 3, 3, 4)
-    scale = float(np.max(np.abs(theirs)))
-    assert scale > 1.0
-    relative = float(np.max(np.abs(ours - theirs))) / scale
-    assert relative < 1e-11, relative
+    assert comparison.ours.shape == comparison.theirs.shape == (3, 3, 3, 4)
+    assert metrics["cube_scale_jy"] > 1.0
+    assert metrics["measured_relative"] < 1e-11, metrics["measured_relative"]
 
     # The comparison is not vacuous: undo convention mapping 1 and the two
     # cubes disagree at order unity, so the assertion above is testing the
     # fringe and not an accidental agreement of two near-zero arrays.
-    without_mapping = _apply_fringe_hermitian_mapping(theirs)
-    control_relative = float(np.max(np.abs(ours - without_mapping))) / scale
-    assert control_relative > 0.1
+    assert metrics["control_relative_without_fringe_mapping"] > 0.1
 
     # The unpolarized invariant both codes must satisfy independently.
-    stokes = _local_stokes(ours)
-    assert float(np.max(np.abs(stokes[..., 1]))) / scale < 1e-11
-    assert float(np.max(np.abs(stokes[..., 2]))) / scale < 1e-11
-    assert float(np.max(np.abs(stokes[..., 3]))) / scale < 1e-11
-    _emit_metrics(
-        "unpolarized",
-        {
-            "cube_scale_jy": scale,
-            "measured_absolute_jy": float(np.max(np.abs(ours - theirs))),
-            "measured_relative": relative,
-            "control_relative_without_fringe_mapping": control_relative,
-        },
-    )
+    assert metrics["stokes_q_relative_max"] < 1e-11
+    assert metrics["stokes_u_relative_max"] < 1e-11
+    assert metrics["stokes_v_relative_max"] < 1e-11
+    _emit_metrics("unpolarized", metrics)
 
 
 def test_polarized_sources_with_jones_p_match_pyuvsim_in_common_east_x_frame(
     tmp_path, unit_beamfits
 ):
-    """``P`` reproduces ``pyuvsim`` in the common east-X frame.
+    """Bound and explain ``P``'s residual in the common east-X frame.
 
     A full-Stokes sky on an ``alt-az`` array with ``jones.P`` enabled.  Total
-    intensity and ``Q + iU`` are compared directly after the named fringe
-    Hermitian mapping.  Stokes V uses the one explicit sign conversion derived
-    from the two coherency definitions.
+    intensity and raw ``Q + iU`` are compared after the named fringe Hermitian
+    mapping.  Stokes V uses the one explicit sign conversion derived from the
+    two coherency definitions.  The SCI-007 correction moves each RadioSim
+    source-time contribution through ``exp(-2j * Delta)`` before summation.
     """
-    skyh5 = tmp_path / "polarized.skyh5"
-    sky = _write_sky(
-        skyh5,
-        iquv_by_source=(
-            (3.0, 0.6, -0.4, 0.2),
-            (1.5, -0.3, 0.5, -0.1),
-            (2.25, 0.0, 0.0, 0.9),
-        ),
-        ra_deg=(20.0, 25.0, 15.0),
-        dec_deg=(-30.72, -26.0, -35.0),
-    )
-    uvfits = _write_uvfits_array(tmp_path / "altaz.uvfits", "alt-az")
-    result = _run_radiosim(
-        array=uvfits,
-        beamfits=unit_beamfits,
-        skyh5=skyh5,
-        jones={"P": {"enabled": True}},
-        output=tmp_path / "out",
-    )
-    ours = np.asarray(result.visibilities)
-    theirs = _apply_fringe_hermitian_mapping(_pyuvsim_cube(result, unit_beamfits, sky))
+    comparison = _run_sci007_comparison(tmp_path, unit_beamfits)
+    metrics = comparison.metrics
 
-    ours_stokes = _local_stokes(ours)
-    theirs_stokes = _local_stokes(theirs)
-    scale = float(np.max(np.abs(theirs_stokes[..., 0])))
+    assert (
+        comparison.ours_by_source.shape
+        == comparison.theirs_by_source.shape
+        == (
+            3,
+            3,
+            3,
+            3,
+            4,
+        )
+    )
+    np.testing.assert_allclose(
+        np.sum(comparison.ours_by_source, axis=1),
+        comparison.ours,
+        rtol=0.0,
+        atol=2e-15,
+    )
+    np.testing.assert_allclose(
+        np.sum(comparison.theirs_by_source, axis=1),
+        comparison.theirs,
+        rtol=0.0,
+        atol=2e-15,
+    )
+
+    expected_exact_degrees = np.array(
+        [
+            [0.054345212925136, 0.064500055921101, 0.042970437265188],
+            [0.054345990627089, 0.064500756258174, 0.042971289516061],
+            [0.054346765297796, 0.064501454583101, 0.042972137541478],
+        ]
+    )
+    np.testing.assert_allclose(
+        np.degrees(comparison.exact_angles),
+        expected_exact_degrees,
+        rtol=0.0,
+        atol=5e-13,
+    )
+    assert metrics["public_exact_angle_max_relative"] < 0.10
 
     # Total intensity is direct.  Circular polarization uses mapping 2
     # explicitly: RadioSim and pyradiosky define the sign of V oppositely.
-    intensity = float(np.max(np.abs(ours_stokes[..., 0] - theirs_stokes[..., 0])))
-    assert intensity / scale < 1e-8, intensity / scale
-    circular = float(np.max(np.abs(ours_stokes[..., 3] + theirs_stokes[..., 3])))
-    assert circular / scale < 1e-8, circular / scale
+    assert metrics["measured_intensity_relative"] < 1e-8
+    assert metrics["measured_circular_relative_after_explicit_v_mapping"] < 1e-8
 
     # SCI-006: direct Q/U in the shared east-X frame, with no Q compensation.
-    ours_linear = ours_stokes[..., 1] + 1j * ours_stokes[..., 2]
-    theirs_linear = theirs_stokes[..., 1] + 1j * theirs_stokes[..., 2]
-    linear_scale = float(np.max(np.abs(theirs_linear)))
-    assert linear_scale / scale > 0.1
-    residual = float(np.max(np.abs(ours_linear - theirs_linear))) / linear_scale
-    assert residual < 5e-3, residual
-    # The retired pre-SCI-006 Q compensation is now a loud control failure.
-    old_q_compensation = -theirs_stokes[..., 1] + 1j * theirs_stokes[..., 2]
-    old_q_control = (
-        float(np.max(np.abs(ours_linear - old_q_compensation))) / linear_scale
-    )
-    assert old_q_control > 0.5
+    assert metrics["linear_scale_over_intensity_scale"] > 0.1
+    assert np.any(comparison.valid_linear)
+    raw_residual = metrics["measured_linear_relative_direct_q_u"]
+    assert 1e-3 < raw_residual < 5e-3, raw_residual
+    global_residual = metrics["measured_linear_relative_single_global_angle"]
+    assert 1e-4 < global_residual < raw_residual, global_residual
+    exact_residual = metrics["measured_linear_relative_exact_source_time"]
+    assert exact_residual < 5e-10, exact_residual
 
-    valid = np.abs(theirs_linear) > linear_scale * 1e-12
-    reference = theirs_linear[valid]
-    measured = ours_linear[valid]
-    fitted_ratio = np.vdot(reference, measured) / np.vdot(reference, reference)
-    fitted_rotation_deg = 0.5 * float(np.degrees(np.angle(fitted_ratio)))
-    _emit_metrics(
-        "polarized",
-        {
-            "measured_intensity_relative": intensity / scale,
-            "measured_circular_relative_after_explicit_v_mapping": circular / scale,
-            "measured_linear_relative_direct_q_u": residual,
-            "control_relative_with_retired_q_compensation": old_q_control,
-            "fitted_residual_frame_rotation_deg": fitted_rotation_deg,
-            "fitted_linear_ratio_modulus": float(abs(fitted_ratio)),
-            "linear_scale_over_intensity_scale": linear_scale / scale,
-        },
+    # Source decomposition adds an evidence axis, not a different reference.
+    np.testing.assert_allclose(
+        np.sum(comparison.theirs_source_linear, axis=1),
+        comparison.theirs_linear,
+        rtol=0.0,
+        atol=2e-15,
     )
+    wrong_sign_residual = metrics["control_relative_with_wrong_exact_sign"]
+    assert wrong_sign_residual > raw_residual, wrong_sign_residual
+
+    # The retired pre-SCI-006 Q compensation is now a loud control failure.
+    old_q_control = metrics["control_relative_with_retired_q_compensation"]
+    assert old_q_control > 0.5
+    _emit_metrics("polarized", metrics)
 
 
 def test_the_committed_artifact_describes_this_comparison():
