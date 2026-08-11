@@ -273,7 +273,7 @@ def test_tier6c_loader_worker_invariance(tmp_path, max_workers, executor):
 def test_tier6c_offline_policy_is_installed_before_any_loader_runs(
     tmp_path, monkeypatch
 ):
-    """Section 16.1 / Section 20.1 step 6 precedes step 7."""
+    """Section 16.1 policy is installed for loading, then restored."""
     network = importlib.import_module("radiosim.utils.network")
     parallel = importlib.import_module("radiosim.core.sky.operations.parallel")
     events: list[str] = []
@@ -297,8 +297,31 @@ def test_tier6c_offline_policy_is_installed_before_any_loader_runs(
         base_dir=tmp_path,
     ).setup()
 
-    assert events == ["offline:True", "load"]
-    network.set_offline_policy(False)
+    assert events == ["offline:True", "load", "offline:False"]
+    assert network.offline_policy() is False
+
+
+def test_tier6c_offline_policy_is_restored_when_sky_loading_fails(
+    tmp_path, monkeypatch
+):
+    """A failed setup must not impose its policy on later direct loaders."""
+    network = importlib.import_module("radiosim.utils.network")
+    parallel = importlib.import_module("radiosim.core.sky.operations.parallel")
+
+    def fail_while_offline(*_args, **_kwargs):
+        assert network.offline_policy() is True
+        raise RuntimeError("injected sky-loading failure")
+
+    monkeypatch.setattr(parallel, "load_models_parallel", fail_while_offline)
+
+    simulator = Simulator.from_mapping(
+        valid_config_mapping(tmp_path, execution={"offline": True}),
+        base_dir=tmp_path,
+    )
+    with pytest.raises(RuntimeError, match="injected sky-loading failure"):
+        simulator.setup()
+
+    assert network.offline_policy() is False
 
 
 def test_tier6e_both_solvers_consume_the_resolved_solver_execution_policy():

@@ -638,7 +638,9 @@ class Simulator:
             return self
         self._ensure_instrument_state()
         from radiosim.core.beam import BeamSamplingDerivationError
+        from radiosim.utils import network as network_module
 
+        previous_offline_policy = network_module.offline_policy()
         try:
             self._ensure_receptor_set()
             self._ensure_jones_terms()
@@ -654,6 +656,8 @@ class Simulator:
         except Exception:
             self._clear_later_runtime_state()
             raise
+        finally:
+            network_module.set_offline_policy(previous_offline_policy)
 
     def _setup_after_instrument_state(self) -> Simulator:
         """Create backend, observation, and sky state after canonical resolution."""
@@ -754,10 +758,12 @@ class Simulator:
             get_required_services,
         )
 
-        self._network_status = get_network_status(offline=self._offline)
         # Section 20.1 step 6: the resolved offline policy is installed once,
-        # before any loader runs, and is propagated into every loader worker.
+        # before network status or any loader runs, and is propagated into every
+        # loader worker. ``setup()`` restores the caller's previous policy after
+        # this setup attempt succeeds or fails.
         network_module.set_offline_policy(self._offline)
+        self._network_status = get_network_status(offline=self._offline)
 
         sky_config = self._resolved.sky_model
         required_services = get_required_services(
