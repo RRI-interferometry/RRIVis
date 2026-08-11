@@ -749,6 +749,39 @@ What ``P`` does and does not change
   latitude, the same one the direction batch inverted the horizontal transform
   with, so the two halves of the geometry cannot disagree.
 
+Polarization-frame accuracy boundary
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+RadioSim evaluates that geometry in its operational apparent frame. It first
+transforms each catalogue ICRS direction to topocentric ``AltAz``, then uses an
+ideal spherical inverse with geodetic latitude and local apparent sidereal time
+to recover the direction used for ``psi``. This is an internally consistent
+apparent/equinox-of-date, **TETE-like idealization**. It is neither an exact
+Astropy ``TETE`` transform nor a full apparent-place model.
+
+In particular, RadioSim does not currently transport the catalogue's ICRS
+polarization tangent basis into that operational apparent basis before applying
+``P``. For the retained HERA-site, three-source, three-time cross-validation
+fixture with refraction disabled, a public Astropy source-to-zenith construction
+bounds the omitted per-source/time angle between
+:math:`7.64484265255\times10^{-4}` and
+:math:`1.120043332414\times10^{-3}` radians. These numbers are
+**fixture-scoped**; they are not an all-sky accuracy bound.
+
+The optional pinned ``pyradiosky`` reconstruction predicts the same mechanism.
+Applying its exact rotation to each source-time contribution before source
+summation reduces the direct linear-polarization residual from
+:math:`2.052050642874229\times10^{-3}` to
+:math:`2.400855498837282\times10^{-10}` in that fixture. This is an evidence
+correction, not a production option: the Jones chain and frame policy remain
+unchanged.
+
+``PrecisionConfig.ultra()`` increases supported numerical precision; it does
+not add tangent-basis transport and therefore does not remove this limitation.
+``SCI-007`` remains open until the versioned optional artifact and independent
+acceptance are complete. The convention, fixture, sign derivation, and closure
+gates are recorded in the :doc:`SCI-007 frame-accuracy design record
+</development/sci007_frame_accuracy_bound>`.
 
 T — troposphere: delay and opacity
 ----------------------------------
