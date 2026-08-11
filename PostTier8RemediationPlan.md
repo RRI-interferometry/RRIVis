@@ -99,9 +99,11 @@ Effort classes: **XS** ≤ half a day · **S** ≈ 1–2 days · **M** ≈ 3–7
   measured and the receptor-basis semantics a non-scalar `E` must be expressed
   in. **Satisfied 2026-08-11:** WP-5 is independently accepted; WP-6 and the
   relevant WP-8 stages may now use the ruled east-X frame.
-- **E3 — `PERF-001` CPU legs before `SCI-005` implementation.** Both touch the
-  solver call sites around the contraction kernel; the PERF legs are small and
-  provably bit-identical, so they land clean under the existing pins first.
+- **E3 — accepted `PERF-001` CPU legs before `SCI-005` Stage 1.** Both touch
+  solver call sites around the contraction kernel. A WP-7 implementation or
+  green test run is not enough: P-a through P-d must be independently accepted
+  before any Stage-1 production edit. Drafting and reviewing the WP-8 design
+  gate does not depend on that acceptance.
 - **E4 — `SCI-004` last.** `Tier7JonesSciencePlan.md` §18.3 already enumerates
   its contract surface (Tier 4 time grid, Tier 5 correlation axis, Tier 6
   worker/fingerprint contracts, harmonic beam representations); it wants at
@@ -123,7 +125,7 @@ never accepted by loosening the pin").
 | WP-5 | `SCI-006` implementation (selected Branch A correction) | M | DONE — independently accepted 2026-08-11 |
 | WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | DONE — independently accepted 2026-08-11 |
 | WP-7 | `PERF-001` CPU legs P-a…P-d + docs notes; P-e GPU leg | M; P-e gated | P-e on Q4 (hardware) |
-| WP-8 | `SCI-005` plan document, then staged slices 1→3 | XL | Stage 1 after WP-7 (E3); stages 2–3 after WP-5 (E2) |
+| WP-8 | `SCI-005` design gate, then separately accepted stages 1→3 | XL | Stage 1 after accepted WP-7 CPU scope (E3); stages 2–3 also require their accepted predecessor; WP-5/E2 is satisfied |
 | WP-9 | `SCI-004` design gate | XL | Q5 (science driver); soft on WP-8, WP-3 |
 
 **Original 2026-08-05 sequencing:** WP-1, WP-2, WP-4, WP-7 (P-a…P-d),
@@ -612,50 +614,48 @@ WP-8 edge E3; they do not close P-e.
 
 ## 11. WP-8 — `SCI-005`: beam physics beyond scalar `E`
 
-Tier-scale; gets its own plan document (house rule: design gates before
-substantial implementation). Five owned items in
-`docs/development/beam_physics_scope.md` (near-field is a recorded *permanent
-non-goal*, not an SCI-005 item); `Tier7JonesSciencePlan.md` §40 additionally
-routes station element beams, array factors, and mutual coupling to this row.
-Stage by risk gradient:
+The proposed dedicated gate is
+`docs/development/sci005_beam_physics_plan.md`. It is a design-only candidate
+anchored at `e63770c`; it requires independent design approval and provides no
+implementation or acceptance evidence. `SCI-005` remains **ROADMAP**.
+Near-field simulation remains a permanent non-goal. Station element beams,
+array factors, and mutual coupling remain future work outside this closure.
 
-1. **Scalar-preserving aperture items** — aperture blockage, Zernike
-   aberrations, Ruze error-beam decomposition. Aperture-integral changes; `E`
-   stays scalar; receptor contracts and scalar-beam pins untouched except
-   where a config block enables an effect. Per the `Fix.md` §16 discipline,
-   each item lands with an analytic-invariant test (closed form in the test
-   body), an effect-changes-visibility test, and a backend-parity case; the
-   config convention carries over — a block resolving to exact identity is
-   **rejected**. The scope document leaves blockage/Zernike/error-beam
-   uncited; the stage-1 design memo supplies citations (Ruze 1966 is already
-   cited for the efficiency factor; standard candidates: Baars 2007, *The
-   Paraboloidal Reflector Antenna*; Born & Wolf for Zernike polynomials).
-2. **Beam squint** (Cotton & Uson 2008, arXiv:0807.0026) — the first genuine
-   widening: `E` becomes a non-scalar *diagonal* (per-hand pointing). This
-   triggers the recorded `Tier7JonesSciencePlan.md` §12.3 obligation: the
-   `C·E·P` order was fixed "because that is the physically correct one for a
-   future non-scalar `E`", and any non-scalar `E` work "must re-verify it" —
-   the scalar-`E` order-unobservability bit-identity test flips into an
-   order-matters test with an analytic expectation.
-3. **Full cross-polarization** (Ludwig-3 / quadrupolar / IXR; Carozzi & Woan
-   2011; Ludwig 1973; HBS 1996) — full 2×2 `E`: UVBeam **efield** ingestion in
-   `core/beam/fits.py` (today's path is peak-normalized power; the efield
-   normalization convention is a named design decision), the solver-owned `E`
-   adapter widened, the `PolarizationBasis`/receptor contracts engaged in
-   earnest.
+The candidate resolves the three stages as follows:
 
-**What it does not touch:** the compiled kernel. Jones matrices arrive at
-`core/contraction.py` fully composed as `(B, S, 2, 2)`; a non-scalar `E`
-changes composition upstream, not the kernel signature or the single
-`backend.compile` site — the Tier 7 invariant tests keep passing, and beam
-interpolation stays host-side by design (`Tier6HybridRuntimePlan.md` §13.6).
-**Validation:** pyuvdata UVBeam efield as the independent reference;
-crossed-ideal-dipole closed forms; a crossval extension vs `pyuvsim` with an
-efield beam (new dated artifact — `pyuvsim` supports exactly this).
-Beam-identity fingerprints regenerate only for workloads that enable the new
-effects, with the scalar-case bit-identity proof as the acceptance
-centerpiece. **Blockers:** stages 2–3 on the WP-4/WP-5 ruling (E2); stage 1
-sequenced after WP-7 (E3). Effort XL, multiple design-gated slices.
+1. **Scalar aperture physics.** Central/support blockage and deterministic real
+   unit-RMS `(n,m)` Zernike surface-height modes compose inside one aperture
+   transform normalized to the unmodified ideal aperture. The phase is
+   `exp(-i 4*pi*h/lambda)`. The result is not re-peak-normalized. Ruze
+   `sigma` and a correlation length do not define a deterministic complex
+   voltage: Stage 1 retains coherent Ruze loss in `E` and permits only a
+   fully declared covariance-based ensemble-power/autocorrelation diagnostic
+   for the scattered error beam. An invented `sqrt(power)` voltage is
+   forbidden.
+2. **Beam squint.** The two displaced responses form a diagonal `D_b` only in
+   native-feed space. Within RadioSim's existing `C E P` factorization the
+   correct sky-side matrix is `E=C^dagger D_b C`, which is generally full. The
+   exact Cotton/Uson arcsine frequency law is used. Squint is the declared
+   `+pi/2` orthogonal to the mechanical off-axis-feed ray; that mechanical
+   position angle is distinct from electrical receptor `feed_rotation_deg`,
+   and the non-scalar test must prove order matters.
+3. **Full cross-polarization.** UVBeam efield ingestion receives one explicit
+   matrix-level peak-normalization contract, basis-vector and Ludwig-3
+   conversion, `E=C^dagger J_native` receptor factorization, point/HEALPix and
+   NumPy/JAX/Dask coverage, output-format behavior for HDF5/UVFITS/MS, and a new
+   dated non-gating pyuvsim comparison. Quadrupolar response is an analytic
+   oracle rather than an underspecified production model; IXR is a derived
+   diagnostic, not another leakage config.
+
+All three stages keep `BeamSystem` as the one beam owner and deliver fully
+composed `(B,S,2,2)` Jones matrices to the existing six-input contraction. No
+compiled-kernel signature or second `backend.compile` site is allowed. Each
+stage has red tests, an exact writable list, a clean-source retained evidence
+successor, independent acceptance, and enabled-effect-only fingerprint
+regeneration. Stage 1 remains blocked until P-a through P-d are independently
+accepted (E3). Stages 2 and 3 then proceed only after the preceding stage is
+accepted; WP-5/E2 is already satisfied. The register closes only after a
+separate whole-row review accepts all three stages.
 
 ## 12. WP-9 — `SCI-004`: the m-mode simulator
 
@@ -768,5 +768,5 @@ Each work package runs in the established style:
 | WP-5 | DONE — independently accepted 2026-08-11; SCI-006 closed |
 | WP-6 | DONE — independently accepted 2026-08-11; SCI-007 closed as a retained-fixture accuracy bound |
 | WP-7 | P-a…P-d ready to start; P-e infrastructure authorized, evidence blocked on Q4 |
-| WP-8 | Plan document ready to draft; stage 1 after WP-7; WP-5/E2 satisfied for stages 2–3 |
+| WP-8 | Design candidate drafted at `e63770c`; independent design approval pending; Stage 1 blocked on accepted WP-7 CPU scope; WP-5/E2 satisfied for later stages; SCI-005 remains ROADMAP |
 | WP-9 | Unscheduled pending Q5 |
