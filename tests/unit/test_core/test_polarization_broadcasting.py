@@ -17,7 +17,145 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from radiosim.backends import get_backend
 from radiosim.core.polarization import stokes_to_coherency
+
+_BACKEND_NAMES = ("numpy", "jax", "dask")
+
+
+def _backend(name: str):
+    if name == "jax":
+        return get_backend("jax", device="cpu")
+    if name == "dask":
+        return get_backend("dask", mode="cpu")
+    return get_backend("numpy")
+
+
+def _to_numpy(backend, value) -> np.ndarray:
+    return np.asarray(backend.to_numpy(value))
+
+
+def _analytic_coherency(stokes_i, stokes_q=0, stokes_u=0, stokes_v=0):
+    """Build the documented matrix independently of RadioSim's stack path."""
+    stokes_i, stokes_q, stokes_u, stokes_v = np.broadcast_arrays(
+        np.asarray(stokes_i, dtype=float),
+        np.asarray(stokes_q, dtype=float),
+        np.asarray(stokes_u, dtype=float),
+        np.asarray(stokes_v, dtype=float),
+    )
+    expected = np.empty(stokes_i.shape + (2, 2), dtype=np.complex128)
+    expected[..., 0, 0] = (stokes_i + stokes_q) / 2.0
+    expected[..., 0, 1] = (stokes_u + 1j * stokes_v) / 2.0
+    expected[..., 1, 0] = (stokes_u - 1j * stokes_v) / 2.0
+    expected[..., 1, 1] = (stokes_i - stokes_q) / 2.0
+    return expected
+
+
+def _pre_api001_equal_shape(stokes_i, stokes_q, stokes_u, stokes_v, *, xp):
+    """Reconstruct the exact pre-API-001 arithmetic, without broadcasting."""
+    stokes_i = xp.asarray(stokes_i, dtype=float)
+    stokes_q = xp.asarray(stokes_q, dtype=float)
+    stokes_u = xp.asarray(stokes_u, dtype=float)
+    stokes_v = xp.asarray(stokes_v, dtype=float)
+    row_x = xp.stack([stokes_i + stokes_q, stokes_u + 1j * stokes_v], axis=-1)
+    row_y = xp.stack([stokes_u - 1j * stokes_v, stokes_i - stokes_q], axis=-1)
+    return xp.stack([row_x, row_y], axis=-2) / 2.0
+
+
+@pytest.mark.parametrize("backend_name", _BACKEND_NAMES)
+class TestBackendBroadcastingContract:
+    """The adopted API works analytically in every selectable array domain."""
+
+    def test_scalar_inputs_match_the_closed_form(self, backend_name):
+        backend = _backend(backend_name)
+        actual = _to_numpy(
+            backend,
+            stokes_to_coherency(4.0, 0.8, -0.4, 0.2, xp=backend.xp),
+        )
+        expected = _analytic_coherency(4.0, 0.8, -0.4, 0.2)
+
+        assert actual.shape == (2, 2)
+        np.testing.assert_array_equal(actual, expected)
+
+    def test_array_i_broadcasts_untouched_scalar_defaults(self, backend_name):
+        backend = _backend(backend_name)
+        stokes_i = np.array([1.0, 2.5, 4.0, 7.5], dtype=np.float64)
+        actual = _to_numpy(
+            backend,
+            stokes_to_coherency(stokes_i, xp=backend.xp),
+        )
+        expected = _analytic_coherency(stokes_i)
+
+        assert actual.shape == (4, 2, 2)
+        np.testing.assert_array_equal(actual, expected)
+
+    def test_mixed_ranks_broadcast_to_one_analytic_cube(self, backend_name):
+        backend = _backend(backend_name)
+        stokes_i = np.array([[2.0], [3.0]], dtype=np.float64)
+        stokes_q = np.array([0.4, -0.2, 0.1], dtype=np.float64)
+        stokes_u = -0.125
+        stokes_v = np.array([[0.2], [-0.3]], dtype=np.float64)
+        actual = _to_numpy(
+            backend,
+            stokes_to_coherency(
+                stokes_i,
+                stokes_q,
+                stokes_u,
+                stokes_v,
+                xp=backend.xp,
+            ),
+        )
+        expected = _analytic_coherency(stokes_i, stokes_q, stokes_u, stokes_v)
+
+        assert actual.shape == (2, 3, 2, 2)
+        np.testing.assert_array_equal(actual, expected)
+
+    def test_incompatible_shapes_still_raise_value_error(self, backend_name):
+        backend = _backend(backend_name)
+        with pytest.raises(ValueError):
+            stokes_to_coherency(
+                np.ones((2, 3)),
+                np.zeros((4,)),
+                xp=backend.xp,
+            )
+
+
+@pytest.mark.parametrize("backend_name", _BACKEND_NAMES)
+@pytest.mark.parametrize("float_dtype", [np.float32, np.float64])
+def test_equal_shaped_inputs_are_byte_identical_to_the_pre_api001_path(
+    backend_name, float_dtype
+):
+    """Broadcasting adds no arithmetic to the historically valid shape."""
+    backend = _backend(backend_name)
+    stokes_i = np.array([1.25, 2.5, 3.75, 5.0], dtype=float_dtype)
+    stokes_q = np.array([0.5, -0.25, 0.125, -0.75], dtype=float_dtype)
+    stokes_u = np.array([-0.125, 0.75, -0.5, 0.25], dtype=float_dtype)
+    stokes_v = np.array([0.0625, -0.5, 0.375, -0.125], dtype=float_dtype)
+
+    current = _to_numpy(
+        backend,
+        stokes_to_coherency(
+            stokes_i,
+            stokes_q,
+            stokes_u,
+            stokes_v,
+            xp=backend.xp,
+        ),
+    )
+    legacy = _to_numpy(
+        backend,
+        _pre_api001_equal_shape(
+            stokes_i,
+            stokes_q,
+            stokes_u,
+            stokes_v,
+            xp=backend.xp,
+        ),
+    )
+
+    assert current.shape == legacy.shape == (4, 2, 2)
+    assert current.dtype == legacy.dtype == np.dtype(np.complex128)
+    assert current.tobytes(order="C") == legacy.tobytes(order="C")
 
 
 class TestScalarDefaultsBroadcastAgainstArrayI:
