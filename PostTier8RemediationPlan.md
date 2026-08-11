@@ -20,8 +20,8 @@ re-verified at execution time, not trusted from here.
 | Row | Status | One line |
 |-----|--------|----------|
 | `CI-001` | DONE | Closed 2026-08-08 by WP-2/WP-3: the second `linux-64-py311` class was forced on demand, its NumPy/OpenBLAS dispatch axes named, its three cube deltas accepted under Section 13.5, and its digests recorded (`docs/development/ci001_adjudication.md`) |
-| `SCI-006` | OPEN | WP-4 ruled the zero-rotation linear binding non-normative for the declared east-X feed. A WP-5 candidate now implements the required permutation and `XX - YY = -Q`; closure still requires six-cell fingerprint evidence and independent read-only acceptance (`docs/development/sci006_polarization_convention.md`) |
-| `SCI-007` | OPEN | Direct-Q/U WP-5 cross-validation refits the residual polarization-frame rotation to `+0.057991°` (linear residual `2.052e-3`), still unreconciled against the frame-species probes (`output/crossvalidation/2026-08-08-pyuvsim-1.4.0.json`) |
+| `SCI-006` | DONE | Closed 2026-08-11 by WP-5 independent acceptance at exact candidate `f5fa101e`; CI run `31434253575` passed quality, backend parity, and all six compatibility cells, with six authenticated characterization artifacts and exact `P V_old P^H` evidence (`docs/development/sci006_polarization_convention.md`) |
+| `SCI-007` | OPEN | Direct-Q/U cross-validation on the accepted east-X frame refits `+0.057991°` (linear residual `2.052e-3`); the frame-species probes remain unreconciled and WP-6 still owes a design-gated executable bound, retained provenance, and independent acceptance |
 | `API-001` | OPEN | `stokes_to_coherency` does not broadcast its scalar Q/U/V defaults against array `I`; `stokes_to_coherency(np.ones(5))` raises (`Fix.md` line ~228) |
 | `API-002` | OPEN | `print_warning` leaves Rich markup enabled on interpolated messages; bracketed text silently dropped (`Fix.md` line ~229) |
 | `PERF-001` | ROADMAP | Accelerator performance undemonstrated; JAX-CPU measured slower than NumPy on every benchmarked workload (`Fix.md` line ~208) |
@@ -75,8 +75,8 @@ This plan was assembled from, and cites only:
 | 1 | `CI-001` | Diagnose from live instrumentation; adjudicate under the pre-authorized Tier 8 §14 conditional; then the successor-gate decision | M (elapsed-time-gated on one red run) | Now (WP-2) |
 | 2 | `API-002` | Fix: escape at the helper boundary, plus the `RichHandler` companion | XS | Now (WP-1) |
 | 3 | `API-001` | Fix: implement broadcasting | XS | Now (WP-1) |
-| 4 | `SCI-006` | WP-4 ruling DONE; implement the selected east-X basis correction in WP-5 | S + M | WP-5 ready; WP-3/E1 and Q3 satisfied |
-| 5 | `SCI-007` | Reconcile numerically; close as a documented, test-pinned accuracy bound | S–M | After WP-5 |
+| 4 | `SCI-006` | Selected east-X correction implemented and independently accepted in WP-5 | S + M | DONE 2026-08-11 |
+| 5 | `SCI-007` | Reconcile numerically; close as a documented, test-pinned accuracy bound | S–M | Ready; WP-5/E2 satisfied |
 | 6 | `PERF-001` | Four CPU legs now with bit-identity proofs; GPU leg hardware-gated | M + gated | CPU legs now (WP-7) |
 | 7 | `SCI-005` | Staged successor tier, own plan document; scalar-preserving items first | XL | Plan doc now; stages gated (WP-8) |
 | 8 | `SCI-004` | Feature, not remediation; design gate only when a science driver exists | XL | Unscheduled (WP-9) |
@@ -97,7 +97,8 @@ Effort classes: **XS** ≤ half a day · **S** ≈ 1–2 days · **M** ≈ 3–7
 - **E2 — `SCI-006` before `SCI-007` and before `SCI-005` stages 2–3.** The
   sign/axis-order ruling defines the frame in which the `-0.0576°` residual is
   measured and the receptor-basis semantics a non-scalar `E` must be expressed
-  in.
+  in. **Satisfied 2026-08-11:** WP-5 is independently accepted; WP-6 and the
+  relevant WP-8 stages may now use the ruled east-X frame.
 - **E3 — `PERF-001` CPU legs before `SCI-005` implementation.** Both touch the
   solver call sites around the contraction kernel; the PERF legs are small and
   provably bit-identical, so they land clean under the existing pins first.
@@ -119,8 +120,8 @@ never accepted by loosening the pin").
 | WP-2 | `CI-001` evidence: artifact harvest + comparator; fingerprint extension; optional nightly sampler | S–M | DONE 2026-08-08 |
 | WP-3 | `CI-001` adjudication (Tier 8 §14 conditional) + successor-gate memo + mechanized verdict | M | DONE 2026-08-08 |
 | WP-4 | `SCI-006` convention memo (the ruling) | S | DONE 2026-08-08 |
-| WP-5 | `SCI-006` implementation (selected Branch A correction) | M | Local candidate implemented; six-cell evidence and independent acceptance pending |
-| WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | WP-5 (E2) |
+| WP-5 | `SCI-006` implementation (selected Branch A correction) | M | DONE — independently accepted 2026-08-11 |
+| WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | Ready; WP-5/E2 satisfied |
 | WP-7 | `PERF-001` CPU legs P-a…P-d + docs notes; P-e GPU leg | M; P-e gated | P-e on Q4 (hardware) |
 | WP-8 | `SCI-005` plan document, then staged slices 1→3 | XL | Stage 1 after WP-7 (E3); stages 2–3 after WP-5 (E2) |
 | WP-9 | `SCI-004` design gate | XL | Q5 (science driver); soft on WP-8, WP-3 |
@@ -392,24 +393,60 @@ compensation.
 
 Effort S + M. Landing waits for WP-3 adjudication (edge E1) in Branch A only.
 
+### 8.4 WP-5 — independent acceptance (DONE 2026-08-11)
+
+WP-5 is accepted at exact candidate
+`f5fa101e4ac345534636380720ce33ec93a31eae`. A separate read-only reviewer
+re-derived the north/east-to-east-X mapping and the linear and circular product
+tables, inspected production paths rather than trusting the implementation
+notes, reran the optional cross-validation suite, and authenticated the remote
+evidence.
+
+GitHub Actions run `31434253575` is a push-triggered `CI` run whose head SHA is
+exactly the accepted candidate. Its quality job `93604879477`, backend-parity
+job `93604879424`, and all six compatibility jobs completed successfully. The
+six characterization artifacts are `9080470037` (linux py311), `9080472471`
+(linux py312), `9080524924` (arm64 py311), `9080529903` (arm64 py312),
+`9080665431` (Intel macOS py311), and `9081128353` (Intel macOS py312). Every
+artifact reports the same workflow-run head SHA; its archive digest and retained
+cube contents were independently checked.
+
+Across all cells, the four applicable polarized workloads are byte-exact
+`P V_old P^H`; the two unpolarized workloads and both shipped-configuration raw
+cubes remain active unchanged references. The feed-asymmetric witness is
+validated separately because native-feed terms need not commute with `P`.
+Linux py311 and py312 retain both legitimate heterogeneous-receptor dispatch
+classes, including the candidates observed under AVX-512/OpenBLAS runtime
+dispatch. The original five CI-001 digests remain durable provenance. Four
+unchanged shipped-configuration digests also remain active pins; only the
+superseded heterogeneous `c7b51d02...` digest is historical-only after its
+accepted `9f07661c...` east-X successor was recorded. Observation-set
+membership and the Section 13.5
+`rtol=1e-12`/scaled-absolute adjudication rule are unchanged.
+
+Fresh exact-candidate checks included 432 focused production/science/output
+tests, 88 NumPy/JAX/Dask backend-parity tests, all five optional cross-validation
+tests, and the full non-slow, lint, format, typecheck, doctest, and strict Sphinx
+gates. Direct `Q+iU` cross-validation records residual
+`0.002052050642874229`, fitted rotation `+0.057991427331288835` degrees, ratio
+modulus `1.0000830200328927`, and explicit pyradiosky V-mapped residual
+`4.0701816228520426e-11`. Those measurements define the still-open SCI-007
+input; they are not absorbed into SCI-006.
+
 ## 9. WP-6 — `SCI-007`: the refitted `+0.057991°` frame rotation
 
-**Standing.** Three unreconciled numbers: the fitted `-0.057568764952°`; the
-artifact's own probe, `0.200°` between the position angle of ICRS north and
-the apparent-equatorial parallactic angle; and 7J's independent CIRS probe,
-`0.041`–`0.063°` per source. `DirectionBatch` deliberately uses apparent-frame
-coordinates with an exact idealized spherical inversion
-(`Tier7JonesSciencePlan.md` §13.2); polar motion and diurnal aberration are
-its known omissions (the 7B record's ~`8e-6` rad pointing residual).
+**Post-WP-5 input, not WP-6 acceptance.** The accepted direct comparison fits
+`+0.0579914273313°` with linear residual `2.052050642874e-3` and ratio modulus
+`1.000083020033`; the explicit pyradiosky V-sign mapping is already at the
+`4.070e-11` relative floor. The old `-0.057568764952°` fit belongs to the
+pre-SCI-006 compensated comparison. The apparent-equatorial and CIRS
+frame-species probes remain unreconciled, so these accepted WP-5 measurements
+define WP-6's input rather than its mechanism or conclusion.
 
-**New analysis recorded by this plan (to be verified in WP-6, not yet a
-record):** a frame rotation θ rotates the complex linear polarization
-`P = Q + iU` by `2θ`, so the fitted rotation alone predicts a relative linear
-residual of `|e^{2iθ} − 1| ≈ 2θ = 2.01e-3` — within ~2% of the recorded
-`2.06e-3`, while the fitted modulus `0.999978` shows amplitude accounts for
-only `2.2e-5`. If WP-6 confirms this, the frame rotation **is** the entire
-remaining polarized disagreement, and closing SCI-007 closes the linear gap
-toward the `1e-10` floor that `I` and `V` already sit on.
+WP-6 must establish its own design-gate memo, pin the exact frame species and
+Earth-orientation policy, add a non-vacuous normal-environment accuracy bound,
+retain a fully provenanced optional cross-validation artifact, and obtain
+independent acceptance before SCI-007 closes.
 
 **Plan.** After the WP-5 ruling: recompute the fitted residual in the ruled
 frame; then compute a **per-source, per-time prediction** of the frame
@@ -626,8 +663,8 @@ Each work package runs in the established style:
 | WP-2 | DONE — accepted 2026-08-08 |
 | WP-3 | DONE — accepted 2026-08-08; CI-001 closed |
 | WP-4 | DONE — ruled 2026-08-08; Branch A selected; no runtime change |
-| WP-5 | Ready to start; Q3 and WP-3/E1 satisfied 2026-08-08 |
-| WP-6 | Prediction computation ready; closure blocked on WP-5 |
+| WP-5 | DONE — independently accepted 2026-08-11; SCI-006 closed |
+| WP-6 | Design and implementation ready; WP-5/E2 satisfied |
 | WP-7 | P-a…P-d ready to start; P-e blocked on Q4 |
-| WP-8 | Plan document ready to draft; stage 1 after WP-7; stages 2–3 after WP-5 |
+| WP-8 | Plan document ready to draft; stage 1 after WP-7; WP-5/E2 satisfied for stages 2–3 |
 | WP-9 | Unscheduled pending Q5 |

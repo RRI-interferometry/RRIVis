@@ -2,11 +2,12 @@
 
 **WP-4 design-gate record — 2026-08-08**
 
-**WP-5 candidate status — 2026-08-08:** the selected production correction is
-implemented locally with one immutable matrix owner, direct-Q/U cross-validation,
-and local solver/output tests. `SCI-006` deliberately remains open: the
-six-cell fingerprint regeneration and separate read-only acceptance review have
-not yet completed. The historical WP-4 present-tense trace below describes the
+**WP-5 acceptance record — 2026-08-11:** the selected production correction is
+independently accepted at exact candidate
+`f5fa101e4ac345534636380720ce33ec93a31eae`; `SCI-006` is closed. CI run
+`31434253575` passed quality, backend parity, and all six compatibility cells,
+and all six retained artifacts were authenticated. Section 12 is the durable
+acceptance record. The historical WP-4 present-tense trace below describes the
 pre-correction implementation that the ruling evaluated.
 
 **Ruling:** RadioSim's current default linear Jones binding is not scientifically
@@ -559,10 +560,143 @@ After WP-5:
 WP-4 therefore unblocks WP-6's ruled-frame computation but does not supply its
 closure evidence.
 
-The WP-5 candidate rerun now compares `Q+iU` directly and measures a relative
+The accepted WP-5 comparison uses `Q+iU` directly and measures a relative
 linear residual of `0.002052050642874229`. Its least-squares complex ratio has
 modulus `1.0000830200328927` and a fitted residual rotation of
 `+0.057991427331288835` degrees. The explicit pyradiosky V-sign comparison
 agrees to `4.0701816228520426e-11` relative. These measurements are recorded in
 `output/crossvalidation/2026-08-08-pyuvsim-1.4.0.json`; they refit SCI-007 but do
 not close it.
+
+## 12. WP-5 independent acceptance — DONE 2026-08-11
+
+### 12.1 Exact candidate and re-derived result
+
+The accepted candidate is
+`f5fa101e4ac345534636380720ce33ec93a31eae` on
+`codex/sci006-wp5-candidate`. The branch, its remote, and the clean local tree
+all resolved to that SHA during the read-only review. The candidate contains no
+dependency, lock-file, simulator-submodule, tolerance, or ignored-output change.
+
+The reviewer re-derived, from the production matrices,
+
+```text
+P B P^H = (1/2) [[I-Q, U-iV],
+                 [U+iV, I+Q]]
+```
+
+and therefore the row-major linear products
+
+```text
+(XX, XY, YX, YY) = ((I-Q)/2, (U-iV)/2, (U+iV)/2, (I+Q)/2)
+XX - YY = -Q
+```
+
+The circular transform remains
+
+```text
+(RR, RL, LR, LL) = ((I+V)/2, (Q+iU)/2, (Q-iU)/2, (I-V)/2)
+```
+
+Production resolves `C=M_native R(chi)` and
+`H=M_output M_native^H`. Mixed native/output bases consequently collapse to
+the requested ideal output transform only when no native-feed effect intervenes.
+The feed-asymmetric witness correctly keeps gains and other such terms attached
+to their physical native feeds instead of applying an invalid commuting
+shortcut.
+
+### 12.2 Fresh executable evidence
+
+The final review included:
+
+- 432 focused production, science, output, fingerprint, CI, and documentation
+  tests;
+- 88 NumPy/JAX/Dask backend-parity tests covering point and HEALPix paths,
+  mixed bases, mount rotations, and optional Jones terms;
+- five optional `pyuvsim` cross-validation tests at the exact candidate; and
+- the full non-slow, lint, formatting, typecheck, doctest, and strict Sphinx
+  gates represented by the final exact-SHA CI run.
+
+The cross-validation has no retired Q-axis compensation. It records direct
+linear residual `0.002052050642874229`, fitted rotation
+`+0.057991427331288835` degrees, ratio modulus `1.0000830200328927`, explicit
+pyradiosky V-mapped residual `4.0701816228520426e-11`, and a deliberately
+failing retired-compensation control `0.697576347665902`. These values refit
+the still-open SCI-007 question; they do not close it.
+
+### 12.3 Remote exact-SHA evidence
+
+GitHub Actions run `31434253575` is a push-triggered `CI` run at the exact
+accepted SHA. All eight jobs completed successfully:
+
+| Scope | Job ID |
+|---|---:|
+| NumPy/JAX-CPU backend parity | `93604879424` |
+| lint, metadata, types, doctests, examples, and Sphinx | `93604879477` |
+| osx-arm64 / Python 3.12 | `93604879480` |
+| osx-64 / Python 3.11 | `93604879503` |
+| osx-arm64 / Python 3.11 | `93604879556` |
+| linux-64 / Python 3.12 | `93604879588` |
+| linux-64 / Python 3.11 | `93604879623` |
+| osx-64 / Python 3.12 | `93604879636` |
+
+The six unexpired characterization artifacts all report the same workflow-run
+head SHA. Their IDs and API-authenticated archive SHA-256 values are:
+
+| Environment | Artifact ID | Archive SHA-256 |
+|---|---:|---|
+| linux-64-py311 | `9080470037` | `d2e6c1ed623b16c9370bbf710dd671807a876860fca8ecafe0bd6f1fe0810c5e` |
+| linux-64-py312 | `9080472471` | `113b8c427e91813c3a28a08041a726d769cd20a3bd2bd1bd7bec2c70139def90` |
+| osx-arm64-py311 | `9080524924` | `41d843304f9da02a6e349093f9f3a5ee303253fca886dff855ede9fdc7a837f9` |
+| osx-arm64-py312 | `9080529903` | `52e440c4aab005327626f3d7c64388c066faf79a72a92abd2f0403463c37d0ed` |
+| osx-64-py311 | `9080665431` | `a85d7f022ae0978f895fd999c4fc2c3dcdc1713f0999dcd6f84a7237d49a7bd0` |
+| osx-64-py312 | `9081128353` | `c3eb2782ff332629422877cbb5adab167568956e9c913b5dc416ad01151eb21b` |
+
+Every artifact has 14 valid observations over the ten required slugs, with
+duplicate observations agreeing. Every measured digest belongs to the active
+pin table; every retained NPY hashes to its filename under the documented
+workload or raw-config recipe; no candidate cube remains in an `observed_cubes`
+directory. The one non-hex `an-unrecorded-environment\tmeasured` row is a
+pre-existing negative-test fixture. The WP-5 parser reads it, but the comparator
+never queries its synthetic slug and it does not enter an accepted pin.
+
+### 12.4 Changed and unchanged cubes
+
+In every compatibility cell, the four applicable polarized workloads are
+byte-exact `P V_old P^H`. The two unpolarized workloads and both shipped-config
+raw cubes are unchanged active references; both shipped scientific fingerprints
+also remain members of their accepted environment tuples. The non-commuting
+feed-asymmetric case is covered by its own physical-feed oracle.
+
+The final green artifacts carry the accepted cubes under `reference_cubes` and
+therefore do not persist a generated WP-5 comparator JSON report. The
+independent review recomputed the filename digests, active membership, and
+changed/unchanged relations directly from those retained arrays and manifests.
+
+The post-correction heterogeneous-receptor classes are
+`eda7da522277fc70576abd882e2b4984a3823e19c5ca588b35b530fc65af107c`
+and `9f07661c3348515e5fd1acc478606badd2f4c8a143f67008f8922aabedff04c5`
+for linux py311, and
+`6b7d21ab4358b8a6597c1018eb4bafa391cc42b4358d656c4f1d06dee5eb2c97`
+and `1dd95c932cec803f06476205670a4902f0f53140d78261e08dc7aad5bac9c995`
+for linux py312. The latter missing class was observed—not inferred—in run
+`31425908525`, job `93577429679`, artifact `9077267004`; its AVX-512/OpenBLAS
+`Cooperlake` candidate is byte-exact to the permutation of historical
+`11d4c0a5...`, not the AVX2 `73f340f1...` reference.
+
+The original five CI-001 dispatch digests remain durable provenance. Four
+unchanged shipped-configuration digests also remain active pins; only the
+superseded heterogeneous `c7b51d02...` digest is historical-only after its
+accepted `9f07661c...` east-X successor was recorded. Observation-set
+membership remains the primary gate, and the Section 13.5 `rtol=1e-12` plus
+scaled absolute term remains only the novel-digest adjudication rule. No
+tolerance was weakened and no digest was accepted without a retained candidate
+and a byte-level explanation.
+
+### 12.5 Verdict and remaining boundary
+
+All ten WP-5 acceptance criteria in Section 10.7 are satisfied. `SCI-006` is
+therefore **DONE**. This acceptance does not claim full apparent-place
+polarization transport: the post-correction `+0.0579914273` degree residual is
+owned by still-open `SCI-007` and must be independently explained and bounded
+by WP-6.
