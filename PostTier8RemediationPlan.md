@@ -22,8 +22,8 @@ re-verified at execution time, not trusted from here.
 | `CI-001` | DONE | Closed 2026-08-08 by WP-2/WP-3: the second `linux-64-py311` class was forced on demand, its NumPy/OpenBLAS dispatch axes named, its three cube deltas accepted under Section 13.5, and its digests recorded (`docs/development/ci001_adjudication.md`) |
 | `SCI-006` | DONE | Closed 2026-08-11 by WP-5 independent acceptance at exact candidate `f5fa101e`; CI run `31434253575` passed quality, backend parity, and all six compatibility cells, with six authenticated characterization artifacts and exact `P V_old P^H` evidence (`docs/development/sci006_polarization_convention.md`) |
 | `SCI-007` | OPEN | Direct-Q/U cross-validation on the accepted east-X frame refits `+0.057991°` (linear residual `2.052e-3`); the frame-species probes remain unreconciled and WP-6 still owes a design-gated executable bound, retained provenance, and independent acceptance |
-| `API-001` | OPEN | `stokes_to_coherency` does not broadcast its scalar Q/U/V defaults against array `I`; `stokes_to_coherency(np.ones(5))` raises (`Fix.md` line ~228) |
-| `API-002` | OPEN | `print_warning` leaves Rich markup enabled on interpolated messages; bracketed text silently dropped (`Fix.md` line ~229) |
+| `API-001` | DONE | Closed 2026-08-11 by WP-1 independent acceptance at exact candidate `87bdaf2`: NumPy/JAX/Dask broadcasting and six equal-shape backend/dtype byte-identity cells passed |
+| `API-002` | DONE | Closed 2026-08-11 by WP-1 independent acceptance at exact candidate `87bdaf2`: all four helpers and `RichHandler` render caller text literally, with no caller markup dependency |
 | `PERF-001` | ROADMAP | Accelerator performance undemonstrated; JAX-CPU measured slower than NumPy on every benchmarked workload (`Fix.md` line ~208) |
 | `SCI-005` | ROADMAP | Beam physics beyond scalar `E = e·I₂`: five scoped items in `docs/development/beam_physics_scope.md` (`Fix.md` line ~216) |
 | `SCI-004` | ROADMAP | The m-mode / spherical-harmonic simulator — a second complete forward model (`Fix.md` line ~215) |
@@ -73,8 +73,8 @@ This plan was assembled from, and cites only:
 | # | Row | Verdict | Effort | Starts |
 |---|-----|---------|--------|--------|
 | 1 | `CI-001` | Diagnose from live instrumentation; adjudicate under the pre-authorized Tier 8 §14 conditional; then the successor-gate decision | M (elapsed-time-gated on one red run) | Now (WP-2) |
-| 2 | `API-002` | Fix: escape at the helper boundary, plus the `RichHandler` companion | XS | Now (WP-1) |
-| 3 | `API-001` | Fix: implement broadcasting | XS | Now (WP-1) |
+| 2 | `API-002` | Fix: escape at the helper boundary, plus the `RichHandler` companion | XS | DONE 2026-08-11 (WP-1) |
+| 3 | `API-001` | Fix: implement broadcasting | XS | DONE 2026-08-11 (WP-1) |
 | 4 | `SCI-006` | Selected east-X correction implemented and independently accepted in WP-5 | S + M | DONE 2026-08-11 |
 | 5 | `SCI-007` | Reconcile numerically; close as a documented, test-pinned accuracy bound | S–M | Ready; WP-5/E2 satisfied |
 | 6 | `PERF-001` | Four CPU legs now with bit-identity proofs; GPU leg hardware-gated | M + gated | CPU legs now (WP-7) |
@@ -116,7 +116,7 @@ never accepted by loosening the pin").
 
 | WP | Contents | Effort | Blocked on |
 |----|----------|--------|------------|
-| WP-1 | Quick wins: `API-002` fix, `API-001` fix | XS + XS | — |
+| WP-1 | Quick wins: `API-002` fix, `API-001` fix | XS + XS | DONE 2026-08-11 |
 | WP-2 | `CI-001` evidence: artifact harvest + comparator; fingerprint extension; optional nightly sampler | S–M | DONE 2026-08-08 |
 | WP-3 | `CI-001` adjudication (Tier 8 §14 conditional) + successor-gate memo + mechanized verdict | M | DONE 2026-08-08 |
 | WP-4 | `SCI-006` convention memo (the ruling) | S | DONE 2026-08-08 |
@@ -126,9 +126,10 @@ never accepted by loosening the pin").
 | WP-8 | `SCI-005` plan document, then staged slices 1→3 | XL | Stage 1 after WP-7 (E3); stages 2–3 after WP-5 (E2) |
 | WP-9 | `SCI-004` design gate | XL | Q5 (science driver); soft on WP-8, WP-3 |
 
-Can start today, in parallel: WP-1, WP-2, WP-4, WP-7 (P-a…P-d), WP-8's plan
-document, and WP-6's prediction computation (both species pairings can be
-computed before the ruling; only the closure waits).
+**Original 2026-08-05 sequencing:** WP-1, WP-2, WP-4, WP-7 (P-a…P-d),
+WP-8's plan document, and WP-6's prediction computation could start in
+parallel (both species pairings could be computed before the ruling; only the
+closure waited). WP-1 has since completed as recorded in §§6–7 and §16.
 
 ---
 
@@ -262,17 +263,18 @@ provenance, digests, limitations, and the closure record.
 
 ## 6. WP-1a — `API-002`: Rich markup eats bracketed text
 
-**Standing.** All four helpers at `src/radiosim/utils/logging.py:113-130`
-interpolate the caller's message into a markup-parsed f-string
+**Original standing, 2026-08-05.** All four helpers at
+`src/radiosim/utils/logging.py:113-130` interpolated the caller's message into
+a markup-parsed f-string
 (`console.print(f"[warning]⚠[/warning] {message}", highlight=False)`). Live
 symptom: `Simulator.setup()`'s offline pre-flight
-(`src/radiosim/api/simulator.py:782-785`) prints "Sky model(s)  require pygdsm
+(`src/radiosim/api/simulator.py:782-785`) printed "Sky model(s)  require pygdsm
 data but network is unavailable" with the bracketed model list eaten
 (reachable via `configs/realistic_foreground_example.yaml` offline). A
 call-site audit (2026-08-05) found **no caller that intentionally passes
-markup** through the helpers; the only intentional markup in `src/` is
-`cli/main.py`'s own Panels/Tables, which do not route through these helpers.
-`RichHandler(markup=True)` at `logging.py:60` is the same latent bug class for
+markup** through the helpers; the only intentional markup in `src/` was
+`cli/main.py`'s own Panels/Tables, which did not route through these helpers.
+`RichHandler(markup=True)` at `logging.py:60` was the same latent bug class for
 `logger.*` calls; the audit found no `logger` caller relying on it.
 
 **Fix.** Wrap `message` in `rich.markup.escape()` inside all four helpers,
@@ -285,15 +287,23 @@ survives `print_warning`; siblings likewise; one message-construction case for
 the `simulator.py` call site shape. No config surface, no fingerprint impact.
 Changelog entry under the next unreleased section. Effort XS.
 
+**Closure, 2026-08-11.** Implementation commit `62e53e6` escapes caller text
+in all four helpers and configures `RichHandler(markup=False)`. Independent
+acceptance at exact candidate `87bdaf2` reproduced the old swallowed-list
+failure, proved that the real offline-preflight message retains its bracketed
+model list, and audited every production helper and logger caller without
+finding an intentional Rich-markup dependency. `API-002` is `DONE`.
+
 ## 7. WP-1b — `API-001`: `stokes_to_coherency` broadcasting
 
-**Standing.** Rows are assembled with `xp.stack`, which requires one shared
-shape, so `stokes_to_coherency(np.ones(5))` — the register row's words: "the
-single most basic array-input call" — raises, because the scalar **defaults**
-cannot join the stack. The 8B record already fixed the docstring truthfulness
-(`a3ef72d`); this row is the ergonomics gap it disclosed. Production call
-sites (`core/visibility.py:754`, `core/visibility_healpix.py:574`) always pass
-four matched-shape arrays and are unaffected either way.
+**Original standing, 2026-08-05.** Rows were assembled with `xp.stack`, which
+required one shared shape, so `stokes_to_coherency(np.ones(5))` — the register
+row's words: "the single most basic array-input call" — raised because the
+scalar **defaults** could not join the stack. The 8B record had already fixed
+the docstring truthfulness (`a3ef72d`); this row was the ergonomics gap it
+disclosed. Production call
+sites (`core/visibility.py:754`, `core/visibility_healpix.py:574`) always
+passed four matched-shape arrays and were unaffected either way.
 
 **Decision (resolved by program adoption, 2026-08-05 — gated question Q2):
 implement broadcasting**, not documented strictness. One
@@ -312,6 +322,14 @@ per-element loop built in the test body (Tier-1 style); a non-broadcastable
 pair still raises `ValueError`; dtype preservation at both float widths;
 docstring Broadcasting section rewritten and its doctest flipped
 (`pixi run doctest` gates it). Effort XS.
+
+**Closure, 2026-08-11.** Implementation commit `3ac6282` inserts the adopted
+`xp.broadcast_arrays` step without changing the subsequent arithmetic; test
+commit `87bdaf2` adds the missing cross-backend analytic and unchanged-path
+proofs. Independent acceptance reproduced the pre-fix failure and then passed
+NumPy, JAX-CPU, and Dask mixed-rank cases, incompatible-shape rejection, and
+float32/float64 equal-shape byte identity in all six backend/dtype cells.
+`API-001` is `DONE`.
 
 ## 8. WP-4/WP-5 — `SCI-006`: the Stokes-`Q` sign ruling
 
@@ -659,7 +677,7 @@ Each work package runs in the established style:
 
 | WP | State |
 |----|--------------------|
-| WP-1 | Ready to start |
+| WP-1 | DONE — independently accepted 2026-08-11; API-001 and API-002 closed |
 | WP-2 | DONE — accepted 2026-08-08 |
 | WP-3 | DONE — accepted 2026-08-08; CI-001 closed |
 | WP-4 | DONE — ruled 2026-08-08; Branch A selected; no runtime change |
