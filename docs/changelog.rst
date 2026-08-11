@@ -64,11 +64,12 @@ Changed
   ``7.64484265255e-4`` to ``1.120043332414e-3`` radians. An optional pinned
   design-gate reconstruction reduced the direct linear-polarization residual
   from ``2.052050642874229e-3`` to ``2.400855498837282e-10`` by applying the
-  exact correction per source and time before summation; that reconstruction
-  is not yet the retained versioned artifact. Production behavior is
-  unchanged, ``PrecisionConfig.ultra()`` does not add frame transport, and no
-  all-sky accuracy claim is made. ``SCI-007`` remains open pending the artifact
-  and independent acceptance; see
+  exact correction per source and time before summation. That reconstruction
+  becomes closure evidence only through the separately retained versioned
+  artifact and its independent acceptance. Production behavior is unchanged,
+  ``PrecisionConfig.ultra()`` does not add frame transport, and no all-sky
+  accuracy claim is made. ``SCI-007`` remains open until those evidence and
+  acceptance gates are complete; see
   :doc:`development/sci007_frame_accuracy_bound`.
 
 [0.3.0] - 2026-08-02

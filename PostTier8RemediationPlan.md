@@ -481,7 +481,7 @@ For the retained three-source, three-time HERA-site fixture, the exact pinned
 pyradiosky prediction spans `0.0429704°` to `0.0645015°`; the independent
 public Astropy source-to-zenith oracle spans `7.64484e-4` to `1.12004e-3` rad.
 The public and exact grids agree within about `1.96%`, and the exact
-source-time correction leaves `2.4011986107951257e-10` relative linear
+source-time correction leaves `2.400855498837282e-10` relative linear
 residual. The normal gate will enforce the fixture-scoped non-vacuous bounds
 `6e-4 < min(abs(Delta))`, `max(abs(Delta)) < 1.2e-3 rad`, and spin-2 effect
 `<2.4e-3`; these are not all-sky guarantees.

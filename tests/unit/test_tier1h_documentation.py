@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import importlib.util
+import io
 import json
+import math
 import re
 import subprocess
 import sys
@@ -1398,6 +1403,11 @@ def test_tier7j_crossvalidation_evidence_is_committed_and_bounded():
     for path in records:
         record = json.loads(path.read_text(encoding="utf-8"))
         assert record["gating"] is False
+        if record.get("schema") == "radiosim-crossvalidation-1.2.0":
+            # The SCI-007 record has a deliberately stricter schema and is
+            # authenticated by the dedicated deep validator tests below.
+            assert path.name == "2026-08-11-pyuvsim-1.4.0-sci007.json"
+            continue
         assert record["reference"]["version"] == "1.4.0"
         # A recorded comparison without a measured number is not evidence.
         for case in record["cases"]:
@@ -1428,3 +1438,558 @@ def test_tier7j_the_crossvalidation_module_is_excluded_from_the_default_gate():
         encoding="utf-8"
     )
     assert "crossval" not in workflow
+
+
+SCI007_EVIDENCE_TOOL = REPOSITORY_ROOT / "tools" / "wp6_sci007_evidence.py"
+SCI007_EVIDENCE_ARTIFACT = (
+    REPOSITORY_ROOT
+    / "output"
+    / "crossvalidation"
+    / "2026-08-11-pyuvsim-1.4.0-sci007.json"
+)
+SCI007_APPROVED_SOURCE_SHA = "__SCI007_APPROVED_SOURCE_SHA__"
+SCI007_ARTIFACT_SHA256 = "__SCI007_ARTIFACT_SHA256__"
+_SCI007_VALIDATOR_TEST_SOURCE_SHA = "0" * 40
+
+
+def _load_sci007_evidence_tool():
+    spec = importlib.util.spec_from_file_location(
+        "_radiosim_sci007_evidence_test", SCI007_EVIDENCE_TOOL
+    )
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _sci007_prediction_record(module):
+    public_rad = copy.deepcopy(module._EXPECTED_PUBLIC_RADIANS)
+    exact_deg = copy.deepcopy(module._EXPECTED_EXACT_DEGREES)
+    exact_rad = [[math.radians(value) for value in row] for row in exact_deg]
+    public_deg = [[math.degrees(value) for value in row] for row in public_rad]
+    difference_rad = [
+        [public_rad[row][column] - exact_rad[row][column] for column in range(3)]
+        for row in range(3)
+    ]
+    difference_deg = [
+        [public_deg[row][column] - exact_deg[row][column] for column in range(3)]
+        for row in range(3)
+    ]
+    absolute_rad = [[abs(value) for value in row] for row in difference_rad]
+    relative = [
+        [absolute_rad[row][column] / abs(exact_rad[row][column]) for column in range(3)]
+        for row in range(3)
+    ]
+    public_flat = [value for row in public_rad for value in row]
+    exact_flat = [value for row in exact_rad for value in row]
+    relative_flat = [value for row in relative for value in row]
+    return {
+        "public": {"radians": public_rad, "degrees": public_deg},
+        "exact": {"radians": exact_rad, "degrees": exact_deg},
+        "public_minus_exact": {
+            "radians": difference_rad,
+            "degrees": difference_deg,
+            "absolute_rad": absolute_rad,
+            "relative": relative,
+        },
+        "extrema": {
+            "public_min_abs_rad": min(abs(value) for value in public_flat),
+            "public_max_abs_rad": max(abs(value) for value in public_flat),
+            "exact_min_abs_rad": min(abs(value) for value in exact_flat),
+            "exact_max_abs_rad": max(abs(value) for value in exact_flat),
+            "public_exact_max_relative": max(relative_flat),
+            "public_spin2_effect_max": max(
+                abs(complex(math.cos(2.0 * value), math.sin(2.0 * value)) - 1.0)
+                for value in public_flat
+            ),
+        },
+    }
+
+
+def _sci007_pinned_metric(scalars, contract):
+    numerator_units, denominator_name, denominator_units, definition = contract
+    return {
+        "value": scalars["value"],
+        "numerator_value": scalars["numerator_value"],
+        "numerator_units": numerator_units,
+        "denominator_name": denominator_name,
+        "denominator_value": scalars["denominator_value"],
+        "denominator_units": denominator_units,
+        "definition": definition,
+    }
+
+
+def _sci007_metric_record(module):
+    metrics = {
+        name: _sci007_pinned_metric(
+            scalars,
+            module._RELATIVE_METRIC_CONTRACT[name],
+        )
+        for name, scalars in module._EXPECTED_RELATIVE_METRIC_SCALARS.items()
+    }
+    metrics.update(
+        {
+            "intensity_scale": {
+                "value": module._EXPECTED_SCALE_VALUES["intensity_scale"],
+                "units": "Jy",
+                "definition": "max(abs(I_PY))",
+            },
+            "linear_scale": {
+                "value": module._EXPECTED_SCALE_VALUES["linear_scale"],
+                "units": "Jy",
+                "definition": "max(abs(L_PY))",
+            },
+        }
+    )
+    metrics["fitted_complex_ratio"] = {
+        **copy.deepcopy(module._EXPECTED_FITTED_COMPLEX_RATIO),
+        "definition": "vdot(L_PY,L_RS)/vdot(L_PY,L_PY) over valid cells",
+    }
+    metrics["linear_cells"] = {
+        "valid": 27,
+        "total": 27,
+        "mask_definition": "abs(L_reference) > linear_scale * 1e-12",
+    }
+    metrics["source_additivity"] = {
+        name: _sci007_pinned_metric(
+            scalars,
+            module._SOURCE_ADDITIVITY_CONTRACT[name],
+        )
+        for name, scalars in module._EXPECTED_SOURCE_ADDITIVITY_SCALARS.items()
+    }
+    return metrics
+
+
+def _valid_sci007_record(module):
+    predictions = _sci007_prediction_record(module)
+    samples = [
+        {
+            "time_index": index,
+            "jd1": module._EXPECTED_JD1[index],
+            "jd2": module._EXPECTED_JD2[index],
+            "dut1_seconds": module._EXPECTED_DUT1_SECONDS[index],
+            "xp_arcsec": module._EXPECTED_XP_ARCSEC[index],
+            "yp_arcsec": module._EXPECTED_YP_ARCSEC[index],
+            "dut1_status": {"code": 0, "name": "FROM_IERS_B"},
+            "polar_motion_status": {"code": 0, "name": "FROM_IERS_B"},
+        }
+        for index in range(3)
+    ]
+    return {
+        "schema": module.SCHEMA,
+        "recorded_utc": "2026-08-11T00:00:00Z",
+        "slice": module.SLICE,
+        "gating": False,
+        "identity": module._identity(_SCI007_VALIDATOR_TEST_SOURCE_SHA),
+        "reference": copy.deepcopy(module._REFERENCE),
+        "runtime": copy.deepcopy(module._RUNTIME),
+        "iers": module._iers_record(samples),
+        "fixture": copy.deepcopy(module._fixture()),
+        "axes": copy.deepcopy(module._AXES),
+        "equations": copy.deepcopy(module._EQUATIONS),
+        "correction": copy.deepcopy(module._CORRECTION),
+        "predictions": predictions,
+        "history": copy.deepcopy(module._HISTORY),
+        "tolerances": copy.deepcopy(module._TOLERANCES),
+        "metrics": _sci007_metric_record(module),
+        "limits": copy.deepcopy(module._LIMITS),
+    }
+
+
+def _replace_sci007_value(record, path, value):
+    target = record
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+
+
+def test_sci007_validator_is_standard_library_only_at_import_time():
+    script = f"""
+import builtins
+import importlib.util
+
+blocked = {{"numpy", "astropy", "pyuvsim", "pyradiosky", "pyuvdata"}}
+original_import = builtins.__import__
+
+def guarded_import(name, *args, **kwargs):
+    if name.split(".", 1)[0] in blocked:
+        raise AssertionError(f"optional dependency imported: {{name}}")
+    return original_import(name, *args, **kwargs)
+
+builtins.__import__ = guarded_import
+spec = importlib.util.spec_from_file_location("sci007_evidence", {str(SCI007_EVIDENCE_TOOL)!r})
+assert spec is not None and spec.loader is not None
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+assert module.SCHEMA == "radiosim-crossvalidation-1.2.0"
+"""
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize(
+    ("spoof", "error"),
+    (
+        ("environment-name", "PIXI_ENVIRONMENT_NAME=crossval"),
+        ("prefix", "not running from the repository's locked crossval environment"),
+        ("project-root", "PIXI_PROJECT_ROOT"),
+        ("manifest", "PIXI_PROJECT_MANIFEST"),
+        ("working-directory", "generation must run from repository root"),
+    ),
+)
+def test_sci007_generation_rejects_spoofed_pixi_provenance(
+    spoof, error, tmp_path, monkeypatch
+):
+    module = _load_sci007_evidence_tool()
+    expected_prefix = REPOSITORY_ROOT / ".pixi" / "envs" / "crossval"
+    expected_manifest = REPOSITORY_ROOT / "pixi.toml"
+    monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "crossval")
+    monkeypatch.setenv("PIXI_PROJECT_ROOT", str(REPOSITORY_ROOT))
+    monkeypatch.setenv("PIXI_PROJECT_MANIFEST", str(expected_manifest))
+    monkeypatch.setattr(module.sys, "prefix", str(expected_prefix))
+    monkeypatch.chdir(REPOSITORY_ROOT)
+    module._assert_generation_environment()
+
+    if spoof == "environment-name":
+        monkeypatch.setenv("PIXI_ENVIRONMENT_NAME", "default")
+    elif spoof == "prefix":
+        monkeypatch.setattr(module.sys, "prefix", str(tmp_path / "crossval"))
+    elif spoof == "project-root":
+        monkeypatch.setenv("PIXI_PROJECT_ROOT", str(tmp_path))
+    elif spoof == "manifest":
+        monkeypatch.setenv("PIXI_PROJECT_MANIFEST", str(tmp_path / "pixi.toml"))
+    else:
+        monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(module.EvidenceError, match=re.escape(error)):
+        module._assert_generation_environment()
+
+
+def test_sci007_in_memory_record_has_exact_complete_contract():
+    module = _load_sci007_evidence_tool()
+    record = _valid_sci007_record(module)
+
+    assert module.SCHEMA == "radiosim-crossvalidation-1.2.0"
+    assert set(record) == {
+        "schema",
+        "recorded_utc",
+        "slice",
+        "gating",
+        "identity",
+        "reference",
+        "runtime",
+        "iers",
+        "fixture",
+        "axes",
+        "equations",
+        "correction",
+        "predictions",
+        "history",
+        "tolerances",
+        "metrics",
+        "limits",
+    }
+    assert record["fixture"]["primary"]["aggregate_shape"] == [3, 3, 3, 4]
+    assert record["fixture"]["primary"]["source_decomposed_shape"] == [
+        3,
+        3,
+        3,
+        3,
+        4,
+    ]
+    assert record["axes"]["polarization"] == {
+        "order": ["XX", "XY", "YX", "YY"],
+        "shape": [4],
+    }
+    assert record["equations"]["Delta"] == (
+        "Delta=wrap_pi(psi_RS+atan2(K[0,1],K[0,0]))"
+    )
+    assert record["correction"]["radiosim_to_pyuvsim"]["factor"] == ("exp(-2j*Delta)")
+    module.validate_record(
+        record, approved_source_sha=_SCI007_VALIDATOR_TEST_SOURCE_SHA
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "error"),
+    (
+        (("schema",), "radiosim-crossvalidation-1.1.0", "schema changed"),
+        (
+            ("reference", "pyuvsim", "version"),
+            "1.4.1",
+            "reference.pyuvsim.version changed",
+        ),
+        (
+            ("runtime", "packages", "pyuvsim"),
+            "1.4.1",
+            "runtime.packages.pyuvsim changed",
+        ),
+        (
+            ("identity", "generating_source_sha"),
+            "f" * 40,
+            "identity.generating_source_sha changed",
+        ),
+        (
+            ("identity", "clean_tree_at_generation"),
+            1,
+            "identity.clean_tree_at_generation type changed",
+        ),
+        (
+            ("identity", "lockfile", "sha256"),
+            "f" * 64,
+            "identity.lockfile.sha256 changed",
+        ),
+        (
+            ("iers", "table_sha256"),
+            "0" * 64,
+            "iers metadata.table_sha256 changed",
+        ),
+        (
+            ("iers", "samples", 0, "dut1_status", "code"),
+            False,
+            "iers.samples[0].dut1_status.code type changed",
+        ),
+        (
+            ("fixture", "primary", "sources", 0, "ra_deg"),
+            20.0001,
+            "fixture.primary.sources[0].ra_deg changed",
+        ),
+        (
+            ("fixture", "primary", "site", "authored", "height_m"),
+            1073,
+            "fixture.primary.site.authored.height_m type changed",
+        ),
+        (
+            ("axes", "source_cube", "shape"),
+            [3, 3, 3, 3, 5],
+            "axes.source_cube.shape",
+        ),
+        (
+            ("equations", "Delta"),
+            "Delta=wrap_pi(psi_RS-atan2(K[0,1],K[0,0]))",
+            "equations.Delta changed",
+        ),
+        (
+            ("correction", "radiosim_to_pyuvsim", "factor"),
+            "exp(+2j*Delta)",
+            "correction.radiosim_to_pyuvsim.factor changed",
+        ),
+        (
+            ("tolerances", "normal", "public_max_abs_rad", "value"),
+            1.3e-3,
+            "tolerances.normal.public_max_abs_rad.value changed",
+        ),
+        (
+            ("predictions", "public", "radians", 0, 0),
+            0.0010531231588649,
+            "predictions.public.radians",
+        ),
+        (
+            ("predictions", "public", "radians"),
+            [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]],
+            "predictions.public.radians must have shape [3,3]",
+        ),
+        (
+            ("metrics", "exact_source_time_relative", "numerator_value"),
+            1.0e-6,
+            "metrics.exact_source_time_relative.value changed",
+        ),
+        (
+            ("limits", "production_frame_policy_changed"),
+            True,
+            "limits.production_frame_policy_changed changed",
+        ),
+        (
+            ("limits", "production_code_changed"),
+            0,
+            "limits.production_code_changed type changed",
+        ),
+    ),
+    ids=(
+        "schema",
+        "reference-version",
+        "runtime-version",
+        "source-sha",
+        "identity-bool-as-int",
+        "lock-sha",
+        "iers-sha",
+        "iers-int-as-bool",
+        "fixture-scalar",
+        "fixture-float-as-int",
+        "axis-shape",
+        "delta-formula",
+        "correction-sign",
+        "tolerance",
+        "prediction-scalar",
+        "prediction-shape",
+        "metric",
+        "production-limit",
+        "limit-bool-as-int",
+    ),
+)
+def test_sci007_validator_rejects_representative_semantic_mutations(path, value, error):
+    module = _load_sci007_evidence_tool()
+    record = _valid_sci007_record(module)
+    _replace_sci007_value(record, path, value)
+
+    with pytest.raises(module.EvidenceError, match=re.escape(error)):
+        module.validate_record(
+            record, approved_source_sha=_SCI007_VALIDATOR_TEST_SOURCE_SHA
+        )
+
+
+def test_sci007_validator_rejects_negative_absolute_error_metrics():
+    module = _load_sci007_evidence_tool()
+    record = _valid_sci007_record(module)
+    metric = record["metrics"]["intensity_relative"]
+    metric["value"] = -metric["value"]
+    metric["numerator_value"] = -metric["numerator_value"]
+
+    with pytest.raises(module.EvidenceError, match="value must be nonnegative"):
+        module.validate_record(
+            record, approved_source_sha=_SCI007_VALIDATOR_TEST_SOURCE_SHA
+        )
+
+
+@pytest.mark.parametrize("value", (float("nan"), float("inf"), float("-inf")))
+def test_sci007_validator_rejects_in_memory_nonfinite_numbers(value):
+    module = _load_sci007_evidence_tool()
+    record = _valid_sci007_record(module)
+    record["metrics"]["raw_linear_relative"]["value"] = value
+
+    with pytest.raises(module.EvidenceError, match="must be finite"):
+        module.validate_record(
+            record, approved_source_sha=_SCI007_VALIDATOR_TEST_SOURCE_SHA
+        )
+
+
+@pytest.mark.parametrize("constant", ("NaN", "Infinity", "-Infinity"))
+def test_sci007_json_loader_rejects_nonfinite_numbers(tmp_path, constant):
+    module = _load_sci007_evidence_tool()
+    path = tmp_path / "nonfinite.json"
+    path.write_text(f'{{"value": {constant}}}\n', encoding="utf-8")
+
+    with pytest.raises(module.EvidenceError, match="non-finite JSON number"):
+        module._load_json(path)
+
+
+def test_sci007_json_loader_rejects_duplicate_keys(tmp_path):
+    module = _load_sci007_evidence_tool()
+    path = tmp_path / "duplicate.json"
+    path.write_text('{"schema": "first", "schema": "second"}\n', encoding="utf-8")
+
+    with pytest.raises(module.EvidenceError, match="duplicate JSON key: 'schema'"):
+        module._load_json(path)
+
+
+def test_sci007_artifact_validator_authenticates_raw_bytes(tmp_path):
+    module = _load_sci007_evidence_tool()
+    record = _valid_sci007_record(module)
+    path = tmp_path / "record.json"
+    raw = (
+        json.dumps(record, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode()
+    path.write_bytes(raw)
+    measured_sha256 = hashlib.sha256(raw).hexdigest()
+
+    assert (
+        module.validate_artifact(
+            path,
+            approved_source_sha=_SCI007_VALIDATOR_TEST_SOURCE_SHA,
+            artifact_sha256=measured_sha256,
+        )
+        == record
+    )
+    with pytest.raises(module.EvidenceError, match="artifact SHA-256 mismatch"):
+        module.validate_artifact(
+            path,
+            approved_source_sha=_SCI007_VALIDATOR_TEST_SOURCE_SHA,
+            artifact_sha256="f" * 64,
+        )
+
+
+def test_sci007_artifact_validator_hashes_and_decodes_one_byte_snapshot(
+    tmp_path, monkeypatch
+):
+    module = _load_sci007_evidence_tool()
+    first_record = _valid_sci007_record(module)
+    second_record = copy.deepcopy(first_record)
+    second_record["recorded_utc"] = "2026-08-11T00:00:01Z"
+    first_raw = (
+        json.dumps(first_record, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode()
+    second_raw = (
+        json.dumps(second_record, indent=2, sort_keys=True, allow_nan=False) + "\n"
+    ).encode()
+    path = tmp_path / "record.json"
+    path.write_bytes(first_raw)
+    expected_sha256 = hashlib.sha256(first_raw).hexdigest()
+    original_open = Path.open
+    opened_snapshots = []
+
+    def swapping_open(target, mode="r", *args, **kwargs):
+        if target == path and mode == "rb":
+            raw = first_raw if not opened_snapshots else second_raw
+            opened_snapshots.append(raw)
+            return io.BytesIO(raw)
+        return original_open(target, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", swapping_open)
+    validated = module.validate_artifact(
+        path,
+        approved_source_sha=_SCI007_VALIDATOR_TEST_SOURCE_SHA,
+        artifact_sha256=expected_sha256,
+    )
+
+    assert validated["recorded_utc"] == first_record["recorded_utc"]
+    assert opened_snapshots == [first_raw]
+
+
+def test_sci007_artifact_validator_fails_closed_when_artifact_is_absent(tmp_path):
+    module = _load_sci007_evidence_tool()
+
+    with pytest.raises(module.EvidenceError, match="artifact is absent"):
+        module.validate_artifact(
+            tmp_path / "absent.json",
+            approved_source_sha=_SCI007_VALIDATOR_TEST_SOURCE_SHA,
+            artifact_sha256="0" * 64,
+        )
+
+
+def test_sci007_canonical_artifact_is_committed_and_deeply_validated():
+    # Expected source-stage failure: the approved clean source commit must not
+    # contain its own successor artifact. The evidence successor replaces both
+    # digest placeholders and adds the canonical file, making this test green.
+    assert SCI007_EVIDENCE_ARTIFACT.is_file(), (
+        "expected source-stage failure: generate the canonical SCI-007 artifact "
+        "from the approved clean source commit, then add it only in its "
+        "evidence successor"
+    )
+    assert re.fullmatch(r"[0-9a-f]{40}", SCI007_APPROVED_SOURCE_SHA), (
+        "replace SCI007_APPROVED_SOURCE_SHA in the evidence successor"
+    )
+    assert re.fullmatch(r"[0-9a-f]{64}", SCI007_ARTIFACT_SHA256), (
+        "replace SCI007_ARTIFACT_SHA256 in the evidence successor"
+    )
+
+    module = _load_sci007_evidence_tool()
+    record = module.validate_artifact(
+        SCI007_EVIDENCE_ARTIFACT,
+        approved_source_sha=SCI007_APPROVED_SOURCE_SHA,
+        artifact_sha256=SCI007_ARTIFACT_SHA256,
+    )
+    assert record["identity"]["generating_source_sha"] == (SCI007_APPROVED_SOURCE_SHA)
+    assert record["identity"]["artifact_absent_at_generation"] is True
+    assert record["identity"]["clean_tree_at_generation"] is True
+    assert record["gating"] is False
+
+    readme = (SCI007_EVIDENCE_ARTIFACT.parent / "README.md").read_text(encoding="utf-8")
+    assert SCI007_EVIDENCE_ARTIFACT.name in readme
+    assert "SCI-007" in readme

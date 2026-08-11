@@ -293,8 +293,8 @@ The independently reproduced comparison metrics are:
 | Metric | Value |
 |---|---:|
 | Raw direct linear residual | `2.052050642874229e-3` |
-| Best single-global-angle residual | `1.9606576512108548e-4` |
-| Exact source-time corrected residual | `2.4011986107951257e-10` |
+| Best single-global-angle residual | `1.9606576512107846e-4` |
+| Exact source-time corrected residual | `2.400855498837282e-10` |
 | Total-intensity residual | `2.3139573996814273e-10` |
 | Explicitly mapped Stokes-V residual | `4.0701816228520426e-11` |
 
