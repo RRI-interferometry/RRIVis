@@ -52,6 +52,7 @@ acceleration.
    changelog
    development/ci001_adjudication
    development/sci006_polarization_convention
+   development/sci007_frame_accuracy_bound
    HERA_VSIM_ANALYSIS
 
 Current high-level support

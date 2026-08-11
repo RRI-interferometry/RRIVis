@@ -21,7 +21,7 @@ re-verified at execution time, not trusted from here.
 |-----|--------|----------|
 | `CI-001` | DONE | Closed 2026-08-08 by WP-2/WP-3: the second `linux-64-py311` class was forced on demand, its NumPy/OpenBLAS dispatch axes named, its three cube deltas accepted under Section 13.5, and its digests recorded (`docs/development/ci001_adjudication.md`) |
 | `SCI-006` | DONE | Closed 2026-08-11 by WP-5 independent acceptance at exact candidate `f5fa101e`; CI run `31434253575` passed quality, backend parity, and all six compatibility cells, with six authenticated characterization artifacts and exact `P V_old P^H` evidence (`docs/development/sci006_polarization_convention.md`) |
-| `SCI-007` | OPEN | Direct-Q/U cross-validation on the accepted east-X frame refits `+0.057991°` (linear residual `2.052e-3`); the frame-species probes remain unreconciled and WP-6 still owes a design-gated executable bound, retained provenance, and independent acceptance |
+| `SCI-007` | OPEN | WP-6 design gate recorded 2026-08-11 (`docs/development/sci007_frame_accuracy_bound.md`): the residual is attributed to missing ICRS-to-operational-apparent tangent-basis transport for the retained fixture; hermetic executable bounds, the 1.2.0 artifact, and independent acceptance are still required |
 | `API-001` | DONE | Closed 2026-08-11 by WP-1 independent acceptance at exact candidate `87bdaf2`: NumPy/JAX/Dask broadcasting and six equal-shape backend/dtype byte-identity cells passed |
 | `API-002` | DONE | Closed 2026-08-11 by WP-1 independent acceptance at exact candidate `87bdaf2`: all four helpers and `RichHandler` render caller text literally, with no caller markup dependency |
 | `PERF-001` | ROADMAP | Accelerator performance undemonstrated; JAX-CPU measured slower than NumPy on every benchmarked workload (`Fix.md` line ~208) |
@@ -76,7 +76,7 @@ This plan was assembled from, and cites only:
 | 2 | `API-002` | Fix: escape at the helper boundary, plus the `RichHandler` companion | XS | DONE 2026-08-11 (WP-1) |
 | 3 | `API-001` | Fix: implement broadcasting | XS | DONE 2026-08-11 (WP-1) |
 | 4 | `SCI-006` | Selected east-X correction implemented and independently accepted in WP-5 | S + M | DONE 2026-08-11 |
-| 5 | `SCI-007` | Reconcile numerically; close as a documented, test-pinned accuracy bound | S–M | Ready; WP-5/E2 satisfied |
+| 5 | `SCI-007` | Reconcile numerically; close as a documented, test-pinned accuracy bound | S–M | Design recorded 2026-08-11; evidence and acceptance pending |
 | 6 | `PERF-001` | Four CPU legs now with bit-identity proofs; GPU leg hardware-gated | M + gated | CPU legs now (WP-7) |
 | 7 | `SCI-005` | Staged successor tier, own plan document; scalar-preserving items first | XL | Plan doc now; stages gated (WP-8) |
 | 8 | `SCI-004` | Feature, not remediation; design gate only when a science driver exists | XL | Unscheduled (WP-9) |
@@ -121,7 +121,7 @@ never accepted by loosening the pin").
 | WP-3 | `CI-001` adjudication (Tier 8 §14 conditional) + successor-gate memo + mechanized verdict | M | DONE 2026-08-08 |
 | WP-4 | `SCI-006` convention memo (the ruling) | S | DONE 2026-08-08 |
 | WP-5 | `SCI-006` implementation (selected Branch A correction) | M | DONE — independently accepted 2026-08-11 |
-| WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | Ready; WP-5/E2 satisfied |
+| WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | Design recorded 2026-08-11; evidence and acceptance pending |
 | WP-7 | `PERF-001` CPU legs P-a…P-d + docs notes; P-e GPU leg | M; P-e gated | P-e on Q4 (hardware) |
 | WP-8 | `SCI-005` plan document, then staged slices 1→3 | XL | Stage 1 after WP-7 (E3); stages 2–3 after WP-5 (E2) |
 | WP-9 | `SCI-004` design gate | XL | Q5 (science driver); soft on WP-8, WP-3 |
@@ -453,36 +453,65 @@ input; they are not absorbed into SCI-006.
 
 ## 9. WP-6 — `SCI-007`: the refitted `+0.057991°` frame rotation
 
-**Post-WP-5 input, not WP-6 acceptance.** The accepted direct comparison fits
-`+0.0579914273313°` with linear residual `2.052050642874e-3` and ratio modulus
-`1.000083020033`; the explicit pyradiosky V-sign mapping is already at the
-`4.070e-11` relative floor. The old `-0.057568764952°` fit belongs to the
-pre-SCI-006 compensated comparison. The apparent-equatorial and CIRS
-frame-species probes remain unreconciled, so these accepted WP-5 measurements
-define WP-6's input rather than its mechanism or conclusion.
+**Design gate recorded 2026-08-11; not implementation or acceptance.** The
+normative design is
+`docs/development/sci007_frame_accuracy_bound.md`. It preserves the accepted
+WP-5 input: direct `Q+iU` residual `2.052050642874229e-3`, fitted global angle
+`+0.057991427331288835°`, ratio modulus `1.0000830200328927`, and explicitly
+mapped V residual `4.0701816228520426e-11`.
 
-WP-6 must establish its own design-gate memo, pin the exact frame species and
-Earth-orientation policy, add a non-vacuous normal-environment accuracy bound,
-retain a fully provenanced optional cross-validation artifact, and obtain
-independent acceptance before SCI-007 closes.
+The design identifies the dominant mechanism as missing transport of the ICRS
+catalogue polarization tangent basis into RadioSim's operational apparent
+basis. That operational frame is the ideal spherical inverse of topocentric
+`AltAz`, using geodetic latitude and local apparent sidereal time. It is
+TETE-like/apparent-of-date, not an exact Astropy `TETE` transform. Polar motion,
+diurnal aberration, and other topocentric/Earth-orientation details are smaller
+remainder terms; refraction is disabled with `pressure=0`.
 
-**Plan.** After the WP-5 ruling: recompute the fitted residual in the ruled
-frame; then compute a **per-source, per-time prediction** of the frame
-difference between RadioSim's idealized apparent-frame inversion and
-`pyuvsim`'s chain with astropy, for the exact crossval geometry — resolving
-which species pairing each of the two prior probes measured. Success
-criterion: the prediction matches the fitted rotation per-source within ~10%,
-and removing it drops the linear residual to the `1e-10` order.
+The sign and granularity are fixed. With
+`R(a)=[[cos(a),sin(a)],[-sin(a),cos(a)]]`, RadioSim
+`J_RS=S R(psi_RS)`, and pyradiosky `B_local=K.T B_ICRS K`, define
+`Delta=wrap_pi(psi_RS+atan2(K[0,1],K[0,0]))`. After the existing
+fringe-Hermitian mapping,
+`L_RS=exp(+2j*Delta)L_PY` for `L=Q+iU`; RadioSim moves to the pyuvsim
+convention with `exp(-2j*Delta)`. The correction is per source and time before
+summation. A single global fitted angle is retained only as a failing control.
 
-**Closure (recommended): documented-and-bounded.** A docs statement naming the
-frame species and the neglected terms (polar motion, diurnal aberration) with
-an apparent-place citation (SOFA/USNO), plus an **executable probe test**
-pinning the bound — so the bound is a test, not prose. `PrecisionConfig`'s
-`.ultra()` preset is the named future home for full apparent-place frames if
-a use case ever needs them; not now (a host-side per-direction astropy cost
-against `PERF-001`, and fingerprint churn, for a milli-degree effect). If the
-reconciliation fails to match, the row stays honestly open with the failed
-reconciliation recorded. Effort S–M.
+For the retained three-source, three-time HERA-site fixture, the exact pinned
+pyradiosky prediction spans `0.0429704°` to `0.0645015°`; the independent
+public Astropy source-to-zenith oracle spans `7.64484e-4` to `1.12004e-3` rad.
+The public and exact grids agree within about `1.96%`, and the exact
+source-time correction leaves `2.4011986107951257e-10` relative linear
+residual. The normal gate will enforce the fixture-scoped non-vacuous bounds
+`6e-4 < min(abs(Delta))`, `max(abs(Delta)) < 1.2e-3 rad`, and spin-2 effect
+`<2.4e-3`; these are not all-sky guarantees.
+
+All transforms and apparent-LST calls must install Astropy's explicit bundled
+`IERS_A_FILE` table with downloads disabled. The normal Python 3.11/3.12 test
+does not hard-code one digest because the locked environments may bundle
+different valid tables; the optional artifact records its exact digest and
+per-time EOP values. The `0.041`–`0.063°` CIRS probe is scientifically
+consistent and superseded by executable grids. The old `0.200°` scalar is
+unreproduced historical evidence and is neither a bound nor a denominator.
+
+Production remains unchanged. The current `PrecisionConfig.ultra()` changes
+numeric precision, not frame transport, so it is not described as an existing
+solution. A future transport policy needs its own design.
+
+The evidence slice is red-first: retain the raw `<5e-10` failure; add the
+bundled-IERS public test in default and `py312`; add the pinned source-time
+optional comparison; add a deep validator while the versioned 1.2.0 artifact is
+absent; generate that artifact only from an explicitly approved clean source
+commit and add it in an evidence-successor commit; run all gates; then obtain
+separate read-only authentication of the generating source, successor diff, and
+exact acceptance SHA before touching the register. `SCI-007` therefore remains
+**OPEN**.
+
+**Design-slice writable authority.** This design step is restricted to
+`docs/development/sci007_frame_accuracy_bound.md`, `docs/index.rst`, and this
+live WP-6 status. It does not authorize or make changes to `Fix.md`, `src/`,
+tests, outputs, user documentation, changelog, configuration, workflows, or
+locks. Effort remains S–M for evidence and acceptance.
 
 ## 10. WP-7 — `PERF-001`: split into five legs
 
@@ -682,7 +711,7 @@ Each work package runs in the established style:
 | WP-3 | DONE — accepted 2026-08-08; CI-001 closed |
 | WP-4 | DONE — ruled 2026-08-08; Branch A selected; no runtime change |
 | WP-5 | DONE — independently accepted 2026-08-11; SCI-006 closed |
-| WP-6 | Design and implementation ready; WP-5/E2 satisfied |
+| WP-6 | Design recorded 2026-08-11; SCI-007 OPEN pending evidence artifact and independent acceptance |
 | WP-7 | P-a…P-d ready to start; P-e blocked on Q4 |
 | WP-8 | Plan document ready to draft; stage 1 after WP-7; WP-5/E2 satisfied for stages 2–3 |
 | WP-9 | Unscheduled pending Q5 |
