@@ -255,7 +255,9 @@ discovery.
 
 Cold-path evidence runs fresh processes and records minimum, median, and
 maximum durations plus whether `jax` appeared in `sys.modules`. Fast tests gate
-the resolved backend and no-import property, never elapsed time.
+the resolved backend and no-import property, never elapsed time. These are
+production observations, not a reconstructed legacy control: the retained CPU
+document does not license a quantitative before/after cold-path claim.
 
 ## 6. P-d — conservative simulator capability
 
@@ -406,6 +408,25 @@ is not evidence.
 Required operations include direct `auto`, default device-resource discovery,
 and a minimal `Simulator.setup()`.
 
+Those three P-c operations are control-plane observations and have no logical
+scientific arrays. Their `input_identity_sha256` is therefore the SHA-256 of a
+versioned canonical control manifest with an empty logical-input sequence. A
+dedicated control-identity helper must domain-separate this case from scientific
+fixture identities. It must not invent a sentinel array, because such an array
+would be neither measured science nor honest provenance.
+
+None of the three operations produces a numerical visibility result. Their
+`precision_preset`, `precision_default`, `precision_accumulation`,
+`precision_output`, and `result_dtype` fields therefore use the frozen literal
+`not-applicable`. Backend identity, backend version, resolved device kind, and
+compilation use remain measured fields; `not-applicable` must not conceal one
+of those observations.
+
+The CPU artifact contains one production row for each required operation. It
+records current cold timings and the import boundary, but contains no
+`legacy_reference` row and makes no numerical speedup or before/after
+`PERF-001` claim.
+
 ### 7.5 Workload and accelerator records
 
 `AcceleratorFacts` has exactly `vendor`, `model`, `runtime`,
@@ -442,14 +463,14 @@ both structures, real model/driver/runtime/memory provenance, and may not list
 
 ### 7.6 Generation and retention
 
-A dedicated standard-library validation/generation tool may build the record,
-but it must fail closed on a dirty or unknown source, stale lock, wrong Pixi
-environment or interpreter, wrong output path, or existing target. The loaded
-RadioSim code, executable, Pixi prefix, and Git checkout must all resolve to the
-same repository and environment. Generation uses one clean implementation
-commit. The record is added by a direct evidence-successor commit naming that
-source. Tests authenticate every tracked PERF-001 reference file rather than
-silently choosing the lexicographically first JSON.
+The dedicated standard-library validation/generation tool is
+`tools/wp7_perf001_cpu_evidence.py`; this memo explicitly authorizes that path
+for the CPU evidence scaffold and successor workflow. It must fail closed on a
+dirty or unknown source, stale lock, wrong Pixi environment or interpreter,
+wrong output path, or existing target. The loaded RadioSim code, executable,
+Pixi prefix, and Git checkout must all resolve to the same repository and
+environment. Tests authenticate every tracked PERF-001 reference file rather
+than silently choosing the lexicographically first JSON.
 
 New records live only at
 `output/benchmarks/reference/perf001/<UTC>-<host>.json`, namespaced away from
@@ -461,6 +482,40 @@ contents and the containing directory before reporting success.
 No absolute timing threshold is a test. Schema completeness, clean provenance,
 NumPy correctness, source-order preservation, expected shape reduction, and
 the contraction-temporary bound are gates.
+
+### 7.7 Exact clean-CPU document inventory
+
+The retained clean-CPU document contains exactly 45 rows, all carrying one
+identical `Perf001Provenance` value from the clean generating source:
+
+- 24 `workload_benchmarks` rows: the unchanged eight-workload matrix on NumPy,
+  JAX-CPU, and Dask, with NumPy first as the correctness reference;
+- eight `memory_scaling` rows: matched unchunked/production pairs for the
+  historical `(B, S)` fixtures `(100, 100)`, `(200, 200)`, `(400, 400)`, and
+  `(800, 800)`;
+- four `solver_memory` rows: matched identity/power-of-two pairs for the real
+  point and sparse-HEALPix solver paths;
+- six `retracing` rows: matched identity/power-of-two pairs for the synthetic
+  wrapper, real point solver, and real sparse-HEALPix solver; and
+- three production `backend_resolution` rows: direct `auto`, default device
+  resources, and minimal automatic simulator setup.
+
+The eight workloads are exactly `point_unpolarized_1time_2freq`,
+`point_polarized_2times`, `point_gaussian_morphology`, `healpix_scalar`,
+`healpix_polarized`, `hybrid_point_plus_healpix`,
+`heterogeneous_receptor_bases`, and
+`point_scaled_4096_sources_4times`. Each workload has one canonical scientific
+input identity shared by its three backend rows. The real solver fixtures use
+actual Astropy horizon transforms and real `HealpixData`; retained generation
+must not use test-only provenance, monkeypatched coordinate transforms, or
+stand-in sky payloads.
+
+The four P-a `comparison_id` values identify their exact `(B, S)` fixture and
+pair `unchunked_reference` with `chunked_production`. The P-b comparison IDs
+separately identify synthetic retracing, point retracing, HEALPix retracing,
+point solver memory, and HEALPix solver memory; each pairs
+`unbucketed_reference` with `bucketed_production`. Backend-resolution IDs
+identify production operations only and are not before/after pairs.
 
 ## 8. P-e — GPU-ready infrastructure and external gate
 
@@ -628,6 +683,7 @@ benchmark and makes no implementation-acceptance claim.
 - `src/radiosim/benchmarks/record.py`
 - `src/radiosim/benchmarks/harness.py`
 - `src/radiosim/benchmarks/__init__.py`
+- `tools/wp7_perf001_cpu_evidence.py`
 - `.gitignore` for the exact retained `perf001/*.json` namespace only
 - focused unit, characterization, parity, performance, and documentation tests
 - `README.md`, `CLAUDE.md`, backend/quickstart docs, migration guide, and the
@@ -640,11 +696,26 @@ benchmark file is writable.
 
 ### Clean CPU evidence successor
 
-- one new exact-source PERF-001 JSON under
-  `output/benchmarks/reference/perf001/`
-- its validator/digest constants and reproduction instructions
+Let `S` be the clean implementation source and `E` its evidence successor. The
+sequence is exact:
 
-The evidence successor must directly parent the clean implementation source.
+1. `S` contains the accepted P-a-through-P-d implementation, GPU-ready
+   infrastructure, complete CPU generator/validator, tests, and empty retained
+   reference manifests. It contains no namespaced PERF-001 JSON.
+2. The generator runs from clean `S`, with `HEAD == S`, and produces one
+   45-row JSON only under `output/benchmarks/reference/perf001/`.
+3. `E` is the direct child of `S`; no implementation, documentation, status, or
+   unrelated commit may intervene.
+4. The `S..E` diff contains only that JSON, its exact path-to-artifact-digest
+   and path-to-generating-source constants, and its exact reproduction
+   instructions. The generator and lock bytes are unchanged across `S..E`.
+
+Independent authentication must prove that `E^ == S`, the artifact is absent
+from `S`, every artifact row names `S`, the committed bytes match the pinned
+digest, and the canonical fixture definitions rebuild every input identity.
+Acceptance and the `CPU ACCEPTED; P-e hardware-gated` status transition occur
+only after `E`, in a separate reviewed commit. Neither `S` nor `E` sets
+`PERF-001` to DONE, changes `supports_gpu`, or makes an acceleration claim.
 
 ### Acceptance and closure
 
