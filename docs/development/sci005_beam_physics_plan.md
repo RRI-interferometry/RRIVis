@@ -2,24 +2,37 @@
 
 **WP-8 original design gate — 2026-08-11**
 
-**Bounded Stage-1 numerical-contract correction candidate — 2026-08-11.** The
+**Accepted bounded Stage-1 numerical-contract correction — 2026-08-11.** The
 original design accepted at
-`42a1f27e5f6078ce72960f7d200e8b1e94d399c2` remains the governing record outside
-Sections 3, 6, 7.2, 8, and 9. This correction closes design ambiguities found
-during implementation preflight; it is itself design-only and requires a fresh
-independent science/computational review before any Stage-1 red-test slice is
-authorized.
+`42a1f27e5f6078ce72960f7d200e8b1e94d399c2` remains the base governing record.
+The bounded correction superseded its Stage-1 numerical terms in Sections 3,
+6, 7.2, 8, and 9 and closed ambiguities found during implementation preflight.
+Its exact pre-landing file bytes
+(`sha256:7b2b384b39a805c4db051be322cbf5e238b35008fb57e31a257fa179b86422f0`)
+and parent-relative diff
+(`sha256:51cd7555111a32cf58cef3ba132848c51f690134f08e701a1f4aa218a2e5166a`)
+received separate independent physics and computational `ACCEPT` verdicts,
+then landed unchanged as
+`8935052cc4e49e3ff7bb92f645d03cee6b9e8ad2`.
+
+**Acceptance-succession governance correction — 2026-08-11.** Sections 7--9
+also freeze the retained acceptance artifacts, strict validators, direct-parent
+bindings, and constant-only validator updates that were missing from the
+accepted stage design. This amendment is design-only. Its exact bytes require
+fresh independent governance and computational review before landing; landing
+it does not accept a production stage.
 
 **Source reviewed:** `e63770c3e27e5aee4e09570c53eb1367099b1ae4`, the
 accepted WP-7 design commit. Ambient WP-7 implementation work is not evidence
 for this memo and does not change its source anchor.
 
-**Status:** design only. The original design gate was accepted; this bounded
-correction candidate requires an independent science/computational review
-before it can authorize a Stage-1 red-test or production slice. It implements
-no beam physics, accepts no stage, and does not close the register row.
-`SCI-005` remains **ROADMAP**. Stage 1 still requires both this correction's
-acceptance and the WP-7 dependency recorded in the programme ledger. Stages 2
+**Status:** Stage-1 numerical design accepted; succession amendment design-only.
+The numerical contract is accepted at the exact commit above. This governance
+amendment can become `D1` only after its exact bytes receive the two fresh
+reviews required above. It implements no beam physics, accepts no stage, and
+does not close the register row. `SCI-005` remains **ROADMAP**. Stage 1 may
+begin `R1` only after `D1` and the WP-7 dependency gate below, then must
+complete its own source, evidence, acceptance, and status succession. Stages 2
 and 3 remain sequential, independently accepted slices even though WP-5 has
 satisfied their polarization-convention dependency.
 
@@ -1324,10 +1337,18 @@ The minimum new modules are:
 - `tests/unit/test_core/test_sci005_full_efield.py` for Stage 3;
 - `tests/integration/test_sci005_beam_physics.py` for point/HEALPix, outputs,
   and effect-through-`Simulator` cases;
+- `tests/unit/test_sci005_stage1_dependency.py` for the retained WP-7 CPU
+  acceptance certificate and `G1 -> R1` binding;
 - `tests/crossvalidation/test_sci005_efield_pyuvsim.py` for the optional Stage-3
   comparison; and
 - `tests/unit/test_sci005_evidence.py` for strict retained-evidence and digest
-  authentication.
+  authentication;
+- `tests/unit/test_sci005_stage1_acceptance.py` for Stage-1 acceptance and
+  ancestry authentication;
+- `tests/unit/test_sci005_stage2_acceptance.py` for Stage-2 acceptance and its
+  exported WP-9 M3 dependency certificate; and
+- `tests/unit/test_sci005_stage3_acceptance.py` for Stage-3 acceptance and
+  closure-parent authentication.
 
 Existing chain, beam-runtime, result-output, backend-parity, release-scan, and
 characterization modules are extended only where the stage changes a property
@@ -1340,11 +1361,79 @@ These lists are implementation authority only after independent design review
 and the stated dependency. A path not listed here requires a bounded design
 correction before it is edited.
 
-### 7.1 Design slice (this candidate)
+### 7.1 Design-only authority
 
-- `docs/development/sci005_beam_physics_plan.md` (new)
+- `docs/development/sci005_beam_physics_plan.md` (this governing memo)
 - `docs/index.rst`
 - `PostTier8RemediationPlan.md` (WP-8 section and ledger dependency wording)
+
+`D1` is the independently accepted commit containing this amendment. `D2`
+directly parents `U1` and freezes the complete normative Stage-2 evidence
+envelope before `R2`; `D3` directly parents `U2` and does the same for Stage 3
+before `R3`.
+Those later design gates may write only the paths above, change no production,
+red oracle, retained artifact, or prior acceptance text, and require their own
+exact-byte independent design reviews. Omitting an applicable `D2` or `D3`, or
+combining it with red tests, invalidates the following stage.
+
+Stage 1 has one intervening dependency-gate tip `G1`. `D1` must be an ancestor
+of globally clean `G1`, and the accepted WP-7 CPU acceptance commit must also
+be an ancestor of `G1`; both ancestry tests are inclusive, so `G1` may equal
+the accepted WP-7 `A`. At `HEAD == G1`, before any SCI-005 red byte exists, the
+exact upstream interface is run as:
+
+```text
+pixi run python tools/wp7_perf001_cpu_evidence.py verify-accepted \
+  --acceptance-commit <40hex-WP7-A> --descendant <40hex-G1>
+```
+
+The command must exit zero and emit the upstream canonical sorted one-line JSON
+certificate with schema
+`radiosim.perf001.cpu_acceptance_certificate.v1` and exactly these fields:
+
+```text
+schema_version, acceptance_commit, evidence_commit, generating_source_sha,
+descendant_commit, artifact_path, artifact_sha256,
+cpu_evidence_tool_sha256, production_record_validator_sha256,
+production_harness_sha256, pixi_manifest_sha256, pixi_lock_sha256,
+evidence_diff_paths, acceptance_diff_paths, verdict, passed
+```
+
+The certificate requires `acceptance_commit` to be the named WP-7 `A`,
+`descendant_commit == G1`, `verdict` exactly
+`CPU_ACCEPTED_P_E_HARDWARE_GATED`, and `passed: true`; the upstream verifier
+authenticates the exact evidence/source ancestry, raw artifact, tool,
+production-validator, harness, manifest, lock, and diff paths named by the
+remaining fields. Ledger prose is not a substitute.
+
+`R1` directly parents `G1` and adds the raw certificate line, including its
+single final LF, at
+`docs/development/sci005_stage1_wp7_dependency.json`. The same red commit
+creates `tests/unit/test_sci005_stage1_dependency.py` with exactly one design
+binding assignment,
+`APPROVED_SCI005_D1_SHA = "<40hex-D1>"`. Its value must name the accepted
+ancestor whose memo blob is this amendment; no later stage may change that
+literal or any dependency-validator byte. Stage-1 evidence and acceptance
+derive `design_sha` only from this binding, never by choosing a matching commit
+from history.
+
+A later live checkout
+cannot replay the command directly because the upstream verifier requires
+clean `HEAD == --descendant`. The `R1`, evidence, and acceptance validators
+therefore create a fresh temporary directory, attach a detached Git worktree at
+exact `G1`, require its status clean, and run the displayed command from that
+worktree with the certificate's `acceptance_commit` and `descendant_commit`.
+They execute `tools/wp7_perf001_cpu_evidence.py` from the `G1` tree, require its
+raw SHA-256 to equal `cpu_evidence_tool_sha256`, and compare stdout byte-for-byte
+with the retained path. They remove the worktree and temporary directory on
+success or failure; inability to create, authenticate, execute, or clean up the
+worktree is a hard failure and never mutates the caller's checkout.
+
+The validators also require both ancestors above and reject a dirty detached
+`G1`, a missing/upstream interface mismatch, a nonzero command, stderr output,
+another verdict, or a false `passed`. The Stage-1 evidence artifact must retain
+this path and raw SHA-256 in its `artifacts` array, so `A1` reviews and
+authenticates it through Section 8.2.
 
 ### 7.2 Stage 1 red tests, implementation, and evidence
 
@@ -1370,10 +1459,20 @@ correction before it is edited.
 - `tests/characterization/test_tier6_current_behavior.py`
 - `tests/characterization/test_tier7_current_behavior.py`
 - `tests/characterization/test_tier8_current_behavior.py`
+- `tests/unit/test_sci005_stage1_dependency.py` (new strict `R1` validator and
+  exact `D1` binding)
+- `docs/development/sci005_stage1_wp7_dependency.json` (new; exact upstream
+  certificate bytes added only by `R1`)
 - `tests/unit/test_sci005_evidence.py` (new)
 - `tools/sci005_stage_evidence.py` (new)
 - `docs/development/sci005_stage1_evidence.schema.json` (new; normative schema
   transcription authenticated by the evidence tool)
+- `tools/sci005_stage1_acceptance.py` (new; Stage-1 acceptance generator and
+  ancestry/certificate verifier)
+- `tests/unit/test_sci005_stage1_acceptance.py` (new; strict validator with
+  approved-E/artifact null sentinels at `S1`)
+- `docs/development/sci005_stage1_acceptance.schema.json` (new; literal strict
+  schema transcription)
 - `docs/user_guide/configuration.rst`
 - `docs/user_guide/configuration_support.rst`
 - `docs/user_guide/beam_models.rst`
@@ -1381,6 +1480,8 @@ correction before it is edited.
 - `docs/migration_guide.md` only if the accepted config/result contract breaks
   a pre-v1 surface
 - `docs/development/sci005_stage1_evidence.json` (new evidence successor only)
+- `docs/development/sci005_stage1_acceptance.json` (new acceptance successor
+  only)
 
 ### 7.3 Stage 2 red tests, implementation, and evidence
 
@@ -1403,12 +1504,22 @@ correction before it is edited.
 - `tests/characterization/test_tier8_current_behavior.py`
 - `tests/unit/test_sci005_evidence.py`
 - `tools/sci005_stage_evidence.py`
+- `docs/development/sci005_stage2_evidence.schema.json` (new; normative schema
+  transcription authenticated by the evidence tool)
+- `tools/sci005_stage2_acceptance.py` (new; Stage-2 acceptance generator and
+  WP-9 M3 dependency-certificate verifier)
+- `tests/unit/test_sci005_stage2_acceptance.py` (new; strict validator with
+  approved-E/artifact null sentinels at `S2`)
+- `docs/development/sci005_stage2_acceptance.schema.json` (new; literal strict
+  schema transcription)
 - `docs/user_guide/configuration.rst`
 - `docs/user_guide/configuration_support.rst`
 - `docs/user_guide/beam_models.rst`
 - `docs/user_guide/jones_matrices.rst`
 - `docs/migration_guide.md` for the non-scalar-`E` pre-v1 widening
 - `docs/development/sci005_stage2_evidence.json` (new evidence successor only)
+- `docs/development/sci005_stage2_acceptance.json` (new acceptance successor
+  only)
 
 ### 7.4 Stage 3 red tests, implementation, and evidence
 
@@ -1444,6 +1555,14 @@ correction before it is edited.
 - `tests/characterization/test_tier8_current_behavior.py`
 - `tests/unit/test_sci005_evidence.py`
 - `tools/sci005_stage_evidence.py`
+- `docs/development/sci005_stage3_evidence.schema.json` (new; normative schema
+  transcription authenticated by the evidence tool)
+- `tools/sci005_stage3_acceptance.py` (new; Stage-3 acceptance generator and
+  closure-parent certificate verifier)
+- `tests/unit/test_sci005_stage3_acceptance.py` (new; strict validator with
+  approved-E/artifact null sentinels at `S3`)
+- `docs/development/sci005_stage3_acceptance.schema.json` (new; literal strict
+  schema transcription)
 - `docs/user_guide/configuration.rst`
 - `docs/user_guide/configuration_support.rst`
 - `docs/user_guide/beam_models.rst`
@@ -1453,24 +1572,69 @@ correction before it is edited.
 - `output/crossvalidation/README.md`
 - `output/crossvalidation/<date>-sci005-efield-pyuvsim-1.4.0.json` (new)
 - `docs/development/sci005_stage3_evidence.json` (new evidence successor only)
+- `docs/development/sci005_stage3_acceptance.json` (new acceptance successor
+  only)
 
-### 7.5 Acceptance and closure successors
+### 7.5 Evidence, acceptance, and closure successors
 
-After each stage's independent acceptance, and only then:
+The generator, schema, and validator for a stage land in its `S` commit. At
+that point its official evidence and acceptance JSON paths are absent, all
+synthetic strict-schema tests pass, and that target stage's approved digest
+constants are the literal `None`. At `S2` and `S3`, every earlier-stage
+artifact and approved constant instead remains pinned and immutable. The
+following successor authority is exhaustive:
 
-- `Fix.md` (dated acceptance text; row stays ROADMAP until whole-row closure)
-- `PostTier8RemediationPlan.md` (stage ledger only)
-- `docs/development/sci005_beam_physics_plan.md` (append-only acceptance note)
-- `docs/development/beam_physics_scope.md` (only the accepted stage's rows)
-- `docs/changelog.rst`
-- `docs/migration_guide.md` if acceptance found its current wording incomplete
-- `README.md` and `CLAUDE.md` only where an accepted stage makes a live support
-  statement false
+- `Ei` adds only `docs/development/sci005_stage{i}_evidence.json` and changes
+  only `APPROVED_STAGE{i}_SOURCE_SHA` and
+  `APPROVED_STAGE{i}_EVIDENCE_ARTIFACT_SHA256` in
+  `tests/unit/test_sci005_evidence.py`, from `None` to the exact lower-case
+  40- and 64-hexadecimal literals. It may not change validator logic, any other
+  test byte or path, schemas, production, documentation, or an earlier
+  artifact. `E3` additionally adds exactly one new dated
+  `output/crossvalidation/<date>-sci005-efield-pyuvsim-1.4.0.json` generated
+  from clean `S3`; that file is authenticated by the Stage-3 evidence artifact
+  and is the sole phase-specific addition to this `E` rule.
+- `Ai` adds only `docs/development/sci005_stage{i}_acceptance.json`, changes
+  only `APPROVED_EVIDENCE_SHA` and
+  `APPROVED_ACCEPTANCE_ARTIFACT_SHA256` in
+  `tests/unit/test_sci005_stage{i}_acceptance.py`, from `None` to the exact
+  lower-case 40- and 64-hexadecimal literals. No import, expression,
+  annotation, key, surrounding token, or other literal in either
+  approved-constant assignment may change. The validator compares the token
+  stream outside those two literal spans to its direct-parent `E` bytes, so a
+  same-line logic change fails. No status prose is permitted in `Ai`.
+- `Ui` directly parents accepted `Ai` and may change only the status paths
+  below. Before it can be committed, the phase-local acceptance tool verifies
+  `Ai` and checks the staged `Ai..Ui` diff against that allowlist. It may not
+  change acceptance/evidence bytes, approved constants, validators, schemas,
+  source, tests, fingerprints, tolerances, or historical status text.
 
-The final all-stage closure successor reconciles the complete scope and support
-wording but must not rewrite historical acceptance text. The files above are
-not writable by an implementation stage merely because it intends eventual
-closure.
+Here and below, `{i}` is the decimal stage number `1`, `2`, or `3`; it is
+notation in this memo, not a glob accepted by a tool. The exact files are the
+three paths enumerated in Sections 7.2--7.4. `E`, `A`, and `U` are
+single-parent commits. A combined phase letter, a merge commit, an artifact
+replacement, or a successor with another changed path is invalid.
+
+The status-only paths authorized in a `U` successor are:
+
+- `Fix.md` (dated acceptance text; row stays ROADMAP until whole-row closure);
+- `PostTier8RemediationPlan.md` (the accepted stage's WP-8 ledger only);
+- `docs/development/sci005_beam_physics_plan.md` (append-only acceptance note);
+- `docs/development/beam_physics_scope.md` (only the accepted stage's rows);
+- `docs/changelog.rst`;
+- `docs/migration_guide.md` if acceptance found its current wording incomplete;
+  and
+- `README.md` and `CLAUDE.md` only where the accepted stage makes a live
+  support statement false.
+
+The status-successor verifier permits a path only when its diff contains no
+source, schema, test, tool, artifact, fingerprint, tolerance, or historical
+acceptance-byte change. These prose edits do not authenticate acceptance: the
+strict acceptance JSON and both approved constants do. The final all-stage
+closure successor `C` directly parents `U3`, reconciles the complete scope and
+support wording, and must not rewrite historical acceptance text. The status
+paths above are not writable by an `R`, `S`, `E`, or `A` commit merely because
+it intends eventual acceptance or closure.
 
 No stage may edit `core/contraction.py`, add a compilation site, change the
 kernel signature, edit `pixi.lock`, or add a gating workflow. Stage 3 reuses the
@@ -1488,6 +1652,8 @@ bounded design correction rather than silently expanding the slice.
 
 ## 8. Retained evidence schema and commit succession
 
+### 8.1 Stage evidence records
+
 Each `docs/development/sci005_stageN_evidence.json` is strict and has exactly
 the following common fields, in this order:
 
@@ -1503,18 +1669,34 @@ fingerprint_diff, commands, artifacts, limitations, claims_not_licensed
 `schema_version` is respectively `radiosim.sci005.stage1.v1`,
 `radiosim.sci005.stage2.v1`, or `radiosim.sci005.stage3.v1`. Missing and unknown
 fields fail validation. The bounded correction freezes the complete Stage-1
-envelope below; Stages 2 and 3 retain their accepted common envelope and must
-freeze any stage-specific row extension before their red slices.
+envelope below. Stages 2 and 3 retain their accepted common envelope, but their
+stage-specific extensions are deliberately not frozen here; mandatory `D2` and
+`D3` independently freeze their exact normative rows, keys, types, and
+cross-field predicates before their red slices. The corresponding `S2` or `S3`
+then checks in the literal JSON Schema transcription before its artifact
+successor.
 
 For the following contract, JSON `number` means finite, non-boolean binary64;
 `integer` means a non-negative, non-boolean JSON integer unless the field says
 otherwise; `git_sha` means exactly 40 lower-case hexadecimal characters; and
-`sha256` means exactly 64. A `timestamp` is canonical UTC
+`sha256` means exactly 64 lower-case hexadecimal characters. A `timestamp` is
+canonical UTC
 `YYYY-MM-DDTHH:MM:SSZ` with no fractional seconds. Every unspecified string is
 non-empty. Every object has `additionalProperties: false`; every listed key is
 required, including keys whose value may be null. Every count, residual, and
 tolerance is non-negative. Arrays declared sorted are strictly lexical by the
 named key and contain no duplicate key.
+
+A `canonical_path` is a UTF-8, POSIX-separator, repository-relative path. It is
+non-empty, has no leading slash, backslash, NUL, empty component, `.` component,
+or `..` component, is byte-for-byte equal to its normalized form, and resolves
+inside the repository without traversing a symlink. Every path field in the
+evidence, acceptance, review, and certificate contracts is a
+`canonical_path` unless an explicitly temporary CLI argument says absolute.
+There are exactly two data-field exceptions: `commands[*].cwd` is the sentinel
+`.` defined below, and `artifact_inputs[*].input_path` follows the conditional
+repository/absolute Stage-3 rule in the evidence-generation transaction. No
+other data-field path may be absolute or escape repository root.
 
 `numeric_projection` is exactly
 `{dtype, shape, c_order_sha256, minimum_abs, maximum_abs}`. Its `dtype` is one of
@@ -1737,32 +1919,379 @@ exact result-dtype balance from Section 3.4. Unknown or missing projection keys,
 nulls, a backend field, a `converged` boolean, clipping metadata, FFT metadata,
 or any direction-sized complex value fail authentication.
 
+#### Evidence-generation transaction
+
+The exact evidence invocation is:
+
+```text
+pixi run python tools/sci005_stage_evidence.py generate \
+  --stage <1|2|3> --measurement-record <absolute-temporary-record.json>
+```
+
+The read-only measurement record is a strict UTF-8 JSON object. Its common
+keys are exactly:
+
+```text
+generated_at_utc, scientific_conventions, config_cases,
+analytic_invariants, rejection_probes, backend_parity, solver_cases,
+output_cases, fingerprint_diff, commands, artifact_inputs, limitations,
+claims_not_licensed
+```
+
+Stage 1 appends exactly `pupil_profiles`, `support_masks`, and
+`ruze_power_diagnostics`; `D2` and `D3` freeze their stage-specific input
+extensions with their evidence rows. Every supplied value uses the
+corresponding evidence shape above. Missing/unknown/duplicate keys, a
+non-regular or symlink input, a non-finite value, an incomplete row set, a false
+row, or a nonzero command fails before a repository write.
+
+Every `artifact_inputs` row has exactly
+`{path, input_kind, input_path, media_type, role}` and rows are sorted by unique
+target `path`. `input_kind` is `repository` or
+`stage3_crossvalidation_temp`. For `repository`, both paths are the same
+`canonical_path` already present at exact `Si`. The temporary kind is legal
+exactly once, only at Stage 3, only for the dated cross-validation target in
+Section 7.4, and its `input_path` is an absolute regular file outside repository
+root produced from clean `S3` by the exact D3-frozen cross-validation command.
+The tool validates that artifact's strict schema, `source_sha == S3`, package
+versions, input hashes, and target basename before importing it. Host temporary
+paths never enter evidence or scientific identity. The generator derives the
+sorted evidence `artifacts` rows and their raw SHA-256 values; the caller cannot
+supply a digest.
+
+The generator derives and forbids caller overrides of `schema_version`,
+`stage`, `status`, `design_sha`, `red_test_sha`, `source_sha`, `evidence_sha`,
+`working_tree_clean`, the runtime/platform/Pixi fields, `pixi_lock_sha256`, and
+`artifacts`. For Stage 1 it resolves `D1` only from the immutable dependency
+validator constant above; for Stages 2 and 3 it resolves `Di` as the direct
+parent of `Ri`. It resolves `Ri` and exact clean `Si` from the mandatory
+ancestry, uses `status: candidate`, `source_sha: Si`, `evidence_sha: null`, and
+`working_tree_clean: true`, and authenticates the current lock and every input
+byte before constructing output.
+
+Evidence JSON uses UTF-8 without a byte-order mark, LF endings,
+`ensure_ascii=false`, `allow_nan=false`, the Section 8.1 key order, two-space
+indentation, and one final newline. From globally clean `HEAD == Si`, the tool
+prepares in memory the absent evidence JSON and
+`tests/unit/test_sci005_evidence.py` with exactly the target stage's two `None`
+sentinels replaced by `Si` and `sha256(evidence JSON)`. Stage 3 also prepares
+the exact cross-validation target bytes from the authenticated temporary input.
+It writes all target files through same-directory temporaries, restores every
+original byte and removes every new target on any failure, then requires the
+working diff to be exactly the two Section 7.5 `Ei` paths, or those two plus the
+single Stage-3 cross-validation path. Success is silent. This transaction owns
+the complete admissible pre-`Ei` diff; manual artifact copying or pinning is
+forbidden.
+
 Stage 3 additionally embeds the cross-validation artifact path and digest,
 reference package versions, input-content hashes, explicit convention mappings,
 per-correlation residuals, and unresolved differences. The evidence document
 does not copy or summarize a value without authenticating the underlying
 artifact digest.
 
+### 8.2 Independent acceptance records
+
+The retained acceptance paths are exactly:
+
+- Stage 1: `docs/development/sci005_stage1_acceptance.json`, validated against
+  `docs/development/sci005_stage1_acceptance.schema.json`, generated and
+  verified by `tools/sci005_stage1_acceptance.py`, and authenticated by
+  `tests/unit/test_sci005_stage1_acceptance.py`;
+- Stage 2: `docs/development/sci005_stage2_acceptance.json`, validated against
+  `docs/development/sci005_stage2_acceptance.schema.json`, generated and
+  verified by `tools/sci005_stage2_acceptance.py`, and authenticated by
+  `tests/unit/test_sci005_stage2_acceptance.py`; and
+- Stage 3: `docs/development/sci005_stage3_acceptance.json`, validated against
+  `docs/development/sci005_stage3_acceptance.schema.json`, generated and
+  verified by `tools/sci005_stage3_acceptance.py`, and authenticated by
+  `tests/unit/test_sci005_stage3_acceptance.py`.
+
+Each acceptance schema is a checked-in JSON Schema 2020-12 transcription of
+this section. It has `additionalProperties: false` at every object, lists every
+key as required even when null is permitted, rejects booleans as numbers, and
+uses the `git_sha`, `sha256`, `timestamp`, finite-number, sorted-array, and
+`canonical_path` meanings already frozen in Section 8.1. Cross-field, Git-object,
+raw-byte digest, ordering, and diff-authority predicates that JSON Schema cannot
+express are mandatory validator checks, not advisory prose.
+
+Every acceptance JSON has exactly these top-level keys, in this order:
+
+```text
+schema_version, stage, verdict, generated_at_utc,
+implementation_identity, reviewer_identity, reviewer_independent,
+design_sha, red_test_sha, source_sha, evidence_commit_sha,
+evidence_artifact_path, evidence_artifact_sha256,
+evidence_schema_path, evidence_schema_sha256, toolchain,
+acceptance_commit_sha, acceptance_commit_sha_reason, successor_unlocks,
+reviewed_artifacts, rederived_oracles, review_checks, commands, blockers,
+accepted_limitations, claims_not_licensed
+```
+
+The schema literals are respectively
+`radiosim.sci005.stage1-acceptance.v1`,
+`radiosim.sci005.stage2-acceptance.v1`, and
+`radiosim.sci005.stage3-acceptance.v1`; `stage` is respectively integer `1`,
+`2`, or `3`. `verdict` is `ACCEPT` or `REJECT`. Both identities are non-empty
+role/task identifiers. A retained `ACCEPT` requires
+`reviewer_independent: true` and unequal identities; an implementation agent,
+its delegated child, or an agent that authored `R`, `S`, or `E` is not
+independent merely because it uses another label.
+
+The four commit fields are `git_sha` values. They name the phase's accepted
+design `Di`, phase red commit `Ri`, phase source commit `Si`, and evidence
+commit `Ei`; Stage 1 therefore records `D1`, Stage 2 records `D2`, and Stage 3
+records `D3`.
+The evidence artifact and evidence schema paths are exactly
+`docs/development/sci005_stage{i}_evidence.json` and
+`docs/development/sci005_stage{i}_evidence.schema.json`; both digest fields are
+raw-file `sha256` values from `Ei`. `acceptance_commit_sha` is JSON null. Its
+reason for `ACCEPT` is exactly one of:
+
+- Stage 1: `self-reference: U1 binds the containing A1 commit`;
+- Stage 2: `self-reference: U2 and SCI004.M3 bind the containing A2 commit`;
+  or
+- Stage 3: `self-reference: U3 binds the containing A3 commit`.
+
+For `REJECT`, the reason is exactly
+`not-applicable: REJECT creates no A commit`, regardless of stage.
+
+For an `ACCEPT`, `successor_unlocks` is exactly the sorted array
+`["SCI005.U1"]`, `["SCI004.M3", "SCI005.U2"]`, or `["SCI005.U3"]` for
+Stages 1, 2, and 3 respectively. For a `REJECT` it is empty. An unlock is a
+permission to begin the named red or closure gate after all of that gate's
+other dependencies pass; it is not implementation or row acceptance.
+
+`toolchain` has exactly:
+
+```text
+evidence_generator_path, evidence_generator_git_blob,
+evidence_validator_path, evidence_validator_git_blob,
+acceptance_generator_path, acceptance_generator_git_blob,
+acceptance_validator_path, acceptance_validator_pre_a_git_blob,
+acceptance_schema_path, acceptance_schema_sha256
+```
+
+The evidence paths are exactly `tools/sci005_stage_evidence.py` and
+`tests/unit/test_sci005_evidence.py`. The acceptance paths and schema path are
+the phase-local paths listed at the start of this section. Every `git_blob`
+value is the 40-hex Git blob object name read from exact `Ei`; the schema digest
+is the raw-file `sha256` from `Ei`. The pre-`A` acceptance-validator blob is
+intentional: `Ai` changes only its two approved constants, and the validator
+authenticates that token-excluded change against this blob.
+
+Every `reviewed_artifacts` row has exactly
+`{path, sha256, source_sha, authenticated}`. Rows are sorted by unique `path`;
+the digest is a raw-file `sha256`, `source_sha` equals the top-level `source_sha`,
+and `authenticated` is boolean. The path set is exactly the union of the
+evidence JSON itself, the evidence schema, the acceptance schema, and every
+path named by the evidence JSON's `artifacts` array. An `ACCEPT` requires every
+row authenticated and every retained byte reachable by its recorded path or
+Git object; a green workflow summary is not an artifact.
+
+Every `rederived_oracles` row has exactly
+`{oracle_id, method, observed, fixed_limit, units, passed}`. The identifier,
+method, and units are non-empty strings; observed and limit are non-negative
+finite numbers; and `passed` is boolean and equals `observed <= fixed_limit`.
+Rows are sorted by unique `oracle_id`. An `ACCEPT` contains exactly these IDs:
+
+- Stage 1: `blocked_aperture_transform`, `ruze_limit_oracle`,
+  `ruze_pair_oracle`, `unmodified_profile_transform`, and
+  `zernike_phase_transform`;
+- Stage 2: `mechanical_feed_rotation`, `native_feed_factorization`,
+  `noncommuting_chain_order`, and `squint_frequency_law`; and
+- Stage 3: `common_efield_normalization`, `ludwig3_basis_conversion`,
+  `noncommuting_chain_order`, `receptor_output_basis_factorization`, and
+  `standard_output_roundtrip`.
+
+The reviewer derives these values without importing the production helper
+under review. A digest-only equality, a re-run of the implementation's own
+oracle, or an omitted required identifier fails acceptance.
+
+Every `review_checks` row has exactly
+`{check_id, method, expected_outcome, observed_outcome, passed}`. All strings
+are non-empty, rows are sorted by unique `check_id`, and every `ACCEPT` has
+exactly `artifact_authentication`, `default_disabled_fingerprints`,
+`diff_authority`, `gate_replay`, `production_data_flow`, and
+`typed_rejection`, all with `passed: true` and equal expected/observed outcomes.
+The typed-rejection method names the concrete exception, issue code, exact
+message, and config path. The data-flow method names the inspected public entry
+point and final `E` composition site. The fingerprint check authenticates old
+and new cube bytes as well as both scientific digests.
+
+Acceptance `commands` uses Section 8.1's exact command-row schema and retains
+execution order; every exit code is zero for `ACCEPT`. Every `blockers` row has
+exactly `{blocker_id, requirement_id, evidence, required_remediation}`, with
+four non-empty strings, sorted by unique `blocker_id`. `ACCEPT` requires no
+blockers and every oracle/check true. `REJECT` requires at least one concrete
+blocker, grants no successor unlock, and is not committed to the canonical
+acceptance path. `accepted_limitations` and `claims_not_licensed` are sorted
+unique string arrays. The latter is non-empty and names all later stages,
+whole-row closure, and every diagnostic or physical claim not established by
+the accepted stage.
+
+The independent reviewer supplies one temporary `review_record` object with
+exactly these keys:
+
+```text
+generated_at_utc, implementation_identity, reviewer_identity,
+reviewer_independent, verdict, rederived_oracles, review_checks, commands,
+blockers, accepted_limitations, claims_not_licensed
+```
+
+Those values use the acceptance shapes above. The generator derives every
+commit, path, digest, toolchain, reviewed-artifact, self-reference, and unlock
+field; the caller cannot override one. The exact accepting invocation is:
+
+```text
+pixi run python tools/sci005_stage{i}_acceptance.py generate \
+  --review-record <absolute-temporary-review-record.json>
+```
+
+For `REJECT`, the same command additionally requires
+`--reject-output <absolute-temporary-rejection.json>`; that output must be
+outside repository root and must not already exist. The review record is a
+read-only absolute regular-file input and may also live outside the repository.
+
+The generator emits UTF-8 without a byte-order mark, uses LF endings,
+`ensure_ascii=false`, `allow_nan=false`, the declared insertion order,
+two-space indentation, and a single final newline. It runs only from a globally
+clean exact `Ei` and first invokes the active evidence validator. For `ACCEPT`,
+it prepares in memory both the previously absent canonical JSON bytes and the
+phase validator bytes with exactly `APPROVED_EVIDENCE_SHA: None -> Ei` and
+`APPROVED_ACCEPTANCE_ARTIFACT_SHA256: None -> sha256(JSON)` substitutions. It
+writes both through same-directory temporary files, restores the original
+validator and removes the new artifact on any failure, then requires the
+working diff to contain exactly those two paths and those two literal changes.
+Success is silent on stdout and stderr. This all-or-rollback generation owns
+the complete admissible pre-`Ai` diff; no manual pinning step is permitted.
+
+For `ACCEPT` it refuses an overwrite, a non-independent reviewer, an incomplete
+required row set, any false oracle/check, a nonzero command, a blocker, a stale
+tool/schema blob, or any retained/member `canonical_path` outside repository
+root. For `REJECT` it instead requires a non-empty blocker array, permits false
+oracle/check rows and nonzero commands, changes no repository byte or approved
+constant, and writes only the explicit temporary rejection path above. Duplicate
+JSON keys, symlink inputs/outputs, non-regular inputs, and non-finite values fail
+both modes.
+
+The acceptance validator operates on named Git objects rather than whichever
+file happens to be checked out. In its `S`/`E` state, both approved constants
+are `None`, the official acceptance path must be absent, and synthetic strict
+schema/digest/ancestry fixtures must pass. In its `A` state it requires the
+constants to equal the exact `Ei` and raw acceptance-file SHA-256, locates the
+unique artifact-introducing `Ai`, authenticates every field and tool blob,
+checks `Ai^ == Ei`, and requires the `Ei..Ai` diff to be exactly the new
+acceptance JSON plus the two literal constant replacements in Section 7.5. It
+never infers acceptance from an appended memo sentence or the first similarly
+named file.
+
+### 8.3 Commit succession and direct-parent bindings
+
 Commit succession is mandatory:
 
-1. `D`: independently accepted design-only commit;
-2. `R1`, `R2`, or `R3`: red tests plus recorded pre-fix failure, no production
+1. `D1`, `D2`, or `D3`: independently accepted design-only gate for the
+   following stage;
+2. `G1`: clean Stage-1 WP-7 dependency-gate tip, with `D1` and accepted WP-7
+   CPU `A` as authenticated ancestors and no SCI-005 red/source byte;
+3. `R1`, `R2`, or `R3`: red tests plus recorded pre-fix failure, no production
    implementation;
-3. `S1`, `S2`, or `S3`: one coherent stage implementation, including docs and
+4. `S1`, `S2`, or `S3`: one coherent stage implementation, including docs and
    enabled-effect pin changes;
-4. `E1`, `E2`, or `E3`: evidence-only successor generated from clean `S`, with
-   the artifact recording `source_sha=S`; and
-5. `A1`, `A2`, or `A3`: independent acceptance/status successor, with no
-   production source change.
+5. `E1`, `E2`, or `E3`: evidence-only successor generated from clean `S`, with
+   the artifact recording `source_sha=S`;
+6. `A1`, `A2`, or `A3`: independent acceptance successor, with only the exact
+   artifact and constant-only validator update; and
+7. `U1`, `U2`, or `U3`: status/ledger successor with only the prose authority
+   in Section 7.5.
 
 The evidence file cannot truthfully contain its own future Git SHA before it is
-committed. `evidence_sha` is JSON null in the file; the acceptance record binds
-the exact `E` commit and raw artifact SHA-256. The final closure commit `C`
-parents accepted `A3`, updates the register and scope wording only, and receives
-its own exact-SHA local and remote gate. An evidence or acceptance successor
-that changes production source is invalid and must be split.
+committed. `evidence_sha` is JSON null in the file. The exact direct-parent
+chain is `D1 ->* G1 -> R1 -> S1 -> E1 -> A1 -> U1 -> D2 -> R2 -> S2 -> E2
+-> A2 -> U2 -> D3 -> R3 -> S3 -> E3 -> A3 -> U3 -> C`. The starred edge is
+ancestor reachability through separately authorized, independently accepted
+programme commits, including the WP-7 dependency/interface succession; every
+unstarred arrow is the sole direct-parent edge and no named commit is a merge.
+Across `D1..G1`, the exact `D1` memo blob, the `Fix.md` SCI-005 row, the WP-8
+subsection/ledger cells, and the Stage-1 scope rows remain unchanged. Every
+Section 7.2 path marked `new` or `successor only` remains absent; independently
+accepted programme commits may otherwise change shared paths and those bytes
+become the `G1` red baseline. Thus `R1^ == G1`, `Si^ == Ri`, `Ei^ == Si`,
+`Ai^ == Ei`, `Ui^ == Ai`,
+`D2^ == U1`, `R2^ == D2`, `D3^ == U2`, `R3^ == D3`, and `C^ == U3`. The
+validator also requires `D1` and the WP-7 certificate's `acceptance_commit` to
+be ancestors of `G1` and reauthenticates the exact certificate bytes retained
+by `R1`. It requires the `R1` design-binding literal to equal every Stage-1
+`design_sha` and remain byte-identical through `S1/E1/A1/U1`; `D2` and `D3`
+remain unambiguous direct parents of their red commits.
+
+At `Ei`, the evidence validator authenticates raw evidence bytes, requires its
+`source_sha == Si` and `evidence_sha == null`, requires `Ei^ == Si`, and
+requires the `Si..Ei` diff to match Section 7.5. At `Ai`, the acceptance record
+binds the exact `Ei`, raw evidence-artifact SHA-256, evidence-schema SHA-256,
+and pre-`A` tool blobs. The acceptance validator then authenticates the raw
+acceptance bytes through its approved digest constant and requires `Ai^ == Ei`.
+`Ui` binds the otherwise self-referential `Ai` through its direct parent; the
+next `D` or `C` then binds `Ui`. Any absent edge, wrong raw digest,
+previous-artifact mutation, combined phase letter, production change in
+`E/A/U`, or validator change beyond the named constant literals invalidates
+the succession and grants no unlock.
 
 ## 9. Verification and independent acceptance gates
+
+Every phase-local acceptance tool exposes the same read-only verifier:
+
+```text
+pixi run python tools/sci005_stage{i}_acceptance.py verify \
+  --acceptance-commit <Ai> --descendant <SHA-or-HEAD>
+```
+
+It requires both arguments to resolve to commits, requires `Ai` to be an
+ancestor of the named descendant, reads all bound files from Git objects, runs
+the phase validator, and emits exactly one canonical UTF-8 JSON line with keys
+in this order:
+
+```text
+schema_version, stage, acceptance_commit_sha, acceptance_artifact_path,
+acceptance_artifact_sha256, evidence_commit_sha, evidence_artifact_path,
+evidence_artifact_sha256, source_sha, verdict, successor_unlocks
+```
+
+The schema literal is `radiosim.sci005.stage-acceptance-certificate.v1`; all
+commit and digest values use the strict encodings above. A zero exit requires
+the retained verdict `ACCEPT`, exact ancestry/diff/digest validation, and the
+stage-specific unlock array. The line uses JSON string escaping with
+`ensure_ascii=false`, no optional whitespace (`separators=(",", ":")`), the
+declared insertion order, and one final LF. Failure emits no certificate on
+stdout and exits non-zero; stderr begins with exactly one of
+`SCI005_ACCEPTANCE_ARGUMENT`, `SCI005_ACCEPTANCE_SCHEMA`,
+`SCI005_ACCEPTANCE_ANCESTRY`, `SCI005_ACCEPTANCE_DIGEST`,
+`SCI005_ACCEPTANCE_DIFF_AUTHORITY`, or `SCI005_ACCEPTANCE_VERDICT`, followed by
+one colon, one space, and the detail.
+
+A status successor is checked before and after commit with the same tool:
+
+```text
+pixi run python tools/sci005_stage{i}_acceptance.py verify-status \
+  --acceptance-commit <Ai> --status-commit <Ui-or-INDEX>
+```
+
+The exact sentinel `INDEX` requires `HEAD == Ai` and validates the staged diff;
+a Git SHA requires `Ui^ == Ai`. Success is silent. After its `D` gate, the next
+stage's red preflight reruns the committed form; `C` does the same after Stage
+3 before accepting its direct parent.
+
+This verifier and certificate are the complete SCI-005 export for the WP-9 M3
+dependency. This memo does not grant SCI-004 writable authority. Before an M3
+red commit may exist, the independently accepted SCI-004 design must name an
+exact receiving artifact field set, writable path, generator, and validator
+that retain `acceptance_commit_sha`, `acceptance_artifact_sha256`, and the raw
+SHA-256 of this certificate line including its final LF. If that receiving
+contract is absent, M3 pauses for a bounded SCI-004 design correction and fresh
+independent review. Its validator must run the Stage-2 command with accepted
+`A2` and the proposed M3 red commit as descendant and require the three retained
+values to equal the certificate and accepted artifact. The `SCI004.M3` unlock
+literal alone, ledger prose, a green workflow, or a Stage-2 `S/E` commit is
+insufficient.
 
 Each source candidate runs, at minimum:
 
@@ -1787,11 +2316,12 @@ acceptance. Remote characterization evidence covers all six platform/Python
 cells and every relevant dispatch class; outputs are compared as cubes, not
 only as digests. Any pin change requires a green exact-pin-SHA rerun.
 
-An independent reviewer must inspect the exact `S` and `E` commits, re-derive
-at least one scientific equation without using the implementation helper,
-reproduce at least one typed rejection by hand, inspect production data flow,
-authenticate retained artifacts, verify disabled/default fingerprints, and
-return `ACCEPT` or `REJECT` with blockers. Acceptance cannot be performed by
+An independent reviewer must inspect the exact `R`, `S`, and `E` commits,
+complete every phase-specific oracle and common review check in Section 8.2
+without using the implementation helper, authenticate retained artifacts, and
+return `ACCEPT` or `REJECT` with concrete blockers. An `ACCEPT` is retained in
+the exact phase-local artifact and authenticated by `A`; reviewer prose or an
+appended memo sentence is not a substitute. Acceptance cannot be performed by
 the implementation pass.
 
 `SCI-005` closes only after all three stage acceptances and a separate whole-row
