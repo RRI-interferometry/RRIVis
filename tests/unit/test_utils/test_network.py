@@ -387,7 +387,7 @@ class TestShippedRecipeConfigurationServices:
         assert services["realistic_foreground"] == ("pygdsm_data", "vizier")
 
     def test_the_preflight_names_both_services_and_the_offline_run_says_why(
-        self, capsys
+        self, capsys, monkeypatch
     ):
         """The user-visible half of ``SKY-002``, and the offline failure mode.
 
@@ -399,7 +399,25 @@ class TestShippedRecipeConfigurationServices:
 
         document = self._shipped_sky_config()
         document["execution"]["offline"] = True
+        # Keep this cache-independent and keep the monkeypatch in-process.  A
+        # forced-offline run must reject the cache-tolerant diffuse loader
+        # before pygdsm can inspect or populate Astropy's ambient cache.
+        document["execution"]["sky_loading"] = {
+            "max_workers": 1,
+            "executor": "thread",
+        }
         document["workflow"]["save_results"] = False
+
+        from radiosim.core.sky.loaders import diffuse as diffuse_module
+
+        def third_party_loader_was_reached(*_args, **_kwargs):
+            raise AssertionError("forced offline reached pygdsm construction")
+
+        monkeypatch.setattr(
+            diffuse_module,
+            "_instantiate_pygdsm",
+            third_party_loader_was_reached,
+        )
         simulator = Simulator.from_mapping(
             document,
             base_dir=Path(__file__).resolve().parents[3] / "configs",

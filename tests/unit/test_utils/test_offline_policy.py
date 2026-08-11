@@ -120,6 +120,38 @@ def test_require_service_raises_from_the_policy_without_a_probe(forbidden_socket
     assert forbidden_socket == []
 
 
+def test_forced_offline_rejects_cache_tolerant_services_without_a_probe(
+    forbidden_socket,
+):
+    """An explicit offline policy wins over ``strict=False`` cache fallback.
+
+    Cache-tolerant loaders may continue after a naturally offline probe so a
+    previously downloaded dataset can still work.  A user-forced offline run
+    is different: it promises that third-party download code is never reached.
+    """
+    set_offline_policy(True)
+    with pytest.raises(ConnectionError, match="No internet connection"):
+        require_service("pygdsm_data", "load HASLAM", strict=False)
+    assert forbidden_socket == []
+
+
+def test_naturally_offline_cache_tolerant_service_may_continue(monkeypatch, caplog):
+    """``strict=False`` still permits a pre-existing cache when not forced."""
+    probes: list[tuple[str, int]] = []
+
+    def offline_probe(host: str, port: int, timeout: float) -> bool:
+        probes.append((host, port))
+        return False
+
+    monkeypatch.setattr(network_module, "_check_socket", offline_probe)
+    set_offline_policy(False)
+
+    require_service("pygdsm_data", "load HASLAM", strict=False)
+
+    assert probes == [("8.8.8.8", 53)]
+    assert "may fail if data files have not been downloaded" in caplog.text
+
+
 def test_online_policy_still_probes(forbidden_socket):
     set_offline_policy(False)
     assert is_online() is True

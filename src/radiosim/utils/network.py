@@ -399,9 +399,11 @@ def require_service(service: str, action: str, *, strict: bool = True) -> None:
 
     When ``strict=True`` (default), raises :class:`ConnectionError` if the
     service is unreachable -- appropriate for loaders that *must* download
-    data (e.g. VizieR catalogs).  When ``strict=False``, logs a warning
-    instead -- appropriate for services whose data may already be cached
-    locally (e.g. pygdsm, PySM3).
+    data (e.g. VizieR catalogs).  When ``strict=False`` and connectivity is
+    naturally unavailable, logs a warning instead -- appropriate for services
+    whose data may already be cached locally (e.g. pygdsm, PySM3).  An
+    explicitly installed offline policy always raises before third-party
+    loader code is reached, irrespective of ``strict``.
 
     Parameters
     ----------
@@ -413,24 +415,34 @@ def require_service(service: str, action: str, *, strict: bool = True) -> None:
         (e.g. ``"download catalog 'gleam' from VizieR"``).
     strict : bool, default True
         If True, raise :class:`ConnectionError` when unavailable.
-        If False, log a warning instead (for services with local caches).
+        If False, log a warning for a naturally unavailable service so a local
+        cache can still be tried.  This never overrides a forced-offline policy.
 
     Raises
     ------
     ConnectionError
-        Only when ``strict=True`` and the service is unreachable.
+        When the offline policy is forced, or when ``strict=True`` and the
+        service is unreachable.
     """
     display = SERVICE_DISPLAY_NAMES.get(service, service)
 
+    no_internet_message = (
+        f"No internet connection. Cannot {action}.\n"
+        f"Hint: use offline metadata methods like "
+        f"SkyModel.get_catalog_info(key) or SkyModel.list_point_catalogs() "
+        f"which work without network."
+    )
+
+    # A user-forced offline run promises that no third-party loader can enter
+    # download code.  ``strict=False`` remains useful only for a naturally
+    # offline host, where an already-populated local cache may satisfy the
+    # request without network access.
+    if _offline_policy:
+        raise ConnectionError(no_internet_message)
+
     if not is_online():
-        msg = (
-            f"No internet connection. Cannot {action}.\n"
-            f"Hint: use offline metadata methods like "
-            f"SkyModel.get_catalog_info(key) or SkyModel.list_point_catalogs() "
-            f"which work without network."
-        )
         if strict:
-            raise ConnectionError(msg)
+            raise ConnectionError(no_internet_message)
         logger.warning(
             f"No internet connection. {action.capitalize()} may fail if data "
             f"files have not been downloaded previously."

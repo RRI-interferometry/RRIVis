@@ -45,6 +45,12 @@ Fixed
   of being parsed (and silently eaten) as a markup tag. The ``RichHandler``
   installed by ``setup_logging()`` likewise renders logged messages literally
   (``markup=False``). Only the helpers' styled glyph prefixes remain markup.
+- **Forced-offline runs stop before cache-tolerant download code.** An
+  explicit ``execution.offline: true`` policy now raises the standard
+  actionable ``ConnectionError`` even for loaders that normally permit a
+  local-cache attempt. This prevents pygdsm or another third-party loader from
+  entering download code on a cold cache. A naturally offline host still
+  retains the previous warning-and-cache-fallback behavior.
 
 [0.3.0] - 2026-08-02
 --------------------
