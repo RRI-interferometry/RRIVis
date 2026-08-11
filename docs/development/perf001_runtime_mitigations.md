@@ -444,14 +444,19 @@ both structures, real model/driver/runtime/memory provenance, and may not list
 
 A dedicated standard-library validation/generation tool may build the record,
 but it must fail closed on a dirty or unknown source, stale lock, wrong Pixi
-environment, wrong output path, or existing target. Generation uses one clean
-implementation commit. The record is added by a direct evidence-successor
-commit naming that source. Tests authenticate every tracked PERF-001 reference
-file rather than silently choosing the lexicographically first JSON.
+environment or interpreter, wrong output path, or existing target. The loaded
+RadioSim code, executable, Pixi prefix, and Git checkout must all resolve to the
+same repository and environment. Generation uses one clean implementation
+commit. The record is added by a direct evidence-successor commit naming that
+source. Tests authenticate every tracked PERF-001 reference file rather than
+silently choosing the lexicographically first JSON.
 
 New records live only at
 `output/benchmarks/reference/perf001/<UTC>-<host>.json`, namespaced away from
-the frozen historical v1 artifact.
+the frozen historical v1 artifact. The namespace is an explicit `.gitignore`
+exception. Publication rejects symlinked path components and non-regular or
+non-canonical names, uses no-overwrite atomic creation, and flushes both file
+contents and the containing directory before reporting success.
 
 No absolute timing threshold is a test. Schema completeness, clean provenance,
 NumPy correctness, source-order preservation, expected shape reduction, and
@@ -623,6 +628,7 @@ benchmark and makes no implementation-acceptance claim.
 - `src/radiosim/benchmarks/record.py`
 - `src/radiosim/benchmarks/harness.py`
 - `src/radiosim/benchmarks/__init__.py`
+- `.gitignore` for the exact retained `perf001/*.json` namespace only
 - focused unit, characterization, parity, performance, and documentation tests
 - `README.md`, `CLAUDE.md`, backend/quickstart docs, migration guide, and the
   Unreleased changelog
@@ -634,7 +640,8 @@ benchmark file is writable.
 
 ### Clean CPU evidence successor
 
-- one new exact-source PERF-001 JSON under `output/benchmarks/reference/`
+- one new exact-source PERF-001 JSON under
+  `output/benchmarks/reference/perf001/`
 - its validator/digest constants and reproduction instructions
 
 The evidence successor must directly parent the clean implementation source.
