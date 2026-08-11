@@ -5,6 +5,12 @@
 **Source reviewed:** `d836195c2b981b14f162d7c5ae01710ea3b5d2a2`, clean and
 aligned with `origin/codex/post-tier8-remediation-complete`.
 
+**Acceptance-interface amendment source:**
+`8935052cc4e49e3ff7bb92f645d03cee6b9e8ad2`. This amendment freezes the
+read-only clean-CPU acceptance-certificate interface and its phase-specific
+path authority. It does not generate evidence, accept an implementation, or
+change any status.
+
 **Status:** this memo authorizes implementation of P-a through P-d and the
 GPU-ready portion of P-e. It is not implementation evidence, accelerator
 evidence, or acceptance. `PERF-001` remains **ROADMAP**. P-a through P-d may be
@@ -658,72 +664,290 @@ Only real hardware may generate the GPU artifact.
 
 ## 10. Phase-separated writable authority
 
-### Design commit
+### Design authority
+
+The original design gate owns exactly:
 
 - `docs/development/perf001_runtime_mitigations.md`
 - `docs/index.rst`
 - the live WP-7 priority, design, Q4, and status-ledger text in
   `PostTier8RemediationPlan.md`
 
-This commit changes no `Fix.md` issue-register status, source, test, lock, or
-benchmark and makes no implementation-acceptance claim.
+This acceptance-interface amendment owns only
+`docs/development/perf001_runtime_mitigations.md`. Neither design operation
+changes `Fix.md`, source, tests, locks, retained benchmarks, or status, and
+neither makes an implementation-acceptance claim.
 
-### Implementation and evidence-scaffold commits
+### Source phase culminating in `S`
 
-- `src/radiosim/core/contraction.py`
-- a private helper under `src/radiosim/core/`
-- `src/radiosim/core/visibility.py`
-- `src/radiosim/core/visibility_healpix.py`
-- `src/radiosim/api/simulator.py`
-- `src/radiosim/backends/__init__.py`
-- `src/radiosim/backends/jax_backend.py`
-- `src/radiosim/utils/device.py`
-- `src/radiosim/simulator/base.py`
-- `src/radiosim/simulator/rime.py`
-- `src/radiosim/benchmarks/record.py`
-- `src/radiosim/benchmarks/harness.py`
-- `src/radiosim/benchmarks/__init__.py`
-- `tools/wp7_perf001_cpu_evidence.py`
-- `.gitignore` for the exact retained `perf001/*.json` namespace only
-- focused unit, characterization, parity, performance, and documentation tests
-- `README.md`, `CLAUDE.md`, backend/quickstart docs, migration guide, and the
-  Unreleased changelog
-- `pixi.toml`, `pixi.lock`, `tools/wp7_gpu_preflight.py`, and
-  `tests/unit/test_perf001_gpu_environment.py`
+`S` is the clean aggregate source snapshot approved for evidence generation
+only.
+It may aggregate the already landed P-a-through-P-d commits and later bounded
+source-scaffold commits; it is not required to be one monolithic implementation
+commit. The WP-7-owned source phase has this exact path set:
+
+```text
+.gitignore
+CLAUDE.md
+README.md
+docs/changelog.rst
+docs/migration_guide.md
+docs/quickstart.rst
+docs/user_guide/backends.rst
+pixi.lock
+pixi.toml
+src/radiosim/api/simulator.py
+src/radiosim/backends/__init__.py
+src/radiosim/backends/jax_backend.py
+src/radiosim/benchmarks/__init__.py
+src/radiosim/benchmarks/harness.py
+src/radiosim/benchmarks/record.py
+src/radiosim/core/contraction.py
+src/radiosim/core/source_bucketing.py
+src/radiosim/core/visibility.py
+src/radiosim/core/visibility_healpix.py
+src/radiosim/simulator/base.py
+src/radiosim/simulator/rime.py
+src/radiosim/utils/device.py
+tests/characterization/test_tier6_current_behavior.py
+tests/performance/test_backend_benchmarks.py
+tests/unit/test_backends/test_backend_parity.py
+tests/unit/test_backends/test_backends.py
+tests/unit/test_backends/test_compilation_boundary.py
+tests/unit/test_backends/test_perf001_backend_resolution.py
+tests/unit/test_core/test_benchmark_record.py
+tests/unit/test_core/test_perf001_contraction_policy.py
+tests/unit/test_core/test_perf001_source_bucketing.py
+tests/unit/test_perf001_cpu_evidence.py
+tests/unit/test_perf001_gpu_environment.py
+tests/unit/test_perf001_runtime_acceptance.py
+tests/unit/test_simulator/test_instrument_integration.py
+tests/unit/test_simulator/test_perf001_capabilities.py
+tests/unit/test_simulator/test_perf001_memory_estimate.py
+tests/unit/test_simulator/test_result_integration.py
+tests/unit/test_tier1h_documentation.py
+tests/unit/test_tier4_result_output_acceptance.py
+tests/unit/test_utils/test_device.py
+tools/wp7_gpu_preflight.py
+tools/wp7_perf001_cpu_evidence.py
+```
+
+This is WP-7 path authority, not a whole-history diff predicate: concurrent,
+separately governed work may be an ancestor of `S`. The certificate therefore
+imposes no `S^..S` or original-design-to-`S` path predicate. It authenticates
+`S` exactly as `E^` and authenticates the protected `S` bytes forward instead.
 
 No workflow, public device extra, fingerprint, tolerance, or historical
 benchmark file is writable.
 
-### Clean CPU evidence successor
+### Clean CPU evidence successor `E`
 
 Let `S` be the clean implementation source and `E` its evidence successor. The
 sequence is exact:
 
-1. `S` contains the accepted P-a-through-P-d implementation, GPU-ready
+1. `S` contains the complete P-a-through-P-d implementation, GPU-ready
    infrastructure, complete CPU generator/validator, tests, and empty retained
    reference manifests. It contains no namespaced PERF-001 JSON.
 2. The generator runs from clean `S`, with `HEAD == S`, and produces one
    45-row JSON only under `output/benchmarks/reference/perf001/`.
-3. `E` is the direct child of `S`; no implementation, documentation, status, or
+3. `E` is the non-merge direct child of `S`; no implementation, status, or
    unrelated commit may intervene.
-4. The `S..E` diff contains only that JSON, its exact path-to-artifact-digest
-   and path-to-generating-source constants, and its exact reproduction
-   instructions. The generator and lock bytes are unchanged across `S..E`.
+4. The exact `S..E` path set is:
+
+   ```text
+   docs/development/perf001_runtime_mitigations.md
+   output/benchmarks/reference/perf001/<UTC>-<system>-<machine>.json
+   src/radiosim/benchmarks/harness.py
+   ```
+
+   There is exactly one artifact. Its filename matches
+   `[0-9]{8}T[0-9]{6}Z-[a-z0-9]+-[a-z0-9]+(?:[._-][a-z0-9]+)*\.json`.
+   The harness's two retained-reference maps each contain exactly that path:
+   one maps it to the SHA-256 of its committed bytes and the other maps it to
+   `S`.
+
+<!-- PERF001_E_REPRODUCTION_SENTINEL_V1 -->
+
+At `S`, the whole-line marker named
+`PERF001_E_REPRODUCTION_SENTINEL_V1` occurs exactly once. `E` replaces only
+the marker bytes, preserving their trailing line feed, with this exact block:
+
+```console
+pixi run python tools/wp7_perf001_cpu_evidence.py generate --approved-source-sha <S>
+pixi run python tools/wp7_perf001_cpu_evidence.py validate --approved-source-sha <S> --artifact-sha256 <artifact-sha256> --input <artifact-path>
+```
+
+Every placeholder is replaced by its canonical retained value; angle brackets
+do not remain in `E`. The fence spelling is exactly `console`, the two commands
+are each one line, and no blank line occurs inside the fence. Thus the expected
+`E` memo bytes are reconstructed from the `S` memo bytes rather than accepted
+by substring search.
 
 Independent authentication must prove that `E^ == S`, the artifact is absent
 from `S`, every artifact row names `S`, the committed bytes match the pinned
 digest, and the canonical fixture definitions rebuild every input identity.
-Acceptance and the `CPU ACCEPTED; P-e hardware-gated` status transition occur
-only after `E`, in a separate reviewed commit. Neither `S` nor `E` sets
-`PERF-001` to DONE, changes `supports_gpu`, or makes an acceleration claim.
+The source `S` harness maps are empty. The evidence `E` harness, artifact, and
+memo satisfy the exact bindings above. For each of
+`PERF001_REFERENCE_SHA256` and `PERF001_REFERENCE_SOURCE_SHA`, the verifier
+AST-literal-parses exactly one top-level string-to-string dictionary assignment
+and replaces only its right-hand-side source span with one fixed internal
+normalization token. The normalized `S` and `E` harness bytes must then be
+identical. `S` requires both dictionaries to be exactly empty; `E` requires
+the exact one-entry mappings above. This permits Ruff to choose a safe literal
+dictionary layout, but permits no byte change outside those two literal
+right-hand sides.
 
-### Acceptance and closure
+The tool, production record validator, Pixi manifest, and Pixi lock bytes are
+unchanged across `S..E`; the evidence harness is the only source file that
+changes. Neither `S` nor `E` sets `PERF-001` to DONE, changes `supports_gpu`,
+or makes an acceleration claim.
 
-Independent P-a-through-P-d acceptance may update the memo and live WP-7 plan
-status to `CPU ACCEPTED; P-e hardware-gated`, and unlock WP-8's E3 dependency.
-It must not set `PERF-001` to DONE. Final register closure may edit `Fix.md` only
-after real P-e evidence is independently accepted or a separately authorized
-scope re-adjudication occurs.
+### CPU acceptance successor `A` and final closure
+
+`A` is the non-merge direct child of `E`. Its exact `E..A` path set is:
+
+```text
+PostTier8RemediationPlan.md
+docs/development/perf001_runtime_mitigations.md
+```
+
+<!-- PERF001_A_MEMO_STATUS_SENTINEL_V1 -->
+
+At `S` and `E`, the whole-line marker named
+`PERF001_A_MEMO_STATUS_SENTINEL_V1` occurs exactly once. `A` replaces only
+those marker bytes, preserving their trailing line feed, with this exact
+single line:
+
+```text
+CPU ACCEPTED; P-e hardware-gated. PERF-001 remains ROADMAP; supports_gpu remains false; no accelerator evidence or claim is accepted.
+```
+
+The plan uses existing pre-acceptance bytes rather than a newly inserted
+marker. The logical sentinel `PERF001_A_PLAN_STATUS_SENTINEL_V1` is the exact
+UTF-8 status-ledger row below, excluding its preceding and trailing line feed:
+
+```text
+| WP-7 | P-a…P-d implementation and runtime readiness landed; exact-SHA CI green; retained CPU evidence and whole CPU-slice independent acceptance pending; P-e infrastructure authorized, evidence blocked on Q4; PERF-001 remains ROADMAP |
+```
+
+It occurs exactly once in the `S` and `E` plan bytes. `A` replaces only that
+row with this exact UTF-8 row, again preserving the existing trailing line
+feed:
+
+```text
+| WP-7 | CPU ACCEPTED; P-e hardware-gated. PERF-001 remains ROADMAP; supports_gpu remains false; no accelerator evidence or claim is accepted. |
+```
+
+The verifier reconstructs the complete expected `A` memo and plan byte strings
+from `E` by those two single replacements and requires raw equality. Therefore
+`A` can add no second hunk, status qualifier, `PERF-001` closure, true GPU
+capability, or accelerator-acceptance sentence. `A` changes no artifact,
+harness, tool, production validator, manifest, lock, source, test, or
+issue-register file. It may unlock WP-8's CPU dependency, but it does not
+accept P-e, set `PERF-001` to DONE, change `supports_gpu`, or make an
+acceleration claim.
+
+Final register closure may edit `Fix.md` only after real P-e evidence is
+independently accepted or a separately authorized scope re-adjudication
+occurs.
+
+### Read-only accepted-CPU certificate
+
+The accepted `S` tool freezes two lowercase 64-hex constants only after the
+predecessor documents and all source sentinels are final:
+
+```text
+ACCEPTED_SOURCE_MEMO_SHA256
+ACCEPTED_SOURCE_PLAN_SHA256
+```
+
+They are the SHA-256 digests of the complete raw `S` bytes of this memo and
+`PostTier8RemediationPlan.md`, respectively. The verifier hashes the named Git
+blobs at `S`, compares those exact pins, and then requires the two memo markers
+and the logical plan sentinel above to be unique in their prescribed source
+objects. Thus a status assertion cannot be inserted into `S` and laundered
+through otherwise valid `E`/`A` transforms. Filling either digest before the
+final predecessor bytes exist, accepting a digest from the worktree, or
+deriving it from `E`, `A`, or `D` is forbidden.
+
+The issue-register root is the following exact 620-byte UTF-8 line including
+its final line feed, whose SHA-256 is
+`9306bf612ed4856f6e0d822ad62d814bc54a9def9cee80f0ea50f87938d944bc`:
+
+```text
+| PERF-001 | ROADMAP | Accelerator (GPU/TPU) performance remains undemonstrated: the time and frequency axes are host-side Python loops, astropy coordinate transforms / horizon masking / Planck conversion / pyuvdata beam interpolation are host-side by design, the locked JAX build is CPU-only, and measured JAX-CPU is slower than NumPy on every benchmarked workload (`output/benchmarks/reference/`). Filed 2026-07-31 at Tier 6J re-run acceptance per §41 Q4, as the successor to the accelerator-performance remainder of `RUN-004`; requires GPU/TPU hardware this environment does not have | post-Tier-7, hardware-gated |
+```
+
+At each of `S`, `E`, `A`, and `D`, `Fix.md` must contain that line exactly once
+and no other row whose first two cells are `PERF-001`. The rest of `Fix.md` is
+not byte-pinned, so separately governed issue rows may evolve without weakening
+this register check.
+
+From a clean checkout at exact commit `D`, the canonical command is one line:
+
+```text
+pixi run python tools/wp7_perf001_cpu_evidence.py verify-accepted --acceptance-commit <40hex-A> --descendant <40hex-D>
+```
+
+Both arguments are nonzero lowercase 40-hex commit IDs and the placeholders
+are replaced by their literal values. In this subsection, `D` means the
+checkout whose dependency consumer is asking for the accepted-CPU
+certificate; it is not the original WP-7 design-gate symbol. The verifier
+requires `HEAD == D`, a clean tree including no untracked files, `A` to be a
+Git ancestor of `D`, `E == A^`, and `S == E^`. The ancestor predicate is
+inclusive, so `D` may equal `A`; both `A` and `E` have exactly one parent. The
+normal SCI-005 dependency gate uses `D == A`. A later descendant is certifiable
+only while its complete memo and plan bytes remain identical to `A`; otherwise
+the consumer checks out and verifies historical `A` instead.
+
+The command is repository-read-only: it creates no artifact, edits no file,
+updates no status, and commits nothing. On success the Python tool writes
+exactly one UTF-8 JSON line plus one trailing line feed to standard output,
+using `json.dumps(..., allow_nan=False, sort_keys=True)`. The object is flat,
+has no unknown or missing keys, and has exactly this sorted key order and value
+contract:
+
+```text
+acceptance_commit: A
+acceptance_diff_paths: ["PostTier8RemediationPlan.md", "docs/development/perf001_runtime_mitigations.md"]
+artifact_path: the one canonical PERF-001 artifact path
+artifact_sha256: lowercase 64-hex SHA-256 of the committed artifact bytes
+cpu_evidence_tool_sha256: lowercase 64-hex SHA-256 of the S tool bytes
+descendant_commit: D
+evidence_commit: E
+evidence_diff_paths: ["docs/development/perf001_runtime_mitigations.md", artifact_path, "src/radiosim/benchmarks/harness.py"]
+generating_source_sha: S
+passed: true
+pixi_lock_sha256: lowercase 64-hex SHA-256 of the S pixi.lock bytes
+pixi_manifest_sha256: lowercase 64-hex SHA-256 of the S pixi.toml bytes
+production_harness_sha256: lowercase 64-hex SHA-256 of the E harness bytes
+production_record_validator_sha256: lowercase 64-hex SHA-256 of the S record.py bytes
+schema_version: "radiosim.perf001.cpu_acceptance_certificate.v1"
+verdict: "CPU_ACCEPTED_P_E_HARDWARE_GATED"
+```
+
+Both path arrays are lexically sorted. The verifier validates the committed
+45-row artifact against `S`, proves that the artifact is absent and both
+reference maps are empty in `S`, proves the exact `S..E` and `E..A` path sets,
+and proves the exact map values and literal reproduction commands. It
+reconstructs the complete expected `E` memo from the pinned `S` memo, compares
+the normalized `S`/`E` harness bytes, reconstructs the complete expected `A`
+memo and plan from `E`, and requires the complete raw `D` memo and plan to equal
+`A`. Required substrings or path names alone are never sufficient.
+
+The verifier also requires the artifact bytes to be identical in `E`, `A`, and
+`D`; the CPU tool, production record validator, `pixi.toml`, and `pixi.lock`
+bytes to be identical in `S`, `E`, `A`, and `D`; and the pinned evidence
+harness bytes to be identical in `E`, `A`, and `D`. The executing tool must
+equal the tool committed in `D`, and its embedded Pixi-manifest and lock
+digests must equal the authenticated `S` bytes.
+
+Consequently the only accepted status transition in the canonical PERF-001
+memo/plan/register surfaces is the exact false/hardware-gated sentence above.
+Any additional `DONE`, `supports_gpu` true, or accepted-accelerator hunk changes
+the reconstructed bytes or the frozen register row and fails. This certificate
+authenticates that bounded CPU acceptance chain only. It is not GPU evidence,
+does not close `PERF-001`, and grants no accelerator or `supports_gpu` claim.
 
 ## 11. Terminal conditions for the CPU slice
 
