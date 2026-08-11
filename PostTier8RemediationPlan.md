@@ -21,7 +21,7 @@ re-verified at execution time, not trusted from here.
 |-----|--------|----------|
 | `CI-001` | DONE | Closed 2026-08-08 by WP-2/WP-3: the second `linux-64-py311` class was forced on demand, its NumPy/OpenBLAS dispatch axes named, its three cube deltas accepted under Section 13.5, and its digests recorded (`docs/development/ci001_adjudication.md`) |
 | `SCI-006` | DONE | Closed 2026-08-11 by WP-5 independent acceptance at exact candidate `f5fa101e`; CI run `31434253575` passed quality, backend parity, and all six compatibility cells, with six authenticated characterization artifacts and exact `P V_old P^H` evidence (`docs/development/sci006_polarization_convention.md`) |
-| `SCI-007` | OPEN | WP-6 design gate recorded 2026-08-11 (`docs/development/sci007_frame_accuracy_bound.md`): the residual is attributed to missing ICRS-to-operational-apparent tangent-basis transport for the retained fixture; hermetic executable bounds, the 1.2.0 artifact, and independent acceptance are still required |
+| `SCI-007` | DONE | Closed 2026-08-11 by WP-6 independent acceptance at exact evidence successor `e20f636`: the retained schema-1.2.0 artifact attributes the retained fixture's residual to omitted ICRS-to-operational-apparent tangent-basis transport; exact-SHA CI run `31461141190` passed all eight jobs (`docs/development/sci007_frame_accuracy_bound.md`) |
 | `API-001` | DONE | Closed 2026-08-11 by WP-1 independent acceptance at exact candidate `87bdaf2`: NumPy/JAX/Dask broadcasting and six equal-shape backend/dtype byte-identity cells passed |
 | `API-002` | DONE | Closed 2026-08-11 by WP-1 independent acceptance at exact candidate `87bdaf2`: all four helpers and `RichHandler` render caller text literally, with no caller markup dependency |
 | `PERF-001` | ROADMAP | Accelerator performance undemonstrated; JAX-CPU measured slower than NumPy on every benchmarked workload (`Fix.md` line ~208) |
@@ -76,7 +76,7 @@ This plan was assembled from, and cites only:
 | 2 | `API-002` | Fix: escape at the helper boundary, plus the `RichHandler` companion | XS | DONE 2026-08-11 (WP-1) |
 | 3 | `API-001` | Fix: implement broadcasting | XS | DONE 2026-08-11 (WP-1) |
 | 4 | `SCI-006` | Selected east-X correction implemented and independently accepted in WP-5 | S + M | DONE 2026-08-11 |
-| 5 | `SCI-007` | Reconcile numerically; close as a documented, test-pinned accuracy bound | S–M | Design recorded 2026-08-11; evidence and acceptance pending |
+| 5 | `SCI-007` | Reconciled and closed as a documented, test-pinned fixture bound | S–M | DONE 2026-08-11 (WP-6) |
 | 6 | `PERF-001` | Four CPU legs now with bit-identity proofs; GPU leg hardware-gated | M + gated | CPU legs now (WP-7) |
 | 7 | `SCI-005` | Staged successor tier, own plan document; scalar-preserving items first | XL | Plan doc now; stages gated (WP-8) |
 | 8 | `SCI-004` | Feature, not remediation; design gate only when a science driver exists | XL | Unscheduled (WP-9) |
@@ -121,7 +121,7 @@ never accepted by loosening the pin").
 | WP-3 | `CI-001` adjudication (Tier 8 §14 conditional) + successor-gate memo + mechanized verdict | M | DONE 2026-08-08 |
 | WP-4 | `SCI-006` convention memo (the ruling) | S | DONE 2026-08-08 |
 | WP-5 | `SCI-006` implementation (selected Branch A correction) | M | DONE — independently accepted 2026-08-11 |
-| WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | Design recorded 2026-08-11; evidence and acceptance pending |
+| WP-6 | `SCI-007` reconciliation + closure as documented bound | S–M | DONE — independently accepted 2026-08-11 |
 | WP-7 | `PERF-001` CPU legs P-a…P-d + docs notes; P-e GPU leg | M; P-e gated | P-e on Q4 (hardware) |
 | WP-8 | `SCI-005` plan document, then staged slices 1→3 | XL | Stage 1 after WP-7 (E3); stages 2–3 after WP-5 (E2) |
 | WP-9 | `SCI-004` design gate | XL | Q5 (science driver); soft on WP-8, WP-3 |
@@ -453,7 +453,7 @@ input; they are not absorbed into SCI-006.
 
 ## 9. WP-6 — `SCI-007`: the refitted `+0.057991°` frame rotation
 
-**Design gate recorded 2026-08-11; not implementation or acceptance.** The
+**Historical design-stage record (2026-08-11).** The
 normative design is
 `docs/development/sci007_frame_accuracy_bound.md`. It preserves the accepted
 WP-5 input: direct `Q+iU` residual `2.052050642874229e-3`, fitted global angle
@@ -504,14 +504,56 @@ optional comparison; add a deep validator while the versioned 1.2.0 artifact is
 absent; generate that artifact only from an explicitly approved clean source
 commit and add it in an evidence-successor commit; run all gates; then obtain
 separate read-only authentication of the generating source, successor diff, and
-exact acceptance SHA before touching the register. `SCI-007` therefore remains
-**OPEN**.
+exact acceptance SHA before touching the register. `SCI-007` therefore
+remained **OPEN at the design stage**.
 
-**Design-slice writable authority.** This design step is restricted to
+**Historical design-slice writable authority.** This design step was
+restricted to
 `docs/development/sci007_frame_accuracy_bound.md`, `docs/index.rst`, and this
 live WP-6 status. It does not authorize or make changes to `Fix.md`, `src/`,
 tests, outputs, user documentation, changelog, configuration, workflows, or
-locks. Effort remains S–M for evidence and acceptance.
+locks. The design-stage estimate was S–M for evidence and acceptance.
+
+### 9.1 WP-6 independent acceptance (DONE 2026-08-11)
+
+WP-6 closed `SCI-007` at exact evidence successor
+`e20f636788e0b61ae6c854f64cbb7476c3cb9a50`, generated from clean source
+`9b50805cf9fe32124800d1e3946a87e3911c376b`. The source contains no artifact;
+the direct successor adds only the 33,173-byte schema-1.2.0 record, README
+reproduction instructions, and exact digest constants. The retained artifact
+is `output/crossvalidation/2026-08-11-pyuvsim-1.4.0-sci007.json`, SHA-256
+`3a441ad606f365ac4110e30d9d8c2f3d7f5ea91c481aa70488dea72487e570ba`.
+The generator, lockfile, and bundled IERS-A SHA-256 values are
+`405a5d9fbee3becb1724d79f173e056e9e5da73cc73e3bed2cc2482d1b346c94`,
+`37db432e6ade2dd3e64222d5ccfe532be5671893b24ce29e717a3bbb12f38ade`,
+and `ff2d22108e982bd86e326e01d797fa8bd545d51483359dd98e6c08fa5737f667`.
+
+Independent re-derivation confirmed
+`Delta=wrap_pi(psi_RS+atan2(K[0,1],K[0,0]))` and the
+RadioSim-to-pyuvsim correction `exp(-2j*Delta)` per source/time before
+summation. The raw relative linear residual `2.052050642874229e-3` falls to
+`2.400855498837282e-10`; the wrong sign gives
+`4.103897953509379e-3`. The public angle range is
+`7.644842652547723e-4` to `1.1200433324138892e-3` rad, the maximum spin-2
+effect is `2.2400861964641163e-3`, public/exact disagreement is
+`0.019580918743243865`, and the global-angle control remains
+`1.9606576512107846e-4`.
+
+Both validators and the public bound passed in Python 3.11 and 3.12; the
+documentation/evidence suite passed 195 tests in both environments; and the
+optional cross-validation passed five tests. Exact-SHA CI run `31461141190`
+then passed all eight jobs at the accepted successor: backend parity passed 92
+tests, every compatibility cell passed 5,475 tests with one skip, and all six
+artifact ZIPs were authenticated. All 84 hexadecimal manifest observations
+were active pins and no candidate cube was retained.
+
+Closure is deliberately narrow. It documents the retained HERA
+three-source/three-time fixture; it is not all-sky or cross-platform frame
+validation. Production frame policy, source code, dependencies, the lockfile,
+fingerprints, and tolerances are unchanged. `PrecisionConfig.ultra()` remains
+a numerical-precision preset and does not perform tangent-basis transport. The
+artifact's internal OPEN status is immutable generation-time provenance; this
+later independent record owns the DONE transition.
 
 ## 10. WP-7 — `PERF-001`: split into five legs
 
@@ -629,10 +671,11 @@ when it comes.
 
 ## 13. Dispositions argued (close-as-documented and anti-candidates)
 
-1. **`SCI-007` — close as documented-and-bounded** (conditional on the WP-6
-   reconciliation matching): milli-degree scale, fully attributed, below the
-   accuracy floor of everything else in the accepted subset; the close carries
-   an *executable* bound plus the named upgrade path (`.ultra()` frames).
+1. **`SCI-007` — closed as documented-and-bounded** (WP-6 accepted
+   2026-08-11): the retained fixture's milli-radian tangent-basis transport is
+   attributed and executable. The close carries a fixture-scoped bound, not a
+   production upgrade path; `.ultra()` changes numeric precision only and does
+   not implement frame transport.
 2. **`API-001` — defensible won't-fix, but the fix is adopted** (Q2): the
    signature's own defaults raise on array input; one `broadcast_arrays` line
    with a bit-identity argument is cheaper than maintaining the justification.
@@ -711,7 +754,7 @@ Each work package runs in the established style:
 | WP-3 | DONE — accepted 2026-08-08; CI-001 closed |
 | WP-4 | DONE — ruled 2026-08-08; Branch A selected; no runtime change |
 | WP-5 | DONE — independently accepted 2026-08-11; SCI-006 closed |
-| WP-6 | Design recorded 2026-08-11; SCI-007 OPEN pending evidence artifact and independent acceptance |
+| WP-6 | DONE — independently accepted 2026-08-11; SCI-007 closed as a retained-fixture accuracy bound |
 | WP-7 | P-a…P-d ready to start; P-e blocked on Q4 |
 | WP-8 | Plan document ready to draft; stage 1 after WP-7; WP-5/E2 satisfied for stages 2–3 |
 | WP-9 | Unscheduled pending Q5 |

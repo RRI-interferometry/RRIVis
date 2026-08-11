@@ -215,7 +215,7 @@ Status values used below:
 | SCI-004 | ROADMAP | A spherical-harmonic/m-mode solver — a second forward-model algorithm entirely, distinct from the direct-sum RIME `rime` simulator — remains unimplemented. `execution.simulator` accepts only `rime`, matching the simulator registry's single key; a future m-mode solver is a new registry entry, not a value on a removed field. Filed 2026-08-02 at Tier 7 whole-tier acceptance (Tier 7K) per §38's `SCI-002` closure requirement, as the named successor for the descoped Workstream E | post-Tier-7, successor design gate |
 | SCI-005 | ROADMAP | Advanced beam physics beyond the accepted scalar-`E` subset: polarized/cross-polar beams (Ludwig-3 decomposition, quadrupolar cross-polarization, IXR conversion), beam squint, aperture blockage, Zernike aberrations, and the Ruze error-beam decomposition. Each item has explicit scientific scope, a citation, and its non-goal reasoning recorded in `docs/development/beam_physics_scope.md` (which replaces the old in-package `src/radiosim/core/jones/beam/TODO.md`); each requires widening the accepted `E`-Jones beyond a scalar diagonal, which is a tier-scale change. Filed 2026-08-02 at Tier 7 whole-tier acceptance (Tier 7K) per §38's `SCI-003` closure requirement | post-Tier-7, successor tier |
 | SCI-006 | DONE | Closed 2026-08-11 by WP-5 independent acceptance (`docs/development/sci006_polarization_convention.md`). The accepted implementation has one immutable owner for `P=[[0,1],[1,0]]`, derives `C=M_native R(chi)` and `H=M_output M_native^H`, reports `XX-YY=-Q`, and removes the cross-validation Q-axis compensation. Production-path analytic, mixed-basis, feed-asymmetric, point/HEALPix, NumPy/JAX/Dask, result, HDF5, UVFITS, and Measurement Set evidence passed. Exact-SHA CI run `31434253575` at `f5fa101e4ac345534636380720ce33ec93a31eae` passed quality, backend parity, and all six compatibility cells; artifacts `9080470037`, `9080472471`, `9080524924`, `9080529903`, `9080665431`, and `9081128353` were authenticated independently. Every changed polarized cube is byte-exact `P V_old P^H` where that relation applies, the two retained unpolarized workload cubes and both shipped-config raw cubes are unchanged, feed-asymmetric effects retain native-feed meaning, both legitimate Linux dispatch classes are pinned from retained candidates, all historical CI-001 digests remain preserved, and no tolerance changed. | 7J discovery; WP-4 ruling; WP-5 accepted 2026-08-11 |
-| SCI-007 | OPEN | With the accepted SCI-006 east-X correction, direct `Q+iU` comparison against `pyuvsim` refits the residual frame rotation to `+0.0579914273` degrees with relative linear residual `0.00205205064` and ratio modulus `1.00008302` (`output/crossvalidation/2026-08-08-pyuvsim-1.4.0.json`). The explicit pyradiosky V-sign mapping agrees to `4.070e-11` relative. The earlier artifact's `-0.0576` degree fit is retained as historical pre-correction evidence, while the apparent-equatorial and CIRS frame-species probes remain unreconciled. SCI-007 remains open until WP-6 lands a design-gated executable bound, retained provenance, post-correction evidence, and independent acceptance. | 7J discovery; WP-6 ready after accepted WP-5 |
+| SCI-007 | DONE | Closed 2026-08-11 by WP-6 independent acceptance at exact evidence successor `e20f636788e0b61ae6c854f64cbb7476c3cb9a50`, generated from clean source `9b50805cf9fe32124800d1e3946a87e3911c376b`. The retained schema-1.2.0 artifact (`output/crossvalidation/2026-08-11-pyuvsim-1.4.0-sci007.json`, SHA-256 `3a441ad606f365ac4110e30d9d8c2f3d7f5ea91c481aa70488dea72487e570ba`) attributes the retained fixture's post-SCI-006 linear residual to omitted ICRS-to-operational-apparent tangent-basis transport. The exact per-source/time `exp(-2j*Delta)` correction reduces the relative residual from `2.052050642874229e-3` to `2.400855498837282e-10`; the wrong-sign control is `4.103897953509379e-3`. Exact-SHA CI run `31461141190` passed all eight jobs and all six compatibility cells, and its six artifacts were independently authenticated with all 84 hexadecimal observations in active pin tables and no candidate cubes. Production frame policy, `src/`, dependencies, lockfile, fingerprints, and tolerances are unchanged. Closure is a documented bound for the retained HERA three-source/three-time fixture, not an all-sky or cross-platform validation claim. | 7J discovery; WP-6 accepted 2026-08-11 |
 | DOC-001 | DONE | `simple_simulation.py` uses stale private/result APIs — closed 2026-08-02 (Tier 8 whole-tier acceptance, 8F): the script is re-verified symbol-by-symbol against public API only (`Simulator.from_parameters`/`.from_yaml`, `SimulationOverrides`, `get_memory_estimate()`, `result.visibilities`/`.correlations`/`.stokes_i()`/`.scientific_sha256`/`.provenance_sha256`), no private/dict-as-scalar access survives, `examples/README.md` documents exactly the three real flags (`--config`/`--backend`/`--progress`), a flag-parity test (`test_examples_readme_documents_no_flag_the_script_does_not_define`/`..._every_flag_the_script_defines`) enforces it both directions, and CI's `quality` job runs `--help` then a real invocation — green on run `30749117742` at HEAD `ce7f525` | 8 |
 | DOC-002 | DONE | README low-level baseline example is invalid — closed pre-Tier-8 (Tier 2), re-verified 2026-08-02 at 8F: `generate_baselines` has zero occurrences anywhere in the repository (`generate_resolved_baselines`/`select_resolved_baselines` are the replacement), kept enforced by the removed-name scan, and every README/quickstart code block resolves per the symbol/path scans | 8 |
 | DOC-003 | DONE | Sphinx references removed Jones class names — closed pre-Tier-8 (Tier 7J), re-verified 2026-08-02 at 8F: the 19-name `core/jones/__init__.py.__all__` is the only live export set, `GeometricDelayJones` has zero hits in `docs/`, and every out-of-`__all__` `*Jones` token in tracked prose is inside a captioned historical context, enforced by `test_no_removed_name_is_documented_as_live` | 8 |
@@ -15539,3 +15539,46 @@ and `git show --check 87bdaf2`. The existing `[Unreleased]` changelog entries
 already describe both fixes accurately; the historical `[0.3.0]`
 known-limitations entries remain unchanged. `API-001` and `API-002` are
 `DONE`.
+
+### 2026-08-11 WP-6 independent acceptance — SCI-007
+
+WP-6 was independently accepted at exact evidence successor
+`e20f636788e0b61ae6c854f64cbb7476c3cb9a50`, whose direct parent is the clean
+generating source `9b50805cf9fe32124800d1e3946a87e3911c376b`. The source
+tree contains no SCI-007 artifact; the successor adds only the 33,173-byte
+schema-1.2.0 artifact, its README reproduction instructions, and the exact
+source/artifact digest constants. The artifact SHA-256 is
+`3a441ad606f365ac4110e30d9d8c2f3d7f5ea91c481aa70488dea72487e570ba`;
+the generator, lockfile, and bundled IERS-A SHA-256 values are respectively
+`405a5d9fbee3becb1724d79f173e056e9e5da73cc73e3bed2cc2482d1b346c94`,
+`37db432e6ade2dd3e64222d5ccfe532be5671893b24ce29e717a3bbb12f38ade`,
+and `ff2d22108e982bd86e326e01d797fa8bd545d51483359dd98e6c08fa5737f667`.
+
+The independent reviewer re-derived
+`Delta=wrap(psi_RS+atan2(K[0,1],K[0,0]))` and the RadioSim-to-pyuvsim
+correction `exp(-2j*Delta)` per source and time before summation. The raw
+relative linear residual is `2.052050642874229e-3`; the exact correction leaves
+`2.400855498837282e-10`, while the opposite sign gives
+`4.103897953509379e-3`. The public angle spans
+`7.644842652547723e-4` to `1.1200433324138892e-3` rad, its maximum spin-2
+effect is `2.2400861964641163e-3`, and the public/exact grids disagree by at
+most `0.019580918743243865` relative. The single-global-angle residual remains
+the non-vacuity control at `1.9606576512107846e-4`.
+
+Both standalone validators and the public bound passed in Python 3.11 and
+3.12; the documentation/evidence suite passed 195 tests in each environment;
+and the pinned optional cross-validation passed all five tests. Exact-SHA CI
+run `31461141190` then completed successfully at the accepted successor: the
+backend job passed 92 tests, the quality job passed lint, format, metadata,
+Pyright, 41 doctests, examples, notebook, strict Sphinx, and the clean-tree
+check, and every compatibility cell passed 5,475 tests with one skip. All six
+artifact ZIP digests matched the API; all 84 hexadecimal manifest observations
+were active pins and no candidate cube was present.
+
+This closes `SCI-007` only as a retained-fixture accuracy bound. Production
+frame transport, source code, dependencies, the lockfile, characterization
+fingerprints, and all tolerances remain unchanged. `PrecisionConfig.ultra()`
+changes numerical precision only and does not implement tangent-basis
+transport. The artifact's internal `SCI-007 OPEN pending independent
+acceptance` field is preserved as immutable generation-time provenance; this
+later closure record carries the acceptance decision.

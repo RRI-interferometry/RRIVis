@@ -5,10 +5,10 @@
 **Source reviewed:** `8f0adce04d8114b2484ed75ae90c335b8fc1d8fc`, clean before
 this documentation slice.
 
-**Status:** the design is specified; the evidence slice and its independent
-acceptance have not happened. `SCI-007` remains **OPEN**. This record changes no
-production code, tolerance, configuration, lock, fingerprint, or retained
-cross-validation result.
+**Status:** independently accepted 2026-08-11 at exact evidence successor
+`e20f636788e0b61ae6c854f64cbb7476c3cb9a50`; `SCI-007` is **DONE** as a
+retained-fixture accuracy bound. Production code, tolerances, configuration,
+the lockfile, fingerprints, and the frame policy remain unchanged.
 
 ## 1. Ruling
 
@@ -28,7 +28,7 @@ motion, diurnal aberration, and the other topocentric Earth-orientation details
 that the ideal spherical inverse does not reproduce are smaller remainder
 terms. Refraction is excluded from the comparison by setting `pressure=0`.
 
-WP-6 will close this as a **documented, fixture-scoped accuracy bound**, not by
+WP-6 closes this as a **documented, fixture-scoped accuracy bound**, not by
 changing the production Jones chain. A normal-environment unit test will bound
 the physical angle with a public Astropy source-to-zenith oracle. The optional
 cross-validation will additionally use the exact pinned `pyradiosky 1.1.0`
@@ -426,3 +426,63 @@ live WP-6 status in `PostTier8RemediationPlan.md`. It does not edit `Fix.md`,
 production code, tests, outputs, user documentation, changelog, configuration,
 workflows, or lockfiles. Recording the design is not implementation and is not
 scientific acceptance.
+
+## 16. Evidence successor and independent acceptance
+
+The approved clean generating source is
+`9b50805cf9fe32124800d1e3946a87e3911c376b`. The exact accepted evidence
+successor is `e20f636788e0b61ae6c854f64cbb7476c3cb9a50`, whose direct
+parent is that source. The source contains no SCI-007 artifact; the successor
+adds only the artifact, its README reproduction instructions, and the exact
+source/artifact digest constants.
+
+The retained record is
+`output/crossvalidation/2026-08-11-pyuvsim-1.4.0-sci007.json`:
+
+- size: 33,173 bytes;
+- artifact SHA-256:
+  `3a441ad606f365ac4110e30d9d8c2f3d7f5ea91c481aa70488dea72487e570ba`;
+- generator SHA-256:
+  `405a5d9fbee3becb1724d79f173e056e9e5da73cc73e3bed2cc2482d1b346c94`;
+- lockfile SHA-256:
+  `37db432e6ade2dd3e64222d5ccfe532be5671893b24ce29e717a3bbb12f38ade`;
+- bundled IERS-A SHA-256:
+  `ff2d22108e982bd86e326e01d797fa8bd545d51483359dd98e6c08fa5737f667`.
+
+Independent review re-derived the sign from `K.T=R(alpha_PY)`. Because
+`atan2(K[0,1],K[0,0])=-alpha_PY`, the record's
+`Delta=wrap_pi(psi_RS+atan2(K[0,1],K[0,0]))` is the RadioSim-minus-pyradiosky
+angle. With the accepted east-X and fringe-Hermitian mappings,
+`L_RS=exp(+2j*Delta)L_PY`; the RadioSim-to-pyuvsim correction is therefore
+`exp(-2j*Delta)` per source and time before summation.
+
+The retained measurements are:
+
+| Measurement | Accepted value |
+|---|---:|
+| Raw relative linear residual | `2.052050642874229e-3` |
+| Exact source/time corrected residual | `2.400855498837282e-10` |
+| Wrong-sign control | `4.103897953509379e-3` |
+| Public angle minimum | `7.644842652547723e-4` rad |
+| Public angle maximum | `1.1200433324138892e-3` rad |
+| Maximum public spin-2 effect | `2.2400861964641163e-3` |
+| Maximum public/exact relative disagreement | `0.019580918743243865` |
+| Single-global-angle residual | `1.9606576512107846e-4` |
+
+Both standalone validators and the public bound passed in the locked Python
+3.11 and 3.12 environments. The documentation/evidence suite passed 195 tests
+in each environment, and all five optional cross-validation tests passed.
+Exact-SHA CI run `31461141190` then completed successfully at the accepted
+successor: backend parity passed 92 tests, all quality and documentation gates
+passed, and each of the six compatibility cells passed 5,475 tests with one
+skip. The six artifact ZIP digests matched their API records; all 84
+hexadecimal manifest observations were members of the active pin tables and no
+candidate cube was present.
+
+This acceptance closes the register row without changing production. It is a
+bound for the retained HERA-site, three-source, three-time fixture, not an
+all-sky or cross-platform frame-validation claim. `PrecisionConfig.ultra()`
+changes numerical precision only and does not implement tangent-basis
+transport. The artifact's own `SCI-007 OPEN pending independent acceptance`
+field remains unchanged because it records the state at generation time; this
+evidence-successor review and closure record carry the later DONE decision.

@@ -55,22 +55,21 @@ Fixed
 Changed
 ^^^^^^^
 
-- **The open polarization-frame limitation is now quantified** (``SCI-007``).
-  RadioSim's operational apparent/equinox-of-date frame is a TETE-like ideal
-  spherical construction, not an exact Astropy ``TETE`` transform or a full
-  apparent-place model, and it omits transport of the catalogue ICRS
-  polarization tangent basis into that frame. In the retained HERA-site,
-  three-source, three-time fixture, the public source-to-zenith angle spans
-  ``7.64484265255e-4`` to ``1.120043332414e-3`` radians. An optional pinned
-  design-gate reconstruction reduced the direct linear-polarization residual
-  from ``2.052050642874229e-3`` to ``2.400855498837282e-10`` by applying the
-  exact correction per source and time before summation. That reconstruction
-  becomes closure evidence only through the separately retained versioned
-  artifact and its independent acceptance. Production behavior is unchanged,
-  ``PrecisionConfig.ultra()`` does not add frame transport, and no all-sky
-  accuracy claim is made. ``SCI-007`` remains open until those evidence and
-  acceptance gates are complete; see
-  :doc:`development/sci007_frame_accuracy_bound`.
+- **The polarization-frame limitation is quantified and closed as a retained-
+  fixture bound** (``SCI-007``, accepted 2026-08-11). RadioSim's operational
+  apparent/equinox-of-date frame is a TETE-like ideal spherical construction,
+  not an exact Astropy ``TETE`` transform or a full apparent-place model, and
+  it omits transport of the catalogue ICRS polarization tangent basis into
+  that frame. In the retained HERA-site, three-source, three-time fixture, the
+  public source-to-zenith angle spans ``7.64484265255e-4`` to
+  ``1.120043332414e-3`` radians. The retained schema-1.2.0 artifact reduces the
+  direct linear-polarization residual from ``2.052050642874229e-3`` to
+  ``2.400855498837282e-10`` with the exact per-source/time correction. It was
+  independently authenticated at evidence successor ``e20f636``; exact-SHA CI
+  run ``31461141190`` passed all eight jobs and six compatibility cells.
+  Production behavior is unchanged, ``PrecisionConfig.ultra()`` does not add
+  frame transport, and no all-sky or cross-platform accuracy claim is made.
+  See :doc:`development/sci007_frame_accuracy_bound`.
 
 [0.3.0] - 2026-08-02
 --------------------
