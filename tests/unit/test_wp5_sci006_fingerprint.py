@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 import numpy as np
 
 from tools import wp5_sci006_fingerprint as wp5
@@ -12,6 +15,85 @@ _HISTORICAL_HETEROGENEOUS_PY311 = (
 _POST_SCI006_HETEROGENEOUS_PY311 = (
     "9f07661c3348515e5fd1acc478606badd2f4c8a143f67008f8922aabedff04c5"
 )
+_FINGERPRINT_DIFF_SHA256 = (
+    "2a053a4fedeb426ebfeb261ac6e33586121fd931a2299fbbad3d166a08f92ef3"
+)
+
+
+def test_controlled_before_after_diff_is_retained_machine_readably() -> None:
+    """Pin the exact Section 10.5 comparison report as durable evidence."""
+    path = (
+        wp5.characterization.REPO_ROOT
+        / "docs"
+        / "development"
+        / "sci006_fingerprint_diff.json"
+    )
+    raw = path.read_bytes()
+    report = json.loads(raw)
+
+    assert hashlib.sha256(raw).hexdigest() == _FINGERPRINT_DIFF_SHA256
+    assert report["before_git_head"] == "22908c1ef1ab04749e0fddbf7c128ff76c1e30bb"
+    assert report["after_git_head"] == "1efcbc6b1d9b5eeedacaaa01f41dfe02b5999a27"
+    assert report["environment"] == "osx-arm64-py311"
+    assert report["passed"] is True
+
+    unchanged = {
+        "healpix_scalar",
+        "point_unpolarized_1time_2freq",
+    }
+    permuted = {
+        "healpix_polarized",
+        "heterogeneous_receptor_bases",
+        "point_gaussian_morphology",
+        "point_polarized_2times",
+    }
+    assert set(report["workloads"]) == unchanged | permuted | {"feed_asymmetric_gain"}
+    assert {name: row["shape"] for name, row in report["workloads"].items()} == {
+        "feed_asymmetric_gain": [2, 3, 3, 2, 2],
+        "healpix_polarized": [2, 3, 2, 2, 2],
+        "healpix_scalar": [2, 3, 2, 2, 2],
+        "heterogeneous_receptor_bases": [2, 3, 2, 2, 2],
+        "point_gaussian_morphology": [2, 3, 2, 2, 2],
+        "point_polarized_2times": [2, 3, 2, 2, 2],
+        "point_unpolarized_1time_2freq": [1, 3, 2, 2, 2],
+    }
+    for name in unchanged:
+        row = report["workloads"][name]
+        assert row["expected_relation"] == "V_new = V_old (byte-identical)"
+        assert row["before_equals_after_bytes"] is True
+        assert row["after_matches_expected_bytes"] is True
+        assert row["max_abs_after_minus_expected"] == 0.0
+        assert row["passed"] is True
+    for name in permuted:
+        row = report["workloads"][name]
+        assert row["expected_relation"] == "V_new = P V_old P^H (byte-identical)"
+        assert row["before_equals_after_bytes"] is False
+        assert row["after_matches_expected_bytes"] is True
+        assert row["max_abs_after_minus_expected"] == 0.0
+        assert row["passed"] is True
+
+    feed = report["workloads"]["feed_asymmetric_gain"]
+    assert "G and P do not commute" in feed["expected_relation"]
+    assert feed["before_equals_after_bytes"] is False
+    assert feed["after_matches_expected_bytes"] is True
+    assert feed["max_abs_after_minus_expected"] == 0.0
+    assert feed["passed"] is True
+
+    assert set(report["configs"]) == {
+        "config.yaml",
+        "receptor_circular_example.yaml",
+    }
+    assert {name: row["shape"] for name, row in report["configs"].items()} == {
+        "config.yaml": [60, 15, 101, 4],
+        "receptor_circular_example.yaml": [6, 15, 3, 4],
+    }
+    for row in report["configs"].values():
+        assert row["expected_relation"] == "V_new = V_old (byte-identical)"
+        assert row["before_equals_after_bytes"] is True
+        assert row["after_matches_expected_bytes"] is True
+        assert row["scientific_sha256_unchanged"] is True
+        assert row["max_abs_after_minus_expected"] == 0.0
+        assert row["passed"] is True
 
 
 def test_historical_dispatch_digest_is_retained_but_not_an_active_pin() -> None:

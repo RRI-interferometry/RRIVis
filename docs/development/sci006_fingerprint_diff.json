@@ -1,0 +1,136 @@
+{
+  "after_git_head": "1efcbc6b1d9b5eeedacaaa01f41dfe02b5999a27",
+  "before_git_head": "22908c1ef1ab04749e0fddbf7c128ff76c1e30bb",
+  "configs": {
+    "config.yaml": {
+      "after_matches_expected_bytes": true,
+      "before_equals_after_bytes": true,
+      "expected_relation": "V_new = V_old (byte-identical)",
+      "max_abs_after_minus_expected": 0.0,
+      "passed": true,
+      "scientific_sha256_unchanged": true,
+      "shape": [
+        60,
+        15,
+        101,
+        4
+      ]
+    },
+    "receptor_circular_example.yaml": {
+      "after_matches_expected_bytes": true,
+      "before_equals_after_bytes": true,
+      "expected_relation": "V_new = V_old (byte-identical)",
+      "max_abs_after_minus_expected": 0.0,
+      "passed": true,
+      "scientific_sha256_unchanged": true,
+      "shape": [
+        6,
+        15,
+        3,
+        4
+      ]
+    }
+  },
+  "environment": "osx-arm64-py311",
+  "passed": true,
+  "workloads": {
+    "feed_asymmetric_gain": {
+      "after_matches_expected_bytes": true,
+      "before_equals_after_bytes": false,
+      "expected_relation": "feed 0 remains X/east with gain 2; feed 1 remains Y/north with gain 0.5; G and P do not commute",
+      "max_abs_after_minus_expected": 0.0,
+      "passed": true,
+      "shape": [
+        2,
+        3,
+        3,
+        2,
+        2
+      ]
+    },
+    "healpix_polarized": {
+      "after_matches_expected_bytes": true,
+      "before_equals_after_bytes": false,
+      "expected_relation": "V_new = P V_old P^H (byte-identical)",
+      "max_abs_after_minus_expected": 0.0,
+      "passed": true,
+      "shape": [
+        2,
+        3,
+        2,
+        2,
+        2
+      ]
+    },
+    "healpix_scalar": {
+      "after_matches_expected_bytes": true,
+      "before_equals_after_bytes": true,
+      "expected_relation": "V_new = V_old (byte-identical)",
+      "max_abs_after_minus_expected": 0.0,
+      "passed": true,
+      "shape": [
+        2,
+        3,
+        2,
+        2,
+        2
+      ]
+    },
+    "heterogeneous_receptor_bases": {
+      "after_matches_expected_bytes": true,
+      "before_equals_after_bytes": false,
+      "expected_relation": "V_new = P V_old P^H (byte-identical)",
+      "max_abs_after_minus_expected": 0.0,
+      "passed": true,
+      "shape": [
+        2,
+        3,
+        2,
+        2,
+        2
+      ]
+    },
+    "point_gaussian_morphology": {
+      "after_matches_expected_bytes": true,
+      "before_equals_after_bytes": false,
+      "expected_relation": "V_new = P V_old P^H (byte-identical)",
+      "max_abs_after_minus_expected": 0.0,
+      "passed": true,
+      "shape": [
+        2,
+        3,
+        2,
+        2,
+        2
+      ]
+    },
+    "point_polarized_2times": {
+      "after_matches_expected_bytes": true,
+      "before_equals_after_bytes": false,
+      "expected_relation": "V_new = P V_old P^H (byte-identical)",
+      "max_abs_after_minus_expected": 0.0,
+      "passed": true,
+      "shape": [
+        2,
+        3,
+        2,
+        2,
+        2
+      ]
+    },
+    "point_unpolarized_1time_2freq": {
+      "after_matches_expected_bytes": true,
+      "before_equals_after_bytes": true,
+      "expected_relation": "V_new = V_old (byte-identical)",
+      "max_abs_after_minus_expected": 0.0,
+      "passed": true,
+      "shape": [
+        1,
+        3,
+        2,
+        2,
+        2
+      ]
+    }
+  }
+}
