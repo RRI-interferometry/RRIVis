@@ -24,6 +24,7 @@ from radiosim.benchmarks import (
     PERF001_CPU_BACKENDS,
     PERF001_CPU_CANONICAL_INPUT_IDENTITIES,
     PERF001_CPU_WORKLOADS,
+    PERF001_REFERENCE_SOURCE_SHA,
     BenchmarkRecordError,
     WorkloadShape,
     authenticate_perf001_references,
@@ -48,6 +49,28 @@ def _load_tool() -> ModuleType:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _perf001_source_object(relative: str) -> bytes:
+    """Read a phase-varying path from the generating source commit ``S``."""
+    if PERF001_REFERENCE_SOURCE_SHA:
+        source_shas = set(PERF001_REFERENCE_SOURCE_SHA.values())
+        assert len(source_shas) == 1
+        source_sha = next(iter(source_shas))
+    else:
+        source_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+    return subprocess.run(
+        ["git", "show", f"{source_sha}:{relative}"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout
 
 
 @pytest.fixture(scope="module")
@@ -609,8 +632,11 @@ def _preflight_dependencies(tool: ModuleType) -> tuple[object, _PreflightRunner]
 
 def test_preflight_boundaries_are_injectable_and_default_only(
     tool: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dependencies, runner = _preflight_dependencies(tool)
+    monkeypatch.setattr(tool, "_require_empty_reference_manifests", lambda _root: None)
+    monkeypatch.setattr(tool, "_require_empty_reference_namespace", lambda _root: None)
 
     assert tool.preflight_generation("1" * 40, dependencies=dependencies) == "1" * 40
 
@@ -1312,7 +1338,7 @@ def test_cli_evidence_edge_requires_clean_exact_direct_successor(
 def test_acceptance_certificate_allows_only_literal_harness_map_rhs_changes(
     tool: ModuleType,
 ) -> None:
-    source = (REPOSITORY_ROOT / "src/radiosim/benchmarks/harness.py").read_bytes()
+    source = _perf001_source_object("src/radiosim/benchmarks/harness.py")
     evidence = source.replace(
         b"PERF001_REFERENCE_SHA256: dict[str, str] = {}",
         b"PERF001_REFERENCE_SHA256: dict[str, str] = {'artifact': '"
@@ -1344,10 +1370,8 @@ def test_acceptance_certificate_allows_only_literal_harness_map_rhs_changes(
 def test_acceptance_certificate_pins_exact_source_status_documents(
     tool: ModuleType,
 ) -> None:
-    memo = (
-        REPOSITORY_ROOT / "docs/development/perf001_runtime_mitigations.md"
-    ).read_bytes()
-    plan = (REPOSITORY_ROOT / "PostTier8RemediationPlan.md").read_bytes()
+    memo = _perf001_source_object("docs/development/perf001_runtime_mitigations.md")
+    plan = _perf001_source_object("PostTier8RemediationPlan.md")
     assert hashlib.sha256(memo).hexdigest() == tool.ACCEPTED_SOURCE_MEMO_SHA256
     assert hashlib.sha256(plan).hexdigest() == tool.ACCEPTED_SOURCE_PLAN_SHA256
     assert memo.count(tool.EVIDENCE_REPRODUCTION_SENTINEL.encode("utf-8")) == 1
@@ -1542,10 +1566,9 @@ def test_verify_accepted_certificate_binds_exact_s_e_a_and_descendant(
         "Fix.md",
     )
     for relative in source_paths:
-        source = REPOSITORY_ROOT / relative
         destination = repository / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(source.read_bytes())
+        destination.write_bytes(_perf001_source_object(relative))
     monkeypatch.setattr(
         tool,
         "ACCEPTED_SOURCE_MEMO_SHA256",

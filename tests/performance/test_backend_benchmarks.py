@@ -122,6 +122,16 @@ def test_complete_perf001_cpu_generator_assembles_real_in_memory_document(
 ) -> None:
     """Exercise the retained builder without invoking its publication path."""
     repository_root = Path(__file__).resolve().parents[2]
+    reference_directory = repository_root / "output/benchmarks/reference/perf001"
+    reference_before = (
+        {
+            path.relative_to(reference_directory): path.read_bytes()
+            for path in reference_directory.rglob("*")
+            if path.is_file()
+        }
+        if reference_directory.exists()
+        else None
+    )
     tool_path = repository_root / "tools/wp7_perf001_cpu_evidence.py"
     spec = importlib.util.spec_from_file_location(
         "wp7_perf001_cpu_evidence_performance", tool_path
@@ -173,7 +183,16 @@ def test_complete_perf001_cpu_generator_assembles_real_in_memory_document(
             "backend_resolution",
         )
     ) == (24, 8, 4, 6, 3)
-    assert not (repository_root / "output/benchmarks/reference/perf001").exists()
+    reference_after = (
+        {
+            path.relative_to(reference_directory): path.read_bytes()
+            for path in reference_directory.rglob("*")
+            if path.is_file()
+        }
+        if reference_directory.exists()
+        else None
+    )
+    assert reference_after == reference_before
 
 
 def _backend_for(name: str):
