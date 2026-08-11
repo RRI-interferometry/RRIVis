@@ -8,6 +8,7 @@ The design follows the Strategy pattern, enabling runtime selection of simulatio
 algorithms based on problem characteristics (source count, array density, etc.).
 """
 
+import operator
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +24,28 @@ if TYPE_CHECKING:
 import numpy as np
 
 from radiosim.core.jones_terms import EMPTY_JONES_TERMS
+
+
+def _require_kernel_n_sources(
+    n_sources: int,
+    kernel_n_sources: int | None,
+) -> int:
+    """Resolve a non-contracting kernel source count for memory accounting."""
+    if kernel_n_sources is None:
+        return n_sources
+    if isinstance(kernel_n_sources, bool):
+        raise TypeError("kernel_n_sources must be a nonnegative integer or None")
+    try:
+        resolved = operator.index(kernel_n_sources)
+    except TypeError as exc:
+        raise TypeError(
+            "kernel_n_sources must be a nonnegative integer or None"
+        ) from exc
+    if resolved < 0:
+        raise ValueError("kernel_n_sources must be nonnegative")
+    if resolved < n_sources:
+        raise ValueError("kernel_n_sources cannot be smaller than n_sources")
+    return resolved
 
 
 class VisibilitySimulator(ABC):
@@ -334,6 +357,8 @@ class VisibilitySimulator(ABC):
         n_frequencies: int,
         n_times: int = 1,
         polarized: bool = True,
+        *,
+        kernel_n_sources: int | None = None,
     ) -> dict[str, Any]:
         """
         Estimate memory requirements for the simulation.
@@ -355,7 +380,12 @@ class VisibilitySimulator(ABC):
         n_times : int, optional
             Number of time steps (default 1).
         polarized : bool, optional
-            Whether using full polarization (default True).
+            Whether the logical sky carries full Stokes polarization. It never
+            changes the 2x2 visibility/Jones matrix shape.
+        kernel_n_sources : int, optional
+            Source-axis size actually presented to backend kernels. ``None``
+            uses the logical source count. A compiling backend may use a
+            larger scheduling bucket without changing ``n_sources``.
 
         Returns
         -------
@@ -375,29 +405,41 @@ class VisibilitySimulator(ABC):
         >>> mem = sim.get_memory_estimate(
         ...     n_antennas=350, n_baselines=61425, n_sources=10000, n_frequencies=1024
         ... )
-        >>> print(f"Estimated memory: {mem['total_human']}")
-        Estimated memory: 3.9 GB
+        >>> mem["total_bytes"] > mem["output_bytes"]
+        True
         """
+        resolved_kernel_sources = _require_kernel_n_sources(
+            n_sources,
+            kernel_n_sources,
+        )
         # Bytes per complex number (complex128 = 16 bytes)
         bytes_per_complex = 16
 
-        # Polarization factor (2×2 matrix vs scalar)
-        pol_factor = 4 if polarized else 1
+        # Every shipped visibility path returns a 2x2 receptor matrix, including
+        # an I-only sky. ``polarized`` can affect source-only storage in a
+        # subclass, never the output or Jones matrix shape.
+        matrix_factor = 4
 
-        # Output visibilities: n_baselines × n_freq × n_times × pol_factor
+        # Output visibilities: n_baselines × n_freq × n_times × 2 × 2
         output_bytes = (
-            n_baselines * n_frequencies * n_times * pol_factor * bytes_per_complex
+            n_baselines * n_frequencies * n_times * matrix_factor * bytes_per_complex
         )
 
         # Working memory estimate (varies by algorithm)
         # Default: assume we need source arrays, beam patterns, intermediate results
         # This is a rough estimate; subclasses should override for accuracy
         working_bytes = (
-            n_sources * n_frequencies * bytes_per_complex * 2  # Source flux arrays
-            + n_antennas * n_frequencies * pol_factor * bytes_per_complex  # Beam arrays
+            resolved_kernel_sources
+            * n_frequencies
+            * bytes_per_complex
+            * 2  # Source flux arrays
+            + n_antennas
+            * n_frequencies
+            * matrix_factor
+            * bytes_per_complex  # Beam arrays
             + n_baselines
             * n_frequencies
-            * pol_factor
+            * matrix_factor
             * bytes_per_complex  # Intermediate
         )
 
@@ -405,11 +447,12 @@ class VisibilitySimulator(ABC):
 
         # Human-readable formatting
         def format_bytes(b: int) -> str:
+            value = float(b)
             for unit in ["B", "KB", "MB", "GB", "TB"]:
-                if b < 1024:
-                    return f"{b:.1f} {unit}"
-                b /= 1024
-            return f"{b:.1f} PB"
+                if value < 1024:
+                    return f"{value:.1f} {unit}"
+                value /= 1024
+            return f"{value:.1f} PB"
 
         # Warning thresholds
         warning = None
@@ -432,6 +475,8 @@ class VisibilitySimulator(ABC):
                 "n_antennas": n_antennas,
                 "n_baselines": n_baselines,
                 "n_sources": n_sources,
+                "logical_n_sources": n_sources,
+                "kernel_n_sources": resolved_kernel_sources,
                 "n_frequencies": n_frequencies,
                 "n_times": n_times,
                 "polarized": polarized,

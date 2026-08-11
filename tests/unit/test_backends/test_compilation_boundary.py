@@ -76,17 +76,18 @@ def test_jax_backend_reports_and_performs_compilation() -> None:
 
 
 def test_only_a_compiling_backend_gets_a_compiled_kernel() -> None:
-    """The uncompiled function stays the reference and is what NumPy executes."""
+    """The outer scheduler preserves exactly one compiled six-input leaf."""
     numpy_kernel = baseline_contraction_for(NumPyBackend())
     dask_kernel = baseline_contraction_for(DaskBackend(mode="cpu"))
     jax_kernel = baseline_contraction_for(get_backend("jax", device="cpu"))
 
-    # Not compiled: a plain Python closure with the module's own reference in it.
+    # Every returned object is now the plain Python baseline scheduler. The JAX
+    # compilation boundary is its private leaf rather than the outer wrapper.
     assert numpy_kernel.__closure__ is not None
     assert dask_kernel.__closure__ is not None
-    # Compiled: jax.jit wraps rather than returns the closure.
+    assert jax_kernel.__closure__ is not None
     assert not hasattr(numpy_kernel, "lower")
-    assert hasattr(jax_kernel, "lower")
+    assert not hasattr(jax_kernel, "lower")
 
 
 @pytest.mark.parametrize("polarized", [True, False])

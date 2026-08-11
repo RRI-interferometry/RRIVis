@@ -413,6 +413,7 @@ def test_memory_estimation_uses_canonical_selected_inventory_counts(tmp_path):
         "n_antennas": 2,
         "n_baselines": 3,
         "n_sources": 4,
+        "kernel_n_sources": 4,
         "n_frequencies": 5,
         "n_times": 1,
     }

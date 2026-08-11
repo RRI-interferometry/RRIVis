@@ -28,9 +28,15 @@ if TYPE_CHECKING:
 
 import numpy as np
 
+from radiosim.core.contraction import (  # pyright: ignore[reportPrivateUsage]
+    _TARGET_KERNEL_PAIRS,
+)
 from radiosim.core.jones_terms import EMPTY_JONES_TERMS
 from radiosim.core.solver_partition import SERIAL_SOLVER_EXECUTION
-from radiosim.simulator.base import VisibilitySimulator
+from radiosim.simulator.base import (  # pyright: ignore[reportPrivateUsage]
+    VisibilitySimulator,
+    _require_kernel_n_sources,
+)
 
 
 class RIMESimulator(VisibilitySimulator):
@@ -273,15 +279,16 @@ class RIMESimulator(VisibilitySimulator):
         n_frequencies: int,
         n_times: int = 1,
         polarized: bool = True,
+        *,
+        kernel_n_sources: int | None = None,
     ) -> dict[str, Any]:
         """
         Estimate memory requirements for RIME simulation.
 
-        The RIME algorithm requires memory for:
-        1. Output visibilities: N_bl × N_freq × N_times × (4 if polarized)
-        2. Source arrays: N_src × N_freq for flux, direction cosines
-        3. Beam patterns: N_ant × N_freq × (4 if polarized)
-        4. Jones matrices: N_ant × N_src × N_freq × (4 if polarized)
+        The estimate distinguishes the complete caller-owned baseline/source
+        inputs from the source-dependent working set of one contraction leaf.
+        P-a bounds only the latter; output and wrapper assembly storage still
+        grow with the logical baseline count.
 
         Parameters
         ----------
@@ -296,48 +303,143 @@ class RIMESimulator(VisibilitySimulator):
         n_times : int, optional
             Number of time steps (default 1).
         polarized : bool, optional
-            Whether using full polarization (default True).
+            Whether the logical sky carries full Stokes polarization. The RIME
+            output, Jones inputs, and contraction intermediates remain 2x2
+            matrices for an I-only sky.
+        kernel_n_sources : int, optional
+            Source-axis size actually presented to the contraction. ``None``
+            uses ``n_sources``. A compiling backend can pass the next
+            power-of-two bucket, which remains strictly less than twice the
+            positive logical count.
 
         Returns
         -------
         dict
             Memory estimates with human-readable sizes.
         """
+        resolved_kernel_sources = _require_kernel_n_sources(
+            n_sources,
+            kernel_n_sources,
+        )
         bytes_per_complex = 16  # complex128
-        pol_factor = 4 if polarized else 1
+        bytes_per_real = 8  # float64
+        matrix_factor = 4  # every RIME visibility/Jones value is 2x2
 
-        # Output: baselines × freq × time × polarization
+        # Output: baselines × freq × time × 2 × 2, even for an I-only sky.
         output_bytes = (
-            n_baselines * n_frequencies * n_times * pol_factor * bytes_per_complex
+            n_baselines * n_frequencies * n_times * matrix_factor * bytes_per_complex
         )
 
-        # Working memory for RIME:
-        # - Source flux arrays: n_src × n_freq × complex
-        # - Direction cosines (l, m, n): 3 × n_src × 8 bytes (float64)
-        # - Stokes parameters: 4 × n_src × 8 bytes
-        # - Beam patterns per antenna: n_ant × n_freq × pol_factor × complex
-        # - Per-source Jones matrices (peak): n_src × pol_factor × complex
-        source_arrays = n_sources * n_frequencies * bytes_per_complex
-        direction_cosines = 3 * n_sources * 8
-        stokes_params = 4 * n_sources * 8
-        beam_arrays = n_antennas * n_frequencies * pol_factor * bytes_per_complex
-        jones_working = n_sources * pol_factor * bytes_per_complex * 2  # Two antennas
+        # The logical catalog remains alive while one horizon-selected batch is
+        # padded. Count the largest fixed-width forms used by either point or
+        # HEALPix input: four per-channel Stokes arrays, l/m/n, scalar Stokes,
+        # and RA/Dec plus spectral/morphology metadata.
+        source_arrays = 4 * n_sources * n_frequencies * bytes_per_real
+        direction_cosines = 3 * n_sources * bytes_per_real
+        stokes_params = 4 * n_sources * bytes_per_real
+        logical_source_metadata = 8 * n_sources * bytes_per_real
 
-        working_bytes = (
-            source_arrays
-            + direction_cosines
-            + stokes_params
-            + beam_arrays
-            + jones_working
+        # P-b first creates five padded horizontal/direction arrays, then
+        # DirectionBatch owns eight float64 copies. The point path can also
+        # retain four Stokes signals, three spectral scalars, three Gaussian
+        # morphology arrays, and four per-channel Stokes arrays. Counting all
+        # fixed-width optional arrays simultaneously is deliberately
+        # conservative and covers the smaller HEALPix payload as well.
+        padded_host_directions = 5 * resolved_kernel_sources * bytes_per_real
+        direction_batch_host_arrays = 8 * resolved_kernel_sources * bytes_per_real
+        fixed_signal_metadata_arrays = 10 + 4 * n_frequencies
+        padded_host_signal_metadata = (
+            fixed_signal_metadata_arrays * resolved_kernel_sources * bytes_per_real
         )
+
+        # Backend copies coexist with the host batch. l/m/n plus the fixed
+        # signal/metadata payload are included; DirectionBatch itself stays
+        # host-owned and is counted immediately above.
+        backend_source_only_arrays = (
+            (3 + fixed_signal_metadata_arrays)
+            * resolved_kernel_sources
+            * bytes_per_real
+        )
+        # Point-polarized and both HEALPix paths can materialize an explicit
+        # per-source 2x2 coherency. This worst case also safely covers the point
+        # I-only specialization's smaller Stokes-I vector.
+        source_only_coherency_or_stokes = (
+            resolved_kernel_sources * matrix_factor * bytes_per_complex
+        )
+        # One time/frequency step retains per-antenna Jones evaluations at the
+        # actual kernel source count before gathering the selected baselines.
+        beam_arrays = (
+            n_antennas * resolved_kernel_sources * matrix_factor * bytes_per_complex
+        )
+
+        # These complete B*S inputs are constructed before P-a scheduling, so
+        # baseline chunking does not bound them. The envelope is a conservative
+        # complex array worst case: it can instead be scalar or real depending
+        # on the configured morphology and baseline terms.
+        caller_jones_inputs = (
+            2
+            * n_baselines
+            * resolved_kernel_sources
+            * matrix_factor
+            * bytes_per_complex
+        )
+        caller_phase_input = n_baselines * resolved_kernel_sources * bytes_per_complex
+        caller_array_envelope = (
+            n_baselines * resolved_kernel_sources * bytes_per_complex
+        )
+
+        if n_baselines == 0 or resolved_kernel_sources == 0:
+            max_kernel_baselines = 0
+            max_kernel_pair_count = 0
+        else:
+            max_kernel_baselines = max(
+                1,
+                min(
+                    n_baselines,
+                    _TARGET_KERNEL_PAIRS // resolved_kernel_sources,
+                ),
+            )
+            max_kernel_pair_count = max_kernel_baselines * resolved_kernel_sources
+
+        # Two matrix-product-sized intermediates, one weighted product, and one
+        # scalar weight are the bounded source-dependent leaf component. This
+        # is 208 bytes/pair for either polarization mode at complex128.
+        contraction_leaf_working = (
+            max_kernel_pair_count * bytes_per_complex * (3 * matrix_factor + 1)
+        )
+        # At concatenation, retained chunk outputs and the assembled output can
+        # coexist. This remains O(B) and is deliberately outside the leaf bound.
+        contraction_output_assembly = (
+            2 * n_baselines * matrix_factor * bytes_per_complex
+        )
+
+        breakdown_bytes = {
+            "source_arrays": source_arrays,
+            "direction_cosines": direction_cosines,
+            "stokes_parameters": stokes_params,
+            "logical_source_metadata": logical_source_metadata,
+            "padded_host_directions": padded_host_directions,
+            "direction_batch_host_arrays": direction_batch_host_arrays,
+            "padded_host_signal_metadata": padded_host_signal_metadata,
+            "backend_source_only_arrays": backend_source_only_arrays,
+            "source_only_coherency_or_stokes": source_only_coherency_or_stokes,
+            "beam_patterns": beam_arrays,
+            "caller_jones_inputs": caller_jones_inputs,
+            "caller_phase_input": caller_phase_input,
+            "caller_array_envelope": caller_array_envelope,
+            "contraction_leaf_working": contraction_leaf_working,
+            "contraction_output_assembly": contraction_output_assembly,
+        }
+        working_bytes = sum(breakdown_bytes.values())
         total_bytes = output_bytes + working_bytes
 
         def format_bytes(b: int) -> str:
+            value = float(b)
             for unit in ["B", "KB", "MB", "GB", "TB"]:
-                if b < 1024:
-                    return f"{b:.1f} {unit}"
-                b /= 1024
-            return f"{b:.1f} PB"
+                if value < 1024:
+                    return f"{value:.1f} {unit}"
+                value /= 1024
+            return f"{value:.1f} PB"
 
         warning = None
         if total_bytes > 16 * 1024**3:
@@ -363,13 +465,28 @@ class RIMESimulator(VisibilitySimulator):
                 "n_antennas": n_antennas,
                 "n_baselines": n_baselines,
                 "n_sources": n_sources,
+                "logical_n_sources": n_sources,
+                "kernel_n_sources": resolved_kernel_sources,
                 "n_frequencies": n_frequencies,
                 "n_times": n_times,
                 "polarized": polarized,
+                "matrix_factor": matrix_factor,
+                "target_kernel_pairs": _TARGET_KERNEL_PAIRS,
+                "max_kernel_baselines": max_kernel_baselines,
+                "max_kernel_pair_count": max_kernel_pair_count,
+                "caller_array_envelope_assumption": (
+                    "conservative optional complex baseline-source array"
+                ),
+                "estimate_limitations": (
+                    "All fixed-width point and HEALPix padded arrays are counted "
+                    "concurrently. Additional variable-width spectral "
+                    "coefficients are excluded because their coefficient width "
+                    "is not an input to this API. Native allocator overhead and "
+                    "parallel worker multiplication are also excluded."
+                ),
             },
+            "breakdown_bytes": breakdown_bytes,
             "breakdown": {
-                "source_arrays": format_bytes(source_arrays),
-                "direction_cosines": format_bytes(direction_cosines),
-                "beam_patterns": format_bytes(beam_arrays),
+                name: format_bytes(value) for name, value in breakdown_bytes.items()
             },
         }

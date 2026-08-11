@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import inspect
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from radiosim.api import Simulator
+from radiosim.core.precision import PrecisionConfig
 from radiosim.core.result import ResultUnavailableError, SimulationResult
 from radiosim.io.result_format import ResultFormat
 from tests.fixtures.configs import valid_config_mapping
@@ -231,6 +233,78 @@ def test_memory_estimate_uses_exact_canonical_time_count(tmp_path, monkeypatch):
     simulator.get_memory_estimate()
 
     assert captured["n_times"] == len(simulator.config.observation.time_grid) == 3
+    assert captured["kernel_n_sources"] == captured["n_sources"]
+
+
+def test_memory_estimate_uses_power_of_two_kernel_count_only_for_compilation(
+    tmp_path,
+    monkeypatch,
+):
+    simulator = Simulator.from_mapping(_mapping(tmp_path), base_dir=tmp_path)
+    simulator.setup()
+    captured: dict[str, object] = {}
+
+    def estimate(**kwargs):
+        captured.update(kwargs)
+        return {"total_bytes": 1, "total_human": "1 B"}
+
+    monkeypatch.setattr(simulator._simulator, "get_memory_estimate", estimate)
+    monkeypatch.setattr(simulator, "_solved_sky_element_count", lambda: 65)
+    simulator._backend = SimpleNamespace(supports_compilation=True, precision=None)
+
+    simulator.get_memory_estimate()
+
+    assert captured["n_sources"] == 65
+    assert captured["kernel_n_sources"] == 128
+
+
+@pytest.mark.parametrize("preset_name", ["fast", "precise"])
+def test_memory_precision_scaling_preserves_all_byte_invariants(
+    tmp_path,
+    monkeypatch,
+    preset_name,
+):
+    simulator = Simulator.from_mapping(_mapping(tmp_path), base_dir=tmp_path)
+    simulator.setup()
+    precision = getattr(PrecisionConfig, preset_name)()
+    factor = precision.estimate_memory_factor()
+    raw_output = 307
+    raw_breakdown = {"first": 101, "second": 203}
+
+    def estimate(**_kwargs):
+        working = sum(raw_breakdown.values())
+        return {
+            "output_bytes": raw_output,
+            "working_bytes": working,
+            "total_bytes": raw_output + working,
+            "output_human": "stale",
+            "working_human": "stale",
+            "total_human": "stale",
+            "breakdown_bytes": dict(raw_breakdown),
+            "breakdown": dict.fromkeys(raw_breakdown, "stale"),
+        }
+
+    monkeypatch.setattr(simulator._simulator, "get_memory_estimate", estimate)
+    simulator._backend = SimpleNamespace(
+        supports_compilation=False,
+        precision=precision,
+    )
+
+    scaled = simulator.get_memory_estimate()
+
+    expected_breakdown = {
+        name: int(value * factor) for name, value in raw_breakdown.items()
+    }
+    expected_output = int(raw_output * factor)
+    assert scaled["precision_factor"] == factor
+    assert scaled["breakdown_bytes"] == expected_breakdown
+    assert scaled["working_bytes"] == sum(expected_breakdown.values())
+    assert scaled["output_bytes"] == expected_output
+    assert scaled["total_bytes"] == expected_output + sum(expected_breakdown.values())
+    assert scaled["output_human"] != "stale"
+    assert scaled["working_human"] != "stale"
+    assert scaled["total_human"] != "stale"
+    assert all(value != "stale" for value in scaled["breakdown"].values())
 
 
 def test_save_requires_result_and_plot_remains_unavailable_without_side_effects(

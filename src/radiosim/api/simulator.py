@@ -114,6 +114,16 @@ def _runtime_loader_value(value: Any) -> Any:
     return value
 
 
+def _format_memory_bytes(value: int) -> str:
+    """Format one nonnegative byte count using binary unit boundaries."""
+    amount = float(value)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if amount < 1024:
+            return f"{amount:.1f} {unit}"
+        amount /= 1024
+    return f"{amount:.1f} PB"
+
+
 class Simulator:
     """
     High-level API for radio interferometry visibility simulation.
@@ -1647,34 +1657,69 @@ class Simulator:
             self.setup()
 
         # Get base memory estimate
+        logical_n_sources = self._solved_sky_element_count()
+        kernel_n_sources = logical_n_sources
+        if logical_n_sources > 0 and bool(
+            getattr(self._backend, "supports_compilation", False)
+        ):
+            kernel_n_sources = 1 << (logical_n_sources - 1).bit_length()
+
         estimate = self._simulator.get_memory_estimate(
             n_antennas=len(self.antennas),
             n_baselines=len(self.baselines),
-            n_sources=self._solved_sky_element_count(),
+            n_sources=logical_n_sources,
             n_frequencies=len(self._frequencies_hz),
             n_times=len(self._resolved.observation.time_grid),
+            kernel_n_sources=kernel_n_sources,
         )
 
-        # Adjust for precision if configured
-        if self._backend.precision:
-            precision_factor = self._backend.precision.estimate_memory_factor()
-            estimate["precision_factor"] = precision_factor
+        # Apply the existing approximate precision factor to every byte leaf,
+        # then derive aggregates from those scaled leaves. Scaling ``total`` in
+        # isolation made the returned breakdown internally contradictory.
+        precision = getattr(self._backend, "precision", None)
+        precision_factor = (
+            precision.estimate_memory_factor() if precision is not None else 1.0
+        )
+        estimate["precision_factor"] = precision_factor
 
-            # Adjust byte estimates
-            if "total_bytes" in estimate:
-                estimate["total_bytes"] = int(
-                    estimate["total_bytes"] * precision_factor
-                )
-                # Update human-readable string
-                total_bytes = estimate["total_bytes"]
-                if total_bytes > 1e9:
-                    estimate["total_human"] = f"{total_bytes / 1e9:.1f} GB"
-                elif total_bytes > 1e6:
-                    estimate["total_human"] = f"{total_bytes / 1e6:.1f} MB"
-                else:
-                    estimate["total_human"] = f"{total_bytes / 1e3:.1f} KB"
-        else:
-            estimate["precision_factor"] = 1.0
+        breakdown_bytes = estimate.get("breakdown_bytes")
+        if isinstance(breakdown_bytes, Mapping):
+            scaled_breakdown = {
+                str(name): int(int(value) * precision_factor)
+                for name, value in breakdown_bytes.items()
+            }
+            estimate["breakdown_bytes"] = scaled_breakdown
+            estimate["breakdown"] = {
+                name: _format_memory_bytes(value)
+                for name, value in scaled_breakdown.items()
+            }
+            estimate["working_bytes"] = sum(scaled_breakdown.values())
+        elif "working_bytes" in estimate:
+            estimate["working_bytes"] = int(
+                int(estimate["working_bytes"]) * precision_factor
+            )
+
+        if "output_bytes" in estimate:
+            estimate["output_bytes"] = int(
+                int(estimate["output_bytes"]) * precision_factor
+            )
+
+        if "output_bytes" in estimate and "working_bytes" in estimate:
+            estimate["total_bytes"] = int(estimate["output_bytes"]) + int(
+                estimate["working_bytes"]
+            )
+        elif "total_bytes" in estimate:
+            estimate["total_bytes"] = int(
+                int(estimate["total_bytes"]) * precision_factor
+            )
+
+        for byte_key, human_key in (
+            ("output_bytes", "output_human"),
+            ("working_bytes", "working_human"),
+            ("total_bytes", "total_human"),
+        ):
+            if byte_key in estimate:
+                estimate[human_key] = _format_memory_bytes(int(estimate[byte_key]))
 
         return estimate
 
