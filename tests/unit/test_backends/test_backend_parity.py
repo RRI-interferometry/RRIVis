@@ -34,9 +34,13 @@ from radiosim.api import Simulator
 from radiosim.backends import get_backend
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.sky import HealpixData, SkyModel
+from radiosim.core.source_bucketing import IDENTITY_SOURCE_BUCKET_POLICY
 from radiosim.core.time_grid import build_observation_time_grid
-from radiosim.core.visibility import calculate_visibility
-from radiosim.core.visibility_healpix import calculate_visibility_healpix
+from radiosim.core.visibility import _calculate_visibility, calculate_visibility
+from radiosim.core.visibility_healpix import (
+    _calculate_visibility_healpix,
+    calculate_visibility_healpix,
+)
 from tests.fixtures.configs import valid_config_mapping
 
 # Section 13.5 tolerance for float64 accumulation.
@@ -70,25 +74,54 @@ def _solver_components(tmp_path: Path, **overrides: Any):
     )
 
 
-def _point_sources(*, polarized: bool, gaussian: bool) -> dict[str, Any]:
-    n = 2
+def _point_sources(
+    *,
+    polarized: bool,
+    gaussian: bool,
+    n_sources: int = 2,
+    per_channel: bool = False,
+) -> dict[str, Any]:
+    n = n_sources
     zeros = np.zeros(n, dtype=np.float64)
+    q = zeros.copy()
+    u_stokes = zeros.copy()
+    v = zeros.copy()
+    if polarized:
+        q[0] = 0.2
+        u_stokes[min(1, n - 1)] = 0.1
+        v[0] = 0.05
+    flux = np.linspace(2.0, 1.0, n, dtype=np.float64)
+    per_channel_flux = (
+        np.vstack([flux, flux * 1.1]).astype(np.float64) if per_channel else None
+    )
     return {
-        "ra_rad": np.array([LST_RAD, LST_RAD + 0.01], dtype=np.float64),
-        "dec_rad": np.array([-0.536, -0.526], dtype=np.float64),
-        "flux": np.array([2.0, 1.0], dtype=np.float64),
-        "spectral_index": np.array([-0.7, -0.8], dtype=np.float64),
-        "stokes_q": np.array([0.2, 0.0]) if polarized else zeros.copy(),
-        "stokes_u": np.array([0.0, 0.1]) if polarized else zeros.copy(),
-        "stokes_v": np.array([0.05, 0.0]) if polarized else zeros.copy(),
+        "ra_rad": LST_RAD + np.arange(n, dtype=np.float64) * 0.01,
+        "dec_rad": -0.536 + np.arange(n, dtype=np.float64) * 0.01,
+        "flux": flux,
+        "spectral_index": np.linspace(-0.7, -0.8, n, dtype=np.float64),
+        "stokes_q": q,
+        "stokes_u": u_stokes,
+        "stokes_v": v,
         "ref_freq": np.full(n, 100e6, dtype=np.float64),
         "rotation_measure": zeros.copy(),
         "spectral_coeffs": None,
-        "per_channel_flux": None,
-        "per_channel_stokes_q": None,
-        "per_channel_stokes_u": None,
-        "per_channel_stokes_v": None,
-        "channel_frequencies": None,
+        "per_channel_flux": per_channel_flux,
+        "per_channel_stokes_q": (
+            np.vstack([q, q * 1.1]).astype(np.float64)
+            if polarized and per_channel
+            else None
+        ),
+        "per_channel_stokes_u": (
+            np.vstack([u_stokes, u_stokes * 1.1]).astype(np.float64)
+            if polarized and per_channel
+            else None
+        ),
+        "per_channel_stokes_v": (
+            np.vstack([v, v * 1.1]).astype(np.float64)
+            if polarized and per_channel
+            else None
+        ),
+        "channel_frequencies": FREQUENCIES.copy() if per_channel else None,
         "major_arcsec": np.full(n, 120.0) if gaussian else zeros.copy(),
         "minor_arcsec": np.full(n, 60.0) if gaussian else zeros.copy(),
         "pa_deg": np.full(n, 30.0) if gaussian else zeros.copy(),
@@ -130,27 +163,56 @@ def _run_point(
     gaussian: bool = False,
     heterogeneous: bool = False,
     single_time: bool = False,
+    n_sources: int = 2,
+    per_channel: bool = False,
+    source_bucket_policy: str | None = None,
 ) -> np.ndarray:
     overrides = {"receptors": _HETEROGENEOUS_RECEPTORS} if heterogeneous else {}
     instrument, beam_system, receptors = _solver_components(tmp_path, **overrides)
     backend = _backend(backend_name)
-    cube = calculate_visibility(
+    solver = (
+        calculate_visibility if source_bucket_policy is None else _calculate_visibility
+    )
+    kwargs: dict[str, Any] = {}
+    if source_bucket_policy is not None:
+        kwargs["_source_bucket_policy"] = source_bucket_policy
+    cube = solver(
         instrument=instrument,
         beam_system=beam_system,
-        source_arrays=_point_sources(polarized=polarized, gaussian=gaussian),
+        source_arrays=_point_sources(
+            polarized=polarized,
+            gaussian=gaussian,
+            n_sources=n_sources,
+            per_channel=per_channel,
+        ),
         location=LOCATION,
         time_grid=SINGLE_TIME_GRID if single_time else TIME_GRID,
         frequencies=FREQUENCIES,
         backend=backend,
         receptors=receptors,
+        **kwargs,
     )
     return np.asarray(backend.to_numpy(cube))
 
 
-def _run_healpix(backend_name: str, tmp_path: Path, *, polarized: bool) -> np.ndarray:
+def _run_healpix(
+    backend_name: str,
+    tmp_path: Path,
+    *,
+    polarized: bool,
+    source_bucket_policy: str | None = None,
+) -> np.ndarray:
     instrument, beam_system, receptors = _solver_components(tmp_path)
     backend = _backend(backend_name)
-    cube = calculate_visibility_healpix(
+    solver = (
+        calculate_visibility_healpix
+        if source_bucket_policy is None
+        else _calculate_visibility_healpix
+    )
+    kwargs: dict[str, Any] = {}
+    if source_bucket_policy is not None:
+        kwargs["_source_bucket_policy"] = source_bucket_policy
+    cube = solver(
         _healpix_model(polarized=polarized),
         instrument=instrument,
         beam_system=beam_system,
@@ -160,6 +222,7 @@ def _run_healpix(backend_name: str, tmp_path: Path, *, polarized: bool) -> np.nd
         backend=backend,
         receptors=receptors,
         include_polarization=polarized,
+        **kwargs,
     )
     return np.asarray(backend.to_numpy(cube))
 
@@ -242,6 +305,107 @@ def test_hybrid_parity_row_also_satisfies_the_additivity_invariant(tmp_path) -> 
     summed = _run_hybrid("jax", tmp_path)
 
     assert np.array_equal(summed, point + healpix)
+
+
+@pytest.mark.parametrize(
+    "workload",
+    [
+        "point_unpolarized",
+        "point_polarized_gaussian",
+        "point_polarized_per_channel",
+        "healpix_scalar",
+        "healpix_polarized",
+    ],
+)
+def test_p_b_jax_bucketed_solver_matches_same_solver_identity_control(
+    tmp_path,
+    workload: str,
+) -> None:
+    """P-b dummy slots remain neutral through complete point/HEALPix routes."""
+
+    def run(policy: str | None) -> np.ndarray:
+        if workload == "point_unpolarized":
+            return _run_point(
+                "jax",
+                tmp_path,
+                polarized=False,
+                n_sources=3,
+                source_bucket_policy=policy,
+            )
+        if workload == "point_polarized_gaussian":
+            return _run_point(
+                "jax",
+                tmp_path,
+                polarized=True,
+                gaussian=True,
+                n_sources=3,
+                source_bucket_policy=policy,
+            )
+        if workload == "point_polarized_per_channel":
+            return _run_point(
+                "jax",
+                tmp_path,
+                polarized=True,
+                n_sources=3,
+                per_channel=True,
+                source_bucket_policy=policy,
+            )
+        return _run_healpix(
+            "jax",
+            tmp_path,
+            polarized=workload == "healpix_polarized",
+            source_bucket_policy=policy,
+        )
+
+    reference = run(IDENTITY_SOURCE_BUCKET_POLICY)
+    candidate = run(None)
+
+    assert float(np.max(np.abs(reference))) > 0.0
+    assert_within_section_13_5(reference, candidate)
+
+
+@pytest.mark.parametrize("backend_name", ["numpy", "dask"])
+@pytest.mark.parametrize("solver_kind", ["point", "healpix"])
+def test_p_b_noncompiling_backends_are_byte_identical_to_identity_control(
+    tmp_path,
+    backend_name: str,
+    solver_kind: str,
+) -> None:
+    """P-b does not pad or reorder NumPy/Dask source arrays."""
+    if solver_kind == "point":
+        reference = _run_point(
+            backend_name,
+            tmp_path,
+            polarized=True,
+            gaussian=True,
+            n_sources=3,
+            per_channel=True,
+            source_bucket_policy=IDENTITY_SOURCE_BUCKET_POLICY,
+        )
+        candidate = _run_point(
+            backend_name,
+            tmp_path,
+            polarized=True,
+            gaussian=True,
+            n_sources=3,
+            per_channel=True,
+        )
+    else:
+        reference = _run_healpix(
+            backend_name,
+            tmp_path,
+            polarized=True,
+            source_bucket_policy=IDENTITY_SOURCE_BUCKET_POLICY,
+        )
+        candidate = _run_healpix(
+            backend_name,
+            tmp_path,
+            polarized=True,
+        )
+
+    assert candidate.dtype == reference.dtype
+    assert np.array_equal(candidate, reference)
+    assert candidate.tobytes() == reference.tobytes()
 
 
 def test_parity_is_measured_rather_than_skipped() -> None:

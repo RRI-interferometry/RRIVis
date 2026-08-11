@@ -55,6 +55,13 @@ from radiosim.core.solver_partition import (
     execute_time_blocks,
     require_solver_execution,
 )
+from radiosim.core.source_bucketing import (
+    PRODUCTION_SOURCE_BUCKET_POLICY,
+    _pad_host_repeated,
+    _pad_host_zeros,
+    _require_source_bucket_policy,
+    _resolve_source_bucket,
+)
 
 # The chain builder, the run-constant receptor terms, and the sidereal-time host
 # stage are shared with the point solver rather than reimplemented here.  That
@@ -166,12 +173,12 @@ def _host_visible_stokes(
     This is the single host cast ``Tier6HybridRuntimePlan.md`` Section 13.2
     allows on the HEALPix sky-data path: boolean-mask a HEALPix map (which is
     always a host NumPy array, because it came from healpy or a FITS reader) and
-    promote it to ``float64``. Everything downstream of it -- the
-    Rayleigh-Jeans scaling, the coherency assembly, the contraction -- is
-    backend-routed.
+    promote it to ``float64``. P-b performs the scalar physical-unit conversion
+    on this logical host array, appends exact-zero flux, and then crosses the
+    backend boundary. Coherency assembly and contraction remain backend-routed.
 
-    Returns ``None`` when the map is absent, so the caller can supply a backend
-    zero array rather than a host one.
+    Returns ``None`` when the map is absent, so the caller can supply an exact
+    zero host array at the scheduled kernel size before backend conversion.
     """
     if stokes_map is None:
         return None
@@ -243,7 +250,7 @@ def compute_beam_squared_integral(
     return float(np.sum(beam_power * pixel_solid_angle))
 
 
-def calculate_visibility_healpix(
+def _calculate_visibility_healpix(
     sky_model: SkyModel,
     instrument: "SolverInstrumentView",
     beam_system: BeamSystem,
@@ -256,6 +263,8 @@ def calculate_visibility_healpix(
     output_units: str = "Jy",
     include_polarization: bool = False,
     solver_execution: ResolvedSolverExecutionConfig = SERIAL_SOLVER_EXECUTION,
+    *,
+    _source_bucket_policy: str = PRODUCTION_SOURCE_BUCKET_POLICY,
 ) -> Any:
     """
     Calculate visibility directly from HEALPix brightness temperature map.
@@ -339,6 +348,7 @@ def calculate_visibility_healpix(
     receptors = _require_receptors(receptors)
     jones_terms = _require_jones_terms(jones_terms)
     solver_execution = require_solver_execution(solver_execution)
+    source_bucket_policy = _require_source_bucket_policy(_source_bucket_policy)
     if sky_model.healpix is None:
         raise ValueError(
             "sky_model must contain a HEALPix payload. "
@@ -454,12 +464,33 @@ def calculate_visibility_healpix(
                 )
             return empty_block[0]
 
-        n_visible = np.sum(above_horizon)
+        logical_n_visible = int(np.sum(above_horizon))
+        source_bucket = _resolve_source_bucket(
+            logical_n_visible,
+            supports_compilation=backend.supports_compilation,
+            policy=source_bucket_policy,
+        )
 
         dir_l, dir_m, dir_n = _host_direction_cosines(alt_vis, az_vis)
+        # P-b repeats a finite real visible direction before any backend or
+        # Jones work. Signal is converted from logical HEALPix temperatures and
+        # zero-padded separately inside the frequency loop below.
+        alt_vis = _pad_host_repeated(alt_vis, source_bucket)
+        az_vis = _pad_host_repeated(az_vis, source_bucket)
+        dir_l = _pad_host_repeated(dir_l, source_bucket)
+        dir_m = _pad_host_repeated(dir_m, source_bucket)
+        dir_n = _pad_host_repeated(dir_n, source_bucket)
         dir_l_xp = backend.asarray(dir_l, dtype=backend.default_real_dtype)
         dir_m_xp = backend.asarray(dir_m, dtype=backend.default_real_dtype)
         dir_n_xp = backend.asarray(dir_n, dtype=backend.default_real_dtype)
+        kernel_n_visible = source_bucket.kernel_count
+        logger.debug(
+            "HEALPix source bucket at time step %d/%d: logical=%d, kernel=%d",
+            time_idx + 1,
+            n_times,
+            source_bucket.logical_count,
+            source_bucket.kernel_count,
+        )
 
         # The one direction batch every Jones term sees at this time step -- the
         # visible pixels, in both the horizontal and the equatorial frame.
@@ -483,12 +514,142 @@ def calculate_visibility_healpix(
         for freq_idx, freq in enumerate(frequencies):
             wavelength_m = float(C_LIGHT) / float(freq)
 
+            if use_polarization:
+                # ----- POLARIZED PATH -----
+                # Get all Stokes maps at this frequency
+                I_map, Q_map, U_map, V_map = (
+                    sky_model.healpix.get_stokes_maps_at_frequency(freq)
+                )
+
+                # One logical host cast per map (Section 13.2). Linear RJ data
+                # is zero-padded before the backend boundary; nonlinear Planck
+                # data is converted first and then padded as zero flux.
+                I_vis = _host_visible_stokes(I_map, above_horizon)
+                assert I_vis is not None  # I is mandatory on a HEALPix payload
+                Q_vis = _host_visible_stokes(Q_map, above_horizon)
+                U_vis = _host_visible_stokes(U_map, above_horizon)
+                V_vis = _host_visible_stokes(V_map, above_horizon)
+
+                # A dummy thermodynamic temperature must never enter nonlinear
+                # Planck conversion. RJ is linear, so zero-temperature padding
+                # before its scalar conversion is exactly zero flux.
+                conversion = getattr(sky_model, "brightness_conversion", "planck")
+                if conversion == "rayleigh-jeans":
+                    rj_factor_I = rayleigh_jeans_factor(freq, omega_pixel)
+                    # Preserve the accepted cast-before-multiply arithmetic:
+                    # fast NumPy/Dask cast the logical temperatures to float32
+                    # before applying the scalar. RJ is linear, so host-side
+                    # zero-temperature padding is exactly zero signal while the
+                    # real-source bytes remain unchanged.
+                    I_jy = (
+                        backend.asarray(
+                            _pad_host_zeros(I_vis, source_bucket),
+                            dtype=backend.default_real_dtype,
+                        )
+                        * rj_factor_I
+                    )
+                else:
+                    # Named host-preprocessing stage, host-side by design.
+                    I_jy_host = _host_planck_flux_density(
+                        I_vis,
+                        freq,
+                        omega_pixel,
+                    )
+                    I_jy = backend.asarray(
+                        _pad_host_zeros(I_jy_host, source_bucket),
+                        dtype=backend.default_real_dtype,
+                    )
+
+                # Stokes Q/U/V: always RJ (can be negative, RJ is linear).
+                rj_factor_pol = rayleigh_jeans_factor(freq, omega_pixel)
+                zero_stokes = backend.zeros(
+                    (kernel_n_visible,),
+                    dtype=backend.default_real_dtype,
+                )
+                Q_jy = (
+                    backend.asarray(
+                        _pad_host_zeros(Q_vis, source_bucket),
+                        dtype=backend.default_real_dtype,
+                    )
+                    * rj_factor_pol
+                    if Q_vis is not None
+                    else zero_stokes
+                )
+                U_jy = (
+                    backend.asarray(
+                        _pad_host_zeros(U_vis, source_bucket),
+                        dtype=backend.default_real_dtype,
+                    )
+                    * rj_factor_pol
+                    if U_vis is not None
+                    else zero_stokes
+                )
+                V_jy = (
+                    backend.asarray(
+                        _pad_host_zeros(V_vis, source_bucket),
+                        dtype=backend.default_real_dtype,
+                    )
+                    * rj_factor_pol
+                    if V_vis is not None
+                    else zero_stokes
+                )
+
+                # Build per-pixel coherency matrices: (n_visible, 2, 2)
+                coherency = stokes_to_coherency(I_jy, Q_jy, U_jy, V_jy, xp=xp)
+
+            else:
+                # ----- I-ONLY PATH -----
+                full_temp_map = sky_model.healpix.get_map_at_frequency(freq)
+                # One logical host cast (Section 13.2), then domain-safe host
+                # padding before the backend boundary.
+                temp_vis = _host_visible_stokes(full_temp_map, above_horizon)
+                assert temp_vis is not None
+
+                if output_units == "Jy":
+                    conversion = getattr(sky_model, "brightness_conversion", "planck")
+                    if conversion == "rayleigh-jeans":
+                        rj_factor = rayleigh_jeans_factor(freq, omega_pixel)
+                        signal = (
+                            backend.asarray(
+                                _pad_host_zeros(temp_vis, source_bucket),
+                                dtype=backend.default_real_dtype,
+                            )
+                            * rj_factor
+                        )
+                    else:
+                        # Named host-preprocessing stage, host-side by design.
+                        signal_host = _host_planck_flux_density(
+                            temp_vis,
+                            freq,
+                            omega_pixel,
+                        )
+                        signal = backend.asarray(
+                            _pad_host_zeros(signal_host, source_bucket),
+                            dtype=backend.default_real_dtype,
+                        )
+                else:
+                    signal = (
+                        backend.asarray(
+                            _pad_host_zeros(temp_vis, source_bucket),
+                            dtype=backend.default_real_dtype,
+                        )
+                        * omega_pixel
+                    )
+
+                # Construct C=(I/2)I2, then apply the complete matrix RIME.
+                coherency = backend.batch_eye(
+                    (kernel_n_visible,),
+                    2,
+                    dtype=backend.default_complex_dtype,
+                )
+                coherency = coherency * (signal / 2.0)[:, None, None]
+
             # The same chain the point solver builds, evaluated through the same
-            # shared evaluator: this is what closes defect D4, so a Jones term
-            # can no longer apply to point sources and silently not apply to
-            # diffuse sky.  Optional terms are spliced at their canonical
-            # positions; the current empty optional-term inventory composes
-            # exactly ``H @ C @ E``.
+            # shared evaluator after every source-bearing host input has its
+            # scheduled kernel shape. This closes defect D4: a Jones term cannot
+            # apply to point sources and silently not apply to diffuse sky.
+            # Optional terms are spliced at their canonical positions; the
+            # current empty inventory composes exactly ``H @ C @ E``.
             chain = _build_jones_chain(
                 backend,
                 instrument,
@@ -496,7 +657,7 @@ def calculate_visibility_healpix(
                 az_vis,
                 freq,
                 freq_idx,
-                int(n_visible),
+                kernel_n_visible,
                 location,
                 time_mjd=float(current_obstime.mjd),
                 beam_system=beam_system,
@@ -515,99 +676,6 @@ def calculate_visibility_healpix(
                 backend=backend,
                 dtype=jones_complex_dtype,
             )
-
-            if use_polarization:
-                # ----- POLARIZED PATH -----
-                # Get all Stokes maps at this frequency
-                I_map, Q_map, U_map, V_map = (
-                    sky_model.healpix.get_stokes_maps_at_frequency(freq)
-                )
-
-                # One host cast per map (Section 13.2); everything after this is
-                # backend-routed.
-                I_vis = _host_visible_stokes(I_map, above_horizon)
-                assert I_vis is not None  # I is mandatory on a HEALPix payload
-                Q_vis = _host_visible_stokes(Q_map, above_horizon)
-                U_vis = _host_visible_stokes(U_map, above_horizon)
-                V_vis = _host_visible_stokes(V_map, above_horizon)
-
-                # Stokes I: respect brightness_conversion (Planck or RJ)
-                conversion = getattr(sky_model, "brightness_conversion", "planck")
-                if conversion == "rayleigh-jeans":
-                    rj_factor_I = rayleigh_jeans_factor(freq, omega_pixel)
-                    I_jy = (
-                        backend.asarray(I_vis, dtype=backend.default_real_dtype)
-                        * rj_factor_I
-                    )
-                else:
-                    # Named host-preprocessing stage, host-side by design.
-                    I_jy = backend.asarray(
-                        _host_planck_flux_density(I_vis, freq, omega_pixel),
-                        dtype=backend.default_real_dtype,
-                    )
-
-                # Stokes Q/U/V: always RJ (can be negative, RJ is linear).
-                # An absent map contributes a backend zero array, not a host one.
-                rj_factor_pol = rayleigh_jeans_factor(freq, omega_pixel)
-                zero_stokes = backend.zeros(
-                    (len(I_vis),), dtype=backend.default_real_dtype
-                )
-                Q_jy = (
-                    backend.asarray(Q_vis, dtype=backend.default_real_dtype)
-                    * rj_factor_pol
-                    if Q_vis is not None
-                    else zero_stokes
-                )
-                U_jy = (
-                    backend.asarray(U_vis, dtype=backend.default_real_dtype)
-                    * rj_factor_pol
-                    if U_vis is not None
-                    else zero_stokes
-                )
-                V_jy = (
-                    backend.asarray(V_vis, dtype=backend.default_real_dtype)
-                    * rj_factor_pol
-                    if V_vis is not None
-                    else zero_stokes
-                )
-
-                # Build per-pixel coherency matrices: (n_visible, 2, 2)
-                coherency = stokes_to_coherency(I_jy, Q_jy, U_jy, V_jy, xp=xp)
-
-            else:
-                # ----- I-ONLY PATH -----
-                full_temp_map = sky_model.healpix.get_map_at_frequency(freq)
-                # One host cast (Section 13.2), then backend-routed scaling.
-                temp_vis = _host_visible_stokes(full_temp_map, above_horizon)
-                assert temp_vis is not None
-
-                if output_units == "Jy":
-                    conversion = getattr(sky_model, "brightness_conversion", "planck")
-                    if conversion == "rayleigh-jeans":
-                        rj_factor = rayleigh_jeans_factor(freq, omega_pixel)
-                        signal = (
-                            backend.asarray(temp_vis, dtype=backend.default_real_dtype)
-                            * rj_factor
-                        )
-                    else:
-                        # Named host-preprocessing stage, host-side by design.
-                        signal = backend.asarray(
-                            _host_planck_flux_density(temp_vis, freq, omega_pixel),
-                            dtype=backend.default_real_dtype,
-                        )
-                else:
-                    signal = (
-                        backend.asarray(temp_vis, dtype=backend.default_real_dtype)
-                        * omega_pixel
-                    )
-
-                # Construct C=(I/2)I2, then apply the complete matrix RIME.
-                coherency = backend.batch_eye(
-                    (len(temp_vis),),
-                    2,
-                    dtype=backend.default_complex_dtype,
-                )
-                coherency = coherency * (signal / 2.0)[:, None, None]
 
             # Geometric phase (K), from the one shared implementation, batched
             # over baselines: (B, n_visible).
@@ -678,7 +746,11 @@ def calculate_visibility_healpix(
 
         if time_idx % 10 == 0 or time_idx == n_times - 1:
             logger.debug(
-                f"Time step {time_idx + 1}/{n_times}: {n_visible} pixels visible"
+                "Time step %d/%d: %d pixels visible, %d scheduled",
+                time_idx + 1,
+                n_times,
+                logical_n_visible,
+                kernel_n_visible,
             )
 
         # One (B, F, 2, 2) block for this time step.
@@ -704,3 +776,45 @@ def calculate_visibility_healpix(
 
     # One (T, B, F, 2, 2) cube, assembled in a single operation.
     return backend.stack(time_blocks, axis=0)
+
+
+def calculate_visibility_healpix(
+    sky_model: SkyModel,
+    instrument: "SolverInstrumentView",
+    beam_system: BeamSystem,
+    location: Any,
+    time_grid: "ObservationTimeGrid",
+    frequencies: Any,
+    backend: ArrayBackend,
+    receptors: ResolvedReceptorSet,
+    jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
+    output_units: str = "Jy",
+    include_polarization: bool = False,
+    solver_execution: ResolvedSolverExecutionConfig = SERIAL_SOLVER_EXECUTION,
+) -> Any:
+    """Calculate HEALPix visibility with production source scheduling.
+
+    The public surface intentionally has no evidence-policy control. Production
+    always uses power-of-two scheduling for compiling backends and identity
+    scheduling for noncompiling backends.
+    """
+    return _calculate_visibility_healpix(
+        sky_model=sky_model,
+        instrument=instrument,
+        beam_system=beam_system,
+        location=location,
+        time_grid=time_grid,
+        frequencies=frequencies,
+        backend=backend,
+        receptors=receptors,
+        jones_terms=jones_terms,
+        output_units=output_units,
+        include_polarization=include_polarization,
+        solver_execution=solver_execution,
+        _source_bucket_policy=PRODUCTION_SOURCE_BUCKET_POLICY,
+    )
+
+
+# Preserve the established user-facing API documentation while keeping the
+# evidence-only scheduling keyword absent from the public signature.
+calculate_visibility_healpix.__doc__ = _calculate_visibility_healpix.__doc__

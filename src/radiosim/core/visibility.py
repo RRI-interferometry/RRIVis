@@ -58,6 +58,14 @@ from radiosim.core.solver_partition import (
     execute_time_blocks,
     require_solver_execution,
 )
+from radiosim.core.source_bucketing import (
+    PRODUCTION_SOURCE_BUCKET_POLICY,
+    _pad_host_repeated,
+    _pad_host_zeros,
+    _pad_reference_frequencies,
+    _require_source_bucket_policy,
+    _resolve_source_bucket,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -348,7 +356,7 @@ def _resolved_receptor_terms(
     )
 
 
-def calculate_visibility(
+def _calculate_visibility(
     instrument: "SolverInstrumentView",
     beam_system: BeamSystem,
     source_arrays: "SourceArrays",
@@ -359,6 +367,8 @@ def calculate_visibility(
     receptors: ResolvedReceptorSet,
     jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
     solver_execution: ResolvedSolverExecutionConfig = SERIAL_SOLVER_EXECUTION,
+    *,
+    _source_bucket_policy: str = PRODUCTION_SOURCE_BUCKET_POLICY,
 ) -> Any:
     """
     Calculate complex visibility using full polarization (RIME).
@@ -452,6 +462,7 @@ def calculate_visibility(
     receptors = _require_receptors(receptors)
     jones_terms = _require_jones_terms(jones_terms)
     solver_execution = require_solver_execution(solver_execution)
+    source_bucket_policy = _require_source_bucket_policy(_source_bucket_policy)
 
     # Get array namespace from backend
     xp = backend.xp
@@ -656,10 +667,81 @@ def calculate_visibility(
             gauss_b_t = gauss_b_orig[above_horizon]
             gauss_c_t = gauss_c_orig[above_horizon]
 
-        n_sources = len(az_rad_t)
+        logical_n_sources = len(az_rad_t)
+        source_bucket = _resolve_source_bucket(
+            logical_n_sources,
+            supports_compilation=backend.supports_compilation,
+            policy=source_bucket_policy,
+        )
 
         # Calculate direction cosines (l, m, n) for this time step
         l_np, m_np, n_np = _host_direction_cosines(alt_rad_t, az_rad_t)
+
+        # P-b pads at the earliest domain-safe host boundary: after the horizon
+        # mask and accepted zero-visible return, but before DirectionBatch,
+        # backend conversion, Jones/phase evaluation, morphology, or the
+        # contraction. Real sources remain first and byte-for-byte unchanged.
+        alt_rad_t = _pad_host_repeated(alt_rad_t, source_bucket)
+        az_rad_t = _pad_host_repeated(az_rad_t, source_bucket)
+        l_np = _pad_host_repeated(l_np, source_bucket)
+        m_np = _pad_host_repeated(m_np, source_bucket)
+        n_np = _pad_host_repeated(n_np, source_bucket)
+        source_stokes_I_t = _pad_host_zeros(source_stokes_I_t, source_bucket)
+        source_stokes_Q_t = _pad_host_zeros(source_stokes_Q_t, source_bucket)
+        source_stokes_U_t = _pad_host_zeros(source_stokes_U_t, source_bucket)
+        source_stokes_V_t = _pad_host_zeros(source_stokes_V_t, source_bucket)
+        source_spectral_indices_t = _pad_host_zeros(
+            source_spectral_indices_t,
+            source_bucket,
+        )
+        source_ref_freq_t = _pad_reference_frequencies(
+            source_ref_freq_t,
+            source_bucket,
+            fallback_hz=float(frequencies[0]),
+        )
+        source_rm_t = _pad_host_zeros(source_rm_t, source_bucket)
+        if source_spectral_coeffs_t is not None:
+            source_spectral_coeffs_t = _pad_host_zeros(
+                source_spectral_coeffs_t,
+                source_bucket,
+            )
+        if source_per_channel_flux_t is not None:
+            source_per_channel_flux_t = _pad_host_zeros(
+                source_per_channel_flux_t,
+                source_bucket,
+                axis=1,
+            )
+        if source_per_channel_q_t is not None:
+            source_per_channel_q_t = _pad_host_zeros(
+                source_per_channel_q_t,
+                source_bucket,
+                axis=1,
+            )
+        if source_per_channel_u_t is not None:
+            source_per_channel_u_t = _pad_host_zeros(
+                source_per_channel_u_t,
+                source_bucket,
+                axis=1,
+            )
+        if source_per_channel_v_t is not None:
+            source_per_channel_v_t = _pad_host_zeros(
+                source_per_channel_v_t,
+                source_bucket,
+                axis=1,
+            )
+        if has_gaussians:
+            gauss_a_t = _pad_host_zeros(gauss_a_t, source_bucket)
+            gauss_b_t = _pad_host_zeros(gauss_b_t, source_bucket)
+            gauss_c_t = _pad_host_zeros(gauss_c_t, source_bucket)
+
+        n_sources = source_bucket.kernel_count
+        logger.debug(
+            "Point source bucket at time step %d/%d: logical=%d, kernel=%d",
+            time_idx + 1,
+            n_times,
+            source_bucket.logical_count,
+            source_bucket.kernel_count,
+        )
 
         # The one direction batch every Jones term sees at this time step,
         # carrying both the horizontal and the equatorial description of the
@@ -897,6 +979,44 @@ def calculate_visibility(
 
     # One (T, B, F, 2, 2) cube, assembled in a single operation.
     return backend.stack(time_blocks, axis=0)
+
+
+def calculate_visibility(
+    instrument: "SolverInstrumentView",
+    beam_system: BeamSystem,
+    source_arrays: "SourceArrays",
+    location: Any,
+    time_grid: "ObservationTimeGrid",
+    frequencies: Any,
+    backend: ArrayBackend,
+    receptors: ResolvedReceptorSet,
+    jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
+    solver_execution: ResolvedSolverExecutionConfig = SERIAL_SOLVER_EXECUTION,
+) -> Any:
+    """Calculate point-source visibility with production source scheduling.
+
+    The private evidence control is deliberately absent from this public
+    signature. Production always uses the reviewed power-of-two policy, which
+    is an identity operation for backends that do not compile.
+    """
+    return _calculate_visibility(
+        instrument=instrument,
+        beam_system=beam_system,
+        source_arrays=source_arrays,
+        location=location,
+        time_grid=time_grid,
+        frequencies=frequencies,
+        backend=backend,
+        receptors=receptors,
+        jones_terms=jones_terms,
+        solver_execution=solver_execution,
+        _source_bucket_policy=PRODUCTION_SOURCE_BUCKET_POLICY,
+    )
+
+
+# Keep the established user-facing API documentation on the public wrapper;
+# only the evidence-only keyword is private, not the solver documentation.
+calculate_visibility.__doc__ = _calculate_visibility.__doc__
 
 
 def _build_jones_chain(
