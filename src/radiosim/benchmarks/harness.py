@@ -54,22 +54,28 @@ from hashlib import sha256
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 import numpy as np
 
 from radiosim.benchmarks.record import (
     BENCHMARK_SCHEMA_VERSION,
     MEMORY_SCALING_SCHEMA_VERSION,
+    PERF001_BACKEND_RESOLUTION_SCHEMA_VERSION,
     PERF001_MEMORY_SCALING_SCHEMA_VERSION,
     PERF001_PROVENANCE_SCHEMA_VERSION,
     PERF001_RETRACING_SCHEMA_VERSION,
+    PERF001_SCHEMA_VERSION,
     PERF001_SOLVER_MEMORY_SCHEMA_VERSION,
     PERF001_TARGET_KERNEL_PAIRS,
+    PERF001_WORKLOAD_SCHEMA_VERSION,
     RETRACING_SCHEMA_VERSION,
+    AcceleratorFacts,
+    BackendResolutionRecord,
     BenchmarkRecord,
     BenchmarkRecordError,
     ContractionSignatureObservation,
+    DeviceMemoryMeasurement,
     MeasurementContext,
     MemoryScalingRecord,
     MemoryScalingRecordV2,
@@ -78,6 +84,9 @@ from radiosim.benchmarks.record import (
     RetracingRecord,
     RetracingRecordV2,
     SolverMemoryRecord,
+    WorkloadBenchmarkRecordV2,
+    parse_perf001_evidence_document,
+    validate_perf001_cpu_evidence_document,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle guard only
@@ -87,6 +96,7 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle guard only
 __all__ = [
     "DEFAULT_STEADY_STATE_ITERATIONS",
     "PERF001_REFERENCE_SHA256",
+    "PERF001_REFERENCE_SOURCE_SHA",
     "BackendFacts",
     "BenchmarkBackendSelection",
     "Deviation",
@@ -94,27 +104,32 @@ __all__ = [
     "Perf001ReferenceAuthentication",
     "TimingMeasurement",
     "WorkloadShape",
+    "assemble_perf001_cpu_evidence_document",
     "authenticate_perf001_references",
     "benchmark_filename",
     "benchmark_backend_selection",
     "benchmark_output_directory",
     "build_record",
+    "build_perf001_workload_record",
     "compare_to_reference",
     "describe_backend",
     "describe_environment",
     "describe_perf001_provenance",
     "measure_perf001_memory_scaling_pair",
+    "measure_perf001_backend_resolution",
     "measure_perf001_solver_memory_pair",
     "measure_perf001_solver_retracing_pair",
     "measure_perf001_synthetic_retracing_pair",
     "measure_kernel_memory_scaling",
     "measure_retracing",
     "perf001_input_identity_sha256",
+    "perf001_control_identity_sha256",
     "perf001_reference_output_directory",
     "time_backend_call",
     "verify_perf001_provenance_binding",
     "verify_required_benchmark_accelerator",
     "write_perf001_evidence_document",
+    "write_perf001_cpu_evidence_document",
 ]
 
 #: Section 22.2: "the median of at least 5 iterations".
@@ -131,6 +146,10 @@ FLOAT64_ATOL_SCALE = 1e-12
 #: if an unlisted record appears.
 PERF001_REFERENCE_SHA256: dict[str, str] = {}
 
+#: Exact generating source SHA for every committed namespaced PERF-001 record.
+#: The direct evidence successor adds this entry beside the byte-digest entry.
+PERF001_REFERENCE_SOURCE_SHA: dict[str, str] = {}
+
 _PERF001_REFERENCE_RELATIVE_DIRECTORY = Path("output/benchmarks/reference/perf001")
 _LOWER_HEX_40 = re.compile(r"[0-9a-f]{40}\Z")
 _LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
@@ -143,6 +162,146 @@ _PERF001_REFERENCE_FILENAME = re.compile(
 _DEFAULT_BENCHMARK_BACKENDS = ("numpy", "jax", "dask")
 _BENCHMARK_BACKEND_REQUESTS = frozenset({"numpy", "jax", "dask", "gpu"})
 _BENCHMARK_ACCELERATORS = frozenset({"gpu"})
+_PERF001_CONTROL_SCHEMA = "radiosim.perf001.control.backend_resolution.v1"
+_PERF001_BACKEND_RESOLUTION_ROWS = {
+    "get_backend_auto": {
+        "requested_backend": "auto",
+        "comparison_id": "p-c-get-backend-auto-v1",
+        "policy_id": "deterministic_auto_numpy_v1",
+    },
+    "get_device_resources_default": {
+        "requested_backend": "default",
+        "comparison_id": "p-c-get-device-resources-default-v1",
+        "policy_id": "platform_device_discovery_v1",
+    },
+    "simulator_setup_auto": {
+        "requested_backend": "auto",
+        "comparison_id": "p-c-simulator-setup-auto-v1",
+        "policy_id": "deterministic_auto_numpy_v1",
+    },
+}
+
+
+class _Perf001BackendResolutionProbe(TypedDict):
+    duration: float
+    resolved_backend: str
+    backend_version: str
+    device_kind: str
+    compilation_used: bool
+    jax_distribution_installed: bool
+    jax_in_sys_modules_before: bool
+    jax_in_sys_modules_after: bool
+    jaxlib_in_sys_modules_before: bool
+    jaxlib_in_sys_modules_after: bool
+    radiosim_source_file: str
+    detail: str
+
+
+_PERF001_BACKEND_PROBE_PREFIX = "RADIOSIM_PERF001_BACKEND_PROBE="
+_PERF001_BACKEND_PROBE_BOOTSTRAP = r"""
+import sys
+import sysconfig
+from pathlib import Path
+
+loaded_source_root = Path(sys.argv[1]).resolve(strict=True)
+repository_root = Path(sys.argv[2]).resolve(strict=True)
+source_path = loaded_source_root / "src"
+runtime_paths = [source_path]
+for existing in tuple(sys.path):
+    if not existing:
+        continue
+    candidate = Path(existing).resolve()
+    if candidate in {repository_root, repository_root / "src"}:
+        continue
+    if candidate not in runtime_paths:
+        runtime_paths.append(candidate)
+for scheme_name in ("purelib", "platlib"):
+    candidate = Path(sysconfig.get_path(scheme_name)).resolve(strict=True)
+    if candidate not in runtime_paths:
+        runtime_paths.append(candidate)
+sys.path[:] = [str(path) for path in runtime_paths]
+"""
+_PERF001_BACKEND_PROBE = r"""
+import importlib.metadata
+import json
+import sys
+import time
+from pathlib import Path
+
+request = json.load(sys.stdin)
+operation = request["operation"]
+repository_root = Path(request["repository_root"])
+configuration_base_dir = Path(request["configuration_base_dir"])
+import radiosim
+
+radiosim_source_file = str(Path(radiosim.__file__).resolve(strict=True))
+before_jax = "jax" in sys.modules
+before_jaxlib = "jaxlib" in sys.modules
+started = time.perf_counter()
+
+if operation == "get_backend_auto":
+    from radiosim.backends import get_backend
+
+    backend = get_backend("auto")
+    resolved_backend = backend.name
+    backend_version = importlib.metadata.version("numpy")
+    device_kind = str(backend.device_kind)
+    compilation_used = bool(backend.supports_compilation)
+    detail = "direct deterministic automatic backend resolution"
+elif operation == "get_device_resources_default":
+    from radiosim.utils.device import get_device_resources
+
+    resources = get_device_resources()
+    resolved_backend = "radiosim-device-resources"
+    backend_version = importlib.metadata.version("radiosim")
+    device_kind = "host"
+    compilation_used = False
+    detail = resources.summary()
+elif operation == "simulator_setup_auto":
+    from radiosim.api import Simulator
+    from radiosim.io.config_resolution import SimulationOverrides
+
+    simulator = Simulator.from_mapping(
+        request["configuration"],
+        base_dir=configuration_base_dir,
+        overrides=SimulationOverrides(backend="auto", offline=True),
+    )
+    simulator.setup()
+    backend = simulator._backend
+    if backend is None:
+        raise RuntimeError("automatic Simulator.setup() did not resolve a backend")
+    resolved_backend = backend.name
+    backend_version = importlib.metadata.version("numpy")
+    device_kind = str(backend.device_kind)
+    compilation_used = bool(backend.supports_compilation)
+    detail = "minimal automatic Simulator.setup()"
+else:
+    raise RuntimeError(f"unsupported PERF-001 operation: {operation!r}")
+
+duration = time.perf_counter() - started
+try:
+    importlib.metadata.version("jax")
+except importlib.metadata.PackageNotFoundError:
+    jax_distribution_installed = False
+else:
+    jax_distribution_installed = True
+
+result = {
+    "duration": duration,
+    "resolved_backend": resolved_backend,
+    "backend_version": backend_version,
+    "device_kind": device_kind,
+    "compilation_used": compilation_used,
+    "jax_distribution_installed": jax_distribution_installed,
+    "jax_in_sys_modules_before": before_jax,
+    "jax_in_sys_modules_after": "jax" in sys.modules,
+    "jaxlib_in_sys_modules_before": before_jaxlib,
+    "jaxlib_in_sys_modules_after": "jaxlib" in sys.modules,
+    "radiosim_source_file": radiosim_source_file,
+    "detail": detail,
+}
+print("RADIOSIM_PERF001_BACKEND_PROBE=" + json.dumps(result, sort_keys=True))
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -440,6 +599,89 @@ def perf001_input_identity_sha256(
     return digest.hexdigest()
 
 
+def perf001_control_identity_sha256(
+    control_manifest: Mapping[str, object],
+) -> str:
+    """Authenticate one P-c control operation without inventing input arrays.
+
+    Control-plane measurements have no logical scientific array.  Their
+    identity therefore hashes a versioned canonical manifest and an explicit
+    empty logical-input sequence under a domain distinct from scientific
+    fixture identities.  The signature deliberately has no array parameter.
+    """
+    manifest = dict(control_manifest)
+    if manifest.get("schema_version") != _PERF001_CONTROL_SCHEMA:
+        raise BenchmarkRecordError(
+            "PERF-001 control_manifest.schema_version is not canonical"
+        )
+    operation = manifest.get("operation")
+    if type(operation) is not str:
+        raise BenchmarkRecordError(
+            "PERF-001 control_manifest.operation must be a string"
+        )
+    row_contract = _PERF001_BACKEND_RESOLUTION_ROWS.get(operation)
+    if row_contract is None:
+        raise BenchmarkRecordError(
+            "PERF-001 control_manifest.operation is not a retained P-c operation"
+        )
+    expected_request = row_contract["requested_backend"]
+    if manifest.get("requested_backend") != expected_request:
+        raise BenchmarkRecordError(
+            "PERF-001 control_manifest.requested_backend is not canonical"
+        )
+    expected_fields = {"schema_version", "operation", "requested_backend"}
+    if operation == "simulator_setup_auto":
+        expected_fields.update({"fixture", "configuration", "antenna_layout_sha256"})
+        if manifest.get("fixture") != "canonical_minimal_simulator_v1":
+            raise BenchmarkRecordError(
+                "PERF-001 simulator control manifest fixture is not canonical"
+            )
+        if type(manifest.get("configuration")) is not dict:
+            raise BenchmarkRecordError(
+                "PERF-001 simulator control manifest configuration must be an object"
+            )
+        layout_digest = manifest.get("antenna_layout_sha256")
+        if (
+            type(layout_digest) is not str
+            or _LOWER_HEX_64.fullmatch(layout_digest) is None
+        ):
+            raise BenchmarkRecordError(
+                "PERF-001 simulator control manifest layout digest is not canonical"
+            )
+    if set(manifest) != expected_fields:
+        raise BenchmarkRecordError(
+            "PERF-001 control manifest has missing or unknown fields"
+        )
+
+    def reject_sentinel_keys(value: object, *, location: str) -> None:
+        if type(value) is dict:
+            for key, item in cast(dict[object, object], value).items():
+                if type(key) is str and "sentinel" in key.lower():
+                    raise BenchmarkRecordError(
+                        "PERF-001 control identity must not contain sentinel "
+                        f"data at {location}.{key}"
+                    )
+                reject_sentinel_keys(item, location=f"{location}.{key}")
+        elif type(value) in (list, tuple):
+            for index, item in enumerate(
+                cast(list[object] | tuple[object, ...], value)
+            ):
+                reject_sentinel_keys(item, location=f"{location}[{index}]")
+
+    reject_sentinel_keys(manifest, location="control_manifest")
+    digest = sha256()
+    _update_length_framed(digest, b"radiosim.perf001.control_identity.v1")
+    _update_length_framed(
+        digest,
+        _canonical_json_bytes(manifest, field_name="control_manifest"),
+    )
+    _update_length_framed(
+        digest,
+        _canonical_json_bytes([], field_name="logical_inputs"),
+    )
+    return digest.hexdigest()
+
+
 def _clean_git_sha(repository_root: Path) -> str:
     """Return a clean exact HEAD SHA or fail closed."""
     try:
@@ -497,12 +739,15 @@ def _installed_distribution_version(distribution: str) -> str:
 def _require_loaded_runtime_binding(
     repository_root: Path,
     environment_prefix: Path,
+    *,
+    loaded_source_root: Path | None = None,
 ) -> None:
     """Bind loaded source and executable to the selected checkout and Pixi env."""
     import radiosim
 
-    expected_package = repository_root / "src/radiosim/__init__.py"
-    expected_harness = repository_root / "src/radiosim/benchmarks/harness.py"
+    source_root = loaded_source_root or repository_root
+    expected_package = source_root / "src/radiosim/__init__.py"
+    expected_harness = source_root / "src/radiosim/benchmarks/harness.py"
     loaded_files = (
         ("package", getattr(radiosim, "__file__", None), expected_package),
         ("harness", __file__, expected_harness),
@@ -542,7 +787,12 @@ def _require_loaded_runtime_binding(
         )
 
 
-def _require_pixi_environment(repository_root: Path, expected: str | None) -> str:
+def _require_pixi_environment(
+    repository_root: Path,
+    expected: str | None,
+    *,
+    loaded_source_root: Path | None = None,
+) -> str:
     """Bind generation to the actual named Pixi environment and project."""
     actual = os.environ.get("PIXI_ENVIRONMENT_NAME")
     if not actual or _PIXI_ENVIRONMENT_NAME.fullmatch(actual) is None:
@@ -590,7 +840,11 @@ def _require_pixi_environment(repository_root: Path, expected: str | None) -> st
             "PERF-001 active interpreter prefix does not match the declared "
             f"Pixi environment {actual!r} under repository_root"
         )
-    _require_loaded_runtime_binding(repository_root, expected_prefix)
+    _require_loaded_runtime_binding(
+        repository_root,
+        expected_prefix,
+        loaded_source_root=loaded_source_root,
+    )
     return actual
 
 
@@ -599,13 +853,18 @@ def describe_perf001_provenance(
     repository_root: Path | None = None,
     pixi_environment: str | None = None,
     recorded_at: datetime | None = None,
+    loaded_source_root: Path | None = None,
 ) -> Perf001Provenance:
     """Capture strict clean-source provenance for a PERF-001 measurement."""
     from radiosim.__about__ import __version__
 
     root = (repository_root or Path(__file__).resolve().parents[3]).resolve()
     git_sha = _clean_git_sha(root)
-    environment = _require_pixi_environment(root, pixi_environment)
+    environment = _require_pixi_environment(
+        root,
+        pixi_environment,
+        loaded_source_root=loaded_source_root,
+    )
     lock_path = root / "pixi.lock"
     if not lock_path.is_file():
         raise BenchmarkRecordError("PERF-001 provenance requires repository pixi.lock")
@@ -637,6 +896,7 @@ def verify_perf001_provenance_binding(
     provenance: Perf001Provenance,
     *,
     repository_root: Path | None = None,
+    loaded_source_root: Path | None = None,
 ) -> None:
     """Fail unless ``provenance`` still names the live clean source and lock."""
     if type(provenance) is not Perf001Provenance:
@@ -650,6 +910,7 @@ def verify_perf001_provenance_binding(
     live_environment = _require_pixi_environment(
         root,
         provenance.pixi_environment,
+        loaded_source_root=loaded_source_root,
     )
     if provenance.pixi_environment != live_environment:  # pragma: no cover
         raise BenchmarkRecordError("PERF-001 Pixi environment binding changed")
@@ -719,12 +980,33 @@ def _canonical_perf001_reference_filename(filename: str) -> str:
             "YYYYMMDDTHHMMSSZ-<lowercase-host>.json"
         )
     try:
-        datetime.strptime(match.group("stamp"), "%Y%m%dT%H%M%SZ")
+        _ = datetime.strptime(match.group("stamp"), "%Y%m%dT%H%M%SZ")
     except ValueError as error:
         raise BenchmarkRecordError(
             "PERF-001 reference filename must contain a valid canonical UTC timestamp"
         ) from error
     return filename
+
+
+def assemble_perf001_cpu_evidence_document(
+    *,
+    workload_benchmarks: Sequence[WorkloadBenchmarkRecordV2],
+    memory_scaling: Sequence[MemoryScalingRecordV2],
+    solver_memory: Sequence[SolverMemoryRecord],
+    retracing: Sequence[RetracingRecordV2],
+    backend_resolution: Sequence[BackendResolutionRecord],
+) -> Perf001EvidenceDocument:
+    """Assemble and validate the exact retained 45-row clean-CPU profile."""
+    document = Perf001EvidenceDocument.create(
+        schema_version=PERF001_SCHEMA_VERSION,
+        workload_benchmarks=tuple(workload_benchmarks),
+        memory_scaling=tuple(memory_scaling),
+        solver_memory=tuple(solver_memory),
+        retracing=tuple(retracing),
+        backend_resolution=tuple(backend_resolution),
+    )
+    validate_perf001_cpu_evidence_document(document)
+    return document
 
 
 def _perf001_document_provenance(
@@ -748,6 +1030,7 @@ def write_perf001_evidence_document(
     filename: str,
     repository_root: Path | None = None,
     directory: Path | None = None,
+    loaded_source_root: Path | None = None,
 ) -> Path:
     """Write one strict PERF-001 document, failing closed on stale source state.
 
@@ -770,7 +1053,14 @@ def write_perf001_evidence_document(
             f"PERF-001 evidence output directory must be exactly {expected_directory}"
         )
     provenance = _perf001_document_provenance(document)
-    verify_perf001_provenance_binding(provenance, repository_root=root)
+    if loaded_source_root is None:
+        verify_perf001_provenance_binding(provenance, repository_root=root)
+    else:
+        verify_perf001_provenance_binding(
+            provenance,
+            repository_root=root,
+            loaded_source_root=loaded_source_root,
+        )
     recorded_at = datetime.fromisoformat(
         provenance.recorded_at_utc.replace("Z", "+00:00")
     )
@@ -780,7 +1070,7 @@ def write_perf001_evidence_document(
             "PERF-001 evidence filename must match its UTC provenance and host: "
             f"expected {expected_filename!r}"
         )
-    _canonical_perf001_reference_filename(filename)
+    _ = _canonical_perf001_reference_filename(filename)
     serialized = (
         json.dumps(
             document.to_json_safe(),
@@ -873,6 +1163,32 @@ def write_perf001_evidence_document(
     return destination
 
 
+def write_perf001_cpu_evidence_document(
+    document: Perf001EvidenceDocument,
+    *,
+    filename: str,
+    repository_root: Path | None = None,
+    directory: Path | None = None,
+    loaded_source_root: Path | None = None,
+) -> Path:
+    """Validate the exact CPU profile, then publish through the strict writer."""
+    validate_perf001_cpu_evidence_document(document)
+    if loaded_source_root is None:
+        return write_perf001_evidence_document(
+            document,
+            filename=filename,
+            repository_root=repository_root,
+            directory=directory,
+        )
+    return write_perf001_evidence_document(
+        document,
+        filename=filename,
+        repository_root=repository_root,
+        directory=directory,
+        loaded_source_root=loaded_source_root,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class Perf001ReferenceAuthentication:
     """One exact tracked PERF-001 path and its authenticated byte digest."""
@@ -922,7 +1238,7 @@ def _tracked_perf001_reference_paths(repository_root: Path) -> tuple[str, ...]:
                 "children of output/benchmarks/reference/perf001: "
                 f"{relative}"
             )
-        _canonical_perf001_reference_filename(path.name)
+        _ = _canonical_perf001_reference_filename(path.name)
         paths.append(path.as_posix())
     return tuple(sorted(paths))
 
@@ -931,6 +1247,7 @@ def authenticate_perf001_references(
     *,
     repository_root: Path | None = None,
     expected_sha256: Mapping[str, str] | None = None,
+    expected_source_sha: Mapping[str, str] | None = None,
 ) -> tuple[Perf001ReferenceAuthentication, ...]:
     """Authenticate every tracked PERF-001 record by exact path and SHA-256.
 
@@ -941,6 +1258,12 @@ def authenticate_perf001_references(
     root = (repository_root or Path(__file__).resolve().parents[3]).resolve()
     expected = dict(
         PERF001_REFERENCE_SHA256 if expected_sha256 is None else expected_sha256
+    )
+    authenticate_sources = expected_source_sha is not None or expected_sha256 is None
+    expected_sources = dict(
+        PERF001_REFERENCE_SOURCE_SHA
+        if expected_source_sha is None
+        else expected_source_sha
     )
     tracked = _tracked_perf001_reference_paths(root)
     tracked_set = set(tracked)
@@ -957,9 +1280,35 @@ def authenticate_perf001_references(
             "PERF-001 reference digest manifest names expected but untracked "
             "file(s): " + ", ".join(untracked)
         )
+    if authenticate_sources and set(expected_sources) != expected_set:
+        raise BenchmarkRecordError(
+            "PERF-001 source-SHA manifest paths must exactly match the digest "
+            "manifest paths"
+        )
 
     if not tracked:
         return ()
+
+    if authenticate_sources:
+        try:
+            evidence_status = subprocess.run(
+                ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+                cwd=root,
+                capture_output=True,
+                check=True,
+                text=True,
+                timeout=30,
+            ).stdout
+        except (OSError, subprocess.SubprocessError) as error:
+            raise BenchmarkRecordError(
+                "PERF-001 evidence authentication requires a readable clean "
+                "evidence checkout"
+            ) from error
+        if evidence_status:
+            raise BenchmarkRecordError(
+                "PERF-001 source-authenticated references require a clean evidence "
+                "checkout"
+            )
 
     directory_descriptor = _open_perf001_reference_directory(root, create=False)
     authenticated: list[Perf001ReferenceAuthentication] = []
@@ -990,7 +1339,8 @@ def authenticate_perf001_references(
                     )
                 with os.fdopen(descriptor, "rb") as stream:
                     descriptor = -1
-                    actual_digest = sha256(stream.read()).hexdigest()
+                    raw = stream.read()
+                    actual_digest = sha256(raw).hexdigest()
             finally:
                 if descriptor >= 0:
                     os.close(descriptor)
@@ -999,6 +1349,104 @@ def authenticate_perf001_references(
                     f"PERF-001 reference digest mismatch for {relative}: "
                     f"expected {expected_digest}, got {actual_digest}"
                 )
+            if authenticate_sources:
+                try:
+                    committed_raw = subprocess.run(
+                        ["git", "show", f"HEAD:{relative}"],
+                        cwd=root,
+                        capture_output=True,
+                        check=True,
+                        timeout=30,
+                    ).stdout
+                except (OSError, subprocess.SubprocessError) as error:
+                    raise BenchmarkRecordError(
+                        f"PERF-001 reference {relative} is not readable from "
+                        "committed HEAD"
+                    ) from error
+                if committed_raw != raw:
+                    raise BenchmarkRecordError(
+                        f"PERF-001 reference {relative} bytes differ from committed "
+                        "HEAD"
+                    )
+                expected_source = expected_sources[relative]
+                if _LOWER_HEX_40.fullmatch(expected_source) is None:
+                    raise BenchmarkRecordError(
+                        f"PERF-001 reference {relative} has an invalid expected "
+                        "generating source SHA"
+                    )
+                document = parse_perf001_evidence_document(raw)
+                cpu_profile = all(
+                    row.accelerator is None and row.device_memory is None
+                    for row in document.workload_benchmarks
+                )
+                accelerator_profile = any(
+                    row.accelerator is not None for row in document.workload_benchmarks
+                ) and all(
+                    (row.accelerator is None) == (row.device_memory is None)
+                    for row in document.workload_benchmarks
+                )
+                if cpu_profile:
+                    validate_perf001_cpu_evidence_document(document)
+                elif not accelerator_profile:
+                    raise BenchmarkRecordError(
+                        f"PERF-001 reference {relative} mixes CPU and accelerator "
+                        "workload profiles"
+                    )
+                source = _perf001_document_provenance(document).git_sha
+                if source != expected_source:
+                    raise BenchmarkRecordError(
+                        f"PERF-001 reference source mismatch for {relative}: "
+                        f"expected {expected_source}, got {source}"
+                    )
+                try:
+                    _ = subprocess.run(
+                        ["git", "cat-file", "-e", f"{source}^{{commit}}"],
+                        cwd=root,
+                        capture_output=True,
+                        check=True,
+                        timeout=30,
+                    )
+                    evidence_parent = subprocess.run(
+                        ["git", "rev-parse", "HEAD^"],
+                        cwd=root,
+                        capture_output=True,
+                        check=True,
+                        text=True,
+                        timeout=30,
+                    ).stdout.strip()
+                except (OSError, subprocess.SubprocessError) as error:
+                    raise BenchmarkRecordError(
+                        f"PERF-001 reference {relative} does not name a valid "
+                        "generating commit and evidence-successor edge"
+                    ) from error
+                if evidence_parent != source:
+                    raise BenchmarkRecordError(
+                        f"PERF-001 reference {relative} generating source is not "
+                        "the direct parent of the evidence commit"
+                    )
+                source_artifact = subprocess.run(
+                    ["git", "cat-file", "-e", f"{source}:{relative}"],
+                    cwd=root,
+                    capture_output=True,
+                    check=False,
+                    timeout=30,
+                )
+                if source_artifact.returncode == 0:
+                    raise BenchmarkRecordError(
+                        f"PERF-001 reference {relative} was already present in "
+                        "its claimed generating source"
+                    )
+                timestamp = Path(relative).name.split("-", 1)[0]
+                recorded = datetime.fromisoformat(
+                    _perf001_document_provenance(document).recorded_at_utc.replace(
+                        "Z", "+00:00"
+                    )
+                )
+                if timestamp != recorded.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ"):
+                    raise BenchmarkRecordError(
+                        f"PERF-001 reference filename timestamp does not match "
+                        f"provenance for {relative}"
+                    )
             authenticated.append(
                 Perf001ReferenceAuthentication(
                     relative_path=relative,
@@ -1372,15 +1820,17 @@ def _perf001_context(
     input_identity: str,
     result_dtype: str,
     measurement_limitations: tuple[str, ...],
+    precision_preset: str | None = None,
 ) -> MeasurementContext:
     preset, default, accumulation, output = _precision_values(backend)
+    resolved_preset = preset if precision_preset is None else precision_preset
     return MeasurementContext.create(
         backend_requested=backend_requested,
         backend_actual=backend.name,
         backend_version=_perf001_backend_version(backend),
         device_kind=str(backend.device_kind),
         compilation_used=bool(backend.supports_compilation),
-        precision_preset=preset,
+        precision_preset=resolved_preset,
         precision_default=default,
         precision_accumulation=accumulation,
         precision_output=output,
@@ -1388,6 +1838,439 @@ def _perf001_context(
         policy_id=policy_id,
         input_identity_sha256=input_identity,
         measurement_limitations=measurement_limitations,
+    )
+
+
+def build_perf001_workload_record(
+    *,
+    provenance: Perf001Provenance,
+    backend: ArrayBackend,
+    requested: str,
+    shape: WorkloadShape,
+    timing: TimingMeasurement,
+    numpy_reference: np.ndarray,
+    fixture_manifest: Mapping[str, object],
+    logical_inputs: Sequence[tuple[str, Any]],
+    accelerator: AcceleratorFacts | None = None,
+    device_memory: DeviceMemoryMeasurement | None = None,
+    notes: str,
+) -> WorkloadBenchmarkRecordV2:
+    """Derive one strict workload-v2 row from measured runtime values.
+
+    The caller supplies the canonical fixture, but cannot author its digest,
+    correctness statistics, backend identity, precision, result dtype, or
+    timing summaries.  NumPy and Dask retain the stronger byte-identity
+    contract; JAX uses the existing float64 correctness predicate.
+    """
+    if type(provenance) is not Perf001Provenance:
+        raise TypeError("provenance must be an exact Perf001Provenance")
+    if type(shape) is not WorkloadShape:
+        raise TypeError("shape must be an exact WorkloadShape")
+    if type(timing) is not TimingMeasurement:
+        raise TypeError("timing must be an exact TimingMeasurement")
+    if type(requested) is not str or requested not in {
+        "numpy",
+        "jax",
+        "dask",
+        "gpu",
+    }:
+        raise ValueError("requested must be numpy, jax, dask, or gpu")
+    expected_backend_type = "jax" if requested == "gpu" else requested
+    if backend.backend_type != expected_backend_type:
+        raise BenchmarkRecordError(
+            f"PERF-001 request {requested!r} does not match executing backend "
+            f"type {backend.backend_type!r}"
+        )
+    device_kind = str(backend.device_kind)
+    if requested == "gpu" and device_kind != "gpu":
+        raise BenchmarkRecordError(
+            "PERF-001 explicit GPU request did not execute on a GPU"
+        )
+    if requested in {"numpy", "jax", "dask"} and device_kind != "cpu":
+        raise BenchmarkRecordError(
+            f"PERF-001 CPU request {requested!r} did not execute on a CPU"
+        )
+    if type(notes) is not str or not notes:
+        raise ValueError("notes must be a non-empty string")
+    reference = np.asarray(numpy_reference)
+    candidate = np.asarray(timing.host_result)
+    deviation = compare_to_reference(reference, candidate)
+    if requested in {"numpy", "dask"} and (
+        candidate.dtype != reference.dtype
+        or not np.array_equal(candidate, reference)
+        or candidate.tobytes(order="C") != reference.tobytes(order="C")
+    ):
+        raise BenchmarkRecordError(
+            f"PERF-001 {requested} workload {shape.workload!r} must be "
+            "byte-identical to its NumPy reference"
+        )
+    if requested in {"jax", "gpu"} and not deviation.within_tolerance:
+        raise BenchmarkRecordError(
+            f"PERF-001 {requested} workload {shape.workload!r} failed the "
+            "NumPy correctness predicate"
+        )
+    input_identity = perf001_input_identity_sha256(
+        fixture_manifest,
+        logical_inputs,
+    )
+    backend_facts = describe_backend(backend, requested=requested)
+    from radiosim.core.precision import PrecisionConfig
+
+    if backend.precision != PrecisionConfig.standard():
+        raise BenchmarkRecordError(
+            "PERF-001 retained workload matrix requires exact standard precision"
+        )
+    policy_id = (
+        "gpu_workload_matrix_v1" if requested == "gpu" else "cpu_workload_matrix_v1"
+    )
+    context = _perf001_context(
+        backend,
+        backend_requested=requested,
+        policy_id=policy_id,
+        input_identity=input_identity,
+        result_dtype=str(candidate.dtype),
+        measurement_limitations=(
+            "tracemalloc excludes backend-native and device allocations",
+            "timing values are observational and are not acceptance thresholds",
+        ),
+        precision_preset="standard",
+    )
+    return WorkloadBenchmarkRecordV2.create(
+        schema_version=PERF001_WORKLOAD_SCHEMA_VERSION,
+        provenance=provenance,
+        context=context,
+        accelerator=accelerator,
+        device_memory=device_memory,
+        workload=shape.workload,
+        n_antennas=shape.n_antennas,
+        n_baselines=shape.n_baselines,
+        n_point_sources=shape.n_point_sources,
+        n_healpix_pixels=shape.n_healpix_pixels,
+        n_times=shape.n_times,
+        n_frequencies=shape.n_frequencies,
+        sky_representation=shape.sky_representation,
+        solver_workers=shape.solver_workers,
+        loader_max_workers=shape.loader_max_workers,
+        setup_seconds=timing.setup_seconds,
+        compile_seconds=timing.compile_seconds,
+        steady_state_median_seconds=timing.steady_state_median_seconds,
+        steady_state_min_seconds=timing.steady_state_min_seconds,
+        steady_state_max_seconds=timing.steady_state_max_seconds,
+        steady_state_iterations=timing.steady_state_iterations,
+        host_transfer_seconds=timing.host_transfer_seconds,
+        peak_host_bytes=timing.peak_host_bytes,
+        host_memory_method="python_heap_tracemalloc",
+        reference_backend=deviation.reference_backend,
+        max_absolute_deviation=deviation.max_absolute_deviation,
+        max_relative_deviation=deviation.max_relative_deviation,
+        tolerance_rtol=deviation.tolerance_rtol,
+        tolerance_atol=deviation.tolerance_atol,
+        within_tolerance=deviation.within_tolerance,
+        unmeasured=backend_facts.unmeasured,
+        notes=notes,
+    )
+
+
+def _run_perf001_backend_resolution_probe(
+    *,
+    operation: str,
+    repository_root: Path,
+    configuration: object,
+    configuration_base_dir: Path,
+    loaded_source_root: Path | None = None,
+) -> _Perf001BackendResolutionProbe:
+    source_root = (loaded_source_root or repository_root).resolve()
+    request = {
+        "operation": operation,
+        "repository_root": str(repository_root),
+        "configuration": configuration,
+        "configuration_base_dir": str(configuration_base_dir),
+    }
+    try:
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                "-B",
+                "-c",
+                _PERF001_BACKEND_PROBE_BOOTSTRAP + _PERF001_BACKEND_PROBE,
+                str(source_root),
+                str(repository_root),
+            ],
+            cwd=repository_root,
+            input=json.dumps(request, allow_nan=False, separators=(",", ":")),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=180,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe failed for {operation!r}"
+        ) from error
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} exited "
+            f"{completed.returncode}: {detail}"
+        )
+    payload_lines = [
+        line.removeprefix(_PERF001_BACKEND_PROBE_PREFIX)
+        for line in completed.stdout.splitlines()
+        if line.startswith(_PERF001_BACKEND_PROBE_PREFIX)
+    ]
+    if len(payload_lines) != 1:
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} did not emit "
+            "one canonical result"
+        )
+    try:
+        raw_payload: object = json.loads(payload_lines[0])
+    except json.JSONDecodeError as error:
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} emitted invalid JSON"
+        ) from error
+    expected_fields = {
+        "duration",
+        "resolved_backend",
+        "backend_version",
+        "device_kind",
+        "compilation_used",
+        "jax_distribution_installed",
+        "jax_in_sys_modules_before",
+        "jax_in_sys_modules_after",
+        "jaxlib_in_sys_modules_before",
+        "jaxlib_in_sys_modules_after",
+        "radiosim_source_file",
+        "detail",
+    }
+    if type(raw_payload) is not dict:
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} emitted an "
+            "incomplete result"
+        )
+    payload = cast(dict[str, object], raw_payload)
+    if set(payload) != expected_fields:
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} emitted an "
+            "incomplete result"
+        )
+    bool_fields = {
+        "compilation_used",
+        "jax_distribution_installed",
+        "jax_in_sys_modules_before",
+        "jax_in_sys_modules_after",
+        "jaxlib_in_sys_modules_before",
+        "jaxlib_in_sys_modules_after",
+    }
+    if any(type(payload[name]) is not bool for name in bool_fields):
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} emitted a "
+            "non-boolean flag"
+        )
+    raw_duration = payload["duration"]
+    if type(raw_duration) not in (int, float):
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} emitted an "
+            "invalid duration"
+        )
+    duration = float(cast(int | float, raw_duration))
+    if not math.isfinite(duration) or duration < 0:
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} emitted an "
+            "invalid duration"
+        )
+    for name in (
+        "resolved_backend",
+        "backend_version",
+        "device_kind",
+        "radiosim_source_file",
+        "detail",
+    ):
+        if type(payload[name]) is not str or not payload[name]:
+            raise BenchmarkRecordError(
+                f"PERF-001 backend-resolution probe {operation!r} emitted an "
+                f"invalid {name}"
+            )
+    expected_source_file = source_root / "src/radiosim/__init__.py"
+    try:
+        observed_source_file = Path(cast(str, payload["radiosim_source_file"])).resolve(
+            strict=True
+        )
+    except OSError as error:
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} loaded an "
+            "unreadable RadioSim source"
+        ) from error
+    if observed_source_file != expected_source_file:
+        raise BenchmarkRecordError(
+            f"PERF-001 backend-resolution probe {operation!r} did not load "
+            "RadioSim from the authenticated source snapshot"
+        )
+    return _Perf001BackendResolutionProbe(
+        duration=duration,
+        resolved_backend=cast(str, payload["resolved_backend"]),
+        backend_version=cast(str, payload["backend_version"]),
+        device_kind=cast(str, payload["device_kind"]),
+        compilation_used=cast(bool, payload["compilation_used"]),
+        jax_distribution_installed=cast(bool, payload["jax_distribution_installed"]),
+        jax_in_sys_modules_before=cast(bool, payload["jax_in_sys_modules_before"]),
+        jax_in_sys_modules_after=cast(bool, payload["jax_in_sys_modules_after"]),
+        jaxlib_in_sys_modules_before=cast(
+            bool, payload["jaxlib_in_sys_modules_before"]
+        ),
+        jaxlib_in_sys_modules_after=cast(bool, payload["jaxlib_in_sys_modules_after"]),
+        radiosim_source_file=cast(str, payload["radiosim_source_file"]),
+        detail=cast(str, payload["detail"]),
+    )
+
+
+def measure_perf001_backend_resolution(
+    *,
+    provenance: Perf001Provenance,
+    operation: str,
+    control_manifest: Mapping[str, object],
+    repository_root: Path | None = None,
+    simulator_configuration: Mapping[str, object] | None = None,
+    simulator_base_dir: Path | None = None,
+    fresh_process_samples: int = 3,
+    loaded_source_root: Path | None = None,
+) -> BackendResolutionRecord:
+    """Measure one required P-c operation in independent fresh processes."""
+    if type(provenance) is not Perf001Provenance:
+        raise TypeError("provenance must be an exact Perf001Provenance")
+    row_contract = _PERF001_BACKEND_RESOLUTION_ROWS.get(operation)
+    if row_contract is None:
+        raise ValueError("operation must identify one required P-c control")
+    if type(fresh_process_samples) is not int or fresh_process_samples <= 0:
+        raise ValueError("fresh_process_samples must be a positive integer")
+    manifest = dict(control_manifest)
+    expected_request = row_contract["requested_backend"]
+    if manifest.get("schema_version") != _PERF001_CONTROL_SCHEMA:
+        raise BenchmarkRecordError(
+            f"PERF-001 control manifest must use {_PERF001_CONTROL_SCHEMA!r}"
+        )
+    if manifest.get("operation") != operation:
+        raise BenchmarkRecordError(
+            "PERF-001 control manifest operation does not match the measurement"
+        )
+    if manifest.get("requested_backend") != expected_request:
+        raise BenchmarkRecordError(
+            "PERF-001 control manifest requested_backend does not match the measurement"
+        )
+    _ = perf001_control_identity_sha256(manifest)
+    if operation == "simulator_setup_auto" and (
+        simulator_configuration is None or simulator_base_dir is None
+    ):
+        raise BenchmarkRecordError(
+            "PERF-001 simulator_setup_auto requires its runtime configuration "
+            "and fixture base directory"
+        )
+    if operation != "simulator_setup_auto" and (
+        simulator_configuration is not None or simulator_base_dir is not None
+    ):
+        raise BenchmarkRecordError(
+            "PERF-001 non-simulator controls do not accept simulator fixtures"
+        )
+    root = (repository_root or Path(__file__).resolve().parents[3]).resolve()
+    source_root = (loaded_source_root or root).resolve()
+    configuration = (
+        dict(simulator_configuration) if simulator_configuration is not None else None
+    )
+    base_dir = (simulator_base_dir or root).resolve()
+    if operation == "simulator_setup_auto":
+        if configuration != manifest["configuration"]:
+            raise BenchmarkRecordError(
+                "PERF-001 simulator runtime configuration differs from its "
+                "authenticated control manifest"
+            )
+        layout_path = base_dir / "antennas.txt"
+        try:
+            layout_digest = sha256(layout_path.read_bytes()).hexdigest()
+        except OSError as error:
+            raise BenchmarkRecordError(
+                "PERF-001 simulator runtime antenna layout is unreadable"
+            ) from error
+        if layout_digest != manifest["antenna_layout_sha256"]:
+            raise BenchmarkRecordError(
+                "PERF-001 simulator runtime antenna layout differs from its "
+                "authenticated control manifest"
+            )
+    observations = tuple(
+        _run_perf001_backend_resolution_probe(
+            operation=operation,
+            repository_root=root,
+            configuration=configuration,
+            configuration_base_dir=base_dir,
+            loaded_source_root=source_root,
+        )
+        for _ in range(fresh_process_samples)
+    )
+    stable_fields = (
+        "resolved_backend",
+        "backend_version",
+        "device_kind",
+        "compilation_used",
+        "jax_distribution_installed",
+        "jax_in_sys_modules_before",
+        "jax_in_sys_modules_after",
+        "jaxlib_in_sys_modules_before",
+        "jaxlib_in_sys_modules_after",
+        "radiosim_source_file",
+        "detail",
+    )
+    first = observations[0]
+    for field_name in stable_fields:
+        if any(item[field_name] != first[field_name] for item in observations[1:]):
+            raise BenchmarkRecordError(
+                f"PERF-001 backend-resolution field {field_name!r} changed "
+                "between fresh-process samples"
+            )
+    durations = tuple(item["duration"] for item in observations)
+    input_identity = perf001_control_identity_sha256(manifest)
+    context = MeasurementContext.create(
+        backend_requested=expected_request,
+        backend_actual=first["resolved_backend"],
+        backend_version=first["backend_version"],
+        device_kind=first["device_kind"],
+        compilation_used=first["compilation_used"],
+        precision_preset="not-applicable",
+        precision_default="not-applicable",
+        precision_accumulation="not-applicable",
+        precision_output="not-applicable",
+        result_dtype="not-applicable",
+        policy_id=row_contract["policy_id"],
+        input_identity_sha256=input_identity,
+        measurement_limitations=(
+            "fresh-process wall-clock samples are observational",
+            "the control operation produces no numerical result",
+        ),
+    )
+    return BackendResolutionRecord.create(
+        schema_version=PERF001_BACKEND_RESOLUTION_SCHEMA_VERSION,
+        provenance=provenance,
+        context=context,
+        comparison_id=row_contract["comparison_id"],
+        implementation_state="production",
+        operation=operation,
+        requested_backend=expected_request,
+        resolved_backend=first["resolved_backend"],
+        discovery_policy="no_optional_backend_imports",
+        fresh_process_samples=fresh_process_samples,
+        cold_seconds=durations,
+        minimum_seconds=min(durations),
+        median_seconds=statistics.median(durations),
+        maximum_seconds=max(durations),
+        jax_distribution_installed=first["jax_distribution_installed"],
+        jax_in_sys_modules_before=first["jax_in_sys_modules_before"],
+        jax_in_sys_modules_after=first["jax_in_sys_modules_after"],
+        jaxlib_in_sys_modules_before=first["jaxlib_in_sys_modules_before"],
+        jaxlib_in_sys_modules_after=first["jaxlib_in_sys_modules_after"],
+        notes=(
+            f"{first['detail']}; measured in {fresh_process_samples} fresh "
+            "processes without optional backend import."
+        ),
     )
 
 

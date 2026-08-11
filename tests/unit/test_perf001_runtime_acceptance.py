@@ -12,6 +12,7 @@ import os
 import stat
 from dataclasses import fields, replace
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,9 @@ import pytest
 
 from radiosim.benchmarks import (
     PERF001_BACKEND_RESOLUTION_SCHEMA_VERSION,
+    PERF001_CPU_BACKENDS,
+    PERF001_CPU_CANONICAL_INPUT_IDENTITIES,
+    PERF001_CPU_WORKLOADS,
     PERF001_MEMORY_SCALING_SCHEMA_VERSION,
     PERF001_PROVENANCE_SCHEMA_VERSION,
     PERF001_RETRACING_SCHEMA_VERSION,
@@ -38,7 +42,10 @@ from radiosim.benchmarks import (
     RetracingRecordV2,
     SolverMemoryRecord,
     WorkloadBenchmarkRecordV2,
+    assemble_perf001_cpu_evidence_document,
     benchmark_filename,
+    load_perf001_evidence_document,
+    validate_perf001_cpu_evidence_document,
     write_perf001_evidence_document,
 )
 
@@ -242,16 +249,25 @@ def _backend_resolution(
     operation: str = "get_backend_auto",
     requested_backend: str = "auto",
     resolved_backend: str = "numpy-cpu",
-    comparison_id: str = "auto-direct-001",
+    comparison_id: str = "p-c-get-backend-auto-v1",
 ) -> BackendResolutionRecord:
-    return BackendResolutionRecord.create(
-        schema_version=PERF001_BACKEND_RESOLUTION_SCHEMA_VERSION,
-        provenance=provenance or _provenance(),
-        context=_context(
+    context = replace(
+        _context(
             policy_id="deterministic_auto_numpy_v1",
             backend=requested_backend,
             actual_backend=resolved_backend,
         ),
+        compilation_used=False,
+        precision_preset="not-applicable",
+        precision_default="not-applicable",
+        precision_accumulation="not-applicable",
+        precision_output="not-applicable",
+        result_dtype="not-applicable",
+    )
+    return BackendResolutionRecord.create(
+        schema_version=PERF001_BACKEND_RESOLUTION_SCHEMA_VERSION,
+        provenance=provenance or _provenance(),
+        context=context,
         comparison_id=comparison_id,
         implementation_state="production",
         operation=operation,
@@ -421,15 +437,544 @@ def _document() -> Perf001EvidenceDocument:
                 operation="get_device_resources_default",
                 requested_backend="default",
                 resolved_backend="platform-tools",
-                comparison_id="device-resources-default-001",
+                comparison_id="p-c-get-device-resources-default-v1",
             ),
             _backend_resolution(
                 provenance=provenance,
                 operation="simulator_setup_auto",
-                comparison_id="simulator-setup-auto-001",
+                comparison_id="p-c-simulator-setup-auto-v1",
             ),
         ),
     )
+
+
+_CPU_DIMENSIONS = {
+    "point_unpolarized_1time_2freq": (2, 0, 1, 2, "point_sources"),
+    "point_polarized_2times": (2, 0, 2, 2, "point_sources"),
+    "point_gaussian_morphology": (2, 0, 2, 2, "point_sources"),
+    "healpix_scalar": (0, 12, 2, 2, "healpix_map"),
+    "healpix_polarized": (0, 12, 2, 2, "healpix_map"),
+    "hybrid_point_plus_healpix": (2, 12, 2, 2, "hybrid"),
+    "heterogeneous_receptor_bases": (2, 0, 2, 2, "point_sources"),
+    "point_scaled_4096_sources_4times": (4096, 0, 4, 2, "point_sources"),
+}
+
+
+def _fixture_identity(label: str) -> str:
+    canonical = dict(PERF001_CPU_CANONICAL_INPUT_IDENTITIES)
+    if label.startswith("memory:"):
+        _, baselines, sources = label.split(":")
+        label = f"memory:p-a-memory-b{baselines}-s{sources}-v1"
+    elif label.startswith("control:"):
+        _, operation, _requested = label.split(":")
+        label = f"backend-resolution:{operation}"
+    if label in canonical:
+        return canonical[label]
+    return sha256(label.encode("utf-8")).hexdigest()
+
+
+def _cpu_workload(
+    provenance: Perf001Provenance, workload: str, backend: str
+) -> WorkloadBenchmarkRecordV2:
+    point_sources, healpix_pixels, times, frequencies, representation = _CPU_DIMENSIONS[
+        workload
+    ]
+    actual = {
+        "numpy": "numpy-cpu",
+        "jax": "jax-cpu-cpu",
+        "dask": "dask-cpu",
+    }[backend]
+    version = {
+        "numpy": provenance.numpy_version,
+        "jax": provenance.jax_version,
+        "dask": provenance.dask_version,
+    }[backend]
+    context = MeasurementContext.create(
+        backend_requested=backend,
+        backend_actual=actual,
+        backend_version=version,
+        device_kind="cpu",
+        compilation_used=backend == "jax",
+        precision_preset="standard",
+        precision_default="float64",
+        precision_accumulation="float64",
+        precision_output="float64",
+        result_dtype="complex128",
+        policy_id="cpu_workload_matrix_v1",
+        input_identity_sha256=_fixture_identity(f"workload:{workload}"),
+        measurement_limitations=("tracemalloc excludes native allocations",),
+    )
+    return replace(
+        _workload(provenance=provenance, context=context),
+        workload=workload,
+        n_antennas=2,
+        n_baselines=3,
+        n_point_sources=point_sources,
+        n_healpix_pixels=healpix_pixels,
+        n_times=times,
+        n_frequencies=frequencies,
+        sky_representation=representation,
+        solver_workers=1,
+        loader_max_workers=0,
+        compile_seconds=0.4 if backend == "jax" else 0.0,
+    )
+
+
+def _cpu_memory_pair(
+    provenance: Perf001Provenance, baselines: int, sources: int
+) -> tuple[MemoryScalingRecordV2, MemoryScalingRecordV2]:
+    identity = _fixture_identity(f"memory:{baselines}:{sources}")
+    comparison_id = f"p-a-memory-b{baselines}-s{sources}-v1"
+    chunk_size = max(1, min(baselines, PERF001_TARGET_KERNEL_PAIRS // sources))
+    production_chunks = tuple(
+        min(chunk_size, baselines - start) for start in range(0, baselines, chunk_size)
+    )
+    rows: list[MemoryScalingRecordV2] = []
+    for state, chunks in (
+        ("unchunked_reference", (baselines,)),
+        ("chunked_production", production_chunks),
+    ):
+        production = state == "chunked_production"
+        context = _context(
+            policy_id=(
+                "target_kernel_pairs_131072_v1"
+                if production
+                else "unbounded_reference_v1"
+            ),
+            identity=identity,
+        )
+        context = replace(context, precision_preset="explicit")
+        peak = baselines * sources * (8 if production else 16) + 1024
+        rows.append(
+            replace(
+                _memory_row(state, provenance=provenance),
+                context=context,
+                comparison_id=comparison_id,
+                logical_n_baselines=baselines,
+                logical_n_sources=sources,
+                logical_pair_count=baselines * sources,
+                kernel_n_sources=sources,
+                kernel_baseline_chunks=chunks,
+                kernel_pair_counts=tuple(chunk * sources for chunk in chunks),
+                max_kernel_pair_count=max(chunk * sources for chunk in chunks),
+                peak_host_bytes=peak,
+            )
+        )
+    return rows[0], rows[1]
+
+
+def _cpu_solver_memory_pair(
+    provenance: Perf001Provenance, solver: str
+) -> tuple[SolverMemoryRecord, SolverMemoryRecord]:
+    representation = "point_sources" if solver == "point" else "healpix"
+    identity = _fixture_identity(f"solver-memory:{solver}")
+    comparison_id = f"p-b-solver-memory-{solver}-v1"
+    return tuple(
+        replace(
+            _solver_memory_row(
+                state,
+                provenance=provenance,
+                solver=solver,
+                sky_representation=representation,
+            ),
+            context=replace(
+                _solver_memory_row(
+                    state,
+                    provenance=provenance,
+                    solver=solver,
+                    sky_representation=representation,
+                ).context,
+                input_identity_sha256=identity,
+                precision_preset="explicit",
+            ),
+            comparison_id=comparison_id,
+            logical_n_baselines=3,
+            logical_source_counts=(3,),
+            kernel_source_counts=((4,) if state == "bucketed_production" else (3,)),
+            n_times=1,
+            n_frequencies=1,
+        )
+        for state in ("unbucketed_reference", "bucketed_production")
+    )  # type: ignore[return-value]
+
+
+def _cpu_retracing_pair(
+    provenance: Perf001Provenance, solver: str
+) -> tuple[RetracingRecordV2, RetracingRecordV2]:
+    representation = {
+        "synthetic_wrapper": "synthetic_contraction",
+        "point": "point_sources",
+        "healpix": "healpix",
+    }[solver]
+    identity = _fixture_identity(f"retracing:{solver}")
+    comparison_id = f"p-b-retracing-{solver.replace('_', '-')}-v1"
+    rows: list[RetracingRecordV2] = []
+    for state in ("unbucketed_reference", "bucketed_production"):
+        row = _retrace_row(
+            state,
+            provenance=provenance,
+            solver=solver,
+            sky_representation=representation,
+        )
+        rows.append(
+            replace(
+                row,
+                context=replace(
+                    row.context,
+                    input_identity_sha256=identity,
+                    precision_preset="explicit",
+                ),
+                comparison_id=comparison_id,
+                measurement_scope=(
+                    "complete_synthetic_contraction_wrapper_step"
+                    if solver == "synthetic_wrapper"
+                    else f"complete_{solver}_solver_step"
+                ),
+                observed_signatures=tuple(
+                    replace(
+                        observation,
+                        jones_p_shape=(3, *observation.jones_p_shape[1:]),
+                        jones_q_shape=(3, *observation.jones_q_shape[1:]),
+                        phase_shape=(3, *observation.phase_shape[1:]),
+                    )
+                    for observation in row.observed_signatures
+                ),
+            )
+        )
+    return rows[0], rows[1]
+
+
+def _cpu_backend_rows(
+    provenance: Perf001Provenance,
+) -> tuple[BackendResolutionRecord, ...]:
+    rows: list[BackendResolutionRecord] = []
+    contracts = (
+        (
+            "get_backend_auto",
+            "auto",
+            "numpy-cpu",
+            "p-c-get-backend-auto-v1",
+            "deterministic_auto_numpy_v1",
+            "cpu",
+            provenance.numpy_version,
+        ),
+        (
+            "get_device_resources_default",
+            "default",
+            "radiosim-device-resources",
+            "p-c-get-device-resources-default-v1",
+            "platform_device_discovery_v1",
+            "host",
+            provenance.radiosim_version,
+        ),
+        (
+            "simulator_setup_auto",
+            "auto",
+            "numpy-cpu",
+            "p-c-simulator-setup-auto-v1",
+            "deterministic_auto_numpy_v1",
+            "cpu",
+            provenance.numpy_version,
+        ),
+    )
+    for (
+        operation,
+        requested,
+        resolved,
+        comparison,
+        policy,
+        device,
+        version,
+    ) in contracts:
+        row = _backend_resolution(
+            provenance=provenance,
+            operation=operation,
+            requested_backend=requested,
+            resolved_backend=resolved,
+            comparison_id=comparison,
+        )
+        rows.append(
+            replace(
+                row,
+                context=replace(
+                    row.context,
+                    backend_version=version,
+                    device_kind=device,
+                    policy_id=policy,
+                    input_identity_sha256=_fixture_identity(
+                        f"control:{operation}:{requested}"
+                    ),
+                ),
+            )
+        )
+    return tuple(rows)
+
+
+def _cpu_document(
+    provenance: Perf001Provenance | None = None,
+) -> Perf001EvidenceDocument:
+    provenance = provenance or _provenance()
+    workload_rows = tuple(
+        _cpu_workload(provenance, workload, backend)
+        for workload in PERF001_CPU_WORKLOADS
+        for backend in PERF001_CPU_BACKENDS
+    )
+    memory_rows = tuple(
+        row
+        for baselines, sources in ((100, 100), (200, 200), (400, 400), (800, 800))
+        for row in _cpu_memory_pair(provenance, baselines, sources)
+    )
+    solver_rows = tuple(
+        row
+        for solver in ("point", "healpix")
+        for row in _cpu_solver_memory_pair(provenance, solver)
+    )
+    retracing_rows = tuple(
+        row
+        for solver in ("synthetic_wrapper", "point", "healpix")
+        for row in _cpu_retracing_pair(provenance, solver)
+    )
+    return assemble_perf001_cpu_evidence_document(
+        workload_benchmarks=workload_rows,
+        memory_scaling=memory_rows,
+        solver_memory=solver_rows,
+        retracing=retracing_rows,
+        backend_resolution=_cpu_backend_rows(provenance),
+    )
+
+
+def test_cpu_assembler_requires_the_exact_45_row_inventory() -> None:
+    document = _cpu_document()
+
+    assert tuple(
+        len(getattr(document, field_name))
+        for field_name in (
+            "workload_benchmarks",
+            "memory_scaling",
+            "solver_memory",
+            "retracing",
+            "backend_resolution",
+        )
+    ) == (24, 8, 4, 6, 3)
+    validate_perf001_cpu_evidence_document(document)
+
+
+def test_cpu_validator_rejects_removal_addition_order_and_substitution() -> None:
+    document = _cpu_document()
+    with pytest.raises(BenchmarkRecordError, match="exactly 24"):
+        validate_perf001_cpu_evidence_document(
+            replace(document, workload_benchmarks=document.workload_benchmarks[:-1])
+        )
+    with pytest.raises(BenchmarkRecordError, match="exactly 24"):
+        validate_perf001_cpu_evidence_document(
+            replace(
+                document,
+                workload_benchmarks=(
+                    *document.workload_benchmarks,
+                    document.workload_benchmarks[-1],
+                ),
+            )
+        )
+    with pytest.raises(BenchmarkRecordError, match="eight-workload"):
+        swapped = (
+            document.workload_benchmarks[1],
+            document.workload_benchmarks[0],
+            *document.workload_benchmarks[2:],
+        )
+        validate_perf001_cpu_evidence_document(
+            replace(document, workload_benchmarks=swapped)
+        )
+    with pytest.raises(BenchmarkRecordError, match="eight-workload"):
+        substituted = list(document.workload_benchmarks)
+        substituted[2] = substituted[0]
+        validate_perf001_cpu_evidence_document(
+            replace(document, workload_benchmarks=tuple(substituted))
+        )
+
+
+def test_cpu_validator_rejects_noncanonical_dimensions_and_identities() -> None:
+    document = _cpu_document()
+    workload_rows = list(document.workload_benchmarks)
+    workload_rows[0] = replace(workload_rows[0], n_baselines=4)
+    with pytest.raises(BenchmarkRecordError, match="noncanonical dimensions"):
+        validate_perf001_cpu_evidence_document(
+            replace(document, workload_benchmarks=tuple(workload_rows))
+        )
+
+    workload_rows = list(document.workload_benchmarks)
+    workload_rows[0] = replace(workload_rows[0], solver_workers=2)
+    with pytest.raises(BenchmarkRecordError, match="solver_workers=1"):
+        validate_perf001_cpu_evidence_document(
+            replace(document, workload_benchmarks=tuple(workload_rows))
+        )
+
+    workload_rows = list(document.workload_benchmarks)
+    workload_rows[1] = replace(
+        workload_rows[1],
+        context=replace(
+            workload_rows[1].context,
+            input_identity_sha256=_fixture_identity("wrong fixture"),
+        ),
+    )
+    with pytest.raises(BenchmarkRecordError, match="share one canonical"):
+        validate_perf001_cpu_evidence_document(
+            replace(document, workload_benchmarks=tuple(workload_rows))
+        )
+
+
+def test_cpu_validator_rejects_pair_and_control_same_count_mutations() -> None:
+    document = _cpu_document()
+    memory_rows = list(document.memory_scaling)
+    replacement_pair = _cpu_memory_pair(
+        document.workload_benchmarks[0].provenance, 600, 600
+    )
+    memory_rows[-2:] = replacement_pair
+    with pytest.raises(BenchmarkRecordError, match="exact four historical"):
+        validate_perf001_cpu_evidence_document(
+            replace(document, memory_scaling=tuple(memory_rows))
+        )
+
+    swapped_memory = list(document.memory_scaling)
+    swapped_memory[:2] = reversed(swapped_memory[:2])
+    with pytest.raises(BenchmarkRecordError, match="historical"):
+        validate_perf001_cpu_evidence_document(
+            replace(document, memory_scaling=tuple(swapped_memory))
+        )
+
+    with pytest.raises(BenchmarkRecordError, match="form a pair"):
+        solver_rows = (
+            *document.solver_memory[:2],
+            *document.solver_memory[:2],
+        )
+        validate_perf001_cpu_evidence_document(
+            replace(document, solver_memory=solver_rows)
+        )
+
+    relabeled_healpix = tuple(
+        replace(
+            row,
+            solver="healpix",
+            sky_representation="healpix",
+            comparison_id="p-b-solver-memory-healpix-v1",
+        )
+        for row in document.solver_memory[:2]
+    )
+    with pytest.raises(BenchmarkRecordError, match="identity is not canonical"):
+        validate_perf001_cpu_evidence_document(
+            replace(
+                document,
+                solver_memory=(*document.solver_memory[:2], *relabeled_healpix),
+            )
+        )
+
+    with pytest.raises(BenchmarkRecordError, match="missing required"):
+        backend_rows = (
+            document.backend_resolution[0],
+            document.backend_resolution[1],
+            document.backend_resolution[0],
+        )
+        validate_perf001_cpu_evidence_document(
+            replace(document, backend_resolution=backend_rows)
+        )
+
+    backend_rows = tuple(
+        replace(row, jax_distribution_installed=False)
+        for row in document.backend_resolution
+    )
+    with pytest.raises(BenchmarkRecordError, match="identity fields"):
+        validate_perf001_cpu_evidence_document(
+            replace(document, backend_resolution=backend_rows)
+        )
+
+
+def test_cpu_validator_rejects_gpu_nonworkload_contexts() -> None:
+    document = _cpu_document()
+    gpu_context = replace(
+        document.memory_scaling[0].context,
+        backend_requested="gpu",
+        backend_actual="jax-gpu-gpu",
+        backend_version=document.memory_scaling[0].provenance.jax_version,
+        device_kind="gpu",
+        compilation_used=True,
+    )
+    memory_rows = tuple(
+        replace(row, context=replace(gpu_context, policy_id=row.context.policy_id))
+        for row in document.memory_scaling
+    )
+
+    with pytest.raises(BenchmarkRecordError, match="must use NumPy CPU"):
+        validate_perf001_cpu_evidence_document(
+            replace(document, memory_scaling=memory_rows)
+        )
+
+
+def test_cpu_validator_rejects_gpu_and_py312_profiles() -> None:
+    document = _cpu_document()
+    with pytest.raises(BenchmarkRecordError, match="default Pixi"):
+        validate_perf001_cpu_evidence_document(
+            _cpu_document(_provenance(pixi_environment="py312"))
+        )
+
+    workload_rows = list(document.workload_benchmarks)
+    workload_rows[0] = replace(
+        workload_rows[0],
+        context=replace(
+            workload_rows[0].context,
+            backend_requested="gpu",
+            backend_actual="jax-gpu-gpu",
+            backend_version=document.workload_benchmarks[0].provenance.jax_version,
+            device_kind="gpu",
+            compilation_used=True,
+            policy_id="gpu_workload_matrix_v1",
+        ),
+        accelerator=_accelerator(),
+        device_memory=_device_memory(),
+        unmeasured=("tpu", "distributed"),
+    )
+    with pytest.raises(BenchmarkRecordError, match="eight-workload"):
+        validate_perf001_cpu_evidence_document(
+            replace(document, workload_benchmarks=tuple(workload_rows))
+        )
+
+
+def test_cpu_document_strict_loader_round_trips_one_byte_snapshot(
+    tmp_path: Path,
+) -> None:
+    document = _cpu_document()
+    raw = (
+        json.dumps(document.to_json_safe(), allow_nan=False, indent=2, sort_keys=False)
+        + "\n"
+    ).encode("utf-8")
+    artifact = tmp_path / "20260811T000000Z-darwin-arm64.json"
+    artifact.write_bytes(raw)
+
+    loaded = load_perf001_evidence_document(artifact)
+
+    assert loaded == document
+    validate_perf001_cpu_evidence_document(loaded)
+
+    duplicate = tmp_path / "duplicate.json"
+    duplicate.write_bytes(
+        raw.replace(
+            b'{\n  "schema_version":',
+            b'{\n  "schema_version": "duplicate",\n  "schema_version":',
+            1,
+        )
+    )
+    with pytest.raises(BenchmarkRecordError, match="duplicate object key"):
+        load_perf001_evidence_document(duplicate)
+
+    nonfinite = tmp_path / "nonfinite.json"
+    nonfinite.write_bytes(
+        raw.replace(b'"setup_seconds": 0.5', b'"setup_seconds": NaN', 1)
+    )
+    with pytest.raises(BenchmarkRecordError, match="non-finite"):
+        load_perf001_evidence_document(nonfinite)
+
+    symlink = tmp_path / "symlink.json"
+    symlink.symlink_to(artifact)
+    with pytest.raises(BenchmarkRecordError, match="non-symlink"):
+        load_perf001_evidence_document(symlink)
 
 
 def test_perf001_types_have_the_exact_documented_fields() -> None:

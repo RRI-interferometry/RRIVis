@@ -33,9 +33,11 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
+import stat
 import statistics
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -45,6 +47,9 @@ __all__ = [
     "BENCHMARK_SCHEMA_VERSION",
     "MEMORY_SCALING_SCHEMA_VERSION",
     "PERF001_BACKEND_RESOLUTION_SCHEMA_VERSION",
+    "PERF001_CPU_BACKENDS",
+    "PERF001_CPU_CANONICAL_INPUT_IDENTITIES",
+    "PERF001_CPU_WORKLOADS",
     "PERF001_MEMORY_SCALING_SCHEMA_VERSION",
     "PERF001_PROVENANCE_SCHEMA_VERSION",
     "PERF001_RETRACING_SCHEMA_VERSION",
@@ -69,7 +74,10 @@ __all__ = [
     "RetracingRecordV2",
     "SolverMemoryRecord",
     "WorkloadBenchmarkRecordV2",
+    "load_perf001_evidence_document",
+    "parse_perf001_evidence_document",
     "records_are_complete",
+    "validate_perf001_cpu_evidence_document",
     "write_benchmark_document",
 ]
 
@@ -401,6 +409,102 @@ PERF001_BACKEND_RESOLUTION_SCHEMA_VERSION = (
 )
 PERF001_TARGET_KERNEL_PAIRS = 131072
 
+#: Exact retained clean-CPU workload order.  NumPy is first in every workload
+#: group because it is the correctness reference for the JAX-CPU and Dask rows.
+PERF001_CPU_BACKENDS = ("numpy", "jax", "dask")
+PERF001_CPU_WORKLOADS = (
+    "point_unpolarized_1time_2freq",
+    "point_polarized_2times",
+    "point_gaussian_morphology",
+    "healpix_scalar",
+    "healpix_polarized",
+    "hybrid_point_plus_healpix",
+    "heterogeneous_receptor_bases",
+    "point_scaled_4096_sources_4times",
+)
+PERF001_CPU_CANONICAL_INPUT_IDENTITIES = (
+    (
+        "workload:point_unpolarized_1time_2freq",
+        "314ed5f1d7aab50d7fe06c7edbcf982b3b8e1cb59006fafce419766cd4ab9073",
+    ),
+    (
+        "workload:point_polarized_2times",
+        "2c6e7ff0921ea65b12c9e054274dfff6a28a2d46b1b8d4c18e66cd330eb870a3",
+    ),
+    (
+        "workload:point_gaussian_morphology",
+        "109d28b9e32659720356cb471598f271bdf824fb0db01b833e5150b0116eb931",
+    ),
+    (
+        "workload:healpix_scalar",
+        "89907785f42dedd6dfe28364f188c6a7a6202e7527bfecdb880112c53b713b11",
+    ),
+    (
+        "workload:healpix_polarized",
+        "11be16918ba4fb9ef5454555e094b98f068b460383cc4e83139f033ea5b4549c",
+    ),
+    (
+        "workload:hybrid_point_plus_healpix",
+        "e64a04d2c9489ce030000b2d31726e8652f409e99a9da5b284e406b669662e0a",
+    ),
+    (
+        "workload:heterogeneous_receptor_bases",
+        "a7247a38af8b07135fcd2f92ab747635039096fd9bcb4a4f0d4289bdd13d1887",
+    ),
+    (
+        "workload:point_scaled_4096_sources_4times",
+        "98af9359065e69823b2dd32f4d4fce93897e0e33dd7d808c950bbeed9bbd9b44",
+    ),
+    (
+        "memory:p-a-memory-b100-s100-v1",
+        "eb1860c5f7617c8fe621c0fb3f521157ae451160259a0313972a7455c4a22ff4",
+    ),
+    (
+        "memory:p-a-memory-b200-s200-v1",
+        "92819addedf4bf3609f0390dcfca8cb1656e18d2f6ea43f903a277263e155dd6",
+    ),
+    (
+        "memory:p-a-memory-b400-s400-v1",
+        "6f6804e130a570f4d18d08ee762a506a751943f0ef0df46cbcb788b1725cb0fb",
+    ),
+    (
+        "memory:p-a-memory-b800-s800-v1",
+        "3558b8f3d72771bade10b639109a4a094635684de06a8c42ea3a9784190043bd",
+    ),
+    (
+        "solver-memory:point",
+        "50b9cbcd620e5bf7b6d8fe09cf0b7fcca21db0250ee64d7f4a864a9ad7434774",
+    ),
+    (
+        "solver-memory:healpix",
+        "e9d2c2f2890af95aa32b48c56b9c8224396efb549315290ef60fadcd9a421b65",
+    ),
+    (
+        "retracing:synthetic_wrapper",
+        "8f55ec9114bca7955b49f7263b963a22f18ed3ad68cab6c7e2ac851de2945eb1",
+    ),
+    (
+        "retracing:point",
+        "2e9ac389c6357d6ca94d43c052f68b282acc5ab40cf6c0fc757f9b9dbf889940",
+    ),
+    (
+        "retracing:healpix",
+        "8aede744badd0183523da8a54d50c77685cec1dd419e97b5181461d8675c867e",
+    ),
+    (
+        "backend-resolution:get_backend_auto",
+        "da7e72f9fb6896123598763dcbd5b8b3f5513361592a17468d6edef7327dd27e",
+    ),
+    (
+        "backend-resolution:get_device_resources_default",
+        "10b92794ca2e53f9a7ac86208d4b5cb9c3325bc87e6139b946fcd8636a5d84d0",
+    ),
+    (
+        "backend-resolution:simulator_setup_auto",
+        "91a3d5bbedf35e5a2b832660d1412f2595d469752eac8358c9de1e7854e2a9f9",
+    ),
+)
+
 _LOWER_HEX_40 = re.compile(r"[0-9a-f]{40}\Z")
 _LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
 _MEMORY_SCOPE = "contraction_wrapper_python_heap_including_output_assembly"
@@ -420,6 +524,13 @@ _REQUIRED_BACKEND_RESOLUTION_OPERATIONS = frozenset(
         ("simulator_setup_auto", "auto"),
     }
 )
+_BACKEND_RESOLUTION_COMPARISON_IDS = {
+    ("get_backend_auto", "auto"): "p-c-get-backend-auto-v1",
+    ("get_device_resources_default", "default"): (
+        "p-c-get-device-resources-default-v1"
+    ),
+    ("simulator_setup_auto", "auto"): "p-c-simulator-setup-auto-v1",
+}
 _REQUIRED_SOLVER_MEMORY_PATHS = frozenset({"point", "healpix"})
 _REQUIRED_RETRACING_PATHS = frozenset({"synthetic_wrapper", "point", "healpix"})
 
@@ -764,6 +875,11 @@ class MemoryScalingRecordV2(_Perf001Record):
             comparison_id=self.comparison_id,
             implementation_state=self.implementation_state,
         )
+        if self.target_kernel_pairs is not None:
+            _require_positive_int(
+                self.target_kernel_pairs,
+                field_name="target_kernel_pairs",
+            )
         if self.implementation_state not in {
             _UNCHUNKED_REFERENCE,
             _CHUNKED_PRODUCTION,
@@ -1019,6 +1135,10 @@ class SolverMemoryRecord(_Perf001Record):
                 "logical_source_counts",
                 "must contain exactly n_times * n_frequencies entries",
             )
+        _require_positive_int(
+            self.target_kernel_pairs,
+            field_name="target_kernel_pairs",
+        )
         if self.target_kernel_pairs != PERF001_TARGET_KERNEL_PAIRS:
             raise _perf001_error(
                 "target_kernel_pairs",
@@ -1465,6 +1585,45 @@ class BackendResolutionRecord(_Perf001Record):
             raise _perf001_error(
                 "context.backend_actual", "must equal resolved_backend"
             )
+        operation_key = (self.operation, self.requested_backend)
+        expected_comparison_id = _BACKEND_RESOLUTION_COMPARISON_IDS.get(operation_key)
+        if expected_comparison_id is None:
+            raise _perf001_error(
+                "operation/requested_backend",
+                "must identify one required production P-c operation",
+            )
+        if self.comparison_id != expected_comparison_id:
+            raise _perf001_error(
+                "comparison_id",
+                f"{operation_key!r} requires {expected_comparison_id!r}",
+            )
+        if self.implementation_state != "production":
+            raise _perf001_error(
+                "implementation_state",
+                "backend-resolution evidence has production rows only",
+            )
+        if self.discovery_policy != "no_optional_backend_imports":
+            raise _perf001_error(
+                "discovery_policy", "must equal 'no_optional_backend_imports'"
+            )
+        for field_name in (
+            "precision_preset",
+            "precision_default",
+            "precision_accumulation",
+            "precision_output",
+            "result_dtype",
+        ):
+            if getattr(self.context, field_name) != "not-applicable":
+                raise _perf001_error(
+                    f"context.{field_name}",
+                    "P-c control observations require the frozen "
+                    "'not-applicable' literal",
+                )
+        if self.context.compilation_used is not False:
+            raise _perf001_error(
+                "context.compilation_used",
+                "P-c control observations do not compile a numerical result",
+            )
         _require_positive_int(
             self.fresh_process_samples, field_name="fresh_process_samples"
         )
@@ -1497,6 +1656,17 @@ class BackendResolutionRecord(_Perf001Record):
             "jaxlib_in_sys_modules_after",
         ):
             _require_bool(getattr(self, field_name), field_name=field_name)
+        imported = (
+            self.jax_in_sys_modules_before
+            or self.jax_in_sys_modules_after
+            or self.jaxlib_in_sys_modules_before
+            or self.jaxlib_in_sys_modules_after
+        )
+        if imported:
+            raise _perf001_error(
+                "jax/jaxlib_in_sys_modules",
+                "required P-c operations must preserve the no-import boundary",
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -2000,3 +2170,693 @@ class Perf001EvidenceDocument(_Perf001Record):
                 "retracing is missing required synthetic and real solver paths: "
                 f"{missing_retracing_paths}"
             )
+
+
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Build one decoded JSON object while rejecting duplicate keys."""
+    decoded: dict[str, object] = {}
+    for key, value in pairs:
+        if key in decoded:
+            raise BenchmarkRecordError(
+                f"PERF-001 JSON contains duplicate object key {key!r}"
+            )
+        decoded[key] = value
+    return decoded
+
+
+def _reject_json_constant(token: str) -> object:
+    """Reject the non-standard NaN/Infinity spellings accepted by json.loads."""
+    raise BenchmarkRecordError(
+        f"PERF-001 JSON contains non-finite numeric token {token!r}"
+    )
+
+
+def _decoded_mapping(value: object, *, field_name: str) -> dict[str, object]:
+    if type(value) is not dict:
+        raise _perf001_error(field_name, "must be a JSON object")
+    return cast(dict[str, object], value)
+
+
+def _decoded_tuple(value: object, *, field_name: str) -> tuple[object, ...]:
+    if type(value) is not list:
+        raise _perf001_error(field_name, "must be an ordered JSON array")
+    return tuple(cast(list[object], value))
+
+
+def _decoded_json_value(value: object) -> object:
+    """Convert decoded JSON arrays to the schema's immutable tuple form."""
+    if type(value) is list:
+        return tuple(_decoded_json_value(item) for item in cast(list[object], value))
+    if type(value) is dict:
+        return {
+            key: _decoded_json_value(item)
+            for key, item in cast(dict[str, object], value).items()
+        }
+    return value
+
+
+def _decoded_record_values(
+    value: object, cls: type, *, field_name: str
+) -> dict[str, object]:
+    mapping = _decoded_mapping(value, field_name=field_name)
+    _reject_missing(cls, mapping)
+    return dict(mapping)
+
+
+def _decode_provenance(value: object, *, field_name: str) -> Perf001Provenance:
+    values = _decoded_record_values(value, Perf001Provenance, field_name=field_name)
+    return Perf001Provenance.create(**values)
+
+
+def _decode_context(value: object, *, field_name: str) -> MeasurementContext:
+    values = _decoded_record_values(value, MeasurementContext, field_name=field_name)
+    values["measurement_limitations"] = _decoded_tuple(
+        values["measurement_limitations"],
+        field_name=f"{field_name}.measurement_limitations",
+    )
+    return MeasurementContext.create(**values)
+
+
+def _decode_common_row_values(
+    value: object, cls: type, *, field_name: str
+) -> dict[str, object]:
+    values = _decoded_record_values(value, cls, field_name=field_name)
+    values["provenance"] = _decode_provenance(
+        values["provenance"], field_name=f"{field_name}.provenance"
+    )
+    values["context"] = _decode_context(
+        values["context"], field_name=f"{field_name}.context"
+    )
+    return values
+
+
+def _decode_memory_row(value: object, *, field_name: str) -> MemoryScalingRecordV2:
+    values = _decode_common_row_values(
+        value, MemoryScalingRecordV2, field_name=field_name
+    )
+    for name in ("kernel_baseline_chunks", "kernel_pair_counts"):
+        values[name] = _decoded_tuple(values[name], field_name=f"{field_name}.{name}")
+    return MemoryScalingRecordV2.create(**values)
+
+
+def _decode_solver_memory_row(value: object, *, field_name: str) -> SolverMemoryRecord:
+    values = _decode_common_row_values(value, SolverMemoryRecord, field_name=field_name)
+    for name in ("logical_source_counts", "kernel_source_counts"):
+        values[name] = _decoded_tuple(values[name], field_name=f"{field_name}.{name}")
+    return SolverMemoryRecord.create(**values)
+
+
+def _decode_signature(
+    value: object, *, field_name: str
+) -> ContractionSignatureObservation:
+    values = _decoded_record_values(
+        value, ContractionSignatureObservation, field_name=field_name
+    )
+    for operand in _SIGNATURE_OPERANDS:
+        name = f"{operand}_shape"
+        if values[name] is not None:
+            values[name] = _decoded_tuple(
+                values[name], field_name=f"{field_name}.{name}"
+            )
+    return ContractionSignatureObservation.create(**values)
+
+
+def _decode_retracing_row(value: object, *, field_name: str) -> RetracingRecordV2:
+    values = _decode_common_row_values(value, RetracingRecordV2, field_name=field_name)
+    for name in (
+        "logical_source_counts",
+        "kernel_source_counts",
+        "scope_step_seconds",
+    ):
+        values[name] = _decoded_tuple(values[name], field_name=f"{field_name}.{name}")
+    signatures = _decoded_tuple(
+        values["observed_signatures"],
+        field_name=f"{field_name}.observed_signatures",
+    )
+    values["observed_signatures"] = tuple(
+        _decode_signature(
+            signature,
+            field_name=f"{field_name}.observed_signatures[{index}]",
+        )
+        for index, signature in enumerate(signatures)
+    )
+    return RetracingRecordV2.create(**values)
+
+
+def _decode_backend_row(value: object, *, field_name: str) -> BackendResolutionRecord:
+    values = _decode_common_row_values(
+        value, BackendResolutionRecord, field_name=field_name
+    )
+    values["cold_seconds"] = _decoded_tuple(
+        values["cold_seconds"], field_name=f"{field_name}.cold_seconds"
+    )
+    return BackendResolutionRecord.create(**values)
+
+
+def _decode_accelerator(value: object, *, field_name: str) -> AcceleratorFacts:
+    values = _decoded_record_values(value, AcceleratorFacts, field_name=field_name)
+    return AcceleratorFacts.create(**values)
+
+
+def _decode_device_memory(value: object, *, field_name: str) -> DeviceMemoryMeasurement:
+    values = _decoded_record_values(
+        value, DeviceMemoryMeasurement, field_name=field_name
+    )
+    raw_stats = values["raw_jax_memory_stats"]
+    if raw_stats is not None:
+        values["raw_jax_memory_stats"] = _decoded_json_value(raw_stats)
+    return DeviceMemoryMeasurement.create(**values)
+
+
+def _decode_workload_row(
+    value: object, *, field_name: str
+) -> WorkloadBenchmarkRecordV2:
+    values = _decode_common_row_values(
+        value, WorkloadBenchmarkRecordV2, field_name=field_name
+    )
+    if values["accelerator"] is not None:
+        values["accelerator"] = _decode_accelerator(
+            values["accelerator"], field_name=f"{field_name}.accelerator"
+        )
+    if values["device_memory"] is not None:
+        values["device_memory"] = _decode_device_memory(
+            values["device_memory"], field_name=f"{field_name}.device_memory"
+        )
+    values["unmeasured"] = _decoded_tuple(
+        values["unmeasured"], field_name=f"{field_name}.unmeasured"
+    )
+    return WorkloadBenchmarkRecordV2.create(**values)
+
+
+def _decode_perf001_document(value: object) -> Perf001EvidenceDocument:
+    values = _decoded_record_values(
+        value, Perf001EvidenceDocument, field_name="document"
+    )
+    decoders: tuple[tuple[str, Callable[..., _Perf001Record]], ...] = (
+        ("workload_benchmarks", _decode_workload_row),
+        ("memory_scaling", _decode_memory_row),
+        ("solver_memory", _decode_solver_memory_row),
+        ("retracing", _decode_retracing_row),
+        ("backend_resolution", _decode_backend_row),
+    )
+    for collection_name, decoder in decoders:
+        items = _decoded_tuple(
+            values[collection_name], field_name=f"document.{collection_name}"
+        )
+        values[collection_name] = tuple(
+            decoder(item, field_name=f"document.{collection_name}[{index}]")
+            for index, item in enumerate(items)
+        )
+    return Perf001EvidenceDocument.create(**values)
+
+
+def parse_perf001_evidence_document(raw: bytes) -> Perf001EvidenceDocument:
+    """Parse one strict UTF-8 PERF-001 JSON byte snapshot.
+
+    Keeping byte acquisition separate lets retained-reference authentication
+    hash and parse the exact same open-file snapshot.
+    """
+    if type(raw) is not bytes:
+        raise TypeError("raw must be exact bytes")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise BenchmarkRecordError("PERF-001 evidence must be UTF-8 JSON") from error
+    try:
+        decoded = json.loads(
+            text,
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_json_constant,
+        )
+    except BenchmarkRecordError:
+        raise
+    except (json.JSONDecodeError, RecursionError) as error:
+        raise BenchmarkRecordError("PERF-001 evidence is invalid JSON") from error
+    return _decode_perf001_document(decoded)
+
+
+def load_perf001_evidence_document(path: str | Path) -> Perf001EvidenceDocument:
+    """Load one strict PERF-001 JSON file without following a symlink."""
+    source = Path(path)
+    try:
+        descriptor = os.open(
+            source,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+    except OSError as error:
+        raise BenchmarkRecordError(
+            f"PERF-001 evidence is not a readable non-symlink file: {source}"
+        ) from error
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise BenchmarkRecordError(
+                f"PERF-001 evidence is not a regular file: {source}"
+            )
+        with os.fdopen(descriptor, "rb") as stream:
+            descriptor = -1
+            raw = stream.read()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    return parse_perf001_evidence_document(raw)
+
+
+_CPU_WORKLOAD_DIMENSIONS = {
+    "point_unpolarized_1time_2freq": (2, 3, 2, 0, 1, 2, "point_sources"),
+    "point_polarized_2times": (2, 3, 2, 0, 2, 2, "point_sources"),
+    "point_gaussian_morphology": (2, 3, 2, 0, 2, 2, "point_sources"),
+    "healpix_scalar": (2, 3, 0, 12, 2, 2, "healpix_map"),
+    "healpix_polarized": (2, 3, 0, 12, 2, 2, "healpix_map"),
+    "hybrid_point_plus_healpix": (2, 3, 2, 12, 2, 2, "hybrid"),
+    "heterogeneous_receptor_bases": (2, 3, 2, 0, 2, 2, "point_sources"),
+    "point_scaled_4096_sources_4times": (
+        2,
+        3,
+        4096,
+        0,
+        4,
+        2,
+        "point_sources",
+    ),
+}
+_CPU_MEMORY_FIXTURES = ((100, 100), (200, 200), (400, 400), (800, 800))
+_CPU_CANONICAL_INPUT_IDENTITIES = dict(PERF001_CPU_CANONICAL_INPUT_IDENTITIES)
+_CPU_NUMERIC_PRECISION = (
+    "explicit",
+    "float64",
+    "float64",
+    "float64",
+    "complex128",
+)
+
+
+def _require_cpu_numeric_context(
+    context: MeasurementContext,
+    *,
+    scope: str,
+) -> None:
+    observed = (
+        context.precision_preset,
+        context.precision_default,
+        context.precision_accumulation,
+        context.precision_output,
+        context.result_dtype,
+    )
+    if observed != _CPU_NUMERIC_PRECISION:
+        raise BenchmarkRecordError(
+            f"PERF-001 CPU {scope} must use explicit float64/complex128 precision"
+        )
+
+
+def validate_perf001_cpu_evidence_document(
+    document: Perf001EvidenceDocument,
+) -> None:
+    """Require the exact retained clean-CPU 45-row evidence inventory."""
+    if type(document) is not Perf001EvidenceDocument:
+        raise TypeError("document must be an exact Perf001EvidenceDocument")
+    expected_counts = {
+        "workload_benchmarks": 24,
+        "memory_scaling": 8,
+        "solver_memory": 4,
+        "retracing": 6,
+        "backend_resolution": 3,
+    }
+    for field_name, expected in expected_counts.items():
+        actual = len(cast(tuple[object, ...], getattr(document, field_name)))
+        if actual != expected:
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU {field_name} must contain exactly {expected} rows; "
+                f"got {actual}"
+            )
+
+    provenance = document.workload_benchmarks[0].provenance
+    if provenance.pixi_environment != "default":
+        raise BenchmarkRecordError(
+            "PERF-001 CPU evidence must be generated in the default Pixi environment"
+        )
+
+    workload_rows = document.workload_benchmarks
+    expected_workload_order = tuple(
+        (workload, backend)
+        for workload in PERF001_CPU_WORKLOADS
+        for backend in PERF001_CPU_BACKENDS
+    )
+    actual_workload_order = tuple(
+        (row.workload, row.context.backend_requested) for row in workload_rows
+    )
+    if actual_workload_order != expected_workload_order:
+        raise BenchmarkRecordError(
+            "PERF-001 CPU workload rows must use the exact eight-workload "
+            "NumPy/JAX-CPU/Dask order"
+        )
+    identities: list[str] = []
+    for index, workload in enumerate(PERF001_CPU_WORKLOADS):
+        group = workload_rows[index * 3 : index * 3 + 3]
+        dimensions = tuple(
+            getattr(group[0], name)
+            for name in (
+                "n_antennas",
+                "n_baselines",
+                "n_point_sources",
+                "n_healpix_pixels",
+                "n_times",
+                "n_frequencies",
+                "sky_representation",
+            )
+        )
+        if dimensions != _CPU_WORKLOAD_DIMENSIONS[workload]:
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU workload {workload!r} has noncanonical dimensions"
+            )
+        identity = group[0].context.input_identity_sha256
+        identities.append(identity)
+        if identity != _CPU_CANONICAL_INPUT_IDENTITIES[f"workload:{workload}"]:
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU workload {workload!r} input identity is not canonical"
+            )
+        for backend, row in zip(PERF001_CPU_BACKENDS, group, strict=True):
+            if row.context.input_identity_sha256 != identity:
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU workload {workload!r} backend rows must share "
+                    "one canonical input identity"
+                )
+            if any(
+                getattr(row, name) != getattr(group[0], name)
+                for name in (
+                    "n_antennas",
+                    "n_baselines",
+                    "n_point_sources",
+                    "n_healpix_pixels",
+                    "n_times",
+                    "n_frequencies",
+                    "sky_representation",
+                    "solver_workers",
+                    "loader_max_workers",
+                )
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU workload {workload!r} dimensions must match "
+                    "across backends"
+                )
+            if row.solver_workers != 1 or row.loader_max_workers != 0:
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU workload {workload!r}/{backend!r} must use "
+                    "solver_workers=1 and loader_max_workers=0"
+                )
+            expected_actual = {
+                "numpy": "numpy-cpu",
+                "jax": "jax-cpu-cpu",
+                "dask": "dask-cpu",
+            }[backend]
+            if (
+                row.context.backend_actual != expected_actual
+                or row.context.device_kind != "cpu"
+                or row.accelerator is not None
+                or row.device_memory is not None
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU workload {workload!r}/{backend!r} must be an "
+                    "exact CPU backend row"
+                )
+            if row.context.compilation_used is (backend != "jax"):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU workload {workload!r}/{backend!r} has an "
+                    "incorrect compilation flag"
+                )
+            if (
+                row.context.precision_preset != "standard"
+                or row.context.precision_default != "float64"
+                or row.context.precision_accumulation != "float64"
+                or row.context.precision_output != "float64"
+                or row.context.result_dtype != "complex128"
+                or row.context.policy_id != "cpu_workload_matrix_v1"
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU workload {workload!r}/{backend!r} has a "
+                    "noncanonical precision or policy context"
+                )
+            if not row.within_tolerance:
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU workload {workload!r}/{backend!r} failed "
+                    "NumPy correctness"
+                )
+            if backend in {"numpy", "dask"} and (
+                row.max_absolute_deviation != 0.0 or row.max_relative_deviation != 0.0
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU {backend} row for {workload!r} must be "
+                    "bit-identical to NumPy"
+                )
+    if len(set(identities)) != len(PERF001_CPU_WORKLOADS):
+        raise BenchmarkRecordError(
+            "PERF-001 CPU workloads must have distinct canonical input identities"
+        )
+
+    memory_rows = document.memory_scaling
+    for index, (baselines, sources) in enumerate(_CPU_MEMORY_FIXTURES):
+        reference, production = memory_rows[index * 2 : index * 2 + 2]
+        expected_id = f"p-a-memory-b{baselines}-s{sources}-v1"
+        if (
+            reference.implementation_state != _UNCHUNKED_REFERENCE
+            or production.implementation_state != _CHUNKED_PRODUCTION
+            or reference.comparison_id != expected_id
+            or production.comparison_id != expected_id
+            or reference.logical_n_baselines != baselines
+            or production.logical_n_baselines != baselines
+            or reference.logical_n_sources != sources
+            or production.logical_n_sources != sources
+        ):
+            raise BenchmarkRecordError(
+                "PERF-001 CPU memory_scaling rows must use the exact four "
+                "historical (B, S) fixture pairs"
+            )
+        for row in (reference, production):
+            if (
+                row.context.input_identity_sha256
+                != _CPU_CANONICAL_INPUT_IDENTITIES[f"memory:{expected_id}"]
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU memory fixture {expected_id!r} input identity "
+                    "is not canonical"
+                )
+            if (
+                row.context.backend_requested != "numpy"
+                or row.context.backend_actual != "numpy-cpu"
+                or row.context.backend_version != provenance.numpy_version
+                or row.context.device_kind != "cpu"
+                or row.context.compilation_used is not False
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU memory fixture {expected_id!r} must use NumPy CPU"
+                )
+            _require_cpu_numeric_context(row.context, scope="memory_scaling")
+        if (
+            baselines * sources > PERF001_TARGET_KERNEL_PAIRS
+            and production.peak_host_bytes >= reference.peak_host_bytes
+        ):
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU large memory fixture {expected_id!r} must measure "
+                "a lower production wrapper peak"
+            )
+
+    solver_order = tuple(
+        (row.solver, row.implementation_state) for row in document.solver_memory
+    )
+    expected_solver_order = tuple(
+        (solver, state)
+        for solver in ("point", "healpix")
+        for state in (_UNBUCKETED_REFERENCE, _BUCKETED_PRODUCTION)
+    )
+    if solver_order != expected_solver_order:
+        raise BenchmarkRecordError(
+            "PERF-001 CPU solver_memory must contain point then HEALPix matched pairs"
+        )
+    for solver, pair_start in (("point", 0), ("healpix", 2)):
+        expected_id = f"p-b-solver-memory-{solver}-v1"
+        if any(
+            row.comparison_id != expected_id
+            for row in document.solver_memory[pair_start : pair_start + 2]
+        ):
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU solver_memory {solver} comparison_id is not canonical"
+            )
+        for row in document.solver_memory[pair_start : pair_start + 2]:
+            if (
+                row.logical_n_baselines != 3
+                or row.logical_source_counts != (3,)
+                or row.n_times != 1
+                or row.n_frequencies != 1
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU solver_memory {solver} dimensions are not "
+                    "the canonical real-solver fixture"
+                )
+            if (
+                row.context.input_identity_sha256
+                != _CPU_CANONICAL_INPUT_IDENTITIES[f"solver-memory:{solver}"]
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU solver_memory {solver} input identity is not "
+                    "canonical"
+                )
+            if (
+                row.context.backend_requested != "jax"
+                or row.context.backend_actual != "jax-cpu-cpu"
+                or row.context.backend_version != provenance.jax_version
+                or row.context.device_kind != "cpu"
+                or row.context.compilation_used is not True
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU solver_memory {solver} must use JAX CPU"
+                )
+            _require_cpu_numeric_context(row.context, scope="solver_memory")
+    solver_identities = {
+        document.solver_memory[index].context.input_identity_sha256 for index in (0, 2)
+    }
+    if len(solver_identities) != 2:
+        raise BenchmarkRecordError(
+            "PERF-001 CPU point and HEALPix solver-memory fixtures must be distinct"
+        )
+
+    retracing_order = tuple(
+        (row.solver, row.implementation_state) for row in document.retracing
+    )
+    expected_retracing_order = tuple(
+        (solver, state)
+        for solver in ("synthetic_wrapper", "point", "healpix")
+        for state in (_UNBUCKETED_REFERENCE, _BUCKETED_PRODUCTION)
+    )
+    if retracing_order != expected_retracing_order:
+        raise BenchmarkRecordError(
+            "PERF-001 CPU retracing must contain synthetic, point and HEALPix pairs"
+        )
+    for pair_start, solver in enumerate(("synthetic_wrapper", "point", "healpix")):
+        reference, production = document.retracing[pair_start * 2 : pair_start * 2 + 2]
+        expected_id = f"p-b-retracing-{solver.replace('_', '-')}-v1"
+        expected_scope = {
+            "synthetic_wrapper": "complete_synthetic_contraction_wrapper_step",
+            "point": "complete_point_solver_step",
+            "healpix": "complete_healpix_solver_step",
+        }[solver]
+        expected_logical_counts = (3, 4, 5, 8, 3, 4, 5, 8)
+        if (
+            reference.comparison_id != expected_id
+            or production.comparison_id != expected_id
+            or reference.measurement_scope != expected_scope
+            or production.measurement_scope != expected_scope
+            or reference.logical_source_counts != expected_logical_counts
+            or production.logical_source_counts != expected_logical_counts
+            or reference.leaf_call_count != len(expected_logical_counts)
+            or production.leaf_call_count != len(expected_logical_counts)
+        ):
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU retracing {solver} fixture is not canonical"
+            )
+        if production.distinct_signature_count >= reference.distinct_signature_count:
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU retracing {solver} must measure fewer production "
+                "leaf signatures"
+            )
+        if production.retrace_overhead_seconds >= reference.retrace_overhead_seconds:
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU retracing {solver} must measure less production "
+                "retrace overhead"
+            )
+        for row in (reference, production):
+            if (
+                row.context.input_identity_sha256
+                != _CPU_CANONICAL_INPUT_IDENTITIES[f"retracing:{solver}"]
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU retracing {solver} input identity is not canonical"
+                )
+            if (
+                row.context.backend_requested != "jax"
+                or row.context.backend_actual != "jax-cpu-cpu"
+                or row.context.backend_version != provenance.jax_version
+                or row.context.device_kind != "cpu"
+                or row.context.compilation_used is not True
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU retracing {solver} must use JAX CPU"
+                )
+            if any(
+                observation.jones_p_shape is None or observation.jones_p_shape[0] != 3
+                for observation in row.observed_signatures
+            ):
+                raise BenchmarkRecordError(
+                    f"PERF-001 CPU retracing {solver} must use three baselines"
+                )
+            _require_cpu_numeric_context(row.context, scope="retracing")
+    retracing_identities = {
+        document.retracing[index].context.input_identity_sha256 for index in (0, 2, 4)
+    }
+    if len(retracing_identities) != 3:
+        raise BenchmarkRecordError(
+            "PERF-001 CPU synthetic, point, and HEALPix retracing fixtures "
+            "must be distinct"
+        )
+
+    backend_rows = document.backend_resolution
+    expected_backend_order = (
+        ("get_backend_auto", "auto"),
+        ("get_device_resources_default", "default"),
+        ("simulator_setup_auto", "auto"),
+    )
+    if (
+        tuple((row.operation, row.requested_backend) for row in backend_rows)
+        != expected_backend_order
+    ):
+        raise BenchmarkRecordError(
+            "PERF-001 CPU backend_resolution must contain the exact three "
+            "production P-c operations in canonical order"
+        )
+    expected_backend_facts = (
+        (
+            "p-c-get-backend-auto-v1",
+            "numpy-cpu",
+            provenance.numpy_version,
+            "cpu",
+            "deterministic_auto_numpy_v1",
+        ),
+        (
+            "p-c-get-device-resources-default-v1",
+            "radiosim-device-resources",
+            provenance.radiosim_version,
+            "host",
+            "platform_device_discovery_v1",
+        ),
+        (
+            "p-c-simulator-setup-auto-v1",
+            "numpy-cpu",
+            provenance.numpy_version,
+            "cpu",
+            "deterministic_auto_numpy_v1",
+        ),
+    )
+    for row, expected in zip(backend_rows, expected_backend_facts, strict=True):
+        comparison, actual, version, device, policy = expected
+        if (
+            row.comparison_id != comparison
+            or row.resolved_backend != actual
+            or row.context.backend_version != version
+            or row.context.device_kind != device
+            or row.context.policy_id != policy
+            or row.jax_distribution_installed is not True
+        ):
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU backend_resolution {row.operation!r} has "
+                "noncanonical measured identity fields"
+            )
+        if (
+            row.context.input_identity_sha256
+            != _CPU_CANONICAL_INPUT_IDENTITIES[f"backend-resolution:{row.operation}"]
+        ):
+            raise BenchmarkRecordError(
+                f"PERF-001 CPU backend_resolution {row.operation!r} input identity "
+                "is not canonical"
+            )
+    if len({row.context.input_identity_sha256 for row in backend_rows}) != 3:
+        raise BenchmarkRecordError(
+            "PERF-001 CPU P-c control manifests must have distinct identities"
+        )

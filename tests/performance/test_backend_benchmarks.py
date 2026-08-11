@@ -38,8 +38,15 @@ seven workloads by construction.
 
 from __future__ import annotations
 
+import importlib.metadata
+import importlib.util
+import os
+import platform
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -73,6 +80,7 @@ from radiosim.benchmarks import (
     measure_retracing,
     records_are_complete,
     time_backend_call,
+    validate_perf001_cpu_evidence_document,
     verify_required_benchmark_accelerator,
     write_benchmark_document,
 )
@@ -107,6 +115,65 @@ MEMORY_SCALING_PAIRS = ((100, 100), (200, 200), (400, 400), (800, 800))
 #: A visible-source count that rises and falls, the way a real observation's
 #: above-horizon set does across a time axis.
 RETRACING_SOURCE_COUNTS = (16, 24, 32, 24, 16, 24, 32)
+
+
+def test_complete_perf001_cpu_generator_assembles_real_in_memory_document(
+    tmp_path: Path,
+) -> None:
+    """Exercise the retained builder without invoking its publication path."""
+    repository_root = Path(__file__).resolve().parents[2]
+    tool_path = repository_root / "tools/wp7_perf001_cpu_evidence.py"
+    spec = importlib.util.spec_from_file_location(
+        "wp7_perf001_cpu_evidence_performance", tool_path
+    )
+    assert spec is not None and spec.loader is not None
+    tool = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = tool
+    spec.loader.exec_module(tool)
+    source_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repository_root,
+        capture_output=True,
+        check=True,
+        text=True,
+    ).stdout.strip()
+    provenance = Perf001Provenance.create(
+        schema_version=PERF001_PROVENANCE_SCHEMA_VERSION,
+        recorded_at_utc="2026-08-11T00:00:00+00:00",
+        radiosim_version=importlib.metadata.version("radiosim"),
+        git_sha=source_sha,
+        working_tree_clean=True,
+        platform=platform.platform(),
+        machine=platform.machine(),
+        cpu_model=platform.processor() or platform.machine(),
+        cpu_count_logical=os.cpu_count() or 1,
+        python_version=platform.python_version(),
+        numpy_version=importlib.metadata.version("numpy"),
+        jax_version=importlib.metadata.version("jax"),
+        jaxlib_version=importlib.metadata.version("jaxlib"),
+        dask_version=importlib.metadata.version("dask"),
+        pixi_environment="default",
+        pixi_lock_sha256=tool.PIXI_LOCK_SHA256,
+    )
+
+    document = tool._measure_document(
+        provenance,
+        tmp_path,
+        repository_root=repository_root,
+    )
+
+    validate_perf001_cpu_evidence_document(document)
+    assert tuple(
+        len(getattr(document, field))
+        for field in (
+            "workload_benchmarks",
+            "memory_scaling",
+            "solver_memory",
+            "retracing",
+            "backend_resolution",
+        )
+    ) == (24, 8, 4, 6, 3)
+    assert not (repository_root / "output/benchmarks/reference/perf001").exists()
 
 
 def _backend_for(name: str):
