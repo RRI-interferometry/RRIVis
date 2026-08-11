@@ -1557,10 +1557,13 @@ class _ObservedCompileBackend:
         return True
 
     def compile(self, function: Callable[..., Any]) -> Callable[..., Any]:
+        # The production contraction factory owns the package's sole compile
+        # call site.  This adapter only delegates that already-observed call to
+        # the wrapped backend; keeping the bound compiler separate also avoids
+        # presenting the evidence harness as a second kernel compile boundary.
+        compiler = self._backend.compile
         compiled = (
-            self._backend.compile(function)
-            if self._backend.supports_compilation
-            else function
+            compiler(function) if self._backend.supports_compilation else function
         )
         return self._observer.wrap(compiled)
 
