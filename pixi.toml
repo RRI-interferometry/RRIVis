@@ -90,11 +90,25 @@ python = "3.12.*"
 # measured rather than skipped (Tier6HybridRuntimePlan.md Sections 28, 32.8).
 # The `cpu*` build constraint is load-bearing: conda-forge also ships CUDA
 # `jaxlib` variants on the Linux subdirs, and RadioSim makes no accelerator
-# claim. This feature is carried by every declared environment so that the
-# parity tests run in the standard gate on all six env x platform combinations.
+# claim. This feature is carried by every standard CPU environment (default,
+# py312, and crossval) so parity runs in the standard compatibility gates. The
+# isolated PERF-001 `gpu` environment below deliberately omits it.
 [feature.jax-cpu.dependencies]
 jax = ">=0.10.2,<0.11"
 jaxlib = { version = ">=0.10.2,<0.11", build = "cpu*" }
+
+# PERF-001 P-e readiness only. The official CUDA 13 JAX stack is Linux-only
+# and deliberately isolated from the CPU solve group; this environment does
+# not make, gate, or publish an accelerator claim.
+[feature.jax-gpu]
+platforms = ["linux-64"]
+
+[feature.jax-gpu.pypi-dependencies]
+jax = { version = "==0.10.2", extras = ["cuda13"] }
+
+[feature.jax-gpu.tasks]
+gpu-preflight = "python tools/wp7_gpu_preflight.py"
+bench-gpu = { cmd = "python -m pytest tests/performance/ -m performance", depends-on = ["gpu-preflight"], env = { RADIOSIM_BENCHMARK_BACKENDS = "numpy,gpu", RADIOSIM_REQUIRE_ACCELERATOR = "gpu" } }
 
 # Optional cross-implementation validation reference (Tier7JonesSciencePlan.md
 # Sections 29 and 41's question Q1). `pyuvsim` is a PyPI-only package -- it has
@@ -118,3 +132,4 @@ py312 = ["py312", "jax-cpu"]
 # packages away from the gating stack, which would make any comparison run in
 # it evidence about a different build of RadioSim.
 crossval = { features = ["py311", "jax-cpu", "crossval"], solve-group = "py311" }
+gpu = { features = ["py311", "jax-gpu"], solve-group = "gpu-py311" }

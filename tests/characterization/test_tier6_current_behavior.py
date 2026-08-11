@@ -1729,22 +1729,16 @@ def test_no_worker_value_is_recorded_in_provenance(tmp_path) -> None:
 # =========================================================================
 
 
-def test_get_backend_auto_returns_the_numpy_backend_on_a_cpu_only_host() -> None:
-    """Flipped by Tier 6H, closing D9 (Section 27 row B4).
+def test_get_backend_auto_is_deterministic_numpy() -> None:
+    """Superseded by PERF-001 P-c after Tier 6H closed D9.
 
     The 6A pin recorded the defect: ``auto`` returned a ``NumbaBackend`` whose
     ``xp`` was plain ``numpy``, so every ``actual_backend`` provenance value it
-    produced said ``numba-cpu`` for a run that executed NumPy.  The corrected
-    precedence is JAX **only** when the installed runtime exposes a non-CPU
-    device, otherwise NumPy; the Dask backend is never auto-selected, because
-    it too would misreport a NumPy run (plan Section 14.1).
-
-    The declared JAX is CPU-only by design, so on every environment this
-    repository locks the answer is the NumPy backend.
+    produced said ``numba-cpu`` for a run that executed NumPy. Tier 6H first
+    made accelerator probing truthful; PERF-001 P-c now separates that explicit
+    discovery from automatic selection. ``auto`` always asks NumPy to honor the
+    requested precision and never imports or probes JAX.
     """
-    from radiosim.backends import _has_non_cpu_jax_device
-
-    assert _has_non_cpu_jax_device() is False
     backend = get_backend("auto")
     assert isinstance(backend, NumPyBackend)
     assert backend.name == "numpy-cpu"
@@ -2037,7 +2031,7 @@ def test_jax_synchronize_blocks_on_the_callers_array() -> None:
     assert backend.synchronize() is None
 
 
-def test_jax_is_a_cpu_only_dependency_of_every_pixi_environment() -> None:
+def test_jax_cpu_dependency_remains_exact_in_every_cpu_pixi_environment() -> None:
     """Flipped by Tier 6H, closing D16.
 
     The 6A pin recorded the defect: ``jax`` appeared nowhere in ``pixi.toml``,
@@ -2059,10 +2053,12 @@ def test_jax_is_a_cpu_only_dependency_of_every_pixi_environment() -> None:
     optional ``crossval`` environment for the Section 29 Tier-2 comparison, so
     ``default``'s declaration gained a ``solve-group`` and is no longer the bare
     list form this test spelled out.  The property Tier 6H wrote it to protect
-    is what is asserted instead, and it is now asserted over *every* declared
-    environment rather than over two named strings: each one carries the
-    ``jax-cpu`` feature, so the parity evidence runs wherever the suite runs and
-    a future environment cannot quietly drop it.
+    is what is asserted instead over every CPU environment.
+
+    AMENDED BY: Post-Tier-8 WP-7. PERF-001 P-e adds one Linux-only, non-gating
+    ``gpu`` environment. It intentionally omits ``jax-cpu`` because the
+    official CUDA plugin/PJRT stack has a separate ``gpu-py311`` solve group.
+    The original CPU-only property remains exact for every CPU environment.
     """
     pixi_toml = _source("pixi.toml")
     assert "[feature.jax-cpu.dependencies]" in pixi_toml
@@ -2072,12 +2068,17 @@ def test_jax_is_a_cpu_only_dependency_of_every_pixi_environment() -> None:
 
     manifest = tomllib.loads(pixi_toml)
     environments = manifest["environments"]
-    assert set(environments) == {"default", "py312", "crossval"}
-    for name, declaration in environments.items():
+    assert set(environments) == {"default", "py312", "crossval", "gpu"}
+    for name in ("default", "py312", "crossval"):
+        declaration = environments[name]
         features = (
             declaration if isinstance(declaration, list) else declaration["features"]
         )
         assert "jax-cpu" in features, name
+    assert environments["gpu"] == {
+        "features": ["py311", "jax-gpu"],
+        "solve-group": "gpu-py311",
+    }
     # The optional environment is `default` plus one feature, in `default`'s own
     # solve group, so it cannot resolve a different stack (Section 29).
     assert (

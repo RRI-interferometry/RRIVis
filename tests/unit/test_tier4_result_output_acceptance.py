@@ -346,14 +346,19 @@ def test_locked_environment_and_platform_matrix_is_unchanged() -> None:
     # environments so the mandated NumPy/JAX backend-parity evidence is measured
     # instead of skipped (``Tier6HybridRuntimePlan.md`` Sections 28, 32.8, C18).
     # Tier 7J added the optional ``crossval`` environment for the Section 29
-    # Tier-2 comparison, which no CI job builds and no gate runs; the two gating
-    # environments and the platform matrix are still what Tier 4 pinned.
+    # Tier-2 comparison. PERF-001 P-e adds a Linux-only ``gpu`` readiness
+    # environment, which no CI job builds and no gate runs. The two gating
+    # environments and the root platform matrix are still what Tier 4 pinned.
     assert manifest["environments"] == {
         "default": {"features": ["py311", "jax-cpu"], "solve-group": "py311"},
         "py312": ["py312", "jax-cpu"],
         "crossval": {
             "features": ["py311", "jax-cpu", "crossval"],
             "solve-group": "py311",
+        },
+        "gpu": {
+            "features": ["py311", "jax-gpu"],
+            "solve-group": "gpu-py311",
         },
     }
     assert manifest["dependencies"]["pyuvdata"] == "==3.2.1"
@@ -367,6 +372,7 @@ def test_locked_environment_and_platform_matrix_is_unchanged() -> None:
         "\n  default:\n",
         "\n  py312:\n",
         "\n  crossval:\n",
+        "\n  gpu:\n",
         "\n      linux-64:\n",
         "\n      osx-64:\n",
         "\n      osx-arm64:\n",

@@ -567,33 +567,11 @@ def _parse_system_profiler(output: str) -> list[GPUInfo]:
     return gpus
 
 
-def _detect_jax_gpus() -> list[GPUInfo]:
-    """Detect GPUs via JAX (fallback for any vendor)."""
-    gpus = []
-    try:
-        import jax
-
-        devices = jax.devices()
-        for dev in devices:
-            if dev.platform != "cpu":
-                gpus.append(
-                    GPUInfo(
-                        name=str(dev.device_kind)
-                        if hasattr(dev, "device_kind")
-                        else str(dev),
-                        vendor=dev.platform,
-                        backend=f"jax:{dev.platform}",
-                    )
-                )
-    except (ImportError, Exception):
-        pass
-    return gpus
-
-
 def _detect_gpus() -> list[GPUInfo]:
     """Detect all available GPUs.
 
-    Tries vendor-specific tools in order, then falls back to JAX.
+    Uses platform APIs and vendor tools only. JAX capability discovery is an
+    explicit backend operation and must not enter generic resource reporting.
     """
     gpus: list[GPUInfo] = []
     system = platform.system()
@@ -648,13 +626,6 @@ def _detect_gpus() -> list[GPUInfo]:
             apple = _parse_system_profiler(output)
             gpus.extend(apple)
             logger.debug("Detected %d Apple GPU(s)", len(apple))
-
-    # 5. JAX fallback (any vendor)
-    if not gpus:
-        jax_gpus = _detect_jax_gpus()
-        if jax_gpus:
-            gpus.extend(jax_gpus)
-            logger.debug("Detected %d GPU(s) via JAX", len(jax_gpus))
 
     return gpus
 

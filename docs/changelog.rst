@@ -55,6 +55,15 @@ Fixed
 Changed
 ^^^^^^^
 
+- **Automatic backend selection is deterministic and import-free**
+  (``PERF-001``). ``get_backend("auto")`` now asks only NumPy to honor the
+  requested precision; it never imports or probes JAX and never selects Dask.
+  Generic JAX uses the runtime-default device, while named ``cpu``, ``gpu``,
+  and ``tpu`` requests and the direct accelerator aliases are strict and never
+  fall back to CPU. Generic device-resource reporting no longer uses JAX as a
+  fallback. The inherited ``VisibilitySimulator.supports_gpu`` value is now
+  ``False``; ``RIMESimulator`` remains explicitly false, and ``True`` requires
+  an independently accepted end-to-end accelerator record.
 - **The polarization-frame limitation is quantified and closed as a retained-
   fixture bound** (``SCI-007``, accepted 2026-08-11). RadioSim's operational
   apparent/equinox-of-date frame is a TETE-like ideal spherical construction,

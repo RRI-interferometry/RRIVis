@@ -19,7 +19,6 @@ from radiosim.backends import (
     DaskBackend,
     JAXBackend,
     NumPyBackend,
-    _has_non_cpu_jax_device,
     get_backend,
     get_backend_info,
     is_jax_available,
@@ -29,16 +28,14 @@ from radiosim.core.precision import PrecisionConfig
 from radiosim.simulator.rime import RIMESimulator
 
 
-def test_b4_auto_returns_numpy_when_no_non_cpu_jax_device_exists() -> None:
+def test_b4_auto_is_deterministic_numpy() -> None:
     """B4: ``auto`` names NumPy because NumPy is what runs (defect D9).
 
     Before Tier 6H, ``auto`` returned the NumPy-delegating ``NumbaBackend``,
     so every ``actual_backend`` value it produced said ``numba-cpu`` for a run
-    that executed plain NumPy. The declared JAX is CPU-only, so the precedence
-    correctly stops at NumPy here.
+    that executed plain NumPy. ``auto`` is now deterministic NumPy and leaves
+    optional runtime discovery to explicit operations.
     """
-    assert _has_non_cpu_jax_device() is False
-
     backend = get_backend("auto")
 
     assert isinstance(backend, NumPyBackend)

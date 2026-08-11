@@ -183,6 +183,10 @@ output/benchmarks/*
 !output/benchmarks/reference/
 output/benchmarks/reference/*
 !output/benchmarks/reference/*.json
+!output/benchmarks/reference/perf001/
+output/benchmarks/reference/perf001/*
+!output/benchmarks/reference/perf001/*.json
+output/benchmarks/reference/perf001/*/
 # `output/crossvalidation/` is the second deliberate exception: it is the
 # committed Tier-2 cross-implementation evidence (Tier7JonesSciencePlan.md
 # Section 29), which Section 34 places here by name. Only the record and its

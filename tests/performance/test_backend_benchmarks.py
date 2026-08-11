@@ -40,18 +40,26 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
 
+import radiosim.core.visibility as point_visibility
 from radiosim.backends import get_backend
 from radiosim.benchmarks import (
+    PERF001_PROVENANCE_SCHEMA_VERSION,
     BenchmarkDocument,
     BenchmarkRecord,
     MemoryScalingRecord,
+    MemoryScalingRecordV2,
+    Perf001Provenance,
     RetracingRecord,
+    RetracingRecordV2,
+    SolverMemoryRecord,
     WorkloadShape,
+    benchmark_backend_selection,
     benchmark_filename,
     benchmark_output_directory,
     build_record,
@@ -59,22 +67,31 @@ from radiosim.benchmarks import (
     describe_backend,
     describe_environment,
     measure_kernel_memory_scaling,
+    measure_perf001_memory_scaling_pair,
+    measure_perf001_solver_memory_pair,
+    measure_perf001_solver_retracing_pair,
     measure_retracing,
     records_are_complete,
     time_backend_call,
+    verify_required_benchmark_accelerator,
     write_benchmark_document,
 )
 from radiosim.core.precision import PrecisionConfig
 from radiosim.core.time_grid import build_observation_time_grid
-from radiosim.core.visibility import calculate_visibility
-from radiosim.core.visibility_healpix import calculate_visibility_healpix
+from radiosim.core.visibility import _calculate_visibility, calculate_visibility
+from radiosim.core.visibility_healpix import (
+    _calculate_visibility_healpix,
+    calculate_visibility_healpix,
+)
 from tests.unit.test_backends import test_backend_parity as parity
 
 pytestmark = [pytest.mark.performance, pytest.mark.slow]
 
-#: Backends measured, in order. NumPy is always first: it is the reference every
-#: other record's correctness delta is taken against.
-MEASURED_BACKENDS = ("numpy", "jax", "dask")
+#: Backends measured, in order. With no opt-in environment this is byte-for-byte
+#: the historical CPU matrix. ``bench-gpu`` selects ``numpy,gpu`` through the
+#: same eight workload objects; NumPy stays first as every row's reference.
+BACKEND_SELECTION = benchmark_backend_selection()
+MEASURED_BACKENDS = BACKEND_SELECTION.backend_requests
 
 #: A larger point workload, so the record set contains at least one row where the
 #: arithmetic, rather than the Python orchestration, dominates.
@@ -94,10 +111,19 @@ RETRACING_SOURCE_COUNTS = (16, 24, 32, 24, 16, 24, 32)
 
 def _backend_for(name: str):
     if name == "jax":
-        return get_backend("jax", device="cpu")
-    if name == "dask":
-        return get_backend("dask", mode="cpu")
-    return get_backend("numpy")
+        backend = get_backend("jax", device="cpu")
+    elif name == "gpu":
+        backend = get_backend("gpu")
+    elif name == "dask":
+        backend = get_backend("dask", mode="cpu")
+    else:
+        backend = get_backend("numpy")
+    verify_required_benchmark_accelerator(
+        backend,
+        requested=name,
+        required_accelerator=BACKEND_SELECTION.required_accelerator,
+    )
+    return backend
 
 
 def _scaled_point_sources() -> dict[str, Any]:
@@ -327,7 +353,8 @@ def measured(tmp_path_factory) -> BenchmarkDocument:
         measure_retracing(
             _backend_for(requested), source_counts=RETRACING_SOURCE_COUNTS
         )
-        for requested in ("numpy", "jax")
+        for requested in MEASURED_BACKENDS
+        if requested in {"numpy", "jax", "gpu"}
     )
     memory_scaling = tuple(
         measure_kernel_memory_scaling(
@@ -351,20 +378,28 @@ def measured(tmp_path_factory) -> BenchmarkDocument:
 
 def test_every_record_is_complete(measured: BenchmarkDocument) -> None:
     """P1 at the document level: no partial record reaches the output file."""
+    assert len(WORKLOADS) == 8
+    assert len({id(workload) for workload in WORKLOADS}) == 8
     assert records_are_complete(measured.records)
     assert len(measured.records) == len(WORKLOADS) * len(MEASURED_BACKENDS)
 
 
-def test_every_record_states_that_no_accelerator_was_exercised(
+def test_every_record_states_which_device_was_actually_exercised(
     measured: BenchmarkDocument,
 ) -> None:
-    """P2: Section 4 forbids an accelerator claim, and the records say so."""
+    """CPU stays explicit; opt-in GPU rows require measured accelerator facts."""
     for record in measured.records:
-        assert record.accelerator == "none", record.workload
-        assert record.accelerator_driver is None
-        assert record.device_kind == "cpu"
-        assert "gpu" in record.unmeasured
-        assert "tpu" in record.unmeasured
+        if record.backend_requested == "gpu":
+            assert record.device_kind == "gpu"
+            assert record.accelerator == "gpu"
+            assert record.accelerator_driver
+            assert "gpu" not in record.unmeasured
+        else:
+            assert record.accelerator == "none", record.workload
+            assert record.accelerator_driver is None
+            assert record.device_kind == "cpu"
+            assert "gpu" in record.unmeasured
+            assert "tpu" in record.unmeasured
 
 
 def test_every_record_carries_the_full_timing_and_memory_profile(
@@ -393,15 +428,18 @@ def test_only_the_jax_records_report_compilation(
         assert record.compilation_used is record.backend_actual.startswith("jax")
 
 
-def test_jax_cpu_records_are_within_the_section_13_5_tolerance(
+def test_jax_records_are_within_the_section_13_5_tolerance(
     measured: BenchmarkDocument,
 ) -> None:
-    """B1's tolerance, restated as a property of the published records."""
+    """B1's tolerance applies to selected JAX-CPU or real-GPU rows."""
+    selected_jax_requests = {"jax", "gpu"}.intersection(MEASURED_BACKENDS)
     jax_records = [
-        record for record in measured.records if record.backend_requested == "jax"
+        record
+        for record in measured.records
+        if record.backend_requested in selected_jax_requests
     ]
 
-    assert len(jax_records) == len(WORKLOADS)
+    assert len(jax_records) == len(WORKLOADS) * len(selected_jax_requests)
     for record in jax_records:
         assert record.reference_backend == "numpy"
         assert record.within_tolerance, (
@@ -417,7 +455,8 @@ def test_dask_records_are_bit_identical_to_numpy(
         record for record in measured.records if record.backend_requested == "dask"
     ]
 
-    assert len(dask_records) == len(WORKLOADS)
+    expected_rows = len(WORKLOADS) if "dask" in MEASURED_BACKENDS else 0
+    assert len(dask_records) == expected_rows
     for record in dask_records:
         assert record.max_absolute_deviation == 0.0, record.workload
 
@@ -441,15 +480,14 @@ def test_retracing_under_a_time_varying_source_count_is_measured(
     under NumPy nothing is compiled and a first call costs what a repeat call
     costs. Both are recorded so the difference is readable rather than assumed.
     """
-    assert len(measured.retracing) == 2
+    assert len(measured.retracing) == len(
+        {"numpy", "jax", "gpu"}.intersection(MEASURED_BACKENDS)
+    )
     numpy_record = next(
         record for record in measured.retracing if not record.compilation_used
     )
-    jax_record = next(
-        record for record in measured.retracing if record.compilation_used
-    )
 
-    for record in (numpy_record, jax_record):
+    for record in measured.retracing:
         assert record.steps == len(RETRACING_SOURCE_COUNTS)
         assert record.distinct_source_counts == len(set(RETRACING_SOURCE_COUNTS))
         assert set(record.first_call_seconds_by_source_count) == {
@@ -457,12 +495,25 @@ def test_retracing_under_a_time_varying_source_count_is_measured(
         }
         assert record.retrace_overhead_seconds >= 0.0
 
-    # The measurement that matters: on a compiling backend the first call at a
-    # newly seen source count costs order-of-magnitude more than a repeat call at
-    # the same count, and on a non-compiling backend it does not. The assertion
-    # is a *shape* comparison between the two backends, never a time threshold.
-    assert jax_record.max_first_to_repeat_ratio > numpy_record.max_first_to_repeat_ratio
-    assert jax_record.retrace_overhead_seconds > numpy_record.retrace_overhead_seconds
+    # Preserve the historical CPU evidence check only when its exact JAX-CPU
+    # row is selected. GPU timings are recorded as evidence but are never a
+    # correctness or acceptance outcome.
+    jax_cpu_records = tuple(
+        record
+        for record in measured.retracing
+        if record.backend_actual.startswith("jax-cpu-")
+    )
+    if jax_cpu_records:
+        assert len(jax_cpu_records) == 1
+        jax_cpu_record = jax_cpu_records[0]
+        assert (
+            jax_cpu_record.max_first_to_repeat_ratio
+            > numpy_record.max_first_to_repeat_ratio
+        )
+        assert (
+            jax_cpu_record.retrace_overhead_seconds
+            > numpy_record.retrace_overhead_seconds
+        )
 
 
 def test_the_kernel_working_set_scales_with_baselines_times_sources(
@@ -501,3 +552,273 @@ def test_the_document_is_written_where_the_documentation_says_it_is(
     assert isinstance(measured.records[0], BenchmarkRecord)
     assert isinstance(measured.retracing[0], RetracingRecord)
     assert isinstance(measured.memory_scaling[0], MemoryScalingRecord)
+
+
+# =========================================================================
+# PERF-001 v2 P-a/P-b evidence scaffolding
+# =========================================================================
+
+
+def _perf001_measurement_test_provenance() -> Perf001Provenance:
+    """Schema-valid provenance for non-retained performance-test records.
+
+    Retained generation uses ``describe_perf001_provenance`` and fails on a
+    dirty checkout.  These tests intentionally exercise the measurement
+    mechanics while their own source files are dirty during development, and
+    never write these rows as evidence.
+    """
+    import importlib.metadata
+
+    return Perf001Provenance.create(
+        schema_version=PERF001_PROVENANCE_SCHEMA_VERSION,
+        recorded_at_utc="2026-08-11T00:00:00+00:00",
+        radiosim_version="0.3.0",
+        git_sha="a" * 40,
+        working_tree_clean=True,
+        platform="performance-test-only",
+        machine="performance-test-only",
+        cpu_model="performance-test-only",
+        cpu_count_logical=1,
+        python_version="3.11-or-3.12",
+        numpy_version=importlib.metadata.version("numpy"),
+        jax_version=importlib.metadata.version("jax"),
+        jaxlib_version=importlib.metadata.version("jaxlib"),
+        dask_version=importlib.metadata.version("dask"),
+        pixi_environment="test-only",
+        pixi_lock_sha256="b" * 64,
+    )
+
+
+class _Perf001AllVisibleSkyCoord:
+    """Point-solver coordinate stand-in with a controlled all-visible count."""
+
+    def __init__(self, *, ra: object, **_kwargs: object) -> None:
+        self._count = len(ra)  # type: ignore[arg-type]
+
+    def transform_to(self, _frame: object) -> SimpleNamespace:
+        return SimpleNamespace(
+            az=SimpleNamespace(
+                rad=np.linspace(0.1, 0.2, self._count, dtype=np.float64)
+            ),
+            alt=SimpleNamespace(
+                rad=np.linspace(0.8, 0.9, self._count, dtype=np.float64)
+            ),
+        )
+
+
+class _Perf001AllVisiblePixels:
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    def __len__(self) -> int:
+        return self._count
+
+    def transform_to(self, _frame: object) -> SimpleNamespace:
+        return _Perf001AllVisibleSkyCoord(ra=np.empty(self._count)).transform_to(_frame)
+
+
+class _Perf001HealpixPayload:
+    nside = 1
+    pixel_solid_angle = 1.0
+
+    def __init__(self, count: int) -> None:
+        self.pixel_coords = _Perf001AllVisiblePixels(count)
+        intensity = np.linspace(1.0, 2.0, count, dtype=np.float64)
+        self.stokes = (
+            intensity,
+            intensity * 0.1,
+            intensity * 0.05,
+            intensity * 0.02,
+        )
+
+    def get_map_at_frequency(self, _frequency: float) -> np.ndarray:
+        return self.stokes[0]
+
+    def get_stokes_maps_at_frequency(
+        self, _frequency: float
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        return self.stokes
+
+
+def _perf001_logical_arrays(
+    values_by_count: dict[int, object],
+) -> tuple[tuple[str, np.ndarray], ...]:
+    logical_inputs: list[tuple[str, np.ndarray]] = []
+    for count, values in sorted(values_by_count.items()):
+        if isinstance(values, dict):
+            items = values.items()
+        else:
+            items = enumerate(values.stokes)  # type: ignore[attr-defined]
+        for name, array in items:
+            if isinstance(array, np.ndarray):
+                logical_inputs.append((f"sources_{count}.{name}", array))
+    return tuple(logical_inputs)
+
+
+def test_perf001_p_a_records_bounded_leaf_pairs_and_lower_large_wrapper_peak() -> None:
+    backend = get_backend("numpy", precision="standard")
+    reference, production = measure_perf001_memory_scaling_pair(
+        backend,
+        provenance=_perf001_measurement_test_provenance(),
+        n_baselines=512,
+        n_sources=512,
+        comparison_id="perf001-p-a-large",
+    )
+
+    assert isinstance(reference, MemoryScalingRecordV2)
+    assert isinstance(production, MemoryScalingRecordV2)
+    assert reference.max_kernel_pair_count == 512 * 512
+    assert production.max_kernel_pair_count <= 131072
+    assert production.kernel_baseline_chunks == (256, 256)
+    assert production.peak_host_bytes < reference.peak_host_bytes
+
+
+@pytest.mark.parametrize("solver", ["point", "healpix"])
+def test_perf001_p_b_measures_real_private_solver_memory_and_retracing(
+    tmp_path,
+    monkeypatch,
+    solver: str,
+) -> None:
+    """Both P-b rows traverse a complete production point/HEALPix solver."""
+    monkeypatch.setattr(point_visibility, "SkyCoord", _Perf001AllVisibleSkyCoord)
+    instrument, beam_system, receptors = parity._solver_components(tmp_path)
+    compiled_request = BACKEND_SELECTION.required_accelerator or "jax"
+    backend = _backend_for(compiled_request)
+    frequencies = parity.FREQUENCIES[:1].copy()
+    logical_counts = (0, 3, 4, 5, 8, 0, 3, 4, 5, 8)
+    if solver == "point":
+        fixtures = {
+            count: parity._point_sources(
+                # The parity helper deliberately indexes a polarized signal;
+                # for an empty sky the signal path is immaterial and must stay
+                # empty so the complete solver returns before its leaf.
+                polarized=count > 0,
+                gaussian=True,
+                n_sources=count,
+                per_channel=False,
+            )
+            for count in sorted(set(logical_counts))
+        }
+    else:
+        fixtures = {
+            count: _Perf001HealpixPayload(count)
+            for count in sorted(set(logical_counts))
+        }
+
+    common = {
+        "instrument": instrument,
+        "beam_system": beam_system,
+        "location": parity.LOCATION,
+        "time_grid": parity.SINGLE_TIME_GRID,
+        "frequencies": frequencies,
+        "backend": backend,
+        "receptors": receptors,
+    }
+
+    def run_count(policy: str, count: int) -> object:
+        if solver == "point":
+            return _calculate_visibility(
+                source_arrays=fixtures[count],
+                **common,
+                _source_bucket_policy=policy,
+            )
+        return _calculate_visibility_healpix(
+            sky_model=SimpleNamespace(
+                healpix=fixtures[count],
+                has_polarized_healpix_maps=True,
+                brightness_conversion="rayleigh-jeans",
+                model_name=f"perf001-{count}-pixel",
+            ),
+            include_polarization=True,
+            **common,
+            _source_bucket_policy=policy,
+        )
+
+    manifest = {
+        "schema_version": "radiosim.perf001.fixture.real_solver_retracing.v1",
+        "solver": solver,
+        "logical_source_counts": list(logical_counts),
+        "time_mjd": [float(value) for value in parity.SINGLE_TIME_GRID.to_mjd()],
+        "frequencies_hz": frequencies.tolist(),
+    }
+    logical_inputs = (
+        ("baseline_vectors_enu_m", instrument.baseline_vectors_enu_m),
+        ("frequencies_hz", frequencies),
+        *_perf001_logical_arrays(fixtures),
+    )
+    provenance = _perf001_measurement_test_provenance()
+    leaf_call_deltas: list[tuple[str, int, int, int]] = []
+    retracing_reference, retracing_production = measure_perf001_solver_retracing_pair(
+        backend,
+        provenance=provenance,
+        solver=solver,
+        logical_source_counts=logical_counts,
+        fixture_manifest=manifest,
+        logical_inputs=logical_inputs,
+        run_solver_step=lambda policy, index: run_count(policy, logical_counts[index]),
+        comparison_id=f"perf001-p-b-{solver}-retrace",
+        _leaf_call_delta_observer=lambda state, index, logical_count, delta: (
+            leaf_call_deltas.append((state, index, logical_count, delta))
+        ),
+    )
+    memory_reference, memory_production = measure_perf001_solver_memory_pair(
+        backend,
+        provenance=provenance,
+        solver=solver,
+        logical_n_baselines=len(instrument.selected_pairs),
+        logical_source_counts=(3,),
+        n_times=1,
+        n_frequencies=1,
+        fixture_manifest={**manifest, "logical_source_counts": [3]},
+        logical_inputs=(
+            ("baseline_vectors_enu_m", instrument.baseline_vectors_enu_m),
+            ("frequencies_hz", frequencies),
+            *_perf001_logical_arrays({3: fixtures[3]}),
+        ),
+        run_solver=lambda policy: run_count(policy, 3),
+        comparison_id=f"perf001-p-b-{solver}-memory",
+    )
+
+    assert isinstance(retracing_reference, RetracingRecordV2)
+    assert isinstance(retracing_production, RetracingRecordV2)
+    assert isinstance(memory_reference, SolverMemoryRecord)
+    assert isinstance(memory_production, SolverMemoryRecord)
+    assert retracing_production.distinct_signature_count < (
+        retracing_reference.distinct_signature_count
+    )
+    assert retracing_reference.context.input_identity_sha256 == (
+        retracing_production.context.input_identity_sha256
+    )
+    assert retracing_reference.kernel_source_counts == logical_counts
+    assert retracing_production.kernel_source_counts == (
+        0,
+        4,
+        4,
+        8,
+        8,
+        0,
+        4,
+        4,
+        8,
+        8,
+    )
+    assert retracing_reference.leaf_call_count == 8
+    assert retracing_production.leaf_call_count == 8
+    assert len(leaf_call_deltas) == 2 * len(logical_counts)
+    for state in ("unbucketed_reference", "bucketed_production"):
+        state_deltas = [item for item in leaf_call_deltas if item[0] == state]
+        assert tuple((item[1], item[3]) for item in state_deltas if item[2] == 0) == (
+            (0, 0),
+            (5, 0),
+        )
+        assert all(item[3] > 0 for item in state_deltas if item[2] > 0)
+    for record in (retracing_reference, retracing_production):
+        assert all(
+            observation.jones_p_shape is not None and observation.jones_p_shape[1] > 0
+            for observation in record.observed_signatures
+        )
+    assert memory_reference.context.input_identity_sha256 == (
+        memory_production.context.input_identity_sha256
+    )
+    assert memory_reference.kernel_source_counts == (3,)
+    assert memory_production.kernel_source_counts == (4,)

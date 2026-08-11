@@ -21,8 +21,8 @@ Usage:
 >>> availability["numpy"]
 True
 >>>
->>> # Select a backend explicitly.  ``"auto"`` returns JAX only when JAX
->>> # reports a non-CPU device, and NumPy otherwise.
+>>> # Select a backend explicitly.  ``"auto"`` is deterministic NumPy and
+>>> # does not probe optional runtimes.
 >>> backend = get_backend("numpy")
 >>> backend.name
 'numpy-cpu'
@@ -80,24 +80,6 @@ except ImportError:  # pragma: no cover - exercised only without Dask installed
         return False
 
 
-def _has_non_cpu_jax_device() -> bool:
-    """Whether the installed JAX runtime exposes a real accelerator.
-
-    ``auto`` selects JAX only when this is true. RadioSim's JAX dependency is a
-    CPU-only build, so on every environment this repository locks the answer is
-    ``False`` and ``auto`` resolves to NumPy -- which is exactly what executes
-    (``Tier6HybridRuntimePlan.md`` Section 14.1, defect D9).
-    """
-    if not JAX_AVAILABLE:
-        return False
-    try:
-        import jax
-
-        return bool(jax.devices("tpu")) or bool(jax.devices("gpu"))
-    except Exception:
-        return False
-
-
 def _require_supported_precision(
     precision: Union["PrecisionConfig", str] | None,
     backend_name: str,
@@ -125,9 +107,8 @@ def get_backend(
     name : str
         Backend name:
 
-        - "auto": JAX when the installed runtime exposes a non-CPU device,
-          otherwise NumPy. The Dask backend is never auto-selected, because it
-          delegates to NumPy and exists for explicit opt-in only.
+        - "auto": deterministic NumPy selection. It never imports or probes
+          JAX and never selects Dask.
         - "numpy" or "cpu": NumPy CPU backend (always available)
         - "dask": NumPy operations with optional Dask arrays and client
         - "jax": JAX arrays on the requested available device
@@ -163,7 +144,7 @@ def get_backend(
 
     Examples
     --------
-    >>> # Auto-detect (recommended)
+    >>> # Deterministic automatic selection
     >>> backend = get_backend("auto")
 
     >>> # Force CPU (NumPy)
@@ -182,33 +163,10 @@ def get_backend(
     name = name.lower()
 
     if name == "auto":
-        from radiosim.core.precision import resolve_precision
-
-        resolved_precision = resolve_precision(precision)
-        if resolved_precision.validate_for_backend("jax"):
-            numpy_issues = resolved_precision.validate_for_backend("numpy")
-            if numpy_issues:
-                raise BackendNotAvailableError(
-                    "No installed backend can honor the requested precision: "
-                    + "; ".join(numpy_issues)
-                )
-            return NumPyBackend(precision=resolved_precision)
-
-        # Auto precedence (Section 14.1): JAX only when a non-CPU JAX device
-        # exists, otherwise NumPy. The Dask backend is deliberately absent from
-        # this chain -- selecting it automatically would report "dask" for a run
-        # that executes plain NumPy.
-        if _has_non_cpu_jax_device():
-            import jax
-
-            try:
-                if jax.devices("tpu"):
-                    return JAXBackend(device="tpu", precision=resolved_precision)
-                return JAXBackend(device="gpu", precision=resolved_precision)
-            except Exception:
-                pass
-
-        # Default to NumPy (always available, and what actually executes here)
+        # PERF-001 P-c deliberately separates deterministic selection from
+        # explicit discovery. Precision resolution and NumPy validation do not
+        # touch an optional backend module or runtime.
+        resolved_precision = _require_supported_precision(precision, "numpy")
         return NumPyBackend(precision=resolved_precision)
 
     elif name in ("numpy", "cpu"):
@@ -248,21 +206,18 @@ def get_backend(
                 "has measured no accelerator, so supply a vendor JAX wheel "
                 "yourself if you have one."
             )
-        device = kwargs.get("device", "gpu")
+        # An omitted device delegates selection to the JAX runtime. Explicit
+        # cpu/gpu/tpu values are strict requirements in JAXBackend.
+        device = kwargs.get("device")
         return JAXBackend(device=device, precision=resolved_precision)
 
     elif name == "gpu":
         resolved_precision = _require_supported_precision(precision, "jax")
-        if JAX_AVAILABLE:
-            try:
-                return JAXBackend(device="gpu", precision=resolved_precision)
-            except BackendNotAvailableError:
-                pass
-
-        raise BackendNotAvailableError(
-            "No GPU backend available. Install a GPU-capable JAX build; the JAX "
-            "declared by every pixi environment is CPU-only by design."
-        )
+        if not JAX_AVAILABLE:
+            raise BackendNotAvailableError(
+                "No GPU backend available. Install a GPU-capable JAX build."
+            )
+        return JAXBackend(device="gpu", precision=resolved_precision)
 
     elif name == "tpu":
         resolved_precision = _require_supported_precision(precision, "jax")
@@ -294,19 +249,27 @@ def list_backends() -> dict[str, bool]:
     backends = {
         "numpy": True,  # Always available
         "dask": DASK_AVAILABLE,
-        "jax": JAX_AVAILABLE,
+        "jax": False,
     }
 
-    # Check for GPU/TPU via JAX
+    # Explicit discovery may initialize JAX. Probe accelerator plugins
+    # independently because one failed plugin says nothing about the other.
     if JAX_AVAILABLE:
         try:
             import jax
-
-            backends["jax_gpu"] = len(jax.devices("gpu")) > 0
-            backends["jax_tpu"] = len(jax.devices("tpu")) > 0
         except Exception:
             backends["jax_gpu"] = False
             backends["jax_tpu"] = False
+        else:
+            try:
+                backends["jax"] = bool(jax.devices())
+            except Exception:
+                backends["jax"] = False
+            for key, device_kind in (("jax_gpu", "gpu"), ("jax_tpu", "tpu")):
+                try:
+                    backends[key] = bool(jax.devices(device_kind))
+                except Exception:
+                    backends[key] = False
     else:
         backends["jax_gpu"] = False
         backends["jax_tpu"] = False
@@ -345,7 +308,7 @@ def get_backend_info() -> dict[str, dict]:
     # JAX
     if JAX_AVAILABLE:
         try:
-            backend = JAXBackend(device="cpu")
+            backend = JAXBackend(device=None)
             info["jax"] = backend.get_device_info()
         except Exception as e:
             info["jax"] = {"error": str(e)}

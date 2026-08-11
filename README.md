@@ -351,10 +351,19 @@ there is no promised silent fallback.
 ## Backends and performance
 
 NumPy is the deterministic default. `auto` is a real selection strategy, not
-a synonym for “keep the document value”: it returns JAX only when JAX reports a
-non-CPU device, and NumPy otherwise. The selectable names are `numpy`, `jax`,
-`dask`, and `auto`; `numba` is removed, because the backend behind that name
-never compiled a kernel.
+a synonym for “keep the document value”: it asks only NumPy to honor the
+requested precision and never imports or probes JAX. It never selects Dask.
+The selectable names are `numpy`, `jax`, `dask`, and `auto`.
+`numba` is removed because the backend behind that name never compiled a
+kernel.
+
+Direct `get_backend("jax")` uses JAX's runtime-default device. A named JAX
+`cpu`, `gpu`, or `tpu` device is a strict requirement, as are the direct `gpu`
+and `tpu` aliases: an unavailable device raises `BackendNotAvailableError`
+without a CPU fallback. `list_backends()` and `get_backend_info()` are the
+explicit discovery operations and may initialize JAX. These rules implement
+the open [`PERF-001`](PostTier8RemediationPlan.md) runtime mitigations; they do
+not establish accelerator performance.
 
 Both solvers route their Jones chain, geometric phase, coherency construction,
 contraction, and accumulation through the selected backend. Exactly one kernel

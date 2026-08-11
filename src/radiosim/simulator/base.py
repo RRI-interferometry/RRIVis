@@ -148,25 +148,22 @@ class VisibilitySimulator(ABC):
 
         This is a claim about evidence, not about whether an accelerator
         library can be imported. RadioSim has measured none: the shipped
-        ``RIMESimulator`` overrides this property to return ``False``, the JAX
-        declared by every pixi environment is CPU-only, and every measured JAX
-        run is slower than NumPy (records: ``output/benchmarks/reference/``,
-        register row ``PERF-001``).
+        ``RIMESimulator`` overrides this property to return ``False``, the
+        standard gates use CPU-only JAX, and the isolated GPU environment is
+        readiness infrastructure rather than accepted evidence. Every measured
+        JAX run is slower than NumPy (records:
+        ``output/benchmarks/reference/``, register row ``PERF-001``).
 
-        The inherited value here is ``True`` only because it predates that
-        finding; it is not a statement that a subclass is accelerated, and no
-        shipped simulator relies on it. A subclass may leave it inherited only
-        once a measured accelerator record exists for it, and must otherwise
-        override it to ``False`` as ``RIMESimulator`` does. Flipping this
-        default is a behaviour change, deliberately not made in a
-        documentation slice; it is tracked with ``PERF-001``.
+        The conservative inherited value is ``False``. A subclass may return
+        ``True`` only when an independently accepted end-to-end accelerator
+        record names that exact implementation.
 
         Returns
         -------
         bool
             Whether a measured accelerator run backs this simulator.
         """
-        return True
+        return False
 
     @abstractmethod
     def calculate_visibilities(

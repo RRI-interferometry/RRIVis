@@ -322,6 +322,29 @@ Recorded `actual_backend` provenance values change accordingly, and
 `RIMESimulator.supports_gpu` is now `False`. It reported `True` while executing
 host-side NumPy.
 
+### PERF-001 deterministic backend selection
+
+The earlier 0.3.0 correction above still allowed `get_backend("auto")` to
+probe JAX and select it when the runtime exposed a non-CPU device. `auto` now
+checks only whether NumPy can honor the requested precision. It never imports
+or probes JAX, never selects Dask, and raises `BackendNotAvailableError` when
+NumPy cannot honor the request.
+
+An unqualified `get_backend("jax")` now uses JAX's runtime-default device; it
+no longer means “request GPU, then fall back to CPU.” Explicit
+`device="cpu"`, `"gpu"`, and `"tpu"` requests and the direct `gpu` / `tpu`
+aliases are strict. An unavailable device raises `BackendNotAvailableError`
+without a CPU fallback and retains the runtime failure as its cause. Generic
+device-resource reporting likewise no longer uses JAX as a fallback; use
+`list_backends()` or `get_backend_info()` when explicit JAX discovery is
+intended (`PERF-001`).
+
+Third-party `VisibilitySimulator` subclasses now inherit
+`supports_gpu = False` rather than `True`. Returning `True` requires an
+independently accepted end-to-end accelerator record for that exact
+implementation. The shipped `RIMESimulator` remains explicitly false
+(`PERF-001`).
+
 ### `ArrayBackend` additions
 
 Third-party backend implementations (there are none in tree) gain four members
@@ -340,13 +363,18 @@ def synchronize(self, arr=None): ...          # now takes the array to block on
 which orders none of the caller's work; pass the array, or a JAX timing
 measures dispatch rather than computation.
 
-### CPU-only JAX is a declared dependency
+### Initial 0.3.0 CPU-only JAX dependency
 
-Every pixi environment now carries a CPU-only `jax`/`jaxlib`, so the NumPy/JAX
-parity evidence is measured in the standard gate rather than skipped. A missing
-JAX is now a broken environment and fails loudly. No accelerator build is
-declared, and none has been measured; see
-[the backend guide](user_guide/backends.rst) for the records.
+At the Tier 6H migration point, every declared Pixi environment carried a
+CPU-only `jax`/`jaxlib`, so the NumPy/JAX parity evidence was measured in the
+standard gate rather than skipped. A missing JAX remains a broken standard
+environment and fails loudly.
+
+Later PERF-001 readiness work leaves the `default`, `py312`, and `crossval`
+environments CPU-only and adds a separate Linux `gpu` environment with a strict
+CUDA preflight. That isolated environment is readiness infrastructure, not an
+accelerator measurement or capability claim. No accelerator has been measured;
+see [the backend guide](user_guide/backends.rst) for the records.
 
 ## Hybrid results and serialization
 

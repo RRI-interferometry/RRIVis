@@ -7,7 +7,12 @@ must fail before it can be written or reviewed.
 
 from __future__ import annotations
 
+import json
+import os
+import stat
 from dataclasses import fields, replace
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -33,6 +38,8 @@ from radiosim.benchmarks import (
     RetracingRecordV2,
     SolverMemoryRecord,
     WorkloadBenchmarkRecordV2,
+    benchmark_filename,
+    write_perf001_evidence_document,
 )
 
 
@@ -928,3 +935,217 @@ def test_document_serializes_recursively_to_exact_json_arrays() -> None:
     assert isinstance(payload["memory_scaling"], list)
     assert payload["memory_scaling"][0]["kernel_baseline_chunks"] == [4]
     assert payload["retracing"][0]["observed_signatures"][0]["envelope_shape"] is None
+
+
+def test_perf001_writer_uses_only_the_exact_namespaced_non_overwriting_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import radiosim.benchmarks.harness as harness
+
+    monkeypatch.setattr(
+        harness,
+        "verify_perf001_provenance_binding",
+        lambda _provenance, *, repository_root: None,
+    )
+    document = _document()
+    filename = benchmark_filename(datetime(2026, 8, 11, tzinfo=UTC))
+
+    with pytest.raises(BenchmarkRecordError, match="output directory"):
+        write_perf001_evidence_document(
+            document,
+            filename=filename,
+            repository_root=tmp_path,
+            directory=tmp_path / "output/benchmarks/reference",
+        )
+
+    written = write_perf001_evidence_document(
+        document,
+        filename=filename,
+        repository_root=tmp_path,
+    )
+    assert written.parent == tmp_path / "output/benchmarks/reference/perf001"
+    assert json.loads(written.read_text(encoding="utf-8")) == (document.to_json_safe())
+
+    with pytest.raises(BenchmarkRecordError, match="already exists"):
+        write_perf001_evidence_document(
+            document,
+            filename=filename,
+            repository_root=tmp_path,
+        )
+
+
+def test_perf001_writer_never_leaves_a_partial_final_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import radiosim.benchmarks.harness as harness
+
+    monkeypatch.setattr(
+        harness,
+        "verify_perf001_provenance_binding",
+        lambda _provenance, *, repository_root: None,
+    )
+
+    def fail_after_write(_descriptor: int) -> None:
+        raise OSError("injected durability failure")
+
+    monkeypatch.setattr(harness.os, "fsync", fail_after_write)
+    filename = benchmark_filename(datetime(2026, 8, 11, tzinfo=UTC))
+    expected_directory = tmp_path / "output/benchmarks/reference/perf001"
+    expected_target = expected_directory / filename
+
+    with pytest.raises(BenchmarkRecordError, match="published atomically"):
+        write_perf001_evidence_document(
+            _document(),
+            filename=filename,
+            repository_root=tmp_path,
+        )
+
+    assert not expected_target.exists()
+    assert list(expected_directory.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "component",
+    [
+        "output",
+        "output/benchmarks",
+        "output/benchmarks/reference",
+        "output/benchmarks/reference/perf001",
+    ],
+)
+def test_perf001_writer_rejects_symlinked_destination_components(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    component: str,
+) -> None:
+    import radiosim.benchmarks.harness as harness
+
+    monkeypatch.setattr(
+        harness,
+        "verify_perf001_provenance_binding",
+        lambda _provenance, *, repository_root: None,
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    symlink = tmp_path / component
+    symlink.parent.mkdir(parents=True, exist_ok=True)
+    symlink.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(BenchmarkRecordError, match="symlink"):
+        write_perf001_evidence_document(
+            _document(),
+            filename=benchmark_filename(datetime(2026, 8, 11, tzinfo=UTC)),
+            repository_root=tmp_path,
+        )
+
+    assert list(outside.iterdir()) == []
+
+
+def test_perf001_writer_flushes_file_then_unlinks_temp_then_flushes_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import radiosim.benchmarks.harness as harness
+
+    monkeypatch.setattr(
+        harness,
+        "verify_perf001_provenance_binding",
+        lambda _provenance, *, repository_root: None,
+    )
+    events: list[str] = []
+    real_fsync = harness.os.fsync
+    real_link = harness.os.link
+    real_unlink = harness.os.unlink
+
+    def observed_fsync(descriptor: int) -> None:
+        kind = (
+            "directory_fsync"
+            if stat.S_ISDIR(os.fstat(descriptor).st_mode)
+            else "file_fsync"
+        )
+        events.append(kind)
+        real_fsync(descriptor)
+
+    def observed_link(*args: object, **kwargs: object) -> None:
+        events.append("link")
+        real_link(*args, **kwargs)
+
+    def observed_unlink(*args: object, **kwargs: object) -> None:
+        events.append("temp_unlink")
+        real_unlink(*args, **kwargs)
+
+    monkeypatch.setattr(harness.os, "fsync", observed_fsync)
+    monkeypatch.setattr(harness.os, "link", observed_link)
+    monkeypatch.setattr(harness.os, "unlink", observed_unlink)
+    write_perf001_evidence_document(
+        _document(),
+        filename=benchmark_filename(datetime(2026, 8, 11, tzinfo=UTC)),
+        repository_root=tmp_path,
+    )
+
+    assert events == ["file_fsync", "link", "temp_unlink", "directory_fsync"]
+
+
+def test_perf001_writer_cleans_temp_if_hard_link_publication_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import radiosim.benchmarks.harness as harness
+
+    monkeypatch.setattr(
+        harness,
+        "verify_perf001_provenance_binding",
+        lambda _provenance, *, repository_root: None,
+    )
+
+    def fail_link(*_args: object, **_kwargs: object) -> None:
+        raise OSError("injected link failure")
+
+    monkeypatch.setattr(harness.os, "link", fail_link)
+    filename = benchmark_filename(datetime(2026, 8, 11, tzinfo=UTC))
+    expected_directory = tmp_path / "output/benchmarks/reference/perf001"
+
+    with pytest.raises(BenchmarkRecordError, match="published atomically"):
+        write_perf001_evidence_document(
+            _document(),
+            filename=filename,
+            repository_root=tmp_path,
+        )
+
+    assert list(expected_directory.iterdir()) == []
+
+
+def test_perf001_writer_reports_directory_fsync_failure_after_temp_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import radiosim.benchmarks.harness as harness
+
+    monkeypatch.setattr(
+        harness,
+        "verify_perf001_provenance_binding",
+        lambda _provenance, *, repository_root: None,
+    )
+    real_fsync = harness.os.fsync
+
+    def fail_directory_fsync(descriptor: int) -> None:
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            raise OSError("injected directory durability failure")
+        real_fsync(descriptor)
+
+    monkeypatch.setattr(harness.os, "fsync", fail_directory_fsync)
+    filename = benchmark_filename(datetime(2026, 8, 11, tzinfo=UTC))
+    expected_directory = tmp_path / "output/benchmarks/reference/perf001"
+    expected_target = expected_directory / filename
+
+    with pytest.raises(BenchmarkRecordError, match="directory durability"):
+        write_perf001_evidence_document(
+            _document(),
+            filename=filename,
+            repository_root=tmp_path,
+        )
+
+    assert expected_target.is_file()
+    assert not any(path.name.endswith(".tmp") for path in expected_directory.iterdir())

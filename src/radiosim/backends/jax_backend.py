@@ -12,7 +12,7 @@ Usage:
 
 With precision control:
     >>> from radiosim.core.precision import PrecisionConfig
-    >>> backend = get_backend("jax", precision="fast")  # float32 where safe
+    >>> backend = get_backend("jax", precision="fast")  # runtime-default device
 
 Note: JAX does not support float128/complex256. Precision configurations
 requesting float128 will automatically fall back to float64 with a warning.
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from radiosim.core.precision import PrecisionConfig
 
 # JAX is imported lazily. Tier 6H made a CPU-only JAX a declared dependency of
-# every pixi environment so backend parity is measured rather than skipped
+# every standard pixi gate so backend parity is measured rather than skipped
 # (``Tier6HybridRuntimePlan.md`` Sections 28, 32.8); importing it eagerly here
 # would then put roughly a second of XLA start-up into the import graph of every
 # caller that merely touches ``radiosim.backends``, including point-source runs
@@ -86,16 +86,17 @@ class JAXBackend(ArrayBackend):
 
     def __init__(
         self,
-        device: str = "gpu",
+        device: str | None = None,
         precision: Union["PrecisionConfig", str] | None = None,
     ):
         """Initialize JAX backend.
 
         Parameters
         ----------
-        device : str
-            Device type - 'cpu', 'gpu', or 'tpu'
-            JAX auto-detects specific hardware (CUDA/ROCm/Metal)
+        device : str or None
+            ``None`` uses JAX's runtime-default device. Explicit ``'cpu'``,
+            ``'gpu'``, or ``'tpu'`` values are strict requirements and never
+            fall back to another device.
         precision : PrecisionConfig, str, or None
             Precision configuration. Can be:
             - None: Use the standard precision preset
@@ -108,9 +109,15 @@ class JAXBackend(ArrayBackend):
         BackendNotAvailableError
             If JAX is not installed or device unavailable
         """
-        if not _load_jax():
+        try:
+            loaded = _load_jax()
+        except Exception as exc:
             raise BackendNotAvailableError(
-                "JAX not installed. Every pixi environment declares a CPU-only\n"
+                "The installed JAX runtime could not be initialized."
+            ) from exc
+        if not loaded:
+            raise BackendNotAvailableError(
+                "JAX not installed. Standard pixi gates declare CPU-only\n"
                 "jax/jaxlib, so `pixi install` is the supported fix. Outside pixi:\n"
                 "  pip install radiosim[jax]\n"
                 "There is no device-named extra: RadioSim has measured no\n"
@@ -122,33 +129,55 @@ class JAXBackend(ArrayBackend):
         # disables x64 by default, so enable it before creating backend arrays
         # to honor the dtype contract instead of silently truncating requested
         # dtypes.
-        jax.config.update("jax_enable_x64", True)
+        try:
+            jax.config.update("jax_enable_x64", True)
+        except Exception as exc:
+            raise BackendNotAvailableError(
+                "The installed JAX runtime could not enable x64 support."
+            ) from exc
+
+        if device not in {None, "cpu", "gpu", "tpu"}:
+            raise BackendNotAvailableError(
+                "Unknown JAX device requirement "
+                f"{device!r}; expected one of cpu, gpu, tpu, or None."
+            )
 
         self._device_type = device
         self._xp = jnp
 
-        # Get available devices
+        # Query no platform when the caller requested JAX's runtime default.
+        # Named devices are requirements, not preferences.
         try:
-            self.devices = jax.devices(device)
-        except RuntimeError:
-            # Device type not available, try to get any device
-            self.devices = []
-
-        if not self.devices:
-            # Fall back to CPU if requested device not available
-            if device != "cpu":
-                try:
-                    self.devices = jax.devices("cpu")
-                    self._device_type = "cpu"
-                except RuntimeError as e:
-                    raise BackendNotAvailableError(
-                        f"No {device} devices available and CPU fallback failed."
-                    ) from e
+            self.devices = jax.devices() if device is None else jax.devices(device)
+        except Exception as exc:
+            requirement = "runtime-default" if device is None else device
+            raise BackendNotAvailableError(
+                f"The JAX {requirement} device requirement is unavailable."
+            ) from exc
 
         if self.devices:
+            actual_platforms = sorted(
+                {str(candidate.platform) for candidate in self.devices}
+            )
+            unsupported = set(actual_platforms) - {"cpu", "gpu", "tpu"}
+            if unsupported:
+                raise BackendNotAvailableError(
+                    "The JAX runtime reported unsupported device platform(s) "
+                    f"{sorted(unsupported)}; expected cpu, gpu, or tpu."
+                )
+            if device is not None and any(
+                str(candidate.platform) != device for candidate in self.devices
+            ):
+                raise BackendNotAvailableError(
+                    f"The JAX {device} device requirement resolved to "
+                    f"{actual_platforms}, so the runtime result was rejected."
+                )
             self.device = self.devices[0]
         else:
-            raise BackendNotAvailableError("No devices available for JAX backend.")
+            requirement = "runtime-default" if device is None else device
+            raise BackendNotAvailableError(
+                f"No JAX {requirement} devices are available."
+            )
 
         # Resolve and set precision (with float128 fallback warning)
         if precision is not None:
@@ -175,12 +204,11 @@ class JAXBackend(ArrayBackend):
     def device_kind(self) -> str:
         """Device kind actually in use: ``'cpu'``, ``'gpu'``, or ``'tpu'``.
 
-        Read from the live JAX device rather than from the requested name, so
-        the recorded provenance says ``'cpu'`` when a ``gpu`` request fell back
-        (``Tier6HybridRuntimePlan.md`` Section 14.3).
+        Read from the accepted live JAX device rather than from the request.
+        Construction rejects an unsupported or mismatched platform, and an
+        explicit device requirement never falls back.
         """
-        platform = str(self.device.platform)
-        return platform if platform in {"cpu", "gpu", "tpu"} else "cpu"
+        return str(self.device.platform)
 
     @property
     def supports_compilation(self) -> bool:

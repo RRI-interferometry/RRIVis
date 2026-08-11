@@ -1,5 +1,7 @@
 """Tests for radiosim.utils.device resource detection."""
 
+import subprocess
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -206,16 +208,18 @@ class TestParseXpuSmi:
 
 
 class TestDetectGPUs:
+    @patch("radiosim.utils.device.platform.system", return_value="Linux")
     @patch("radiosim.utils.device._run_cmd", return_value=None)
-    @patch("radiosim.utils.device._detect_jax_gpus", return_value=[])
-    def test_no_gpus(self, mock_jax, mock_cmd):
-        gpus = _detect_gpus()
+    def test_no_gpus_does_not_import_jax(self, mock_cmd, mock_sys):
+        with patch("builtins.__import__", wraps=__import__) as import_spy:
+            gpus = _detect_gpus()
+
         assert gpus == []
+        assert all(call.args[0] != "jax" for call in import_spy.mock_calls)
 
     @patch("radiosim.utils.device.platform.system", return_value="Linux")
-    @patch("radiosim.utils.device._detect_jax_gpus", return_value=[])
     @patch("radiosim.utils.device._run_cmd")
-    def test_nvidia_on_linux(self, mock_cmd, mock_jax, mock_sys):
+    def test_nvidia_on_linux(self, mock_cmd, mock_sys):
         def side_effect(args, timeout=5):
             if "nvidia-smi" in args:
                 return "GeForce RTX 3090, 24576, 24000, 510.47.03"
@@ -342,6 +346,28 @@ class TestDeviceResources:
 
 
 class TestGetDeviceResources:
+    def test_fresh_process_does_not_import_jax(self):
+        code = """
+import sys
+import radiosim.utils.device as device
+
+device.platform.system = lambda: "Linux"
+device._run_cmd = lambda *args, **kwargs: None
+assert "jax" not in sys.modules
+resources = device.get_device_resources()
+assert isinstance(resources, device.DeviceResources)
+assert "jax" not in sys.modules
+assert "jaxlib" not in sys.modules
+"""
+        completed = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+
     def test_returns_device_resources(self):
         res = get_device_resources()
         assert isinstance(res, DeviceResources)

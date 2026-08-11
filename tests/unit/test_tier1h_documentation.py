@@ -1049,9 +1049,9 @@ def test_tier6i_backend_guide_states_the_measured_position():
     assert "incomplete backend coverage" not in text
     assert "Numba" not in text
 
-    # The backend table, the auto precedence, and the rename.
+    # The backend table, deterministic auto selection, and the rename.
     assert "``dask``" in text
-    assert "non-CPU" in text
+    assert "never imports or probes JAX" in text
     assert "Renamed from ``numba`` before v1.0." in text
 
     # The compilation boundary.
@@ -1182,7 +1182,8 @@ def test_tier6i_migration_guide_maps_every_tier6_breaking_change():
         "no longer returns the NumPy-delegating backend",  # C15
         "`RIMESimulator.supports_gpu` is now `False`",  # C16
         "def supports_compilation(self) -> bool",  # C17
-        "CPU-only JAX is a declared dependency",  # C18
+        "Initial 0.3.0 CPU-only JAX dependency",  # C18 historical state
+        "Later PERF-001 readiness work",  # C18 successor qualification
     ):
         assert entry in text, entry
 

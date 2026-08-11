@@ -159,9 +159,11 @@ Configuration file
      offline: true
 
 NumPy is the deterministic default. ``jax``, ``dask``, and ``auto`` are the
-other selectable values; ``numba`` is removed. Selecting a backend proves
-nothing about GPU coverage: the JAX declared by every pixi environment is
-CPU-only, and no accelerator has been measured. See
+other selectable values; ``numba`` is removed. ``auto`` deterministically
+resolves to NumPy without importing or probing JAX. Selecting a backend proves
+nothing about GPU coverage: the standard gates use CPU-only JAX, while the
+isolated Linux GPU environment is readiness infrastructure and no accelerator
+has been measured (``PERF-001``). See
 :doc:`user_guide/backends` for the measured comparison.
 
 Next steps

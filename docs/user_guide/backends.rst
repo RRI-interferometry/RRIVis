@@ -24,10 +24,11 @@ Available backends
      - Always available; the reference every other backend is compared against.
    * - ``jax``
      - JAX/XLA
-     - whatever JAX
-       reports
+     - runtime default,
+       or a strict request
      - one kernel
-     - The build declared by every pixi environment is **CPU-only** by design.
+     - Generic JAX follows its runtime; named ``cpu``, ``gpu``, and ``tpu``
+       devices never fall back.
    * - ``dask``
      - NumPy, optionally
        through Dask arrays
@@ -35,11 +36,10 @@ Available backends
      - none
      - Renamed from ``numba`` before v1.0.
    * - ``auto``
-     - resolves to one of
-       the above
-     - --
-     - --
-     - Returns NumPy unless a non-CPU JAX device exists.
+     - NumPy on the host
+     - CPU
+     - none
+     - Deterministic and import-free; it never probes JAX or selects Dask.
 
 ``execution.backend: numba`` and ``get_backend("numba")`` are removed. The class
 behind that name never compiled a kernel: it called the same NumPy operations
@@ -47,19 +47,20 @@ the NumPy backend calls, so the name described a capability that did not exist.
 It is now ``dask``, and the rename adds no compilation and no acceleration --
 see :doc:`../migration_guide`.
 
-``auto`` precedence
--------------------
+``auto`` selection
+------------------
 
-``auto`` returns the JAX backend only when JAX reports a **non-CPU** device, and
-the NumPy backend otherwise. It never selects the Dask backend, because doing so
-would report ``dask`` for a run that executes plain NumPy. On the CPU-only JAX
-build that RadioSim locks, ``auto`` therefore resolves to NumPy, and
-``result.provenance.backend.actual_backend`` says so.
+``auto`` never imports or probes JAX. It asks only NumPy to honor the requested
+precision and never selects Dask. The resulting
+``result.provenance.backend.actual_backend`` therefore names NumPy. Accelerator
+inventory and JAX capability are explicit discovery operations, not hidden
+selection side effects (``PERF-001``).
 
 ``float128`` narrows this further: JAX and Dask cannot honor it, so an explicit
 ``jax`` or ``dask`` request with ``float128`` is rejected during configuration
-resolution, before the optional backend is imported, and ``auto`` with
-``float128`` returns NumPy.
+resolution, before the optional backend is imported. ``auto`` returns NumPy
+only when NumPy can honor that precision; otherwise it raises
+``BackendNotAvailableError`` rather than downgrading a dtype.
 
 Configuration
 -------------
@@ -98,9 +99,33 @@ Direct backend API
    values = backend.asarray([1.0, 2.0, 3.0])
    print(backend.sum(values))
 
-The backend factory constructs an explicit backend or resolves ``auto`` from
-the installed, precision-compatible options. An unavailable explicit backend
-fails rather than silently switching to another backend.
+The backend factory constructs an explicit backend or resolves ``auto`` to
+NumPy. ``list_backends()`` and ``get_backend_info()`` are explicit discovery
+operations and may import and probe JAX; GPU and TPU plugin failures are
+isolated so one does not erase the other's truthful availability
+(``PERF-001``).
+
+``get_backend("jax")`` delegates device choice to the JAX runtime. Passing
+``device="cpu"``, ``"gpu"``, or ``"tpu"`` makes that device a strict
+requirement. The direct ``get_backend("gpu")`` and ``get_backend("tpu")``
+aliases are strict too. An unavailable or broken runtime raises
+``BackendNotAvailableError`` with the runtime failure retained as its cause;
+there is no CPU fallback.
+
+Generic :func:`radiosim.utils.device.get_device_resources` reports physical
+hardware through platform APIs and vendor tools. It never imports JAX as a
+fallback. JAX device discovery belongs to the explicit backend-discovery calls,
+which keeps a minimal ``Simulator.setup()`` with ``backend: auto`` free of JAX
+initialization (``PERF-001``).
+
+Simulator accelerator capability
+--------------------------------
+
+The inherited :attr:`radiosim.simulator.VisibilitySimulator.supports_gpu`
+value is ``False``, and :class:`radiosim.simulator.RIMESimulator` states the
+same value explicitly. A future simulator may return ``True`` only when an
+independently accepted end-to-end accelerator record names that exact
+implementation. No such record exists yet (``PERF-001``).
 
 The compilation boundary
 ------------------------
@@ -188,7 +213,7 @@ four-time point workload:
   ``|dV| <= atol + rtol*|V|``, ``rtol = 1e-12``,
   ``atol = 1e-12 * max(1, max|V|)``. Worst observed absolute deviation
   ``1.7e-11`` (relative ``4.0e-15``) on the 4096-source workload, against an
-  allowed ``atol`` of ``5.2e-9``; five of the eight workloads deviated by
+  allowed ``atol`` of ``5.2e-9``; four of the eight workloads deviated by
   ``0``. Bit-identity is neither required nor asserted: XLA may fuse and reorder
   the source reduction.
 
@@ -254,10 +279,12 @@ dependencies only:
    pip install radiosim[jax]       # JAX for supported platforms
    pip install radiosim[dask]      # NumPy/Dask backend
 
-The pixi environments declare a **CPU-only** ``jax``/``jaxlib`` so the
+The standard pixi gates declare a **CPU-only** ``jax``/``jaxlib`` so the
 NumPy/JAX parity evidence above is actually measured rather than skipped. The
-device-named ``gpu``, ``gpu-cuda``, ``gpu-rocm`` and ``tpu`` extras were
-removed before ``0.3.0``: RadioSim has measured no accelerator (``PERF-001``),
-so an installable extra named for one advertised a capability this page
-explicitly does not claim. A user with their own accelerator hardware installs
-the vendor's JAX wheel directly, and nothing on this page changes when they do.
+isolated Linux ``gpu`` environment is readiness infrastructure with a strict
+preflight; it is not an accelerator measurement. The device-named PyPI extras
+``gpu``, ``gpu-cuda``, ``gpu-rocm`` and ``tpu`` were removed before ``0.3.0``:
+RadioSim has measured no accelerator (``PERF-001``), so an installable extra
+named for one advertised a capability this page explicitly does not claim. A
+user with their own accelerator hardware installs the vendor's JAX wheel
+directly, and nothing on this page changes when they do.
