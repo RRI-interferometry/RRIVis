@@ -1137,8 +1137,45 @@ retroactive form only.
 
 ### 12.4 Retroactive design acceptance
 
-Recorded by its own acceptance commit following independent review; see the
-succession note appended there. This subsection is intentionally the last
-design-authority edit before that review: the reviewer reviews this memo as
-amended, and the acceptance record itself must come from the reviewer's
-verdict, not from the author of this section.
+Accepted 2026-08-14 by an independent read-only design review, separate
+from the design author, the implementation author, and the CPU-slice
+acceptance reviewer. The review evaluated the design substance of Sections
+3 through 11 directly against the landed source and found it sound and
+implementation-matching everywhere checked: the `131072`-pair leaf target
+with baseline-only splitting and its one-baseline exception; the
+power-of-two bucket rule applied only to compiling backends under the
+production policy, with exact-zero dummy signal; the no-import `auto`
+selection with isolated discovery and strict named devices; the `False`
+capability defaults; the seven schema-version literals; the
+separate-solve-group GPU feature; and the memory-estimate plumbing,
+including the verbatim
+`contraction_wrapper_python_heap_including_output_assembly` scope literal.
+It independently re-derived every factual claim of this Section 12,
+including reproducing four retro-red probes and the byte-identity of the
+reopen commit against `S1`.
+
+The review's first pass returned REJECT because Section 12.1 then
+misattributed all six failing cells of run `31577475227` to clone depth
+alone; the review's per-job log analysis exposed the second defect, the
+live-default-prefix binding of two preflight tests on cells that install
+only `py312`. The remediations
+`d1fda0a5c8636389a00c8acf1f1e1c10ed5e4c4f` and
+`f1014bc52e9f24a54ff6371b3fd2d25b9d2bc26a` were then verified surgically
+by a delta re-review — exact path sets, root-cause-matched predicate, no
+over-skip on hosts with the default prefix, no incidental regression — and
+the review returned its final verdict, ACCEPT, quoted from its record:
+"With both grounds of the prior REJECT now verified as remediated —
+surgically scoped, root-cause-matched, and honestly documented, with no
+incidental breakage — and design substance already established as sound
+and implementation-matching in the original review, the design gate is
+acceptable."
+
+The review examined this memo at
+`f1014bc52e9f24a54ff6371b3fd2d25b9d2bc26a`; this subsection is the only
+edit after that review and records the verdict without any further
+design-authority change. The acceptance covers the design memo as amended,
+the landed P-a-through-P-d and P-e-readiness implementation, and this
+succession record. It does not accept evidence, CI state, or the CPU slice
+itself, which remain governed by Sections 10 and 11, and it does not lift
+the recorded ordering deviation of Section 12.2, which stands as part of
+this acceptance, not an exemption from it.
