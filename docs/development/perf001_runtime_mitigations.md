@@ -814,7 +814,7 @@ PostTier8RemediationPlan.md
 docs/development/perf001_runtime_mitigations.md
 ```
 
-<!-- PERF001_A_MEMO_STATUS_SENTINEL_V1 -->
+CPU ACCEPTED; P-e hardware-gated. PERF-001 remains ROADMAP; supports_gpu remains false; no accelerator evidence or claim is accepted.
 
 At `S` and `E`, the whole-line marker named
 `PERF001_A_MEMO_STATUS_SENTINEL_V1` occurs exactly once. `A` replaces only

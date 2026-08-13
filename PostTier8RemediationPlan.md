@@ -789,6 +789,6 @@ Each work package runs in the established style:
 | WP-4 | DONE — ruled 2026-08-08; Branch A selected; no runtime change |
 | WP-5 | DONE — independently accepted 2026-08-11; SCI-006 closed |
 | WP-6 | DONE — independently accepted 2026-08-11; SCI-007 closed as a retained-fixture accuracy bound |
-| WP-7 | P-a…P-d implementation and runtime readiness landed; exact-SHA CI green; retained CPU evidence and whole CPU-slice independent acceptance pending; P-e infrastructure authorized, evidence blocked on Q4; PERF-001 remains ROADMAP |
+| WP-7 | CPU ACCEPTED; P-e hardware-gated. PERF-001 remains ROADMAP; supports_gpu remains false; no accelerator evidence or claim is accepted. |
 | WP-8 | Stage-1 numerical design accepted at `8935052`; acceptance-succession amendment pending `D1`; Stage 1 blocked on accepted WP-7 CPU scope; WP-5/E2 satisfied for later stages; SCI-005 remains ROADMAP |
 | WP-9 | Design candidate drafted; Q5 resolved; independent design approval pending; production phase-gated; SCI-004 remains ROADMAP |
