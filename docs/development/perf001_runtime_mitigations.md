@@ -970,3 +970,160 @@ The CPU and readiness slice is accepted only after:
 
 That acceptance completes every unblocked WP-7 obligation. It does not replace
 the missing accelerator run.
+
+Conditions 1 and 2 are satisfied for this slice only in the retroactive form
+retained in Section 12; the recorded ordering deviation is part of the
+acceptance record, not an exemption from it.
+
+## 12. Retroactive succession record (2026-08-14)
+
+The independent CPU-slice acceptance review of the first evidence chain
+returned REJECT on two of the Section 11 terminal conditions: condition 1
+(no independent acceptance of the design diff preceded the production edits)
+and condition 2 (no retained red-first evidence existed for P-a through P-d).
+Every other reviewed item — chain byte discipline, the canonical strict
+validation, the focused suites in both locked environments, parity and
+characterization without pin changes, the full gate set, and the register
+invariants — was verified clean. This section retains the remediation
+records. Nothing here weakens Section 11: the condition 9 reviewer must
+re-derive these records from history and fresh probes, not accept them from
+this prose.
+
+### 12.1 First-chain supersession
+
+The first chain was `S1` =
+`f1365429eb20373cbb405c897a0b39c9f7b68c75` and `E1` =
+`50efdffe83849e2c9c6f7f770f98332a28428ae3`, retaining artifact
+`output/benchmarks/reference/perf001/20260811T204642Z-darwin-arm64.json`
+with SHA-256
+`de8350f7b79a95a85ed47e8a643e27a9739417288ed0a025a7b0465fc946b6fe`.
+Exact-SHA CI run `31577475227` at `E1` passed the quality and backend-parity
+jobs and failed all six compatibility cells on exactly the three phase-aware
+acceptance-chain tests in `tests/unit/test_perf001_cpu_evidence.py`: each
+cell died in `git show <S1>:<path>` with exit status 128 because
+`actions/checkout`'s default depth-1 clone does not contain the `S1` commit
+object. The defect is the CI clone depth, not the retained science; the same
+suite passes in a full local clone (5,817 non-slow tests at `E1`, including
+the three chain tests). Because the certificate requires `E == A^` and
+`S == E^`, no repair could be inserted under the existing chain. The chain
+was therefore reopened by
+`16cd61d58b54f699e8843881454e5352ff3ac630`, which restored this memo and the
+harness to exact `S1` bytes and withdrew the retained artifact, and the
+clone-depth defect was repaired by the separately governed workflow commit
+`51b232e1f87977d883c902c4ee15fe7f273e0f4d` (fetch full history in the
+compatibility cells). Both are ordinary ancestors of the successor source
+commit, exactly as Section 10 permits. The superseded chain and its artifact
+remain reachable in history as provenance; they carry no acceptance status.
+
+### 12.2 Ordering deviation against condition 1
+
+The recorded history is:
+
+- `e63770c3e27e5aee4e09570c53eb1367099b1ae4` (2026-08-11T11:54:37+05:30)
+  authored this design memo.
+- `bd1ba1e513ab829bdca1fc405241e22af55564bd` (12:28:10),
+  `bfa22c8d7640e45d222dbb323e73ac2eeb6ae084` (12:28:53), and
+  `d627190e58ad38b577034d64e5b1c00c7a2af048` (12:32:02) landed P-a, the
+  evidence schema, and P-b production code the same day, before any
+  independent review of the design existed.
+- `921e2fafa3ed133e84bbc29f84bb5270f2a4a54f` (15:24:33) and
+  `f0254f61558ddc1d5a9162cf91e0d6d4d803b854` (15:35:39) landed P-c, P-d, and
+  the compile-boundary repair, likewise unreviewed.
+- `f546938acd3363ae595e953034f050263f5e1119` (19:13:45) froze the acceptance
+  interface. No commit in this repository records an independent acceptance
+  of the design diff before 2026-08-14, and the repository's own convention
+  for such records (dedicated `docs: accept ...` commits) has no WP-7 design
+  entry.
+
+Condition 1 as originally written — acceptance before production edits — was
+therefore violated. That ordering cannot be reconstructed after the fact and
+is recorded here as a deviation, not excused. The remedy is the retroactive
+independent design review recorded in Section 12.4, which reviewed the
+design memo and its amendments together with the already-landed
+implementation and this succession record.
+
+### 12.3 Retained retro-red record for condition 2
+
+The WP-7 test surface was committed together with its implementations, so a
+red-first sequence in time does not exist and is not claimed. The retained
+substitute demonstrates that the WP-7 tests fail against the
+pre-implementation source for exactly the intended reasons. Method: a scratch
+worktree at `bd1ba1e^` (= `e63770c...`, the design memo itself, the last
+commit before any P-a-through-P-d production edit), with the current test
+bytes — identical to the `S1` test bytes — executed against that source by
+prepending the worktree's `src` to `PYTHONPATH` so the editable install is
+shadowed:
+
+```console
+git worktree add <scratch>/retro-red e63770c
+PYTHONPATH=<scratch>/retro-red/src pixi run python -m pytest <file> --tb=no -q -rf
+```
+
+Per-file inventory against the pre-implementation source:
+
+- `tests/unit/test_core/test_perf001_contraction_policy.py` — collection
+  error: `ImportError: cannot import name '_TARGET_KERNEL_PAIRS' from
+  'radiosim.core.contraction'`. The P-a chunking policy did not exist.
+- `tests/unit/test_core/test_perf001_source_bucketing.py` — collection
+  error: `ModuleNotFoundError: No module named
+  'radiosim.core.source_bucketing'`. The P-b module did not exist.
+- `tests/unit/test_backends/test_perf001_backend_resolution.py` — 18 failed,
+  1 passed: deterministic `auto`, strict named devices, isolated discovery,
+  and typed JAX failures were all absent (P-c).
+- `tests/unit/test_simulator/test_perf001_capabilities.py` — 2 failed,
+  1 passed; `test_abstract_simulator_capability_defaults_to_false` fails
+  because the pre-change ABC default was `True` (P-d).
+- `tests/unit/test_simulator/test_perf001_memory_estimate.py` — 6 failed,
+  4 passed: the bounded-leaf and bucket-expansion estimate structure was
+  absent.
+- `tests/unit/test_perf001_runtime_acceptance.py` — collection error:
+  `ImportError: cannot import name
+  'PERF001_BACKEND_RESOLUTION_SCHEMA_VERSION' from 'radiosim.benchmarks'`.
+- `tests/unit/test_backends/test_compilation_boundary.py` — 1 failed,
+  8 passed: the single-compile-boundary guarantee case fails.
+- `tests/unit/test_core/test_benchmark_record.py` — collection error:
+  `ImportError: cannot import name 'PERF001_MEMORY_SCALING_SCHEMA_VERSION'
+  from 'radiosim.benchmarks'`.
+- `tests/unit/test_utils/test_device.py` — 2 failed, 29 passed: the
+  no-JAX-import discovery guarantees fail.
+- `tests/unit/test_backends/test_backend_parity.py` — collection error:
+  `ModuleNotFoundError: No module named 'radiosim.core.source_bucketing'`.
+- `tests/unit/test_simulator/test_instrument_integration.py` — 1 failed,
+  22 passed. `tests/unit/test_simulator/test_result_integration.py` —
+  4 failed, 11 passed. The failing cases are the WP-7 memory-estimate and
+  kernel-count additions.
+- `tests/unit/test_backends/test_backends.py` — 8 passed. Its WP-7 delta
+  renames and retunes one existing automatic-selection case whose observable
+  behavior coincides on a host with no non-CPU JAX device; the P-c red for
+  automatic selection is carried by
+  `test_perf001_backend_resolution.py` above.
+- `tests/unit/test_tier1h_documentation.py` — 195 passed; not probative:
+  it reads tracked prose from the executing checkout, which the `PYTHONPATH`
+  shadow does not affect.
+- `tests/unit/test_tier4_result_output_acceptance.py` — 82 passed: its
+  8-line delta adjusts existing cases that remain compatible with the old
+  code.
+- `tests/characterization/test_tier6_current_behavior.py` — 41 passed.
+  This green is probative in the opposite direction: P-a and P-b claim
+  bit-identical results, and the retained fingerprints pass unchanged
+  against the pre-implementation source.
+- Absence reds, proved by `git cat-file -e` failing at `e63770c`:
+  `tests/unit/test_perf001_cpu_evidence.py`,
+  `tests/unit/test_perf001_gpu_environment.py`,
+  `tools/wp7_perf001_cpu_evidence.py`, and `tools/wp7_gpu_preflight.py` did
+  not exist. Executing the current copies against the old tree is not
+  probative for these, because they read the tool and the Pixi manifest from
+  the executing checkout.
+- `tests/performance/test_backend_benchmarks.py` is `performance`+`slow`
+  marked, never gates, and was not executed.
+
+This retained record is the condition 2 satisfaction for this slice, in
+retroactive form only.
+
+### 12.4 Retroactive design acceptance
+
+Recorded by its own acceptance commit following independent review; see the
+succession note appended there. This subsection is intentionally the last
+design-authority edit before that review: the reviewer reviews this memo as
+amended, and the acceptance record itself must come from the reviewer's
+verdict, not from the author of this section.
