@@ -39,6 +39,15 @@ from radiosim.benchmarks import (
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CPU_EVIDENCE_TOOL = REPOSITORY_ROOT / "tools/wp7_perf001_cpu_evidence.py"
 
+# The generation preflight deliberately binds to the installed *default* Pixi
+# environment, so the two tests that exercise it against the live prefix are
+# meaningful only where `.pixi/envs/default` is materialized.  CI cells that
+# install another environment (`py312`) never create it.
+_REQUIRES_LIVE_DEFAULT_PREFIX = pytest.mark.skipif(
+    not (REPOSITORY_ROOT / ".pixi/envs/default").is_dir(),
+    reason="requires the installed default Pixi environment at .pixi/envs/default",
+)
+
 
 def _load_tool() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
@@ -630,6 +639,7 @@ def _preflight_dependencies(tool: ModuleType) -> tuple[object, _PreflightRunner]
     return dependencies, runner
 
 
+@_REQUIRES_LIVE_DEFAULT_PREFIX
 def test_preflight_boundaries_are_injectable_and_default_only(
     tool: ModuleType,
     monkeypatch: pytest.MonkeyPatch,
@@ -657,6 +667,7 @@ def test_preflight_boundaries_are_injectable_and_default_only(
         tool.preflight_generation("1" * 40, dependencies=dependencies)
 
 
+@_REQUIRES_LIVE_DEFAULT_PREFIX
 def test_default_package_identity_matches_the_lock_and_live_prefix(
     tool: ModuleType,
 ) -> None:
