@@ -59,6 +59,12 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          # Full history: the phase-aware PERF-001 acceptance-chain tests in
+          # tests/unit/test_perf001_cpu_evidence.py read the generating source
+          # commit `S` via `git show <S>:<path>`, which a depth-1 clone cannot
+          # serve (every cell of run 31577475227 failed exactly that way).
+          fetch-depth: 0
 
       - name: Install locked Pixi environment
         uses: prefix-dev/setup-pixi@v0.9.3
