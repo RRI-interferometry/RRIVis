@@ -998,22 +998,37 @@ The first chain was `S1` =
 with SHA-256
 `de8350f7b79a95a85ed47e8a643e27a9739417288ed0a025a7b0465fc946b6fe`.
 Exact-SHA CI run `31577475227` at `E1` passed the quality and backend-parity
-jobs and failed all six compatibility cells on exactly the three phase-aware
+jobs and failed all six compatibility cells, on two distinct defects. The
+three Python 3.11 cells failed exactly the three phase-aware
 acceptance-chain tests in `tests/unit/test_perf001_cpu_evidence.py`: each
-cell died in `git show <S1>:<path>` with exit status 128 because
+died in `git show <S1>:<path>` with exit status 128 because
 `actions/checkout`'s default depth-1 clone does not contain the `S1` commit
-object. The defect is the CI clone depth, not the retained science; the same
-suite passes in a full local clone (5,817 non-slow tests at `E1`, including
-the three chain tests). Because the certificate requires `E == A^` and
+object. The three Python 3.12 cells (jobs `94052752257`, `94052752258`, and
+`94052752300`) failed those same three tests plus two more —
+`test_preflight_boundaries_are_injectable_and_default_only` and
+`test_default_package_identity_matches_the_lock_and_live_prefix` — which
+exercise the generation preflight against the live default Pixi prefix:
+`.pixi/envs/default` does not exist on cells that install only the `py312`
+environment, so the strict prefix and conda-meta resolutions fail. An
+earlier draft of this record misattributed all six cells to the clone-depth
+defect alone; the independent retroactive design review corrected it from
+the per-job logs. Both defects are CI-environment assumptions, not the
+retained science; the same suite passes in a full local clone with the
+default environment installed (5,817 non-slow tests at `E1`, including all
+five tests named here). Because the certificate requires `E == A^` and
 `S == E^`, no repair could be inserted under the existing chain. The chain
 was therefore reopened by
 `16cd61d58b54f699e8843881454e5352ff3ac630`, which restored this memo and the
-harness to exact `S1` bytes and withdrew the retained artifact, and the
+harness to exact `S1` bytes and withdrew the retained artifact; the
 clone-depth defect was repaired by the separately governed workflow commit
 `51b232e1f87977d883c902c4ee15fe7f273e0f4d` (fetch full history in the
-compatibility cells). Both are ordinary ancestors of the successor source
-commit, exactly as Section 10 permits. The superseded chain and its artifact
-remain reachable in history as provenance; they carry no acceptance status.
+compatibility cells); and the live-prefix defect was repaired by
+`d1fda0a5c8636389a00c8acf1f1e1c10ed5e4c4f`, which scopes the two preflight
+tests to hosts where the default prefix is materialized without changing
+the generation tool's deliberate default-environment binding. All are
+ordinary ancestors of the successor source commit, exactly as Section 10
+permits. The superseded chain and its artifact remain reachable in history
+as provenance; they carry no acceptance status.
 
 ### 12.2 Ordering deviation against condition 1
 
