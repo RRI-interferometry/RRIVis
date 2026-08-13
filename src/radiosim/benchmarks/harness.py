@@ -144,11 +144,15 @@ FLOAT64_ATOL_SCALE = 1e-12
 #: the JSON file.  Keeping the mapping empty before that commit is intentional:
 #: authentication compares it with ``git ls-files`` and therefore still fails
 #: if an unlisted record appears.
-PERF001_REFERENCE_SHA256: dict[str, str] = {}
+PERF001_REFERENCE_SHA256: dict[str, str] = {
+    "output/benchmarks/reference/perf001/20260813T185841Z-darwin-arm64.json": "deb2e1ea7454a4e5fe3d7e61089251244291c347112dbbb9c407e447a91947f4"
+}
 
 #: Exact generating source SHA for every committed namespaced PERF-001 record.
 #: The direct evidence successor adds this entry beside the byte-digest entry.
-PERF001_REFERENCE_SOURCE_SHA: dict[str, str] = {}
+PERF001_REFERENCE_SOURCE_SHA: dict[str, str] = {
+    "output/benchmarks/reference/perf001/20260813T185841Z-darwin-arm64.json": "df0ec7c8a4eac67a2244549993918914a23debfd"
+}
 
 _PERF001_REFERENCE_RELATIVE_DIRECTORY = Path("output/benchmarks/reference/perf001")
 _LOWER_HEX_40 = re.compile(r"[0-9a-f]{40}\Z")

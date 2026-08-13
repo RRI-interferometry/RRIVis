@@ -766,7 +766,10 @@ sequence is exact:
    one maps it to the SHA-256 of its committed bytes and the other maps it to
    `S`.
 
-<!-- PERF001_E_REPRODUCTION_SENTINEL_V1 -->
+```console
+pixi run python tools/wp7_perf001_cpu_evidence.py generate --approved-source-sha df0ec7c8a4eac67a2244549993918914a23debfd
+pixi run python tools/wp7_perf001_cpu_evidence.py validate --approved-source-sha df0ec7c8a4eac67a2244549993918914a23debfd --artifact-sha256 deb2e1ea7454a4e5fe3d7e61089251244291c347112dbbb9c407e447a91947f4 --input output/benchmarks/reference/perf001/20260813T185841Z-darwin-arm64.json
+```
 
 At `S`, the whole-line marker named
 `PERF001_E_REPRODUCTION_SENTINEL_V1` occurs exactly once. `E` replaces only
