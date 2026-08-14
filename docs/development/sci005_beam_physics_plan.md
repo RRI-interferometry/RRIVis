@@ -52,10 +52,66 @@ received separate fresh independent governance and computational `ACCEPT`
 verdicts on 2026-08-14, each reconfirmed after a single-sentence Section 3.5
 precision fix, and landed with only this record sentence added.
 
-**Status:** Stage-1 numerical design accepted; succession amendment
-independently accepted 2026-08-14; ownership correction pending its own two
-fresh exact-byte reviews. The numerical contract is accepted at the exact
-commit above. This correction implements no beam physics, accepts no stage,
+**Bounded Stage-1 Ruze quadrature-domain correction — 2026-08-15.** Stage-1
+red-test authoring stopped on a proof that Section 3.4.1's frozen resource caps
+and its own frozen Hermite floor cannot both be satisfied. Independent
+re-derivation confirms that report and finds the defect deeper than cap
+arithmetic. On the red slice's own oracle fixture the frozen rules retain
+Poisson orders `[1,5]`, put the Hermite floor at 71 and therefore the first
+allowed order at 128, and force levels 128, 256, and 512, whose 5,160,960
+transformed wavevectors are 4.92 times the frozen `2**20` bound; the smallest
+allowed order already asks for 265,020 aperture nodes against a 65,536
+per-transform bound; and the `correlation_length_m: 0.25` example in Section
+3.4 resolves a floor of 325, leaves no room for the two higher allowed orders
+the rule demands, and cannot run. Two further findings are new. First, the
+frozen floor is insufficient as well as unaffordable: measured against an
+independent separation-domain reference, the fixture's largest retained order
+needs `H=256`, so the two-consecutive-comparison rule needs 1024, which is not
+an allowed order — the fixture could not converge at any cap. Second, the
+frozen 65,536 per-transform bound rejects the base coherent transform itself,
+which needs 158,400 nodes at its Section 3.3 converged level with no Hermite
+shift involved. The cause is the choice of quadrature variable, not the size of
+the constants: the shifted-wavevector rule costs `O(S*J*(D/L)**4)` and is
+tractable only for `L` of order `D` or larger, which is exactly the regime in
+which scattered power degenerates to its own closed `L -> infinity` identity,
+while reflector surface errors are panel-correlated with `L << D`. This
+correction therefore evaluates the identical frozen mixture in the separation
+variable, where the same integral costs `O(1)` in `D/L`. It keeps the Poisson
+mixture, its tail rule, the covariance convention, the honesty rules, the
+public method signature, and every result field that still has a meaning; it
+replaces the Hermite abscissa rules, the `H_floor` rule, the allowed-order set,
+and every cap with separation-domain rules and caps derived from them; it
+bounds v1 to an unobstructed pupil; and in Section 3.4.2 it drops the four
+`hermite_*` convergence fields and adds ten separation fields. Its edits are
+confined to Sections 3.4.1 and 3.4.2, the four Section 3.5 bullets and the two
+Section 8.1 records that name the superseded method literal, order rule, or
+field list, one Section 6 test-content phrase, and one Section 10 citation
+entry; it adds no writable path and no new error family beyond the
+unsupported-obstruction issue code above. Sections 3.1 through 3.3, the coherent
+channel, the public method signature, and the diagnostic's physical contract
+are unchanged. Under the corrected rules the scattered power agrees with the
+red slice's own independent $O(Q^2)$ pair oracle to $6\times10^{-18}$ at the
+shipped fixture and to $2\times10^{-16}$ at a $D/L$ of eight, and the
+`L -> infinity` identity $B_{\rm sc}=(1-e^{-\mu})|e_{\rm det}|^2$ holds to
+$6\times10^{-15}$. Its exact pre-landing file bytes
+(`sha256:09b185c4d741e31d65261c8953755adfc83f34e9ff7ea5cf16a75f00b8e75489`)
+and parent-relative diff
+(`sha256:f5fab63418b4ab13a1d8303a4d2c356640739f88131fd0780d598d2256dc8fa4`)
+received separate fresh independent physics and computational `ACCEPT`
+verdicts on 2026-08-15 — the physics review re-derived the domain identity,
+error budget, and pupil geometry and agreed with the pair oracle through its
+own independent prototype; the computational review reproduced the old rules'
+infeasibility and every seed-level constant of the new rules exactly — each
+verdict reconfirmed after a three-edit delta resolving the reviews' own
+findings, and landed with only this record sentence added.
+
+**Status:** Stage-1 numerical design accepted; succession amendment and
+ownership correction independently accepted 2026-08-14; the Ruze
+quadrature-domain correction above is pending its own two fresh exact-byte
+reviews, one physics and one computational, and the Section 3.4 red-slice
+re-cut those verdicts govern. The numerical contract is accepted at the exact
+commit above except in Sections 3.4.1 and 3.4.2, which that correction
+supersedes. This correction implements no beam physics, accepts no stage,
 and does not close the register row. `SCI-005` remains **ROADMAP**. Stage 1
 may begin `R1` only after the accepted correction (the operative `D1`) and
 the WP-7 dependency gate below, then must complete its own source, evidence,
@@ -663,7 +719,7 @@ for $Q$ aperture nodes it would form $O(SQ^2)$ node pairs. A binary Cartesian
 raster and local FFT interpolation are also forbidden: their hard-disk and
 off-grid errors cannot satisfy the unchanged beam tolerance at a tractable
 grid size. The only Stage-1 production method literal is
-`poisson_gauss_hermite_aperture_v1`, defined here.
+`poisson_paired_pupil_separation_v1`, defined here.
 
 Let $\mu=s^2$. The scattered covariance is the positive Poisson mixture
 
@@ -694,13 +750,56 @@ B_{\rm sc}(\mathbf q)=e^{-\mu}
 \mathbf q-\frac{2\sqrt m}{L}\mathbf t\right)\right|^2d^2t.
 $$
 
-The internal aperture-transform helper accepts every finite real two-vector;
-Hermite-shifted wavevectors need not correspond to a physical sky direction.
-It uses the same boundary-fitted panels, phase-bandwidth seeds, convergence,
-and target-width accumulation as Section 3.3, but never calls
-`evaluate_jones` and never applies a sky angular-domain or horizon check. The
-outer requested directions alone receive the existing pointing transform and
-true-horizon gate.
+That displayed form fixes the physics and proves the bounds below, but it is
+not the production evaluation. Applying the same Gaussian identity to the
+$\mathbf t$ integral instead of to $\boldsymbol\Delta$ returns each mixture
+term to the separation variable exactly. With $f=AMe^{-i\phi_{\rm det}}$,
+$\ell_m=L/\sqrt m$, and the pupil autocorrelation
+
+$$
+C(\boldsymbol\Delta)=\int f(\mathbf r)f^*(\mathbf r-\boldsymbol\Delta)\,d^2r,
+\qquad
+C(-\boldsymbol\Delta)=C^*(\boldsymbol\Delta),
+$$
+
+every term obeys the identity
+
+$$
+P_m(\mathbf q)\equiv
+\frac{1}{\pi}\int_{\mathbb R^2}e^{-|\mathbf t|^2}
+\left|e_{\rm det}\!\left(\mathbf q-\tfrac{2\sqrt m}{L}\mathbf t\right)
+\right|^2d^2t
+=\frac{1}{|N_0|^2}\int_{\mathbb R^2}
+C(\boldsymbol\Delta)\,e^{-i\mathbf q\cdot\boldsymbol\Delta}\,
+e^{-|\boldsymbol\Delta|^2/\ell_m^2}\,d^2\Delta,
+$$
+
+with $B_{\rm sc}=e^{-\mu}\sum_m(\mu^m/m!)P_m$ unchanged. Production evaluates
+the right-hand side. The two sides are the same integral, so no physical
+content, covariance law, or convention literal changes with the quadrature
+variable.
+
+The shifted-wavevector side is forbidden in production because it cannot be
+evaluated inside any tractable cap. As a function of $\mathbf t$ its integrand
+is entire of exponential type $2\sqrt m D/L$, since $C$ vanishes for
+$|\boldsymbol\Delta|>D$; a tensor Gauss-Hermite rule resolves that content only
+once $\sqrt{2H}$ reaches that type, so the order grows as $mD^2/L^2$, and each
+retained abscissa then needs one aperture transform at
+$R\|\mathbf k\|$ of order $\sqrt m D/L$, whose Section 3.3 node count grows as
+the square of that argument. The work is $O(SJ(D/L)^4)$, which admits only
+$L$ of order $D$ or larger, and there $B_{\rm sc}$ degenerates to the closed
+$L\to\infty$ identity. In the separation variable the same integral costs
+$O(1)$ in $D/L$: $C$ carries no far-field oscillation, the Gaussian confines
+$|\boldsymbol\Delta|$ to a few $\ell_m$, and one $C$ array serves every
+retained order and every requested direction.
+
+The internal paired-pupil helper accepts every finite real separation
+two-vector and never requires it to correspond to a physical sky direction. It
+uses the same boundary-fitted panels, phase-bandwidth seeds, convergence, and
+target-width accumulation as Section 3.3, but never calls `evaluate_jones` and
+never applies a sky angular-domain or horizon check. The outer requested
+directions alone receive the existing pointing transform and true-horizon gate,
+and they alone enter the coherent transform $e_{\rm det}(\mathbf q)$.
 
 Every supported $U/P/P_2$ mixture has $A\geq0$ and $N_0=\int A>0$; the mask is
 zero/one and the deterministic phase has unit modulus. Consequently
@@ -710,8 +809,37 @@ $$
 \frac{\int AM}{\int A}\leq1
 $$
 
-for every shifted wavevector. This both proves non-negative scattered power and
-makes omitted Poisson probability mass a rigorous absolute power-error bound.
+for every real two-vector $\mathbf k$, shifted or requested. This both proves
+non-negative scattered power and
+makes omitted Poisson probability mass a rigorous absolute power-error bound:
+the Gaussian in the shifted form has unit mass, so
+$0\leq P_m(\mathbf q)\leq1$ for every retained or omitted order. The same
+hypotheses bound the separation integrand, because the integral triangle
+inequality with Tonelli's theorem gives
+
+$$
+\int_{\mathbb R^2}|C(\boldsymbol\Delta)|\,d^2\Delta
+\leq\left(\int AM\right)^2\leq|N_0|^2 .
+$$
+
+Those two inequalities are configuration-free and are the only inputs the
+truncation budget below needs; neither is an asymptotic estimate.
+
+Stage-1 v1 evaluates $C$ only for an unobstructed pupil. When the resolved
+antenna also carries an `aperture_physics.blockage` child, the paired region is
+the intersection of two shifted copies of Section 3.2's mask, which needs a
+second boundary family and a second topology-root family that this version does
+not freeze. That combination raises `UnsupportedConfigError` with stable issue
+code `beam.ruze_power_diagnostic.unsupported_obstruction`, the diagnostic-owned
+`ConfigIssue.path` of Section 3.1, and exact message
+`Stage-1 Ruze power diagnostics v1 require an unobstructed pupil; the
+resolved aperture physics declares a blockage.` Nothing else is refused: the
+coherent `surface_error` loss, the blockage mask in `E`, and every other
+Stage-1 feature keep their accepted behaviour, and only the optional nested
+diagnostic is unavailable for that antenna. Within one diagnostic path, this
+obstruction rejection runs first, before the missing-RMS, unsupported-precision,
+and empty-direction rejections, extending Section 3.5's fixed order by name. A
+later design may add the paired obstructed region; it is not authorized here.
 
 The Poisson support is a contiguous integer interval
 `[poisson_first_order, poisson_last_order]`. With
@@ -734,50 +862,142 @@ zero, and scattered power is positive zero with the whole mass recorded as the
 omitted upper bound. More than 256 retained terms raises
 `BeamSamplingDerivationError` before any aperture evaluation.
 
-Each retained Gaussian uses tensor-product physicists' Gauss-Hermite nodes.
-For raw positive weights $w_i$, the exact computational weights are
-$\bar w_i=w_i/\operatorname{fsum}(w)$, so
-$\sum_{ij}\bar w_i\bar w_j=1$. Nodes and weights are generated and validated
-under the target-width rule in Section 3.3. Allowed one-axis orders are exactly
-`(8,16,32,64,128,256,512)`. To prevent two unresolved narrow results from
-falsely agreeing, no convergence comparison may count below the first allowed
-order not less than
+Every retained order shares one separation partition. With
+$\ell_{\rm wide}=L/\sqrt{m_{\rm first}}$ and
+$\ell_{\rm narrow}=L/\sqrt{m_{\rm last}}$, the separation radius is truncated
+at
 
 $$
-H_{\rm floor}=8+\left\lceil4\sqrt{m_{\rm last}}D/L\right\rceil.
+\delta_{\rm cut}=\min\!\left(D,\;
+\ell_{\rm wide}\sqrt{\ln(1/\tau_S)}\right),
+\qquad \tau_S=\mathrm{atol}/8 .
 $$
 
-There must be room for two higher allowed orders or evaluation fails before it
-starts. Starting at that allowed floor, two consecutive complete-array
-comparisons must satisfy one quarter of
+Because $C$ vanishes beyond $|\boldsymbol\Delta|=D$, because
+$\ell_m\leq\ell_{\rm wide}$ for every retained order, and because
+$\int|C|\leq|N_0|^2$, the discarded part of each term is at most
+$\exp(-\delta_{\rm cut}^2/\ell_m^2)\leq\tau_S$, while the retained Poisson
+weights sum to at most $1-e^{-\mu}\leq1$. Separation truncation therefore costs
+at most $\tau_S$ of absolute power, by exact arithmetic on those two displayed
+inequalities. With the Poisson tail $\tau_P$ the two truncations sum to at most
+`atol/4`, and the convergence comparisons below carry the rest of the same
+`atol` budget. `separation_cut_m` and `separation_omitted_bound` retain that
+cut and that realized bound; neither is assumed, and the bound is exactly zero
+whenever $\delta_{\rm cut}=D$, where $C$ itself vanishes and nothing is
+discarded.
+
+The separation partition is polar and boundary fitted. Its radial panels are
+$[0,\delta_{\rm cut}]$ when $\delta_{\rm cut}<D$, and otherwise $[0,D/2]$ plus
+a transformed panel $\delta=D-(D/2)(1-t)^2$, $0\leq t\leq1$, including its
+Jacobian, because $C$ reaches its outer zero like $(D-\delta)^{3/2}$ and that
+endpoint must not be presented to Gauss-Legendre as a smooth function. Radial
+nodes use Section 3.3's generation, validation, and seed rule with $L_p$ the
+panel length in metres, $d=2(n_{\max}+4)$, and
+
+$$
+B_\delta=q_{\max}+\frac{2}{\ell_{\rm narrow}}
++\frac{2\kappa(H_\rho+H_\varphi)+2}{R},
+\qquad
+q_{\max}=\max_s\sqrt{q_{N,s}^2+q_{E,s}^2},
+$$
+
+since illumination and surface phase each enter the paired integrand twice and
+every supported profile has radial degree at most four.
+
+At each separation radius the $\psi$ integral is periodic and analytic, so it
+uses the equispaced trapezoid rule whose order is the smallest power of two not
+below
+
+$$
+\max\!\left(16,\;
+8+\left\lceil4\left(q_{\max}\delta
++2\kappa(H_\rho+H_\varphi)\delta/R+m_{\max}\right)\right\rceil\right).
+$$
+
+For the direction factor the trapezoid's aliasing error is exactly
+$2\sum_{j\geq1}|J_{jN}(q\delta)|$ by Poisson summation, and
+$|J_n(x)|\leq(x/2)^n/n!$ (DLMF 10.14.4; Abramowitz and Stegun 9.1.62) makes
+that superexponentially small once $N\geq3q\delta$; for the analytic periodic
+factors the same rule converges exponentially (Trefethen and Weideman 2014,
+DOI 10.1137/130932132). The rule also nests, so a doubled angular level re-uses
+every separation node already evaluated.
+
+$C$ itself is one Section 3.3 aperture integral carrying no wavevector. For
+$\boldsymbol\Delta=\delta(\cos\psi,\sin\psi)$ and $b=|1-\delta/R|$, the paired
+transmitting set in the unshifted pupil's polar coordinates is
+
+$$
+\rho\in[\max(0,\delta/R-1),1],
+\qquad
+|\varphi-\psi|\leq\Phi(\rho)=
+\arccos\!\left(\frac{R^2\rho^2+\delta^2-R^2}{2R\rho\delta}\right),
+$$
+
+with $\Phi=\pi$ when that argument is at most $-1$ and no transmitting interval
+when it is at least $+1$. The radial panels are $[0,b]$, present only when
+$\delta<R$, where the whole circle transmits, and $[b,1]$ under Section 3.3's
+transformation $\rho=b+(1-b)t^2$ with its Jacobian, because $\Phi$ meets that
+boundary with square-root behaviour. There is exactly one transmitting angular
+interval at every interior radius, so this partition has no topology roots and
+no merge tolerance; $b$ and the domain ends are its only breakpoints and are
+canonicalized by the Section 3.3 rule. At $\delta=D$ the paired region is empty
+and $C$ is exact `0+0j` with positive-zero components. The paired integrand is
+$A(\rho)A(\rho')\exp\{-i\kappa[h(\rho,\varphi)-h(\rho',\varphi')]\}$, where
+$(\rho',\varphi')$ are the polar coordinates of
+$\mathbf r-\boldsymbol\Delta$; it carries no far-field oscillation, so its seed
+uses Section 3.3's rule with $B=2\kappa(H_\rho+H_\varphi)$ in both dimensions,
+$L_p$ the panel length radially and $2\Phi(\rho)$ angularly, and
+$d=2(n_{\max}+4)$ radially and $d=2(m_{\max}+1)$ angularly. The real Zernike
+basis is a Cartesian polynomial, so its normalized gradient is bounded by
+$H_\rho+H_\varphi$ at each of the two points and that seed bound holds even
+where the shifted point crosses the pupil centre.
+
+Both quadratures keep Section 3.3's convergence discipline unchanged: doubling,
+complete-array comparison, two consecutive successful comparisons per
+dimension, at most four doublings per dimension, and the fixed `atol`/`rtol`.
+The complete array compared for the two separation dimensions is
+$P_m(\mathbf q)$ over every requested direction and every retained Poisson
+order jointly; the complete array compared for the two paired-pupil dimensions
+is $C$ over every separation node of the current partition. Neither may be
+collapsed to a scalar or to the weighted sum before comparison.
+Each separation comparison must satisfy one quarter of
 `atol + rtol*max(abs(refined))`; otherwise the diagnostic raises
-`BeamSamplingDerivationError`. The aperture helper independently requires at
-least two levels and at most four refinements, and its complex result must
-converge over every base and Hermite-shifted wavevector, not merely after the
-weighted powers are summed.
+`BeamSamplingDerivationError`. The paired-pupil order is converged once against
+the seed separation partition and is then held at its accepted value while the
+separation partition is refined, and the two residual sequences are retained
+separately. No rule in this method scales with $D/L$; the Hermite abscissae,
+the allowed one-axis order set, and the $H_{\rm floor}$ rule they served are
+gone.
 
-The diagnostic supports at most 65,536 aperture nodes in any transform,
-`2**20` cumulative transformed wavevectors, `2**28` cumulative
-aperture-node/wavevector phase products, and `8*2**30` estimated workspace
-bytes. It uses an internal batch size equal to the largest power of two no
-greater than 256 that satisfies all remaining phase-product and byte caps; a
-smaller non-power-of-two final batch is permitted. Counts and the conservative
-shape-by-shape byte estimate are checked before every Poisson, Hermite, aperture,
-or batch refinement. For $r=\max(8,\text{beam real bytes})$,
-$c=\max(16,\text{beam complex bytes})$, and the current $J,H,Q,B,S$, that
-estimate is exactly
+The diagnostic supports at most `2**18` aperture nodes in any single solve,
+`2**20` cumulative separation-node solve presentations, `2**34` cumulative
+phase products, and `8*2**30` estimated workspace bytes. The
+single-solve bound is sized for the base coherent transform, whose Section 3.3
+converged node count at the shipped 14 m fixture is 158,400 and which the
+superseded 65,536 bound rejected. Every bound remains a real fail-closed cap
+and none is slack: under these rules the shipped fixture seeds a partition of
+10,624 separation nodes and resolves 393,088 presentations and
+$7.4\times10^{9}$ phase products, each below two thirds of its bound, and a
+workload exceeding any bound returns no partial result and
+raises `BeamSamplingDerivationError`. The diagnostic uses an internal batch
+size equal to the largest power of two no greater than 256 that satisfies all
+remaining phase-product and byte caps; a smaller non-power-of-two final batch
+is permitted. Counts and the conservative shape-by-shape byte estimate are
+checked before every Poisson, separation, paired-pupil, or batch refinement.
+For $r=\max(8,\text{beam real bytes})$, $c=\max(16,\text{beam complex bytes})$,
+and the current $J,N,Q,B,S$, that estimate is exactly
 
 $$
-E_{\rm Ruze}=r(16Q+6H^2+8BQ+16B+12S+4J)
-+c(4BQ+8B+6S).
+E_{\rm Ruze}=r(16Q+8BQ+16B+12S+4J+6N)
++c(4BQ+8B+6S+4N).
 $$
 
-Buffers must be reused within those multiplicities. Exceeding a cap returns no
-partial result and raises
-`BeamSamplingDerivationError`. The worst-case work is
-$O(SJH^2Q)$ and memory is $O(Q+H^2+BQ+S)$ for retained-term count $J$, final
-Hermite order $H$, maximum aperture-node count $Q$, and batch size $B$; no
-$Q^2$ pair array exists in production.
+Buffers must be reused within those multiplicities. The worst-case work is
+$O(NQ+SNJ)$ and memory is $O(Q+BQ+N+S)$ for separation-node count $N$,
+paired-pupil node count $Q$, batch size $B$, direction count $S$, and
+retained-term count $J$; no $Q^2$ pair array exists in production, and no
+quantity in either bound depends on $D/L$ or on the Poisson order count beyond
+the linear assembly term.
 
 At least float64 weights and accumulation are used for both supported output
 widths. Coherent and scattered arrays are cast separately to the beam real
@@ -787,9 +1007,15 @@ same dtype. There is no clipping: a negative or non-finite weighted sum is an
 internal numerical failure and raises `BeamSamplingDerivationError`. The
 returned balance is exact in the result dtype; maximum observed
 $|e_{\rm det}|$ must not exceed one beyond the unchanged tolerance, and total
-power must not exceed one beyond it. Poisson tail, two successive Hermite
-residuals, and the aperture-transform residuals are retained separately; none
-is hidden in a single convergence boolean.
+power must not exceed one beyond it. Each assembled separation integral is real
+because $C(-\boldsymbol\Delta)=C^*(\boldsymbol\Delta)$; the largest absolute
+imaginary part actually formed is retained and must not exceed
+`atol + rtol*max(abs(scattered_power))`, and a larger one is an internal
+numerical failure raising `BeamSamplingDerivationError` rather than a silently
+discarded part. Poisson tail, separation truncation bound, two successive
+separation residuals, the paired-pupil residuals, and the base coherent
+transform's residuals are retained separately; none is hidden in a single
+convergence boolean.
 
 This is an explicit scientific narrowing of Phase 5's generic
 "effect-changes-visibility" rule: the existing coherent Ruze term must still
@@ -822,7 +1048,7 @@ these fields:
 | Field | Exact resolved type and value |
 |---|---|
 | `schema_version` | `Literal["radiosim.ruze_power_diagnostic.v1"]` |
-| `method` | `Literal["poisson_gauss_hermite_aperture_v1"]` |
+| `method` | `Literal["poisson_paired_pupil_separation_v1"]` |
 | `antenna_id` | canonical immutable `AntennaId` |
 | `covariance_convention` | `Literal["gaussian_one_over_e_surface_covariance_v1"]` |
 | `normalization_convention` | `Literal["unmodified_ideal_aperture_v1"]` |
@@ -838,8 +1064,11 @@ real_dtype, complex_dtype,
 poisson_mu, poisson_first_order, poisson_last_order, poisson_term_count,
 poisson_lower_omitted_mass, poisson_upper_omitted_mass,
 poisson_total_omitted_mass, poisson_retained_weight_sum,
-hermite_order, hermite_evaluation_count,
-hermite_penultimate_max_abs_delta, hermite_final_max_abs_delta,
+separation_cut_m, separation_omitted_bound,
+separation_radial_order, separation_angular_order_max,
+separation_node_count, separation_evaluation_count,
+separation_penultimate_max_abs_delta, separation_final_max_abs_delta,
+separation_imaginary_max_abs_residual, separation_topology_sha256,
 aperture_method, aperture_partition_count,
 aperture_topology_breakpoint_count, aperture_topology_sha256,
 aperture_refinement_count, aperture_max_node_count,
@@ -856,7 +1085,8 @@ returned_balance_max_abs_residual
 `float64`/`complex128`; `aperture_method` is exactly
 `boundary_fitted_polar_gauss_legendre_v1`; and
 `aperture_topology_sha256` is lower-case SHA-256 over the canonical
-target-dtype radial-breakpoint and periodic-angular-partition manifest. The
+target-dtype radial-breakpoint and periodic-angular-partition manifest of the
+final accepted **base coherent** aperture solve. The
 manifest byte stream begins with the ASCII domain
 `radiosim.aperture_topology.v1\0`, then length-prefixes the real-dtype literal,
 resolved central ratio or the literal `none`, ordered `(beta,a)` leg pairs,
@@ -870,15 +1100,30 @@ little-endian real dtype, and emitted as raw bytes; every variable-length byte
 string or sequence is preceded by its element count in the same integer
 encoding. SHA-256 covers exactly that stream.
 
+`separation_topology_sha256` pins the returned separation partition under the
+same conventions. Its stream begins with the ASCII domain
+`radiosim.ruze_separation_partition.v1\0`, then length-prefixes the real-dtype
+literal, canonical `separation_cut_m`, the ordered separation radial panels with
+transformation literal and canonical endpoints, the ordered per-node angular
+trapezoid orders, and, for each separation node in panel/node order, its
+canonical paired-pupil boundary radius $b$ and ordered paired radial panels
+with their transformation literals. Integer, float, and length-prefix encodings
+are exactly those above, earlier refined partitions do not enter it, and the
+resolved zero-term Poisson case digests the domain prefix followed by the
+real-dtype literal and zero counts.
+
 All orders, counts, batch size, and byte fields are exact non-negative Python
-integers. `hermite_order` is zero only for the resolved zero-term Poisson case;
-otherwise it is an allowed positive order. Every other field from
+integers. Both separation orders are zero exactly for the resolved zero-term
+Poisson case; otherwise the radial order is positive and the angular maximum is
+a positive power of two not below sixteen. Every other field from
 `poisson_mu` through `returned_balance_max_abs_residual` not already classified
 as a string, digest, or integer is an exact finite non-negative Python float.
 Lower plus upper omitted mass equals total omitted mass in float64 arithmetic;
 term count is zero exactly with Poisson interval `[0,0]` and otherwise equals
-`last - first + 1`. In the zero-term case retained weight, Hermite evaluation
-count, Hermite order, and both Hermite residuals are exactly zero; lower omitted
+`last - first + 1`. In the zero-term case retained weight, both separation
+orders, separation node count, separation evaluation count, both separation
+residuals, the separation imaginary residual, `separation_cut_m`, and
+`separation_omitted_bound` are exactly zero; lower omitted
 mass is zero and upper and total omitted mass both equal `-expm1(-poisson_mu)`.
 
 Evaluation counts, transform counts, phase products, and refinement counts are
@@ -893,34 +1138,51 @@ canonical topology root, and outer boundary one. Both counts describe the
 returned topology and are independent of quadrature node order.
 
 `aperture_q_max` is dimensionless and equals
-$\max R\|\mathbf k\|_2$ over every base or Hermite-shifted wavevector actually
+$\max R\|\mathbf k\|_2$ over every wavevector actually
 presented to any aperture solve in the whole call; it is not physical
-$\|\mathbf k\|$ in inverse metres. `aperture_max_node_count` is the maximum
-Section 3.3 value of $Q$ over all seed/refinement evaluations; `batch_size` is
-the largest wavevector batch actually scheduled; and `estimated_peak_bytes` is
-the maximum declared estimate. `surface_phase_kappa` is exactly
+$\|\mathbf k\|$ in inverse metres. Paired-pupil solves carry no wavevector and
+do not enter it, so it now reports the base coherent transform alone.
+`aperture_max_node_count` is the maximum
+Section 3.3 value of $Q$ over all seed/refinement evaluations of either solve
+family; `batch_size` is
+the largest separation-node batch actually scheduled; and
+`estimated_peak_bytes` is
+the maximum declared estimate. `separation_cut_m` is $\delta_{\rm cut}$ in
+metres and `separation_omitted_bound` is the realized
+$\exp(-\delta_{\rm cut}^2/\ell_{\rm wide}^2)$, exactly zero when
+$\delta_{\rm cut}=D$ truncates nothing. `separation_radial_order` is the
+returned radial order of the widest separation panel and
+`separation_angular_order_max` the largest returned trapezoid order over its
+radial nodes. `surface_phase_kappa` is exactly
 $4\pi/\lambda$; the two surface derivative fields are the Section 3.3
 $H_\rho,H_\varphi$ bounds. The named amplitude and power extrema have their
 literal maximum/minimum meanings over all evaluated or returned values as
 applicable.
 
-For Hermite convergence, `penultimate` and `final` are the first and second of
-the final two consecutive successful complete-array comparisons. For aperture
+For separation convergence, `penultimate` and `final` are the first and second
+of the final two consecutive successful complete-array comparisons, maximized
+over both separation dimensions, every requested direction, and every retained
+Poisson order. For aperture
 convergence, every angular sequence that licenses a radial result and the
 radial sequence itself has two final successful comparisons;
 `aperture_penultimate_max_abs_delta` is the maximum of the first such licensing
 deltas and `aperture_final_max_abs_delta` the maximum of the second, across both
-dimensions, every relevant direction, shifted wavevector, and retained Poisson
-term. These are not merely the final radial pair. There is no `converged` field
+dimensions and over the base coherent solve and every paired-pupil solve
+alike. These are not merely the final radial pair. There is no `converged` field
 and no false state: failure returns no record.
 
-`hermite_evaluation_count` counts every scheduled tuple
-`(outer_direction, poisson_order, hermite_i, hermite_j)` across all attempted
-Hermite orders, including repeated abscissae after refinement.
+`separation_node_count` is the returned partition's node total and
+`separation_evaluation_count` counts every scheduled tuple
+`(separation_radial_node, separation_angular_node, paired_pupil_solve)` across
+all attempted separation and paired-pupil orders, including nodes re-presented
+after refinement; the nesting of the angular trapezoid means a doubled angular
+level increments it only for nodes it actually adds.
 `fhat_evaluation_count` counts every wavevector element presented to an
 aperture-transform refinement, so reevaluating one wavevector at a new aperture
 order increments it again. `phase_product_count` counts every scalar
-aperture-node/wavevector exponential formed. `aperture_refinement_count` counts
+aperture-node exponential formed in a base or paired-pupil solve plus every
+separation-node/direction exponential formed during assembly.
+`aperture_refinement_count` counts
 every evaluated angular or radial order increase after its seed evaluation;
 seed evaluations do not increment that field. These definitions, rather than
 wall-clock implementation details or cache hits, own the operation caps.
@@ -950,11 +1212,13 @@ Typed errors must preserve these exact semantic families:
   records, or contains an invalid, repeated, piston, or tip/tilt index;
 - all Zernike coefficients are zero;
 - a diagnostic lacks a positive correlation length, or is authored without a
-  positive surface RMS, uses unsupported extended precision, or receives an
+  positive surface RMS, uses unsupported extended precision, is attached to a
+  pupil whose resolved aperture physics declares a blockage, or receives an
   empty direction batch;
 - an unknown normalization, covariance, or Zernike convention is supplied; or
 - a boundary/topology value is not representable, or the fixed quadrature,
-  Poisson-tail, Hermite-order, transform-count, phase-product, memory,
+  Poisson-tail, separation-truncation, separation-order, solve-count,
+  phase-product, memory,
   convergence, finite-value, amplitude-bound, power-bound, or exact-balance
   predicate cannot be satisfied.
 
@@ -1011,17 +1275,18 @@ Acceptance requires all of:
   covariance-matched counterexample showing that covariance alone does not
   license the declared kernel;
 - a small-node independent $O(Q^2)$ pair oracle in tests only that agrees with
-  the Poisson/Gauss-Hermite result, catches the factor-two, $1/\pi$,
+  the Poisson/separation result, catches the factor-two, $1/\pi$,
   deterministic-phase, negative-forward aperture-transform sign, and
-  normalization controls, and is never imported by production; the Hermite
-  shift sign itself is not an oracle because the symmetric whole-plane integral
-  is invariant under $\mathbf t\mapsto-\mathbf t$;
+  normalization controls, and is never imported by production; the separation
+  sign itself is not an oracle because the whole-plane integral is invariant
+  under $\boldsymbol\Delta\mapsto-\boldsymbol\Delta$ with
+  $C(-\boldsymbol\Delta)=C^*(\boldsymbol\Delta)$;
 - stable low/high-$\mu$ two-sided Poisson tails, the $\mu\to0$ first-order
   limit, and the $L\to\infty$ identity
   $B_{\rm sc}=(1-e^{-\mu})|e_{\rm det}|^2$;
-- a deliberately narrow Hermite integrand that converges only after refinement
-  or fails with the typed cap, plus entire-plane shifted-wavevector evaluation
-  without a sky-domain rejection;
+- a deliberately narrow separation integrand that converges only after
+  refinement or fails with the typed cap, plus whole-plane separation
+  evaluation without a sky-domain rejection;
 - non-negative scattered power without clipping, $|e_{\rm det}|\leq1$, total
   power no greater than one within the unchanged tolerance, exact returned
   balance, and every operation/memory cap firing before prohibited work;
@@ -1381,7 +1646,7 @@ The minimum new modules are:
   rejection;
 - `tests/unit/test_core/test_sci005_aperture_physics.py` for Stage 1;
 - `tests/unit/test_core/test_sci005_ruze_diagnostic.py` for the independent
-  small-node pair oracle, Poisson/Hermite/refinement/resource predicates, and
+  small-node pair oracle, Poisson/separation/refinement/resource predicates, and
   frozen result;
 - `tests/unit/test_core/test_sci005_beam_squint.py` for Stage 2;
 - `tests/unit/test_core/test_sci005_full_efield.py` for Stage 3;
@@ -1794,7 +2059,7 @@ support_mask: radiosim.central_disk_outward_half_strip_ne.v1
 zernike_surface: radiosim.real_unit_rms_disk_surface_height.v1
 aperture_method: boundary_fitted_polar_gauss_legendre_v1
 ruze_covariance: gaussian_one_over_e_surface_covariance_v1
-ruze_method: poisson_gauss_hermite_aperture_v1
+ruze_method: poisson_paired_pupil_separation_v1
 ```
 
 Every `config_cases` row has exactly
@@ -1953,12 +2218,14 @@ not embed array values or a complex voltage.
 
 The `convergence` object has every key in Section 3.4.2's declared order.
 `real_dtype`, `complex_dtype`, and `aperture_method` use their exact declared
-enums; `aperture_topology_sha256` is a sha256. Integer keys are exactly the
+enums; `aperture_topology_sha256` and `separation_topology_sha256` are each a
+sha256. Integer keys are exactly the
 following fields:
 
 ```text
 poisson_first_order, poisson_last_order, poisson_term_count,
-hermite_order, hermite_evaluation_count,
+separation_radial_order, separation_angular_order_max,
+separation_node_count, separation_evaluation_count,
 aperture_partition_count, aperture_topology_breakpoint_count,
 aperture_refinement_count, aperture_max_node_count,
 fhat_evaluation_count, phase_product_count, batch_size, estimated_peak_bytes
@@ -1966,7 +2233,8 @@ fhat_evaluation_count, phase_product_count, batch_size, estimated_peak_bytes
 
 All remaining convergence keys not already classified as dtype/method strings
 or a digest are JSON numbers. Cross-field validation enforces the zero-term
-Poisson case, retained interval count, tail sum, allowed Hermite order, caps,
+Poisson case, retained interval count, tail sum, separation truncation bound,
+power-of-two angular order, caps,
 two residuals, dtype pair, non-negative powers, amplitude/total bounds, and
 exact result-dtype balance from Section 3.4. Unknown or missing projection keys,
 nulls, a backend field, a `converged` boolean, clipping metadata, FFT metadata,
@@ -2411,6 +2679,13 @@ accepted.
   (1952), and
   [*Antenna tolerance theory — a review*](https://doi.org/10.1109/PROC.1966.4784)
   (1966).
+- Separation-domain quadrature bounds: Bessel-coefficient decay
+  $|J_n(x)|\leq(x/2)^n/n!$,
+  [DLMF 10.14.4](https://dlmf.nist.gov/10.14.E4) and Abramowitz and Stegun
+  9.1.62; exponential convergence of the equispaced trapezoid rule for analytic
+  periodic integrands, L. N. Trefethen and J. A. C. Weideman,
+  [*The exponentially convergent trapezoidal rule*](https://doi.org/10.1137/130932132),
+  SIAM Review 56, 385 (2014).
 - Beam squint: J. M. Uson and W. D. Cotton,
   [*Beam squint and Stokes V with off-axis feeds*](https://arxiv.org/abs/0807.0026)
   (2008).
