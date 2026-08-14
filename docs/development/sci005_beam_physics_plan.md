@@ -26,15 +26,42 @@ it does not accept a production stage.
 accepted WP-7 design commit. Ambient WP-7 implementation work is not evidence
 for this memo and does not change its source anchor.
 
-**Status:** Stage-1 numerical design accepted; succession amendment design-only.
-The numerical contract is accepted at the exact commit above. This governance
-amendment can become `D1` only after its exact bytes receive the two fresh
-reviews required above. It implements no beam physics, accepts no stage, and
-does not close the register row. `SCI-005` remains **ROADMAP**. Stage 1 may
-begin `R1` only after `D1` and the WP-7 dependency gate below, then must
-complete its own source, evidence, acceptance, and status succession. Stages 2
-and 3 remain sequential, independently accepted slices even though WP-5 has
-satisfied their polarization-convention dependency.
+**Bounded Stage-1 ownership correction — 2026-08-14.** The
+acceptance-succession amendment at
+`58e7fb3d09dbcaec6f8201a778a653b55996c1aa` received its two required fresh
+independent reviews on 2026-08-14 — governance and computational, both
+`ACCEPT` — binding its exact parent-relative diff
+(`sha256:f987ceb7061ea08f43be092d22342a8ef1c752cababd3ddbff500a21e21dcf40`)
+and file bytes
+(`sha256:1a7843b892c3b1f975aab663618d7e3afe2b6e06511587ce7e695568bb3ed387`).
+Red-test authoring against that accepted design then surfaced one genuine
+Section 3.2 ambiguity: the leg-wider-than-resolved-diameter rejection named
+no owner reachable under Section 2's taxonomy, because per-antenna diameters
+resolve only with the instrument. This correction rules the owner (Section
+3.2), grants the one append-only error path that ruling needs (Section 7.2),
+and records two Stage-1 mechanics that follow from Section 2 unchanged
+(Section 3.5). In this header, *landing* means committing an amendment's
+bytes; a landed commit becomes the operative design gate only when its exact
+bytes are independently accepted, as Section 7.1 requires. The commit
+containing this correction supersedes the amendment commit as the operative
+`D1` once accepted. Its exact pre-landing file bytes
+(`sha256:2fb7c2f328f343fb6054a183e35aa58a7795f6a5ab6efe3c2ea29660a3aae001`)
+and parent-relative diff
+(`sha256:3d772d7be5d290bd68e64211c9cb5ffd065ec56e1ca7a430810de26172b3e347`)
+received separate fresh independent governance and computational `ACCEPT`
+verdicts on 2026-08-14, each reconfirmed after a single-sentence Section 3.5
+precision fix, and landed with only this record sentence added.
+
+**Status:** Stage-1 numerical design accepted; succession amendment
+independently accepted 2026-08-14; ownership correction pending its own two
+fresh exact-byte reviews. The numerical contract is accepted at the exact
+commit above. This correction implements no beam physics, accepts no stage,
+and does not close the register row. `SCI-005` remains **ROADMAP**. Stage 1
+may begin `R1` only after the accepted correction (the operative `D1`) and
+the WP-7 dependency gate below, then must complete its own source, evidence,
+acceptance, and status succession. Stages 2 and 3 remain sequential,
+independently accepted slices even though WP-5 has satisfied their
+polarization-convention dependency.
 
 ## 1. Ruling and bounded scope
 
@@ -241,8 +268,17 @@ A leg is the closed radial strip of physical width `width_m` from the edge of
 the central shadow to the ideal pupil edge, centred on its mechanical position
 angle. Masks combine by set union, so overlapping shadows are removed once.
 At instrument resolution a leg wider than the resolved aperture diameter is
-rejected. No scattering or phase from a support structure is claimed; Stage 1
-models only the geometrical aperture shadow.
+rejected. That rejection is owned by beam-assignment resolution:
+`core/beam/resolution.py` compares each authored `width_m` against each
+assigned antenna's resolved aperture diameter and raises the typed
+`InvalidBeamGeometryError` — a new `BeamAssignmentError` subclass added
+append-only to `core/beam/errors.py` — whose message names the leg's position
+angle, the antenna, the authored width, and the resolved diameter.
+Document-stage validation does not own this check because per-antenna
+diameters exist only after instrument resolution; Section 2's
+`ConfigSemanticError` mapping covers document-resolved failures and is
+unchanged by this ownership ruling. No scattering or phase from a support
+structure is claimed; Stage 1 models only the geometrical aperture shadow.
 
 The mask is not left to a drawing convention. For aperture coordinates
 $\mathbf u=(n,e)$ in metres, $R=D/2$, $r=\|\mathbf u\|$, normalized blockage
@@ -922,6 +958,20 @@ Typed errors must preserve these exact semantic families:
   convergence, finite-value, amplitude-bound, power-bound, or exact-balance
   predicate cannot be satisfied.
 
+Two Stage-1 mechanics follow from Section 2's taxonomy without changing it.
+First, authored-kind failures surface as `ConfigSchemaError` carrying
+Pydantic's own issue codes, while value-domain, identity, duplicate, and
+document-level cross-field failures surface as `ConfigSemanticError` carrying
+the frozen `beam.aperture_physics.*` and `beam.ruze_power_diagnostic.*`
+codes; the instrument-stage support-leg geometry rejection uses the typed
+error named in Section 3.2 and carries no `ConfigIssue` code. Second,
+Section 2's rule that integers are not silently accepted as strict floats is
+not delivered by strict Pydantic floats, which silently coerce Python ints
+(bools, by contrast, are already rejected by strict float validation); every
+Stage-1 float field therefore rejects `bool` and `int` inputs explicitly and
+uniformly, reporting Pydantic's own `float_type` issue code through
+`ConfigSchemaError`.
+
 When multiple Stage-1 unsupported conditions coexist after schema/semantic
 validation, aperture-owned family/profile checks run before any diagnostic
 check. Within one feature, family precedes profile and profile precedes
@@ -1445,6 +1495,9 @@ authenticates it through Section 8.2.
 - `src/radiosim/core/beam/aperture.py` (new; the only production owner of the
   pupil profiles, support mask, Zernike phase, Ruze power diagnostic, and
   frozen diagnostic records)
+- `src/radiosim/core/beam/errors.py` (append-only: exactly one new class
+  `InvalidBeamGeometryError(BeamAssignmentError)` with docstring and its
+  `__all__` entry; no existing byte changes)
 - `src/radiosim/core/beam/analytic.py`
 - `src/radiosim/core/beam/runtime.py`
 - `src/radiosim/core/beam/__init__.py`
