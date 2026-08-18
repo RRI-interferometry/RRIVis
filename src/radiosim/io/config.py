@@ -1681,13 +1681,20 @@ class CliWorkflowConfig(StrictFrozenModel):
 
 
 from radiosim.io.beam_config import (  # noqa: E402, I001
+    AnalyticBeamChoiceConfig,
     AnalyticBeamsConfig,
+    AnalyticalIlluminationBeamModelConfig,
+    AperturePhysicsConfig,
     BeamPointingConfig,
     BeamsConfig as _BeamsConfig,
     BeamSurfaceErrorConfig,
+    CircularApertureBeamModelConfig,
+    EllipticalApertureBeamModelConfig,
     MixedBeamsConfig,
+    NumericalIlluminationBeamModelConfig,
     PerAntennaFITSBeamsConfig,
     PointingOffsetConfig,
+    RectangularApertureBeamModelConfig,
     SharedFITSBeamsConfig,
     SurfaceErrorConfig,
 )
@@ -2001,9 +2008,405 @@ def _provenance_semantic_issues(
     return issues
 
 
+_APERTURE_PHYSICS_PATH = "beams.aperture_physics"
+_ZERNIKE_MAX_RADIAL_ORDER = 32
+_RESERVED_ZERNIKE_MODES = frozenset({(0, 0), (1, -1), (1, 1)})
+
+#: Section 3.1's two feature labels, rendered verbatim into its exact messages.
+_APERTURE_FEATURE = "aperture physics"
+_DIAGNOSTIC_FEATURE = "Ruze power diagnostic"
+
+_SUPPORTED_DIRECT_TAPERS = frozenset({"uniform", "parabolic", "parabolic_squared"})
+_SUPPORTED_DERIVED_TAPERS = frozenset({"parabolic", "parabolic_squared"})
+_DIAGNOSTIC_PRECISION_LEVELS = frozenset({"float32", "float64"})
+
+_UNSUPPORTED_PRECISION_MESSAGE = (
+    "Ruze power diagnostics support only float32/complex64 and "
+    "float64/complex128 beam precision."
+)
+_UNSUPPORTED_OBSTRUCTION_MESSAGE = (
+    "Stage-1 Ruze power diagnostics v1 require an unobstructed pupil; the "
+    "resolved aperture physics declares a blockage."
+)
+
+
+def _unsupported_issue(path: str, code: str, message: str) -> ConfigIssue:
+    return ConfigIssue(
+        path,
+        code,
+        message,
+        None,
+        stage="unsupported",
+        category="unsupported",
+    )
+
+
+def _stage1_profile_message(
+    feature: str,
+    model_kind: str,
+    taper_kind: str | None,
+) -> str:
+    """Section 3.1's exact unsupported-profile message."""
+    return (
+        f"Stage-1 {feature} requires a canonical circular pupil; resolved model "
+        f"{model_kind!r} with taper {taper_kind!r} has no supported v1 profile."
+    )
+
+
+def _stage1_family_message(feature: str, model_kind: str) -> str:
+    """Section 3.1's exact unsupported-family message."""
+    return f"Stage-1 {feature} does not support resolved beam family {model_kind!r}."
+
+
+@dataclass(frozen=True, slots=True)
+class _Stage1Pupil:
+    """The resolved beam family and pupil profile one Stage-1 feature sees."""
+
+    model_kind: str
+    taper_kind: str | None
+    family_supported: bool
+    profile_supported: bool
+
+
+def _stage1_pupil(beams: _BeamsConfig) -> _Stage1Pupil:
+    """Classify the resolved beam family and pupil against Section 3.1's table.
+
+    Only ``circular_aperture`` with a uniform/parabolic/parabolic-squared taper
+    and ``analytical_illumination`` with a parabolic or parabolic-squared taper
+    profile have an exact compact aperture-plane profile in v1.  The direct and
+    derived Gaussian shortcut does not uniquely specify a compact disk pupil,
+    the direct cosine shortcut declares no radial-pupil inverse, and the
+    numerical illumination response is a fixed 256-node trapezoidal Hankel rule
+    rather than the continuum transform of a retained pupil discretization.
+    """
+    model: object
+    if isinstance(beams, (SharedFITSBeamsConfig, PerAntennaFITSBeamsConfig)):
+        return _Stage1Pupil("fits", None, False, False)
+    if isinstance(beams, MixedBeamsConfig):
+        if any(
+            not isinstance(assignment.beam, AnalyticBeamChoiceConfig)
+            for assignment in beams.assignments
+        ):
+            return _Stage1Pupil("fits", None, False, False)
+        model = beams.analytic_model
+    else:
+        model = cast(AnalyticBeamsConfig, beams).model
+    if isinstance(model, CircularApertureBeamModelConfig):
+        taper = model.taper.kind
+        return _Stage1Pupil(
+            "circular_aperture",
+            taper,
+            True,
+            taper in _SUPPORTED_DIRECT_TAPERS,
+        )
+    if isinstance(model, AnalyticalIlluminationBeamModelConfig):
+        taper = model.taper_profile.kind
+        return _Stage1Pupil(
+            "analytical_illumination",
+            taper,
+            True,
+            taper in _SUPPORTED_DERIVED_TAPERS,
+        )
+    if isinstance(model, NumericalIlluminationBeamModelConfig):
+        return _Stage1Pupil("numerical_illumination", None, True, False)
+    if isinstance(model, RectangularApertureBeamModelConfig):
+        return _Stage1Pupil("rectangular_aperture", None, False, False)
+    if isinstance(model, EllipticalApertureBeamModelConfig):
+        return _Stage1Pupil("elliptical_aperture", None, False, False)
+    raise TypeError(f"unsupported analytic beam model {type(model).__name__}")
+
+
+def _authored_diagnostic_paths(beams: _BeamsConfig) -> tuple[str, ...]:
+    """Return every authored diagnostic path, default then ascending index.
+
+    Section 3.5 fixes this visit order, so the first rejection recorded in
+    evidence is the same on every run.
+    """
+    surface_error = beams.surface_error
+    if surface_error is None:
+        return ()
+    paths: list[str] = []
+    if (
+        surface_error.default is not None
+        and surface_error.default.error_beam_diagnostic is not None
+    ):
+        paths.append("beams.surface_error.default.error_beam_diagnostic")
+    for index, entry in enumerate(surface_error.per_antenna):
+        if entry.error_beam_diagnostic is not None:
+            paths.append(
+                f"beams.surface_error.per_antenna[{index}].error_beam_diagnostic"
+            )
+    return tuple(paths)
+
+
+def _blockage_semantic_issues(aperture: AperturePhysicsConfig) -> list[ConfigIssue]:
+    blockage = aperture.blockage
+    if blockage is None:
+        return []
+    base = f"{_APERTURE_PHYSICS_PATH}.blockage"
+    issues: list[ConfigIssue] = []
+    if not 0.0 < blockage.central_diameter_ratio < 1.0:
+        issues.append(
+            ConfigIssue(
+                f"{base}.central_diameter_ratio",
+                "beam.aperture_physics.blockage_ratio_domain",
+                "must satisfy 0 < central_diameter_ratio < 1",
+            )
+        )
+    seen_angles: dict[float, int] = {}
+    for index, leg in enumerate(blockage.support_legs):
+        leg_path = f"{base}.support_legs[{index}]"
+        if leg.width_m <= 0.0:
+            issues.append(
+                ConfigIssue(
+                    f"{leg_path}.width_m",
+                    "beam.aperture_physics.support_leg_width_domain",
+                    "must be a positive finite physical strip width in metres",
+                )
+            )
+        if not -180.0 < leg.position_angle_deg <= 180.0:
+            issues.append(
+                ConfigIssue(
+                    f"{leg_path}.position_angle_deg",
+                    "beam.aperture_physics.support_leg_angle_domain",
+                    "must lie in the canonical interval (-180, 180]",
+                )
+            )
+        elif leg.position_angle_deg in seen_angles:
+            issues.append(
+                ConfigIssue(
+                    f"{leg_path}.position_angle_deg",
+                    "beam.aperture_physics.support_leg_duplicate",
+                    "duplicates the resolved angle already authored at index "
+                    f"{seen_angles[leg.position_angle_deg]}",
+                )
+            )
+        else:
+            seen_angles[leg.position_angle_deg] = index
+    return issues
+
+
+def _zernike_semantic_issues(aperture: AperturePhysicsConfig) -> list[ConfigIssue]:
+    zernike = aperture.zernike_surface
+    if zernike is None:
+        return []
+    base = f"{_APERTURE_PHYSICS_PATH}.zernike_surface"
+    issues: list[ConfigIssue] = []
+    seen: dict[tuple[int, int], int] = {}
+    for index, mode in enumerate(zernike.modes):
+        mode_path = f"{base}.modes[{index}]"
+        pair = (mode.n, mode.m)
+        if (
+            not 0 <= mode.n <= _ZERNIKE_MAX_RADIAL_ORDER
+            or abs(mode.m) > mode.n
+            or (mode.n - abs(mode.m)) % 2 != 0
+        ):
+            issues.append(
+                ConfigIssue(
+                    mode_path,
+                    "beam.aperture_physics.zernike_mode_domain",
+                    "must satisfy 0 <= n <= 32, |m| <= n, and n - |m| even",
+                )
+            )
+        elif pair in _RESERVED_ZERNIKE_MODES:
+            issues.append(
+                ConfigIssue(
+                    mode_path,
+                    "beam.aperture_physics.zernike_mode_reserved",
+                    "piston (0, 0) and tip/tilt (1, -1) and (1, 1) are already "
+                    "owned by instrumental delay and deterministic pointing",
+                )
+            )
+        elif pair in seen:
+            issues.append(
+                ConfigIssue(
+                    mode_path,
+                    "beam.aperture_physics.zernike_mode_duplicate",
+                    f"duplicates the (n, m) pair already authored at index "
+                    f"{seen[pair]}",
+                )
+            )
+        else:
+            seen[pair] = index
+    if not any(mode.surface_height_coefficient_m != 0.0 for mode in zernike.modes):
+        issues.append(
+            ConfigIssue(
+                base,
+                "beam.aperture_physics.zernike_identity",
+                "every authored coefficient is zero, so the block is an exact "
+                "identity; remove it, or give at least one mode a non-zero "
+                "surface_height_coefficient_m",
+            )
+        )
+    return issues
+
+
+def _stage1_semantic_issues(config: RadioSimConfig) -> list[ConfigIssue]:
+    """Collect Section 3.5's identity, domain, duplicate, and cross-field rows.
+
+    Section 2 is normative: every explicitly present block must resolve to a
+    real effect, and exact identity blocks are rejected rather than accepted and
+    discarded.
+    """
+    beams = config.beams
+    issues: list[ConfigIssue] = []
+    aperture = beams.aperture_physics
+    if aperture is not None:
+        if aperture.blockage is None and aperture.zernike_surface is None:
+            issues.append(
+                ConfigIssue(
+                    _APERTURE_PHYSICS_PATH,
+                    "beam.aperture_physics.identity_block",
+                    "requires at least one effective blockage or "
+                    "zernike_surface child; an aperture block with neither has "
+                    "no effect",
+                )
+            )
+        issues.extend(_blockage_semantic_issues(aperture))
+        issues.extend(_zernike_semantic_issues(aperture))
+
+    surface_error = beams.surface_error
+    if surface_error is not None:
+        obstructed = aperture is not None and aperture.blockage is not None
+        entries: list[tuple[str, SurfaceErrorConfig | Any]] = []
+        if surface_error.default is not None:
+            entries.append(("beams.surface_error.default", surface_error.default))
+        for index, entry in enumerate(surface_error.per_antenna):
+            entries.append((f"beams.surface_error.per_antenna[{index}]", entry))
+        for base, entry in entries:
+            diagnostic = entry.error_beam_diagnostic
+            if diagnostic is None:
+                continue
+            path = f"{base}.error_beam_diagnostic"
+            if obstructed:
+                # Section 3.4.1: within one diagnostic path the obstruction
+                # rejection runs before the missing-RMS one, so the path is not
+                # also reported as missing a surface error it will never use.
+                continue
+            if diagnostic.correlation_length_m <= 0.0:
+                issues.append(
+                    ConfigIssue(
+                        f"{path}.correlation_length_m",
+                        "beam.ruze_power_diagnostic.correlation_length_domain",
+                        "must be a positive finite one-over-e correlation "
+                        "length in metres",
+                    )
+                )
+            if entry.rms_surface_error_m <= 0.0:
+                issues.append(
+                    ConfigIssue(
+                        path,
+                        "beam.ruze_power_diagnostic.missing_surface_error",
+                        "requires a positive rms_surface_error_m on the same "
+                        "record; the diagnostic describes the residual random "
+                        "surface, not a surface it invents",
+                    )
+                )
+    return issues
+
+
+def _resolved_beam_precision(config: RadioSimConfig) -> str:
+    """Return the resolved ``jones.beam`` precision level for the document."""
+    precision = config.execution.precision
+    try:
+        return str(precision.to_precision_config().jones.beam)
+    except (TypeError, ValueError):  # pragma: no cover - preset contradiction
+        return str(precision.jones.beam)
+
+
+def _stage1_unsupported_issues(config: RadioSimConfig) -> list[ConfigIssue]:
+    """Collect Section 3.1's unsupported pupil, family, and precision rows.
+
+    Section 3.5 fixes the ordering: aperture-owned family/profile checks run
+    before any diagnostic check, family precedes profile, profile precedes
+    diagnostic precision, diagnostic paths are visited default-then-ascending,
+    and a diagnostic issue already owned by the explicit aperture feature is
+    suppressed.
+    """
+    beams = config.beams
+    aperture = beams.aperture_physics
+    diagnostic_paths = _authored_diagnostic_paths(beams)
+    if aperture is None and not diagnostic_paths:
+        # Section 3.1: no existing beam with both features absent is
+        # re-resolved or changed.
+        return []
+
+    pupil = _stage1_pupil(beams)
+    issues: list[ConfigIssue] = []
+    if aperture is not None:
+        if not pupil.family_supported:
+            issues.append(
+                _unsupported_issue(
+                    _APERTURE_PHYSICS_PATH,
+                    "beam.aperture_physics.unsupported_beam_family",
+                    _stage1_family_message(_APERTURE_FEATURE, pupil.model_kind),
+                )
+            )
+        elif not pupil.profile_supported:
+            issues.append(
+                _unsupported_issue(
+                    _APERTURE_PHYSICS_PATH,
+                    "beam.aperture_physics.unsupported_pupil_profile",
+                    _stage1_profile_message(
+                        _APERTURE_FEATURE,
+                        pupil.model_kind,
+                        pupil.taper_kind,
+                    ),
+                )
+            )
+        if issues:
+            return issues
+
+    beam_precision = _resolved_beam_precision(config)
+    obstructed = aperture is not None and aperture.blockage is not None
+    for path in diagnostic_paths:
+        if not pupil.family_supported:
+            issues.append(
+                _unsupported_issue(
+                    path,
+                    "beam.ruze_power_diagnostic.unsupported_beam_family",
+                    _stage1_family_message(_DIAGNOSTIC_FEATURE, pupil.model_kind),
+                )
+            )
+        elif not pupil.profile_supported:
+            issues.append(
+                _unsupported_issue(
+                    path,
+                    "beam.ruze_power_diagnostic.unsupported_pupil_profile",
+                    _stage1_profile_message(
+                        _DIAGNOSTIC_FEATURE,
+                        pupil.model_kind,
+                        pupil.taper_kind,
+                    ),
+                )
+            )
+        elif obstructed:
+            # Section 3.4.1's v1 narrowing: the paired region of two shifted
+            # copies of the Section 3.2 mask needs a second boundary and
+            # topology-root family this version does not freeze.  Only the
+            # optional diagnostic is refused; the coherent surface_error loss
+            # and the blockage mask in E keep their accepted behaviour.
+            issues.append(
+                _unsupported_issue(
+                    path,
+                    "beam.ruze_power_diagnostic.unsupported_obstruction",
+                    _UNSUPPORTED_OBSTRUCTION_MESSAGE,
+                )
+            )
+        elif beam_precision not in _DIAGNOSTIC_PRECISION_LEVELS:
+            issues.append(
+                _unsupported_issue(
+                    path,
+                    "beam.ruze_power_diagnostic.unsupported_precision",
+                    _UNSUPPORTED_PRECISION_MESSAGE,
+                )
+            )
+    return issues
+
+
 def collect_semantic_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
     """Collect every pure cross-field issue from a valid input model."""
-    issues: list[ConfigIssue] = []
+    issues: list[ConfigIssue] = _stage1_semantic_issues(config)
     if config.obs_time.time_step_seconds > config.obs_time.duration_seconds:
         issues.append(
             ConfigIssue(
@@ -2130,8 +2533,13 @@ def collect_unsupported_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...
     function and its ``unsupported`` issue stage stay because they are part of
     the Tier 1 validator contract that ``collect_config_issues`` composes, and a
     later capability gap declares itself here.
+
+    SCI-005 Stage 1 is its first live entry: an aperture-physics block or a Ruze
+    power diagnostic attached to a beam family or pupil profile that Section 3.1
+    excludes, and a diagnostic requested under extended beam precision, are
+    declared-but-unsupported combinations rather than domain errors.
     """
-    issues: list[ConfigIssue] = []
+    issues: list[ConfigIssue] = _stage1_unsupported_issues(config)
     return _ordered_issues(issues)
 
 

@@ -1,0 +1,1605 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://radiosim.invalid/schema/sci005_stage1_evidence.schema.json",
+  "title": "SCI-005 Stage-1 retained evidence record",
+  "description": "Literal transcription of docs/development/sci005_beam_physics_plan.md Section 8.1's Stage-1 evidence contract. Cross-field, ordering, and digest predicates that JSON Schema cannot express are mandatory validator checks in tests/unit/test_sci005_evidence.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "stage",
+    "status",
+    "generated_at_utc",
+    "design_sha",
+    "red_test_sha",
+    "source_sha",
+    "evidence_sha",
+    "working_tree_clean",
+    "radiosim_version",
+    "python_version",
+    "platform",
+    "machine",
+    "pixi_environment",
+    "pixi_lock_sha256",
+    "scientific_conventions",
+    "config_cases",
+    "analytic_invariants",
+    "rejection_probes",
+    "backend_parity",
+    "solver_cases",
+    "output_cases",
+    "fingerprint_diff",
+    "commands",
+    "artifacts",
+    "limitations",
+    "claims_not_licensed",
+    "pupil_profiles",
+    "support_masks",
+    "ruze_power_diagnostics"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "radiosim.sci005.stage1.v1"
+    },
+    "stage": {
+      "const": 1
+    },
+    "status": {
+      "const": "candidate"
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "design_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "red_test_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "evidence_sha": {
+      "type": "null"
+    },
+    "working_tree_clean": {
+      "const": true
+    },
+    "radiosim_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "python_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1
+    },
+    "machine": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pixi_environment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pixi_lock_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scientific_conventions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pupil_profile_set": {
+          "const": "radiosim.circular_stage1_pupil_profiles.v1"
+        },
+        "aperture_normalization": {
+          "const": "unmodified_ideal_aperture_v1"
+        },
+        "aperture_axes": {
+          "const": "north_east_azimuth_north_through_east_v1"
+        },
+        "support_mask": {
+          "const": "radiosim.central_disk_outward_half_strip_ne.v1"
+        },
+        "zernike_surface": {
+          "const": "radiosim.real_unit_rms_disk_surface_height.v1"
+        },
+        "aperture_method": {
+          "const": "boundary_fitted_polar_gauss_legendre_v1"
+        },
+        "ruze_covariance": {
+          "const": "gaussian_one_over_e_surface_covariance_v1"
+        },
+        "ruze_method": {
+          "const": "poisson_paired_pupil_separation_v1"
+        }
+      },
+      "required": [
+        "pupil_profile_set",
+        "aperture_normalization",
+        "aperture_axes",
+        "support_mask",
+        "zernike_surface",
+        "aperture_method",
+        "ruze_covariance",
+        "ruze_method"
+      ]
+    },
+    "config_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/config_case"
+      }
+    },
+    "analytic_invariants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/analytic_invariant"
+      }
+    },
+    "rejection_probes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/rejection_probe"
+      }
+    },
+    "backend_parity": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/backend_parity"
+      }
+    },
+    "solver_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/solver_case"
+      }
+    },
+    "output_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/output_case"
+      }
+    },
+    "fingerprint_diff": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/fingerprint_row"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/command_row"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact_row"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "claims_not_licensed": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "pupil_profiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/pupil_profile"
+      }
+    },
+    "support_masks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/support_mask"
+      }
+    },
+    "ruze_power_diagnostics": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/ruze_power_diagnostics_row"
+      }
+    }
+  },
+  "$defs": {
+    "git_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "canonical_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(^|/)\\.\\.?(/|$))(?!.*//)(?!.*/$).+$"
+    },
+    "numeric_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "float32",
+            "float64",
+            "float128",
+            "complex64",
+            "complex128",
+            "complex256"
+          ]
+        },
+        "shape": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "c_order_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "minimum_abs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_abs": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dtype",
+        "shape",
+        "c_order_sha256",
+        "minimum_abs",
+        "maximum_abs"
+      ]
+    },
+    "array_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "float32",
+            "float64"
+          ]
+        },
+        "shape": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "c_order_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "dtype",
+        "shape",
+        "c_order_sha256",
+        "minimum",
+        "maximum"
+      ]
+    },
+    "antenna_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "number",
+        "name"
+      ]
+    },
+    "command_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "cwd": {
+          "const": "."
+        },
+        "pixi_environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started_at_utc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "stdout_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stderr_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "argv",
+        "cwd",
+        "pixi_environment",
+        "started_at_utc",
+        "duration_seconds",
+        "exit_code",
+        "stdout_sha256",
+        "stderr_sha256"
+      ]
+    },
+    "artifact_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*\\\\)(?!.*(^|/)\\.\\.?(/|$))(?!.*//)(?!.*/$).+$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "schema",
+            "command_log",
+            "output",
+            "fingerprint",
+            "auxiliary"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "media_type",
+        "role"
+      ]
+    },
+    "config_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_outcome": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "observed_outcome": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "resolved_scientific_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exception_type": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "issue_code": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exact_message": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "test_node_id",
+        "input_sha256",
+        "expected_outcome",
+        "observed_outcome",
+        "resolved_scientific_sha256",
+        "exception_type",
+        "issue_code",
+        "exact_message",
+        "passed"
+      ]
+    },
+    "analytic_invariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "invariant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend": {
+          "enum": [
+            "numpy",
+            "jax",
+            "dask",
+            "independent_oracle"
+          ]
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected": {
+          "$ref": "#/$defs/numeric_projection"
+        },
+        "observed": {
+          "$ref": "#/$defs/numeric_projection"
+        },
+        "max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_rel_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rtol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "invariant_id",
+        "backend",
+        "test_node_id",
+        "input_manifest_sha256",
+        "expected",
+        "observed",
+        "max_abs_residual",
+        "max_rel_residual",
+        "atol",
+        "rtol",
+        "passed"
+      ]
+    },
+    "rejection_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exception_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exact_message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "config_path",
+        "exception_type",
+        "issue_code",
+        "exact_message",
+        "test_node_id",
+        "input_sha256",
+        "passed"
+      ]
+    },
+    "backend_parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend": {
+          "enum": [
+            "numpy",
+            "jax",
+            "dask"
+          ]
+        },
+        "actual_device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "real_dtype": {
+          "enum": [
+            "float32",
+            "float64"
+          ]
+        },
+        "complex_dtype": {
+          "enum": [
+            "complex64",
+            "complex128"
+          ]
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "reference_result_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_result_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "max_abs_difference": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_rel_difference": {
+          "type": "number",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rtol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "backend",
+        "actual_device",
+        "real_dtype",
+        "complex_dtype",
+        "input_sha256",
+        "reference_result_sha256",
+        "observed_result_sha256",
+        "max_abs_difference",
+        "max_rel_difference",
+        "atol",
+        "rtol",
+        "passed"
+      ]
+    },
+    "solver_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "enum": [
+            "blockage",
+            "zernike",
+            "ruze_coherent_voltage",
+            "ruze_power_diagnostic_non_visibility"
+          ]
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "jones_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "visibility_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "diagnostic_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "jones_call_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visibility_changed_element_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visibility_change_expected": {
+          "type": "boolean"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "effect",
+        "test_node_id",
+        "input_sha256",
+        "jones_sha256",
+        "visibility_sha256",
+        "diagnostic_sha256",
+        "jones_call_count",
+        "visibility_changed_element_count",
+        "visibility_change_expected",
+        "passed"
+      ]
+    },
+    "output_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "enum": [
+            "in_memory",
+            "summary_json",
+            "hdf5",
+            "uvfits",
+            "measurement_set",
+            "reader_projection"
+          ]
+        },
+        "writer_test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reader_test_node_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "artifact_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "in_memory_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_projection_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "roundtrip_max_abs_difference": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "format",
+        "writer_test_node_id",
+        "reader_test_node_id",
+        "artifact_sha256",
+        "in_memory_sha256",
+        "observed_projection_sha256",
+        "roundtrip_max_abs_difference",
+        "tolerance",
+        "passed"
+      ]
+    },
+    "fingerprint_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workload": {
+          "type": "string",
+          "minLength": 1
+        },
+        "old_scientific_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "new_scientific_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "old_raw_cube_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "new_raw_cube_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "changed_element_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "change_expected": {
+          "type": "boolean"
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "environment",
+        "workload",
+        "old_scientific_sha256",
+        "new_scientific_sha256",
+        "old_raw_cube_sha256",
+        "new_raw_cube_sha256",
+        "changed_element_count",
+        "maximum_delta",
+        "change_expected",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "pupil_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_kind": {
+          "enum": [
+            "circular_aperture",
+            "analytical_illumination",
+            "numerical_illumination",
+            "rectangular_aperture",
+            "elliptical_aperture",
+            "fits"
+          ]
+        },
+        "taper_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "uniform",
+                "parabolic",
+                "parabolic_squared",
+                "gaussian",
+                "cosine"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "edge_taper_db": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mixture_weight": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "profile_convention": {
+          "anyOf": [
+            {
+              "enum": [
+                "U",
+                "pU_plus_one_minus_p_P",
+                "pU_plus_one_minus_p_P2"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hankel_convention": {
+          "anyOf": [
+            {
+              "enum": [
+                "two_J1_over_x",
+                "eight_J2_over_x2",
+                "forty_eight_J3_over_x3",
+                "weighted_linear_combination"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "exception_type": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "issue_code": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "max_abs_residual": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "case_id",
+        "model_kind",
+        "taper_kind",
+        "edge_taper_db",
+        "mixture_weight",
+        "profile_convention",
+        "hankel_convention",
+        "outcome",
+        "exception_type",
+        "issue_code",
+        "test_node_id",
+        "max_abs_residual",
+        "tolerance"
+      ]
+    },
+    "support_mask": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "diameter_m": {
+          "type": "number"
+        },
+        "central_diameter_ratio": {
+          "type": "number"
+        },
+        "legs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "position_angle_deg": {
+                "type": "number"
+              },
+              "width_m": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "position_angle_deg",
+              "width_m"
+            ]
+          }
+        },
+        "probes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "north_m": {
+                "type": "number"
+              },
+              "east_m": {
+                "type": "number"
+              },
+              "expected_transmitting": {
+                "type": "boolean"
+              },
+              "observed_transmitting": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "north_m",
+              "east_m",
+              "expected_transmitting",
+              "observed_transmitting"
+            ]
+          }
+        },
+        "union_control_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "antipodal_control_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "topology_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "diameter_m",
+        "central_diameter_ratio",
+        "legs",
+        "probes",
+        "union_control_id",
+        "antipodal_control_id",
+        "topology_sha256",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "ruze_convergence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "real_dtype": {
+          "enum": [
+            "float32",
+            "float64"
+          ]
+        },
+        "complex_dtype": {
+          "enum": [
+            "complex64",
+            "complex128"
+          ]
+        },
+        "poisson_mu": {
+          "type": "number",
+          "minimum": 0
+        },
+        "poisson_first_order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "poisson_last_order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "poisson_term_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "poisson_lower_omitted_mass": {
+          "type": "number",
+          "minimum": 0
+        },
+        "poisson_upper_omitted_mass": {
+          "type": "number",
+          "minimum": 0
+        },
+        "poisson_total_omitted_mass": {
+          "type": "number",
+          "minimum": 0
+        },
+        "poisson_retained_weight_sum": {
+          "type": "number",
+          "minimum": 0
+        },
+        "separation_cut_m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "separation_omitted_bound": {
+          "type": "number",
+          "minimum": 0
+        },
+        "separation_radial_order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "separation_angular_order_max": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "separation_node_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "separation_evaluation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "separation_penultimate_max_abs_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "separation_final_max_abs_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "separation_imaginary_max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "separation_topology_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "aperture_method": {
+          "const": "boundary_fitted_polar_gauss_legendre_v1"
+        },
+        "aperture_partition_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aperture_topology_breakpoint_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aperture_topology_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "aperture_refinement_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aperture_max_node_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "aperture_penultimate_max_abs_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "aperture_final_max_abs_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "aperture_q_max": {
+          "type": "number",
+          "minimum": 0
+        },
+        "surface_phase_kappa": {
+          "type": "number",
+          "minimum": 0
+        },
+        "surface_radial_derivative_bound": {
+          "type": "number",
+          "minimum": 0
+        },
+        "surface_angular_derivative_bound": {
+          "type": "number",
+          "minimum": 0
+        },
+        "fhat_evaluation_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "phase_product_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "batch_size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rtol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "estimated_peak_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_abs_e_deterministic": {
+          "type": "number",
+          "minimum": 0
+        },
+        "minimum_scattered_power": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_total_power": {
+          "type": "number",
+          "minimum": 0
+        },
+        "returned_balance_max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "real_dtype",
+        "complex_dtype",
+        "poisson_mu",
+        "poisson_first_order",
+        "poisson_last_order",
+        "poisson_term_count",
+        "poisson_lower_omitted_mass",
+        "poisson_upper_omitted_mass",
+        "poisson_total_omitted_mass",
+        "poisson_retained_weight_sum",
+        "separation_cut_m",
+        "separation_omitted_bound",
+        "separation_radial_order",
+        "separation_angular_order_max",
+        "separation_node_count",
+        "separation_evaluation_count",
+        "separation_penultimate_max_abs_delta",
+        "separation_final_max_abs_delta",
+        "separation_imaginary_max_abs_residual",
+        "separation_topology_sha256",
+        "aperture_method",
+        "aperture_partition_count",
+        "aperture_topology_breakpoint_count",
+        "aperture_topology_sha256",
+        "aperture_refinement_count",
+        "aperture_max_node_count",
+        "aperture_penultimate_max_abs_delta",
+        "aperture_final_max_abs_delta",
+        "aperture_q_max",
+        "surface_phase_kappa",
+        "surface_radial_derivative_bound",
+        "surface_angular_derivative_bound",
+        "fhat_evaluation_count",
+        "phase_product_count",
+        "batch_size",
+        "atol",
+        "rtol",
+        "estimated_peak_bytes",
+        "maximum_abs_e_deterministic",
+        "minimum_scattered_power",
+        "maximum_total_power",
+        "returned_balance_max_abs_residual"
+      ]
+    },
+    "ruze_diagnostic_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "radiosim.ruze_power_diagnostic.v1"
+        },
+        "method": {
+          "const": "poisson_paired_pupil_separation_v1"
+        },
+        "covariance_convention": {
+          "const": "gaussian_one_over_e_surface_covariance_v1"
+        },
+        "normalization_convention": {
+          "const": "unmodified_ideal_aperture_v1"
+        },
+        "antenna_id": {
+          "$ref": "#/$defs/antenna_projection"
+        },
+        "frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "time_mjd": {
+          "type": "number"
+        },
+        "rms_surface_error_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "correlation_length_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "altitude_rad": {
+          "$ref": "#/$defs/array_projection"
+        },
+        "azimuth_rad": {
+          "$ref": "#/$defs/array_projection"
+        },
+        "coherent_main_power": {
+          "$ref": "#/$defs/array_projection"
+        },
+        "total_ensemble_power": {
+          "$ref": "#/$defs/array_projection"
+        },
+        "scattered_power": {
+          "$ref": "#/$defs/array_projection"
+        },
+        "convergence": {
+          "$ref": "#/$defs/ruze_convergence"
+        }
+      },
+      "required": [
+        "schema_version",
+        "method",
+        "covariance_convention",
+        "normalization_convention",
+        "antenna_id",
+        "frequency_hz",
+        "time_mjd",
+        "rms_surface_error_m",
+        "correlation_length_m",
+        "altitude_rad",
+        "azimuth_rad",
+        "coherent_main_power",
+        "total_ensemble_power",
+        "scattered_power",
+        "convergence"
+      ]
+    },
+    "ruze_power_diagnostics_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resolved_aperture_scientific_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "diagnostic": {
+          "$ref": "#/$defs/ruze_diagnostic_projection"
+        },
+        "direct_pair_oracle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "test_node_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "aperture_node_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "direction_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_abs_residual": {
+              "type": "number",
+              "minimum": 0
+            },
+            "tolerance": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "test_node_id",
+            "aperture_node_count",
+            "direction_count",
+            "max_abs_residual",
+            "tolerance"
+          ]
+        },
+        "limit_oracles": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "kind": {
+                "enum": [
+                  "mu_first_order",
+                  "infinite_correlation_length",
+                  "asymmetric_phase",
+                  "entire_plane_shift",
+                  "gaussian_characteristic_function",
+                  "covariance_only_counterexample"
+                ]
+              },
+              "test_node_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "input_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "max_abs_residual": {
+                "type": "number",
+                "minimum": 0
+              },
+              "tolerance": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "kind",
+              "test_node_id",
+              "input_sha256",
+              "max_abs_residual",
+              "tolerance"
+            ]
+          }
+        },
+        "test_node_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "case_id",
+        "resolved_aperture_scientific_sha256",
+        "diagnostic",
+        "direct_pair_oracle",
+        "limit_oracles",
+        "test_node_ids"
+      ]
+    }
+  }
+}

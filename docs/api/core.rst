@@ -84,6 +84,16 @@ four beam modes run through that single evaluator in the high-level
    :undoc-members:
    :show-inheritance:
 
+``radiosim.core.beam.aperture`` is the sole production owner of the SCI-005
+Stage-1 pupil profiles, the support mask, the real unit-RMS disk Zernike phase,
+and the boundary-fitted polar Gauss-Legendre quadrature that evaluates them
+inside one normalized aperture integral.
+
+.. automodule:: radiosim.core.beam.aperture
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 See :doc:`../user_guide/beam_models`, :doc:`jones`, and
 :doc:`../user_guide/sky_models` for the active boundaries.
 

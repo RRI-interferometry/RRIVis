@@ -39,13 +39,32 @@ def test_resolved_types_are_exported_only_from_core_boundaries():
     core = importlib.import_module("radiosim.core")
     root = importlib.import_module("radiosim")
 
+    # SCI-005 Stage-1 added its resolved aperture types and the Zernike bound to
+    # the beam boundary only.  ``src/radiosim/core/__init__.py`` is not on the
+    # Stage-1 writable list, and a top-level re-export is a convenience rather
+    # than an obligation, so these names stop at ``radiosim.core.beam`` exactly
+    # as the Tier 3D handler/provenance types below do.
+    beam_only = {
+        "ZERNIKE_MAX_RADIAL_ORDER",
+        "ResolvedApertureBlockage",
+        "ResolvedAperturePhysics",
+        "ResolvedRuzePowerDiagnostic",
+        "ResolvedSupportLeg",
+        "ResolvedZernikeMode",
+        "ResolvedZernikeSurface",
+    }
+    assert beam_only <= set(models.__all__)
     for name in models.__all__:
         direct = getattr(models, name)
         assert getattr(beam, name) is direct
-        assert getattr(core, name) is direct
         assert name in beam.__all__
-        assert name in core.__all__
         assert not hasattr(root, name)
+        if name in beam_only:
+            assert not hasattr(core, name)
+            assert name not in core.__all__
+            continue
+        assert getattr(core, name) is direct
+        assert name in core.__all__
     for tier3c_name in (
         "BeamAssignmentProvenance",
         "ResolvedBeamAssignment",
@@ -135,12 +154,29 @@ def test_resolved_leaf_field_order_is_exact():
             "assignments",
             "pointing",
             "surface_error",
+            "aperture_physics",
         ),
         "ResolvedPointingOffset": (
             "azimuth_offset_rad",
             "elevation_offset_rad",
         ),
-        "ResolvedSurfaceError": ("rms_surface_error_m",),
+        "ResolvedSurfaceError": (
+            "rms_surface_error_m",
+            "error_beam_diagnostic",
+        ),
+        "ResolvedRuzePowerDiagnostic": ("kind", "correlation_length_m"),
+        "ResolvedSupportLeg": ("position_angle_deg", "width_m"),
+        "ResolvedApertureBlockage": (
+            "central_diameter_ratio",
+            "support_legs",
+        ),
+        "ResolvedZernikeMode": ("n", "m", "surface_height_coefficient_m"),
+        "ResolvedZernikeSurface": ("convention", "modes"),
+        "ResolvedAperturePhysics": (
+            "normalization",
+            "blockage",
+            "zernike_surface",
+        ),
         "ResolvedAntennaPointingOffset": ("antenna", "offset"),
         "ResolvedAntennaSurfaceError": ("antenna", "surface_error"),
         "ResolvedBeamPointing": ("default", "per_antenna"),
@@ -160,6 +196,7 @@ def test_resolved_leaf_field_order_is_exact():
             "assignment_fingerprint",
             "pointing",
             "surface_error",
+            "aperture_physics",
         ),
         "ResolvedBeamState": (
             "mode",

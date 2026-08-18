@@ -199,6 +199,11 @@ def test_complete_public_error_hierarchy_and_exports_are_exact():
         "DuplicateBeamAssignmentError": errors.BeamAssignmentError,
         "IncompleteBeamAssignmentError": errors.BeamAssignmentError,
         "InconsistentBeamAssignmentError": errors.BeamAssignmentError,
+        # SCI-005 Stage 1, Section 3.2: the leg-wider-than-resolved-diameter
+        # rejection is owned by beam-assignment resolution because per-antenna
+        # diameters exist only after instrument resolution, so it is a typed
+        # assignment error carrying no ``ConfigIssue`` code.
+        "InvalidBeamGeometryError": errors.BeamAssignmentError,
         "BeamLoadError": errors.BeamError,
         "BeamDependencyError": errors.BeamLoadError,
         "BeamFileReadError": errors.BeamLoadError,
@@ -219,14 +224,23 @@ def test_complete_public_error_hierarchy_and_exports_are_exact():
     }
 
     assert tuple(errors.__all__) == tuple(expected)
+    # ``InvalidBeamGeometryError`` reaches the beam boundary only: Stage 1 may
+    # append to ``core/beam/errors.py`` and re-export from
+    # ``core/beam/__init__.py``, but ``src/radiosim/core/__init__.py`` is not on
+    # its writable list.
+    beam_only = {"InvalidBeamGeometryError"}
     for name, direct_base in expected.items():
         value = getattr(errors, name)
         assert value.__bases__ == (direct_base,)
         assert getattr(beam, name) is value
-        assert getattr(core, name) is value
         assert name in beam.__all__
-        assert name in core.__all__
         assert not hasattr(root, name)
+        if name in beam_only:
+            assert not hasattr(core, name)
+            assert name not in core.__all__
+            continue
+        assert getattr(core, name) is value
+        assert name in core.__all__
 
 
 def test_resolver_and_assignment_models_have_public_identity_only_at_core_boundaries():

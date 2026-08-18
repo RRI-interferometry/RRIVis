@@ -1661,6 +1661,7 @@ def test_beam_system_rejects_copied_factory_token_and_forged_runtime(
         handler_id_by_antenna={},
         pointing_by_antenna={},
         surface_error_by_antenna={},
+        ruze_diagnostic_by_antenna={},
     )
     copied_token = getattr(runtime_module, "_BEAM_SYSTEM_TOKEN", None)
     arguments: tuple[object, ...] = (system.state, private_runtime)
@@ -1728,6 +1729,7 @@ def test_missing_runtime_evaluator_raises_fixed_inconsistent_state_error(
         handler_id_by_antenna={antenna_id: handler_id},
         pointing_by_antenna={},
         surface_error_by_antenna={},
+        ruze_diagnostic_by_antenna={},
     )
     forged = object.__new__(BeamSystem)
     object.__setattr__(forged, "_BeamSystem__state", system.state)

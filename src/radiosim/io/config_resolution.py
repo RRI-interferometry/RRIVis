@@ -1162,13 +1162,72 @@ def _resolve_pointing_offset(
     )
 
 
+def _resolve_error_beam_diagnostic(
+    diagnostic: beam_input.RuzeErrorBeamDiagnosticConfig | None,
+) -> resolved_beams.ResolvedRuzePowerDiagnostic | None:
+    """Convert one authored nested ensemble-power declaration."""
+    if diagnostic is None:
+        return None
+    return resolved_beams.ResolvedRuzePowerDiagnostic(
+        diagnostic.kind,
+        diagnostic.correlation_length_m,
+    )
+
+
 def _resolve_surface_error(
     surface: beam_input.SurfaceErrorConfig | beam_input.AntennaSurfaceErrorConfig,
 ) -> resolved_beams.ResolvedSurfaceError | None:
     """Convert one authored surface RMS, or ``None`` if it is exactly zero."""
     if surface.rms_surface_error_m == 0.0:
         return None
-    return resolved_beams.ResolvedSurfaceError(surface.rms_surface_error_m)
+    return resolved_beams.ResolvedSurfaceError(
+        surface.rms_surface_error_m,
+        _resolve_error_beam_diagnostic(surface.error_beam_diagnostic),
+    )
+
+
+def _resolve_aperture_physics(
+    aperture: beam_input.AperturePhysicsConfig | None,
+) -> resolved_beams.ResolvedAperturePhysics | None:
+    """Resolve the authored ``beams.aperture_physics`` block.
+
+    Domain, identity, and duplicate rejections have already been collected as
+    ``ConfigSemanticError`` issues before resolution runs, so this conversion
+    only has to carry exact authored values across and let the resolved
+    dataclasses re-assert their own invariants.
+    """
+    if aperture is None:
+        return None
+    blockage = None
+    if aperture.blockage is not None:
+        blockage = resolved_beams.ResolvedApertureBlockage(
+            aperture.blockage.central_diameter_ratio,
+            tuple(
+                resolved_beams.ResolvedSupportLeg(
+                    leg.position_angle_deg,
+                    leg.width_m,
+                )
+                for leg in aperture.blockage.support_legs
+            ),
+        )
+    zernike = None
+    if aperture.zernike_surface is not None:
+        zernike = resolved_beams.ResolvedZernikeSurface(
+            aperture.zernike_surface.convention,
+            tuple(
+                resolved_beams.ResolvedZernikeMode(
+                    mode.n,
+                    mode.m,
+                    mode.surface_height_coefficient_m,
+                )
+                for mode in aperture.zernike_surface.modes
+            ),
+        )
+    return resolved_beams.ResolvedAperturePhysics(
+        aperture.normalization,
+        blockage,
+        zernike,
+    )
 
 
 def _resolve_beam_pointing(
@@ -1215,12 +1274,14 @@ def _resolve_beam_input(
 ) -> resolved_beams.ResolvedBeamsInput:
     pointing = _resolve_beam_pointing(beams.pointing)
     surface_error = _resolve_beam_surface_error(beams.surface_error)
+    aperture_physics = _resolve_aperture_physics(beams.aperture_physics)
     if isinstance(beams, beam_input.AnalyticBeamsConfig):
         return resolved_beams.ResolvedAnalyticBeamsInput(
             "analytic",
             _resolve_analytic_definition(beams.model),
             pointing,
             surface_error,
+            aperture_physics,
         )
     if isinstance(beams, beam_input.SharedFITSBeamsConfig):
         return resolved_beams.ResolvedSharedFITSBeamsInput(
@@ -1232,6 +1293,7 @@ def _resolve_beam_input(
             ),
             pointing,
             surface_error,
+            aperture_physics,
         )
     if isinstance(beams, beam_input.PerAntennaFITSBeamsConfig):
         assignments = tuple(
@@ -1246,7 +1308,11 @@ def _resolve_beam_input(
             for index, assignment in enumerate(beams.assignments)
         )
         return resolved_beams.ResolvedPerAntennaFITSBeamsInput(
-            "per_antenna_fits", assignments, pointing, surface_error
+            "per_antenna_fits",
+            assignments,
+            pointing,
+            surface_error,
+            aperture_physics,
         )
     if isinstance(beams, beam_input.MixedBeamsConfig):
         mixed_assignments = tuple(
@@ -1268,6 +1334,7 @@ def _resolve_beam_input(
             mixed_assignments,
             pointing,
             surface_error,
+            aperture_physics,
         )
     raise TypeError(f"unsupported beams mode {type(beams).__name__}")
 

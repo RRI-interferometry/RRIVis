@@ -2118,6 +2118,9 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
     directory did not do, since both older files drive the Python API rather
     than the command line.  Each addition widens this list by exactly the file
     its own plan names, which is what makes an unplanned one visible.
+    SCI-005 Stage 1 added ``test_sci005_beam_physics.py``, the one integration
+    file ``docs/development/sci005_beam_physics_plan.md`` Section 6 names for
+    the staged beam-physics programme.
     """
     performance = sorted(
         p.name for p in (REPO_ROOT / "tests" / "performance").glob("*.py")
@@ -2131,6 +2134,7 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
         "test_cli_end_to_end.py",
         "test_hybrid_end_to_end.py",
         "test_jones_end_to_end.py",
+        "test_sci005_beam_physics.py",
         "test_sci006_output_roundtrip.py",
     ]
 

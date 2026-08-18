@@ -336,6 +336,75 @@ Two rules are worth stating because they are what keeps an absent block honest:
   bit-identical to a document authoring nothing — same cube, same beam
   fingerprints, same ``scientific_sha256``.
 
+Aperture physics
+----------------
+
+``beams.aperture_physics`` is the optional array-wide block that adds a central
+blockage, support-leg shadows, and a deterministic Zernike surface-height map
+to the scalar analytic beam. It requires the normalization literal and at least
+one effective child:
+
+.. code-block:: yaml
+
+   beams:
+     mode: analytic
+     model:
+       kind: circular_aperture
+       taper: {kind: uniform}
+
+     aperture_physics:                      # optional; absent = no effect
+       normalization: unmodified_ideal_aperture_v1
+       blockage:                            # optional child
+         central_diameter_ratio: 0.15       # exact float, 0 < epsilon < 1
+         support_legs:                      # may be empty
+           - {position_angle_deg: 0.0, width_m: 0.3}
+           - {position_angle_deg: 180.0, width_m: 0.3}
+       zernike_surface:                     # optional child
+         convention: radiosim.real_unit_rms_disk_surface_height.v1
+         modes:                             # non-empty
+           - {n: 2, m: 0, surface_height_coefficient_m: 0.0005}
+
+The block is only accepted on a pupil for which the design declares an exact
+compact aperture-plane profile: ``circular_aperture`` with a ``uniform``,
+``parabolic`` or ``parabolic_squared`` taper, and ``analytical_illumination``
+with a ``parabolic`` or ``parabolic_squared`` taper profile. Gaussian, cosine
+and numerical illuminations, the rectangular and elliptical families, and every
+BeamFITS source are rejected with ``UnsupportedConfigError`` and a stable issue
+code under ``beam.aperture_physics.*``. :ref:`stage1-aperture-physics` gives the
+physics, the conventions and the published closed forms.
+
+Three authoring rules follow the same discipline as ``pointing`` and
+``surface_error``:
+
+- a parent with neither child, and a ``zernike_surface`` whose coefficients are
+  all zero, are exact identities and are rejected;
+- ``position_angle_deg`` must lie in ``(-180, 180]`` and two legs may not
+  resolve to the same angle. A leg is an *outward half-strip*, so a structure
+  crossing the dish is two records 180 degrees apart, and a leg wider than an
+  antenna's resolved diameter is rejected once the instrument resolves;
+- every Stage-1 float field rejects ``bool`` and ``int``. ``width_m: 1`` is a
+  schema error, not a silently widened ``1.0``.
+
+``beams.surface_error`` may additionally carry a nested ensemble-power
+declaration:
+
+.. code-block:: yaml
+
+     surface_error:
+       default:
+         rms_surface_error_m: 0.001
+         error_beam_diagnostic:
+           kind: gaussian_covariance_power
+           correlation_length_m: 0.25
+
+``correlation_length_m`` is the one-over-e correlation length of a real,
+zero-mean, jointly Gaussian, second-order stationary surface-error field. The
+declaration requires a positive ``rms_surface_error_m`` on the same record, is
+accepted only on the supported pupils above, and supports only
+``float32``/``float64`` beam precision. It selects an ensemble-power record; it
+never creates a deterministic error-beam voltage and never changes a
+cross-baseline visibility.
+
 Jones-term declarations
 -----------------------
 

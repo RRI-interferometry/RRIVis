@@ -7,6 +7,7 @@ from typing import Any, Literal, cast
 from radiosim.core.beam.errors import (
     DuplicateBeamAssignmentError,
     IncompleteBeamAssignmentError,
+    InvalidBeamGeometryError,
     UnknownBeamAntennaError,
 )
 from radiosim.core.beam.models import (
@@ -15,6 +16,7 @@ from radiosim.core.beam.models import (
     ResolvedAnalyticBeamChoice,
     ResolvedAnalyticBeamDefinition,
     ResolvedAnalyticBeamsInput,
+    ResolvedAperturePhysics,
     ResolvedBeamAssignment,
     ResolvedBeamsInput,
     ResolvedBeamState,
@@ -175,6 +177,7 @@ def _explicit_assignments(
     instrument: ResolvedInstrument,
     pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset | None],
     surface_by_antenna: dict[AntennaId, ResolvedSurfaceError | None],
+    aperture_physics: ResolvedAperturePhysics | None,
 ) -> tuple[ResolvedBeamAssignment, ...]:
     by_number = {antenna.id.number: antenna for antenna in instrument.antennas}
     by_name = {antenna.id.name: antenna for antenna in instrument.antennas}
@@ -249,6 +252,7 @@ def _explicit_assignments(
                 provenance=provenance,
                 pointing=pointing_by_antenna.get(antenna.id),
                 surface_error=surface_by_antenna.get(antenna.id),
+                aperture_physics=aperture_physics,
             )
         )
     return tuple(assignments)
@@ -261,6 +265,7 @@ def _uniform_assignments(
     source: Literal["analytic_mode", "shared_mode"],
     pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset | None],
     surface_by_antenna: dict[AntennaId, ResolvedSurfaceError | None],
+    aperture_physics: ResolvedAperturePhysics | None,
 ) -> tuple[ResolvedBeamAssignment, ...]:
     assignments: list[ResolvedBeamAssignment] = []
     for antenna in instrument.antennas:
@@ -280,9 +285,40 @@ def _uniform_assignments(
                 provenance=provenance,
                 pointing=pointing_by_antenna.get(antenna.id),
                 surface_error=surface_by_antenna.get(antenna.id),
+                aperture_physics=aperture_physics,
             )
         )
     return tuple(assignments)
+
+
+def _require_representable_support_geometry(
+    aperture_physics: ResolvedAperturePhysics | None,
+    instrument: ResolvedInstrument,
+) -> None:
+    """Reject a support leg wider than an assigned antenna's resolved aperture.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 3.2 rules that this
+    check belongs here rather than to document validation, because per-antenna
+    diameters exist only after instrument resolution. The comparison is per
+    assigned antenna, so a leg that is too wide for one dish in a heterogeneous
+    array is named against exactly that dish. A leg *exactly* as wide as the
+    resolved aperture is degenerate but representable and is not rejected: the
+    rule is "wider than", and the mask's own boundaries are closed sets.
+    """
+    if aperture_physics is None or aperture_physics.blockage is None:
+        return
+    for antenna in instrument.antennas:
+        diameter_m = antenna.diameter_m
+        for leg in aperture_physics.blockage.support_legs:
+            if leg.width_m > diameter_m:
+                raise InvalidBeamGeometryError(
+                    "beams.aperture_physics.blockage.support_legs: the leg at "
+                    f"position_angle_deg={leg.position_angle_deg} has authored "
+                    f"width_m={leg.width_m}, which is wider than the resolved "
+                    f"aperture diameter {diameter_m} m of canonical antenna "
+                    f"number={antenna.id.number}, name={antenna.id.name!r}; a "
+                    "support leg cannot be wider than the dish it crosses."
+                )
 
 
 def resolve_beam_assignments(
@@ -301,6 +337,8 @@ def resolve_beam_assignments(
         raise TypeError("instrument must be an exact ResolvedInstrument")
 
     pointing_by_antenna, surface_by_antenna = _mount_science(config, instrument)
+    aperture_physics = config.aperture_physics
+    _require_representable_support_geometry(aperture_physics, instrument)
 
     if type(config) is ResolvedAnalyticBeamsInput:
         assignments = _uniform_assignments(
@@ -309,6 +347,7 @@ def resolve_beam_assignments(
             source="analytic_mode",
             pointing_by_antenna=pointing_by_antenna,
             surface_by_antenna=surface_by_antenna,
+            aperture_physics=aperture_physics,
         )
     elif type(config) is ResolvedSharedFITSBeamsInput:
         assignments = _uniform_assignments(
@@ -317,6 +356,7 @@ def resolve_beam_assignments(
             source="shared_mode",
             pointing_by_antenna=pointing_by_antenna,
             surface_by_antenna=surface_by_antenna,
+            aperture_physics=aperture_physics,
         )
     else:
         assignments = _explicit_assignments(
@@ -327,6 +367,7 @@ def resolve_beam_assignments(
             instrument,
             pointing_by_antenna,
             surface_by_antenna,
+            aperture_physics,
         )
 
     unique_definitions = _deduplicated_definitions(assignments)

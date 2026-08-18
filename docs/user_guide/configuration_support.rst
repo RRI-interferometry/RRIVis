@@ -182,6 +182,36 @@ Beam support by stage
      - Supported
      - Supported
      - Supported within the accepted scalar subset
+   * - ``beams.aperture_physics``
+     - Supported
+     - Not applicable
+     - Supported on the declared circular pupils only
+   * - ``beams.surface_error.*.error_beam_diagnostic``
+     - Supported
+     - Not applicable
+     - Supported on an unobstructed circular pupil only
+
+``beams.aperture_physics`` composes a central blockage, support-leg shadows and
+a deterministic real unit-RMS disk Zernike surface height inside one normalized
+aperture transform. It is accepted only where the design declares an exact
+compact aperture-plane profile: ``circular_aperture`` with a ``uniform``,
+``parabolic`` or ``parabolic_squared`` taper, and ``analytical_illumination``
+with a ``parabolic`` or ``parabolic_squared`` taper profile. Gaussian, cosine
+and numerical illuminations, the rectangular and elliptical families, and every
+BeamFITS source are rejected with ``UnsupportedConfigError``. Beam squint and
+full cross-polarization remain unimplemented.
+
+The nested ``error_beam_diagnostic`` declaration is validated, resolved and
+fingerprinted, and it is deliberately *not* a Jones voltage: it can never change
+a cross-baseline visibility. Its ensemble-power record is read through
+``BeamSystem.evaluate_ruze_power_diagnostic``. Version 1 requires an
+*unobstructed* pupil: attaching it to an antenna whose aperture physics declares
+a blockage is refused with ``UnsupportedConfigError`` and issue code
+``beam.ruze_power_diagnostic.unsupported_obstruction``, because the paired
+region of two shifted copies of the support mask needs boundary and topology
+families this version does not freeze. Nothing else is refused -- the coherent
+``surface_error`` loss and the blockage mask in ``E`` keep their accepted
+behaviour.
 
 FITS path validation checks and records sources but does not read BeamFITS
 content. ``Simulator.setup`` resolves canonical antenna references, loads and

@@ -239,8 +239,198 @@ and ``scientific_sha256``.
 
 What RadioSim does **not** model, and who owns it, is written out item by item
 in ``docs/development/beam_physics_scope.md``: polarized and cross-polar beams,
-beam squint, aperture blockage, Zernike aberrations, and the Ruze error-beam
-decomposition.
+beam squint, and the Ruze error-beam decomposition.
+
+.. _stage1-aperture-physics:
+
+Aperture blockage and deterministic surface error
+-------------------------------------------------
+
+``beams.aperture_physics`` is the optional array-wide block that turns the
+scalar analytic beam from a closed-form far field into **one normalized
+aperture transform**. For unmodified pupil :math:`\mathcal P_0`, radial
+illumination :math:`A(\mathbf u)`, obstruction mask :math:`M(\mathbf u)` and
+deterministic surface height :math:`h(\mathbf u)`, the voltage response is
+
+.. math::
+
+   e(\mathbf q,\lambda)=\frac{1}{N_0}
+   \int_{\mathcal P_0} A(\mathbf u)\,M(\mathbf u)\,
+   \exp\!\left[-i\frac{4\pi}{\lambda}h(\mathbf u)\right]
+   \exp(-i\mathbf q\cdot\mathbf u)\,d^{2}u,
+   \qquad
+   N_0=\int_{\mathcal P_0} A(\mathbf u)\,d^{2}u.
+
+Three properties of that single integral matter in practice:
+
+- :math:`N_0` is **always** the unmodified ideal-aperture integral. It is not
+  recomputed after masking and the modified beam is never re-peak-normalized,
+  so blockage and aberration loss appear exactly once in ``E`` — the boresight
+  response of a blocked uniform aperture really is :math:`1-\epsilon^{2}`, not
+  one.
+- the mask and the phase are applied *inside* the integral. Two separately
+  evaluated far-field patterns must never be multiplied together, because the
+  Fourier transform does not distribute over aperture multiplication.
+- the aperture axes are ``(north, east)`` and aperture azimuth
+  :math:`\varphi = 0` points north and increases through east, matching
+  RadioSim's topocentric azimuth.
+
+.. code-block:: yaml
+
+   beams:
+     mode: analytic
+     model:
+       kind: circular_aperture
+       taper: {kind: uniform}
+     aperture_physics:
+       normalization: unmodified_ideal_aperture_v1
+       blockage:
+         central_diameter_ratio: 0.15     # 0 < epsilon < 1
+         support_legs:
+           - {position_angle_deg: 0.0, width_m: 0.3}
+           - {position_angle_deg: 180.0, width_m: 0.3}
+       zernike_surface:
+         convention: radiosim.real_unit_rms_disk_surface_height.v1
+         modes:
+           - {n: 2, m: 0, surface_height_coefficient_m: 0.0005}
+
+**Supported pupils.** The transform needs one exact compact aperture-plane
+profile, which only ``circular_aperture`` with a ``uniform``, ``parabolic`` or
+``parabolic_squared`` taper, and ``analytical_illumination`` with a
+``parabolic`` or ``parabolic_squared`` taper profile, provide. The direct and
+derived Gaussian shortcut does not uniquely specify a compact disk pupil, the
+direct cosine shortcut declares no radial-pupil inverse, and the numerical
+illumination response is a fixed 256-node trapezoidal Hankel rule rather than
+the continuum transform of a retained pupil. Those, along with the rectangular
+and elliptical families and every BeamFITS source, are rejected with a typed
+``UnsupportedConfigError``. A FITS file already contains its own aperture
+physics; applying this block on top would double count it.
+
+**Blockage geometry.** A support leg is the closed radial strip of physical
+width ``width_m``, running from the edge of the central shadow to the ideal
+pupil edge and centred on ``position_angle_deg`` measured North through East.
+It is one *outward half-strip*, so a structure crossing the whole dish is
+authored as two records 180 degrees apart. Masks combine by set union, so an
+overlap is removed once rather than twice. For uniform illumination, no legs,
+and :math:`x = \pi D \sin\theta / \lambda`, the response reduces to the
+published blocked-aperture form
+
+.. math::
+
+   e_\epsilon(x)=\frac{2\left[J_1(x)-\epsilon J_1(\epsilon x)\right]}{x},
+   \qquad e_\epsilon(0)=1-\epsilon^{2},
+   \qquad \eta_b=(1-\epsilon^{2})^{2},
+
+(`NASA TM X-63186 <https://ntrs.nasa.gov/citations/19680013447>`_;
+`ITU-R SA.2401-0 <https://www.itu.int/pub/R-REP-SA.2401-2017>`_). For a tapered
+illumination the boresight loss is illumination-weighted and is **not**
+:math:`1-\epsilon^{2}`. A leg wider than an antenna's resolved aperture
+diameter is rejected at beam-assignment resolution with
+``InvalidBeamGeometryError``, because per-antenna diameters exist only after
+the instrument resolves.
+
+**Surface height.** ``zernike_surface`` takes exactly ``convention`` and a
+non-empty ``modes`` sequence, and every mode has exactly the three keys ``n``,
+``m`` and ``surface_height_coefficient_m``. The basis is R. J. Noll's real
+unit-RMS *disk* basis (`JOSA 66, 207 (1976)
+<https://opg.optica.org/josa/abstract.cfm?uri=josa-66-3-207>`_,
+DOI 10.1364/JOSA.66.000207), normalized so that
+:math:`(1/\pi)\int Z_n^m Z_{n'}^{m'}\rho\,d\rho\,d\varphi = \delta`. Validation
+requires :math:`0 \le n \le 32`, :math:`|m| \le n` and :math:`n-|m|` even;
+duplicate ``(n, m)`` pairs are rejected, and piston ``(0, 0)`` and tip/tilt
+``(1, \pm 1)`` are rejected because instrumental delay and deterministic
+pointing already own those effects. No Noll or OSA single index is accepted.
+
+Each coefficient is signed **aperture-equivalent** reflector surface-height
+error in metres, that is one half of the reflected optical-path difference. A
+physical normal displacement :math:`\delta_n` at incidence angle :math:`i` maps
+to :math:`h = \delta_n\cos i`; RadioSim never invents :math:`i` from the beam
+model, so :math:`h=\delta_n` only at normal incidence. Because the signed
+excess path is exactly :math:`2h`, the positive-delay convention gives the
+phase factor :math:`\exp(-i\,4\pi h/\lambda)`.
+
+After a blockage mask is applied these ordinary disk functions are no longer
+orthogonal over the transmitting annulus, so the quadrature sum of coefficients
+is *not* the RMS over that annulus — the annular basis is a different one
+(V. N. Mahajan, `JOSA 71, 75 (1981) <https://doi.org/10.1364/JOSA.71.000075>`_).
+
+**Numerics.** The integral is evaluated by a boundary-fitted polar
+Gauss-Legendre rule whose radial panels split at the central-shadow radius,
+every leg saturation radius, every support-topology radius and every periodic
+cut, and whose per-panel orders are seeded from both the far-field bandwidth
+and the surface-phase bandwidth. Every tolerance, order and resource cap is
+fixed by the design and cannot be authored in YAML. Extended-precision beams
+keep their width: nodes, weights and accumulation never pass through float64
+when the resolved dtype is wider.
+
+Ruze scattered-power diagnostic
+-------------------------------
+
+``beams.surface_error`` keeps its accepted coherent-voltage meaning exactly.
+On top of it, one antenna may declare an optional *ensemble-power* diagnostic:
+
+.. code-block:: yaml
+
+     surface_error:
+       default:
+         rms_surface_error_m: 0.001
+         error_beam_diagnostic:
+           kind: gaussian_covariance_power
+           correlation_length_m: 0.25
+
+The literal ``gaussian_covariance_power`` names a complete field law, not just a
+radial function: a real, zero-mean, jointly Gaussian, second-order stationary
+aperture-equivalent surface-error field with
+:math:`\rho_h(\Delta)=\exp[-(|\Delta|/L)^{2}]`. It is that law's
+*characteristic function*, not its covariance alone, that licenses the
+mutual-coherence kernel :math:`\exp\{-s^{2}[1-\rho_h]\}`; a
+covariance-matched non-Gaussian field gives a different kernel.
+``rms_surface_error_m`` is the pointwise standard deviation of the random
+residual left *after* the configured deterministic Zernike map, never a value
+inferred from those coefficients.
+
+Read the record with
+:meth:`~radiosim.core.beam.runtime.BeamSystem.evaluate_ruze_power_diagnostic`.
+It reports coherent-main power, total ensemble power, and their non-negative
+scattered difference at every requested direction, together with a convergence
+record whose Poisson tail, separation-truncation bound, separation residuals,
+paired-pupil residuals and imaginary residual are all retained separately.
+
+Three properties are worth stating plainly:
+
+- it is **not a Jones voltage**. ``sqrt(B_main + B_error)`` would invent a phase
+  and perfectly correlated structure, so no complex field is derived from it, it
+  never enters a cross-correlation Jones matrix, and requesting it neither calls
+  nor changes ``evaluate_jones``. Configuring it *does* change the scientific
+  fingerprint; evaluating it repeatedly changes nothing;
+- the whole algorithm is host-side, so the method takes no backend argument; and
+- version 1 requires an **unobstructed** pupil. With a blockage authored, the
+  paired region is the intersection of two shifted copies of the support mask,
+  which needs a second boundary and topology-root family this version does not
+  freeze, so the diagnostic is refused for that antenna with issue code
+  ``beam.ruze_power_diagnostic.unsupported_obstruction``.
+
+The evaluation works in the *separation* variable. Writing
+:math:`f = A M e^{-i\phi_{\rm det}}` and
+:math:`C(\boldsymbol\Delta)=\int f(\mathbf r) f^{*}(\mathbf r-\boldsymbol\Delta)\,d^{2}r`,
+each Poisson mixture term is
+
+.. math::
+
+   P_m(\mathbf q)=\frac{1}{|N_0|^{2}}\int_{\mathbb R^{2}}
+   C(\boldsymbol\Delta)\,e^{-i\mathbf q\cdot\boldsymbol\Delta}\,
+   e^{-|\boldsymbol\Delta|^{2}/\ell_m^{2}}\,d^{2}\Delta,
+   \qquad \ell_m=L/\sqrt m,
+
+which is the same integral as the shifted-wavevector form, evaluated in a
+variable where it costs :math:`O(1)` in :math:`D/L`: :math:`C` carries no
+far-field oscillation, the Gaussian confines the separation to a few
+:math:`\ell_m`, and one :math:`C` array serves every retained order and every
+requested direction (Ruze 1952, DOI 10.1007/BF02903409; Ruze 1966,
+DOI 10.1109/PROC.1966.4784).
+
+An absent ``aperture_physics`` block changes nothing at all — the same resolved
+configuration, fingerprints, result bytes and logs as before.
 
 HEALPix sampling advice
 -----------------------

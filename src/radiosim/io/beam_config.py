@@ -11,7 +11,8 @@ import re
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import BeforeValidator, Field, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from radiosim.io.instrument_config import (
     AntennaNameReference,
@@ -30,6 +31,29 @@ _StrictNonNegativeFiniteFloat = Annotated[
     float,
     Field(strict=True, ge=0.0, allow_inf_nan=False),
 ]
+
+
+def _reject_bool_and_int(value: Any) -> Any:
+    """Reject ``bool`` and ``int`` where an exact finite float is required.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 3.5 records the
+    mechanic: Section 2's rule that "integers are not silently accepted as
+    strict floats" is *not* delivered by strict Pydantic floats, which accept a
+    Python ``int`` as a lossless widening.  Bools are already rejected by strict
+    float validation; rejecting both here, uniformly, keeps every Stage-1 float
+    field reporting Pydantic's own ``float_type`` issue code.
+    """
+    if isinstance(value, (bool, int)):
+        raise PydanticCustomError("float_type", "Input should be a valid number")
+    return value
+
+
+_Stage1Float = Annotated[
+    float,
+    BeforeValidator(_reject_bool_and_int),
+    Field(strict=True, allow_inf_nan=False),
+]
+_StrictExactInt = Annotated[int, Field(strict=True)]
 
 
 def _validate_beam_path(value: Any) -> Any:
@@ -360,10 +384,26 @@ class BeamPointingConfig(_BeamInputModel):
         return self
 
 
+class RuzeErrorBeamDiagnosticConfig(_BeamInputModel):
+    """One authored ``error_beam_diagnostic`` declaration.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 3.4: the literal
+    ``gaussian_covariance_power`` names a real, zero-mean, jointly Gaussian,
+    second-order stationary aperture-equivalent surface-error field with
+    ``rho_h(Delta) = exp[-(|Delta|/L)^2]``, so ``correlation_length_m`` is that
+    field's one-over-e correlation length ``L``.  It declares an
+    *ensemble-power* diagnostic and never a deterministic error-beam voltage.
+    """
+
+    kind: Literal["gaussian_covariance_power"]
+    correlation_length_m: _Stage1Float
+
+
 class SurfaceErrorConfig(_BeamInputModel):
     """The array-wide default Ruze random-surface RMS error."""
 
     rms_surface_error_m: _StrictNonNegativeFiniteFloat = 0.0
+    error_beam_diagnostic: RuzeErrorBeamDiagnosticConfig | None = None
 
 
 class AntennaSurfaceErrorConfig(_BeamInputModel):
@@ -371,6 +411,7 @@ class AntennaSurfaceErrorConfig(_BeamInputModel):
 
     antenna: AntennaReference
     rms_surface_error_m: _StrictNonNegativeFiniteFloat = 0.0
+    error_beam_diagnostic: RuzeErrorBeamDiagnosticConfig | None = None
 
     @field_validator("antenna")
     @classmethod
@@ -403,6 +444,63 @@ class BeamSurfaceErrorConfig(_BeamInputModel):
         return self
 
 
+class SupportLegConfig(_BeamInputModel):
+    """One authored support leg.
+
+    Section 3.2: a leg is the closed radial strip of physical width ``width_m``
+    running from the edge of the central shadow to the ideal pupil edge, centred
+    on its mechanical position angle measured North through East.  It is one
+    *outward half-strip*, so a structure on both sides of the dish is authored
+    as two records separated by 180 degrees.
+    """
+
+    position_angle_deg: _Stage1Float
+    width_m: _Stage1Float
+
+
+class ApertureBlockageConfig(_BeamInputModel):
+    """The authored ``beams.aperture_physics.blockage`` child (Section 3.2)."""
+
+    central_diameter_ratio: _Stage1Float
+    support_legs: tuple[SupportLegConfig, ...] = ()
+
+
+class ZernikeModeConfig(_BeamInputModel):
+    """One authored real unit-RMS disk Zernike mode (Section 3.3).
+
+    Exactly three keys.  ``n`` and ``m`` are exact Python integers, never
+    booleans and never a Noll or OSA single index, and the coefficient is signed
+    aperture-equivalent reflector surface-height error in metres -- one half of
+    the reflected optical-path difference (R. J. Noll, JOSA 66, 207 (1976), DOI
+    10.1364/JOSA.66.000207).
+    """
+
+    n: _StrictExactInt
+    m: _StrictExactInt
+    surface_height_coefficient_m: _Stage1Float
+
+
+class ZernikeSurfaceConfig(_BeamInputModel):
+    """The authored ``beams.aperture_physics.zernike_surface`` child."""
+
+    convention: Literal["radiosim.real_unit_rms_disk_surface_height.v1"]
+    modes: tuple[ZernikeModeConfig, ...] = Field(min_length=1)
+
+
+class AperturePhysicsConfig(_BeamInputModel):
+    """The authored array-wide ``beams.aperture_physics`` block.
+
+    Section 3.1 fixes the normalization literal: ``N_0`` is always the
+    unmodified ideal-aperture integral, it is not recomputed after masking, and
+    the modified beam is never re-peak-normalized, so blockage and aberration
+    loss occur exactly once in ``E``.
+    """
+
+    normalization: Literal["unmodified_ideal_aperture_v1"]
+    blockage: ApertureBlockageConfig | None = None
+    zernike_surface: ZernikeSurfaceConfig | None = None
+
+
 class AnalyticBeamsConfig(_BeamInputModel):
     """One shared analytic model."""
 
@@ -412,6 +510,7 @@ class AnalyticBeamsConfig(_BeamInputModel):
     )
     pointing: BeamPointingConfig | None = None
     surface_error: BeamSurfaceErrorConfig | None = None
+    aperture_physics: AperturePhysicsConfig | None = None
 
 
 class SharedFITSBeamsConfig(_BeamInputModel):
@@ -421,6 +520,7 @@ class SharedFITSBeamsConfig(_BeamInputModel):
     beam: FITSBeamSourceConfig
     pointing: BeamPointingConfig | None = None
     surface_error: BeamSurfaceErrorConfig | None = None
+    aperture_physics: AperturePhysicsConfig | None = None
 
 
 class PerAntennaFITSBeamsConfig(_BeamInputModel):
@@ -430,6 +530,7 @@ class PerAntennaFITSBeamsConfig(_BeamInputModel):
     assignments: tuple[FITSBeamAssignmentConfig, ...] = Field(min_length=1)
     pointing: BeamPointingConfig | None = None
     surface_error: BeamSurfaceErrorConfig | None = None
+    aperture_physics: AperturePhysicsConfig | None = None
 
 
 class MixedBeamsConfig(_BeamInputModel):
@@ -442,6 +543,7 @@ class MixedBeamsConfig(_BeamInputModel):
     assignments: tuple[MixedBeamAssignmentConfig, ...] = Field(min_length=1)
     pointing: BeamPointingConfig | None = None
     surface_error: BeamSurfaceErrorConfig | None = None
+    aperture_physics: AperturePhysicsConfig | None = None
 
 
 BeamsConfig = Annotated[
@@ -457,6 +559,12 @@ __all__ = [
     "AnalyticBeamChoiceConfig",
     "AntennaPointingOffsetConfig",
     "AntennaSurfaceErrorConfig",
+    "ApertureBlockageConfig",
+    "AperturePhysicsConfig",
+    "RuzeErrorBeamDiagnosticConfig",
+    "SupportLegConfig",
+    "ZernikeModeConfig",
+    "ZernikeSurfaceConfig",
     "BeamPointingConfig",
     "BeamSurfaceErrorConfig",
     "PointingOffsetConfig",

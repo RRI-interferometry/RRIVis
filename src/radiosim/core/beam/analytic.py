@@ -10,6 +10,11 @@ from typing import Any, cast
 import numpy as np
 from scipy.special import j0, j1, jv  # pyright: ignore[reportMissingTypeStubs]
 
+from radiosim.core.beam.aperture import (
+    ApertureSpecification,
+    build_aperture_specification,
+    evaluate_aperture_response,
+)
 from radiosim.core.beam.errors import (
     BeamAngularDomainError,
     BeamFrequencyDomainError,
@@ -21,6 +26,7 @@ from radiosim.core.beam.models import (
     LoadedBeamHandlerState,
     ResolvedAnalyticalIlluminationBeamModel,
     ResolvedAnalyticBeamDefinition,
+    ResolvedAperturePhysics,
     ResolvedCassegrainReflector,
     ResolvedCircularApertureBeamModel,
     ResolvedCorrugatedHornIllumination,
@@ -37,6 +43,7 @@ from radiosim.core.beam.models import (
     ResolvedParabolicTaper,
     ResolvedRectangularApertureBeamModel,
     ResolvedUniformTaper,
+    _aperture_physics_payload,  # pyright: ignore[reportPrivateUsage]
     _canonical_digest,  # pyright: ignore[reportPrivateUsage]
     _effective_assignment_dimensions,  # pyright: ignore[reportPrivateUsage]
 )
@@ -422,21 +429,39 @@ def _science(
     raise TypeError("analytic definition contains an unsupported beam model")
 
 
+def _aperture_payload(
+    aperture_physics: ResolvedAperturePhysics | None,
+) -> dict[str, Any] | None:
+    """Return the canonical aperture-physics payload, or ``None`` when absent.
+
+    Stage-1 aperture physics changes the *evaluator*, not a factor applied
+    around it, so it joins the preload key and the handler's scientific
+    fingerprint.  An absent block contributes no key at all, which is what keeps
+    every pre-SCI-005 handler identity byte-identical.
+    """
+    if aperture_physics is None:
+        return None
+    return _aperture_physics_payload(aperture_physics)
+
+
 def _analytic_preload_key(  # pyright: ignore[reportUnusedFunction]
     definition: ResolvedAnalyticBeamDefinition,
     antenna_diameter_m: float,
+    aperture_physics: ResolvedAperturePhysics | None = None,
 ) -> str:
-    return _canonical_digest(
-        {
-            "kind": "analytic_preload",
-            "definition_fingerprint": definition.definition_fingerprint,
-            "effective_dimensions": _effective_assignment_dimensions(
-                definition,
-                antenna_diameter_m,
-            ),
-            "contract": _ANALYTIC_CONTRACT,
-        }
-    )
+    payload: dict[str, Any] = {
+        "kind": "analytic_preload",
+        "definition_fingerprint": definition.definition_fingerprint,
+        "effective_dimensions": _effective_assignment_dimensions(
+            definition,
+            antenna_diameter_m,
+        ),
+        "contract": _ANALYTIC_CONTRACT,
+    }
+    aperture = _aperture_payload(aperture_physics)
+    if aperture is not None:
+        payload["aperture_physics"] = aperture
+    return _canonical_digest(payload)
 
 
 def _scientific_fingerprint(
@@ -445,23 +470,26 @@ def _scientific_fingerprint(
     science: _AnalyticScience,
     frequencies: tuple[float, ...],
     feature_scales: tuple[tuple[float, float], ...],
+    aperture_physics: ResolvedAperturePhysics | None = None,
 ) -> str:
-    return _canonical_digest(
-        {
-            "schema_version": "tier3-beam-v1",
-            "kind": "analytic_handler",
-            "contract": _ANALYTIC_CONTRACT,
-            "model": definition.model,
-            "effective_dimensions": _effective_assignment_dimensions(
-                definition,
-                antenna_diameter_m,
-            ),
-            "derived_edge_taper_db": science.derived_edge_taper_db,
-            "n_radial": science.n_radial,
-            "observation_frequencies_hz": frequencies,
-            "voltage_feature_scale_by_frequency": feature_scales,
-        }
-    )
+    payload: dict[str, Any] = {
+        "schema_version": "tier3-beam-v1",
+        "kind": "analytic_handler",
+        "contract": _ANALYTIC_CONTRACT,
+        "model": definition.model,
+        "effective_dimensions": _effective_assignment_dimensions(
+            definition,
+            antenna_diameter_m,
+        ),
+        "derived_edge_taper_db": science.derived_edge_taper_db,
+        "n_radial": science.n_radial,
+        "observation_frequencies_hz": frequencies,
+        "voltage_feature_scale_by_frequency": feature_scales,
+    }
+    aperture = _aperture_payload(aperture_physics)
+    if aperture is not None:
+        payload["aperture_physics"] = aperture
+    return _canonical_digest(payload)
 
 
 def _direct_taper_voltage(
@@ -593,6 +621,7 @@ def _numerical_voltage(
 class _AnalyticScalarEvaluator:
     __slots__ = (
         "_antenna_diameter_m",
+        "_aperture",
         "_definition",
         "_identity",
         "_real_dtype",
@@ -609,6 +638,7 @@ class _AnalyticScalarEvaluator:
         real_dtype: np.dtype[Any],
         result_dtype: np.dtype[Any],
         science: _AnalyticScience,
+        aperture: ApertureSpecification | None = None,
     ) -> None:
         self._definition = definition
         self._antenna_diameter_m = antenna_diameter_m
@@ -616,6 +646,7 @@ class _AnalyticScalarEvaluator:
         self._real_dtype = real_dtype
         self._result_dtype = result_dtype
         self._science = science
+        self._aperture = aperture
 
     def voltage_feature_scale_rad(self, frequency_hz: float) -> float:
         if type(frequency_hz) is not float or not math.isfinite(frequency_hz):
@@ -678,6 +709,9 @@ class _AnalyticScalarEvaluator:
             raise NonFiniteBeamResponseError(
                 "time_mjd must be an exact finite Python float."
             )
+
+        if self._aperture is not None:
+            return self._evaluate_aperture(altitude, azimuth, frequency_hz)
 
         voltage = np.zeros(altitude.shape, dtype=self._real_dtype)
         visible = altitude >= self._real_dtype.type(0.0)
@@ -775,11 +809,123 @@ class _AnalyticScalarEvaluator:
         result.setflags(write=False)
         return result
 
+    def _evaluate_aperture(
+        self,
+        altitude: np.ndarray,
+        azimuth: np.ndarray,
+        frequency_hz: float,
+    ) -> np.ndarray:
+        """Evaluate the one Stage-1 normalized aperture transform.
+
+        ``docs/development/sci005_beam_physics_plan.md`` Section 3.1: the mask
+        and the deterministic surface phase live *inside* one integral whose
+        normalization is the unmodified ideal aperture, so the response is
+        complex, is not re-peak-normalized, and its boresight carries the
+        blockage and aberration loss exactly once.  The horizon gate is
+        unchanged: below-horizon directions stay exactly zero.
+        """
+        aperture = cast(ApertureSpecification, self._aperture)
+        wavelength_m = _C_M_PER_S / frequency_hz
+        voltage = np.zeros(altitude.shape, dtype=self._result_dtype)
+        visible = altitude >= self._real_dtype.type(0.0)
+        if np.any(visible):
+            voltage[visible] = evaluate_aperture_response(
+                aperture,
+                altitude[visible],
+                azimuth[visible],
+                wavelength_m=wavelength_m,
+                real_dtype=self._real_dtype,
+                complex_dtype=self._result_dtype,
+            )
+        if not np.all(np.isfinite(voltage)):
+            raise NonFiniteBeamResponseError(
+                f"{self._identity}: Stage-1 aperture evaluation produced "
+                "non-finite values."
+            )
+        result = np.zeros(
+            (altitude.size, 2, 2),
+            dtype=self._result_dtype,
+            order="C",
+        )
+        result[:, 0, 0] = voltage
+        result[:, 1, 1] = voltage
+        result.setflags(write=False)
+        return result
+
 
 @dataclass(frozen=True, slots=True)
 class _LoadedAnalyticHandler:
     state: LoadedBeamHandlerState
     evaluator: _AnalyticScalarEvaluator
+
+
+_STAGE1_DIRECT_PROFILES: dict[type, str] = {
+    ResolvedUniformTaper: "uniform",
+    ResolvedParabolicTaper: "parabolic",
+    ResolvedParabolicSquaredTaper: "parabolic_squared",
+}
+_STAGE1_DERIVED_PROFILES: dict[type, str] = {
+    ResolvedDerivedParabolicTaper: "parabolic",
+    ResolvedDerivedParabolicSquaredTaper: "parabolic_squared",
+}
+
+
+def _stage1_profile(
+    definition: ResolvedAnalyticBeamDefinition,
+    science: _AnalyticScience,
+) -> tuple[str, float]:
+    """Return Section 3.1's exact ``(profile kind, edge taper)`` for one model.
+
+    The table deliberately keeps ``p = 10^(-T/20)`` its existing mixture-weight
+    meaning rather than relabelling it as ``A(1)/A(0)``, which is what makes the
+    unmodified profile's normalized Hankel transform the *current* accepted
+    scalar response.  Every excluded model was already rejected during
+    configuration resolution, so reaching one here is an internal inconsistency.
+    """
+    model = definition.model
+    if type(model) is ResolvedCircularApertureBeamModel:
+        kind = _STAGE1_DIRECT_PROFILES.get(type(model.taper))
+        if kind is not None:
+            taper_db = 0.0 if kind == "uniform" else float(model.taper.edge_taper_db)
+            return kind, taper_db
+    elif type(model) is ResolvedAnalyticalIlluminationBeamModel:
+        kind = _STAGE1_DERIVED_PROFILES.get(type(model.taper_profile))
+        if kind is not None:
+            derived = science.derived_edge_taper_db
+            if derived is None or not math.isfinite(derived) or derived < 0.0:
+                raise BeamSamplingDerivationError(
+                    "Stage-1 aperture physics requires a finite non-negative "
+                    "derived edge taper; this illumination produced "
+                    f"{derived!r}."
+                )
+            return kind, float(derived)
+    raise BeamSamplingDerivationError(
+        "Stage-1 aperture physics reached an excluded pupil profile; "
+        "configuration resolution should already have rejected it."
+    )
+
+
+def _diagnostic_aperture_specification(  # pyright: ignore[reportUnusedFunction]
+    definition: ResolvedAnalyticBeamDefinition,
+    *,
+    antenna_diameter_m: float,
+    aperture_physics: ResolvedAperturePhysics | None,
+) -> ApertureSpecification:
+    """Resolve the pupil one antenna's Ruze power diagnostic integrates over.
+
+    The diagnostic needs the same Section 3.1 profile the coherent transform
+    uses, whether or not the antenna also authored an ``aperture_physics``
+    block: an antenna with no block simply has the unobstructed, unaberrated
+    pupil.
+    """
+    science = _science(definition, antenna_diameter_m)
+    profile_kind, edge_taper_db = _stage1_profile(definition, science)
+    return build_aperture_specification(
+        aperture_physics,
+        diameter_m=antenna_diameter_m,
+        profile_kind=cast(Any, profile_kind),
+        edge_taper_db=edge_taper_db,
+    )
 
 
 def _load_analytic_handler(  # pyright: ignore[reportUnusedFunction]
@@ -789,6 +935,7 @@ def _load_analytic_handler(  # pyright: ignore[reportUnusedFunction]
     observation_frequencies_hz: tuple[float, ...],
     precision: PrecisionConfig,
     handler_ordinal: int,
+    aperture_physics: ResolvedAperturePhysics | None = None,
 ) -> _LoadedAnalyticHandler:
     if type(definition) is not ResolvedAnalyticBeamDefinition:
         raise TypeError("definition must be an exact ResolvedAnalyticBeamDefinition")
@@ -823,7 +970,17 @@ def _load_analytic_handler(  # pyright: ignore[reportUnusedFunction]
         science,
         frequencies,
         feature_scales,
+        aperture_physics,
     )
+    aperture: ApertureSpecification | None = None
+    if aperture_physics is not None:
+        profile_kind, edge_taper_db = _stage1_profile(definition, science)
+        aperture = build_aperture_specification(
+            aperture_physics,
+            diameter_m=antenna_diameter_m,
+            profile_kind=cast(Any, profile_kind),
+            edge_taper_db=edge_taper_db,
+        )
     handler_id = f"beam-{handler_ordinal:04d}-{scientific_fingerprint[:12]}"
     state = LoadedBeamHandlerState(
         handler_id=handler_id,
@@ -840,6 +997,7 @@ def _load_analytic_handler(  # pyright: ignore[reportUnusedFunction]
         real_dtype=real_dtype,
         result_dtype=result_dtype,
         science=science,
+        aperture=aperture,
     )
     return _LoadedAnalyticHandler(state=state, evaluator=evaluator)
 

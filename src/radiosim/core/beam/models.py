@@ -542,6 +542,31 @@ class ResolvedPointingOffset(_ResolvedValue):
 
 
 @dataclass(frozen=True, slots=True)
+class ResolvedRuzePowerDiagnostic(_ResolvedValue):
+    """One antenna's resolved ``error_beam_diagnostic`` declaration.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 3.4: the literal
+    ``gaussian_covariance_power`` declares a real, zero-mean, jointly Gaussian,
+    second-order stationary aperture-equivalent surface-error field whose
+    covariance is ``sigma_h^2 exp[-(|Delta|/L)^2]``, so ``correlation_length_m``
+    is that field's one-over-e correlation length.  The declaration selects an
+    ensemble-power diagnostic; it never creates a deterministic error-beam
+    voltage, and it never enters a cross-correlation Jones matrix.
+    """
+
+    kind: Literal["gaussian_covariance_power"]
+    correlation_length_m: float
+
+    def __post_init__(self) -> None:
+        _require_literal(self.kind, "gaussian_covariance_power", "kind")
+        _require_float(
+            self.correlation_length_m,
+            "correlation_length_m",
+            positive=True,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedSurfaceError(_ResolvedValue):
     """One antenna's Ruze random-surface RMS, in metres.
 
@@ -550,9 +575,14 @@ class ResolvedSurfaceError(_ResolvedValue):
     a baseline of two antennas sharing this ``sigma`` loses exactly ``eta_s`` of
     power. A zero RMS resolves to ``None`` for the same reason a zero pointing
     offset does.
+
+    ``error_beam_diagnostic`` is the optional SCI-005 Stage-1 nested
+    ensemble-power declaration.  It leaves the coherent voltage meaning of
+    ``rms_surface_error_m`` exactly as accepted.
     """
 
     rms_surface_error_m: float
+    error_beam_diagnostic: ResolvedRuzePowerDiagnostic | None = None
 
     def __post_init__(self) -> None:
         _require_float(
@@ -560,6 +590,13 @@ class ResolvedSurfaceError(_ResolvedValue):
             "rms_surface_error_m",
             positive=True,
         )
+        if self.error_beam_diagnostic is not None:
+            _require_exact(
+                self.error_beam_diagnostic,
+                (ResolvedRuzePowerDiagnostic,),
+                "error_beam_diagnostic",
+            )
+            self.error_beam_diagnostic.__post_init__()
 
 
 @dataclass(frozen=True, slots=True)
@@ -596,6 +633,19 @@ class ResolvedAntennaSurfaceError(_ResolvedValue):
                 "surface_error",
             )
             self.surface_error.__post_init__()
+
+    @property
+    def error_beam_diagnostic(self) -> ResolvedRuzePowerDiagnostic | None:
+        """Return this override's nested diagnostic, if any.
+
+        A read-only view of ``surface_error.error_beam_diagnostic`` rather than
+        a second stored field, so the override cannot carry a diagnostic that
+        disagrees with the surface error it belongs to and no new key enters the
+        canonical snapshot.
+        """
+        if self.surface_error is None:
+            return None
+        return self.surface_error.error_beam_diagnostic
 
 
 def _copy_override_tuple(
@@ -669,6 +719,159 @@ class ResolvedBeamSurfaceError(_ResolvedValue):
         object.__setattr__(self, "per_antenna", per_antenna)
 
 
+ZERNIKE_MAX_RADIAL_ORDER = 32
+"""Section 3.3's v1 radial-order computation bound.
+
+It is a bound on what this version evaluates, not a statement that higher
+physical modes do not exist.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSupportLeg(_ResolvedValue):
+    """One resolved support leg (Section 3.2).
+
+    ``position_angle_deg`` has already been checked against its canonical
+    ``(-180, 180]`` interval, and ``width_m`` is the physical strip width in
+    metres.  The leg is the closed outward half-strip from the edge of the
+    central shadow to the ideal pupil edge; two legs 180 degrees apart describe
+    a structure crossing the dish.
+    """
+
+    position_angle_deg: float
+    width_m: float
+
+    def __post_init__(self) -> None:
+        _require_float(self.position_angle_deg, "position_angle_deg")
+        if not (-180.0 < self.position_angle_deg <= 180.0):
+            raise ValueError("position_angle_deg must lie in (-180, 180]")
+        _require_float(self.width_m, "width_m", positive=True)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedApertureBlockage(_ResolvedValue):
+    """The resolved central shadow and its support legs (Section 3.2)."""
+
+    central_diameter_ratio: float
+    support_legs: tuple[ResolvedSupportLeg, ...]
+
+    def __post_init__(self) -> None:
+        _require_float(self.central_diameter_ratio, "central_diameter_ratio")
+        if not (0.0 < self.central_diameter_ratio < 1.0):
+            raise ValueError("central_diameter_ratio must satisfy 0 < epsilon < 1")
+        if type(self.support_legs) is not tuple:
+            raise TypeError("support_legs must be an exact tuple")
+        legs = tuple(cast(tuple[Any, ...], self.support_legs))
+        seen: set[float] = set()
+        for leg in legs:
+            _require_exact(leg, (ResolvedSupportLeg,), "support_legs item")
+            leg.__post_init__()
+            if leg.position_angle_deg in seen:
+                raise ValueError("support_legs must have unique resolved angles")
+            seen.add(leg.position_angle_deg)
+        object.__setattr__(self, "support_legs", legs)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedZernikeMode(_ResolvedValue):
+    """One resolved real unit-RMS disk Zernike mode (Section 3.3)."""
+
+    n: int
+    m: int
+    surface_height_coefficient_m: float
+
+    def __post_init__(self) -> None:
+        if type(self.n) is not int or type(self.m) is not int:
+            raise TypeError("n and m must be exact Python integers")
+        if not (0 <= self.n <= ZERNIKE_MAX_RADIAL_ORDER):
+            raise ValueError("n must satisfy 0 <= n <= 32")
+        if abs(self.m) > self.n or (self.n - abs(self.m)) % 2 != 0:
+            raise ValueError("m must satisfy |m| <= n with n - |m| even")
+        if (self.n, self.m) in {(0, 0), (1, -1), (1, 1)}:
+            raise ValueError("piston and tip/tilt are owned by delay and pointing")
+        _require_float(
+            self.surface_height_coefficient_m,
+            "surface_height_coefficient_m",
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedZernikeSurface(_ResolvedValue):
+    """The resolved deterministic surface-height map (Section 3.3).
+
+    ``modes`` is sorted by ``(n, m)`` so the fingerprint is stable; sorting a
+    sum of orthogonal basis functions does not change the exact mathematical
+    sum.
+    """
+
+    convention: Literal["radiosim.real_unit_rms_disk_surface_height.v1"]
+    modes: tuple[ResolvedZernikeMode, ...]
+
+    def __post_init__(self) -> None:
+        _require_literal(
+            self.convention,
+            "radiosim.real_unit_rms_disk_surface_height.v1",
+            "convention",
+        )
+        modes = cast(
+            tuple[ResolvedZernikeMode, ...],
+            _copy_exact_tuple(self.modes, (ResolvedZernikeMode,), "modes"),
+        )
+        seen: set[tuple[int, int]] = set()
+        for mode in modes:
+            mode.__post_init__()
+            if (mode.n, mode.m) in seen:
+                raise ValueError("modes must have unique (n, m) index pairs")
+            seen.add((mode.n, mode.m))
+        if not any(mode.surface_height_coefficient_m != 0.0 for mode in modes):
+            raise ValueError("an all-zero Zernike block is an exact identity")
+        object.__setattr__(
+            self,
+            "modes",
+            tuple(sorted(modes, key=lambda mode: (mode.n, mode.m))),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedAperturePhysics(_ResolvedValue):
+    """The resolved array-wide ``beams.aperture_physics`` block (Section 3.1).
+
+    At least one effective child is required: a parent whose children together
+    resolve to the identity is rejected rather than accepted and discarded.
+    """
+
+    normalization: Literal["unmodified_ideal_aperture_v1"]
+    blockage: ResolvedApertureBlockage | None = None
+    zernike_surface: ResolvedZernikeSurface | None = None
+
+    def __post_init__(self) -> None:
+        _require_literal(
+            self.normalization,
+            "unmodified_ideal_aperture_v1",
+            "normalization",
+        )
+        if self.blockage is not None:
+            _require_exact(self.blockage, (ResolvedApertureBlockage,), "blockage")
+            self.blockage.__post_init__()
+        if self.zernike_surface is not None:
+            _require_exact(
+                self.zernike_surface,
+                (ResolvedZernikeSurface,),
+                "zernike_surface",
+            )
+            self.zernike_surface.__post_init__()
+        if self.blockage is None and self.zernike_surface is None:
+            raise ValueError(
+                "aperture physics requires at least one effective child block"
+            )
+
+
+def _require_aperture_physics(value: Any) -> None:
+    if value is not None:
+        _require_exact(value, (ResolvedAperturePhysics,), "aperture_physics")
+        value.__post_init__()
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedAnalyticBeamChoice(_ResolvedValue):
     kind: Literal["analytic"]
@@ -723,11 +926,13 @@ class ResolvedAnalyticBeamsInput(_ResolvedValue):
     model: ResolvedAnalyticBeamDefinition
     pointing: ResolvedBeamPointing | None = None
     surface_error: ResolvedBeamSurfaceError | None = None
+    aperture_physics: ResolvedAperturePhysics | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "analytic", "mode")
         _require_exact(self.model, (ResolvedAnalyticBeamDefinition,), "model")
         _require_mount_blocks((self.pointing, self.surface_error))
+        _require_aperture_physics(self.aperture_physics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -736,11 +941,13 @@ class ResolvedSharedFITSBeamsInput(_ResolvedValue):
     beam: ResolvedFITSBeamDefinition
     pointing: ResolvedBeamPointing | None = None
     surface_error: ResolvedBeamSurfaceError | None = None
+    aperture_physics: ResolvedAperturePhysics | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "shared_fits", "mode")
         _require_exact(self.beam, (ResolvedFITSBeamDefinition,), "beam")
         _require_mount_blocks((self.pointing, self.surface_error))
+        _require_aperture_physics(self.aperture_physics)
 
 
 @dataclass(frozen=True, slots=True)
@@ -749,6 +956,7 @@ class ResolvedPerAntennaFITSBeamsInput(_ResolvedValue):
     assignments: tuple[ResolvedFITSBeamAssignmentInput, ...]
     pointing: ResolvedBeamPointing | None = None
     surface_error: ResolvedBeamSurfaceError | None = None
+    aperture_physics: ResolvedAperturePhysics | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "per_antenna_fits", "mode")
@@ -758,6 +966,7 @@ class ResolvedPerAntennaFITSBeamsInput(_ResolvedValue):
             "assignments",
         )
         _require_mount_blocks((self.pointing, self.surface_error))
+        _require_aperture_physics(self.aperture_physics)
         object.__setattr__(self, "assignments", copied)
 
 
@@ -768,6 +977,7 @@ class ResolvedMixedBeamsInput(_ResolvedValue):
     assignments: tuple[ResolvedMixedBeamAssignmentInput, ...]
     pointing: ResolvedBeamPointing | None = None
     surface_error: ResolvedBeamSurfaceError | None = None
+    aperture_physics: ResolvedAperturePhysics | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "mixed", "mode")
@@ -782,6 +992,7 @@ class ResolvedMixedBeamsInput(_ResolvedValue):
             "assignments",
         )
         _require_mount_blocks((self.pointing, self.surface_error))
+        _require_aperture_physics(self.aperture_physics)
         object.__setattr__(self, "assignments", copied)
 
 
@@ -1137,12 +1348,76 @@ def _effective_assignment_dimensions(
     raise TypeError("definition contains an unsupported analytic beam model")
 
 
+def _aperture_physics_payload(aperture: ResolvedAperturePhysics) -> dict[str, Any]:
+    """Return the canonical scientific payload for one resolved aperture block.
+
+    Section 3.1 requires the profile-set convention literal to enter the
+    scientific fingerprint whenever a Stage-1 feature is explicit, and Section 2
+    requires convention-version literals to be fingerprinted alongside the
+    resolved physical parameters.  Paths and scheduling choices never appear
+    here; only physics and convention versions do.
+    """
+    payload: dict[str, Any] = {
+        "normalization": aperture.normalization,
+        "pupil_profile_set": "radiosim.circular_stage1_pupil_profiles.v1",
+        "aperture_axes": "north_east_azimuth_north_through_east_v1",
+        "aperture_method": "boundary_fitted_polar_gauss_legendre_v1",
+    }
+    if aperture.blockage is not None:
+        payload["blockage"] = {
+            "support_mask": "radiosim.central_disk_outward_half_strip_ne.v1",
+            "central_diameter_ratio": aperture.blockage.central_diameter_ratio,
+            "support_legs": [
+                {
+                    "position_angle_deg": leg.position_angle_deg,
+                    "width_m": leg.width_m,
+                }
+                for leg in aperture.blockage.support_legs
+            ],
+        }
+    if aperture.zernike_surface is not None:
+        payload["zernike_surface"] = {
+            "convention": aperture.zernike_surface.convention,
+            "modes": [
+                {
+                    "n": mode.n,
+                    "m": mode.m,
+                    "surface_height_coefficient_m": (mode.surface_height_coefficient_m),
+                }
+                for mode in aperture.zernike_surface.modes
+            ],
+        }
+    return payload
+
+
+def _surface_error_payload(surface_error: ResolvedSurfaceError) -> dict[str, Any]:
+    """Return the canonical payload for one resolved surface error.
+
+    An antenna with no nested diagnostic reproduces its pre-SCI-005 payload
+    exactly, so configuring the diagnostic -- and only configuring it -- changes
+    the scientific fingerprint.
+    """
+    payload: dict[str, Any] = {
+        "rms_surface_error_m": surface_error.rms_surface_error_m,
+    }
+    diagnostic = surface_error.error_beam_diagnostic
+    if diagnostic is not None:
+        payload["error_beam_diagnostic"] = {
+            "kind": diagnostic.kind,
+            "correlation_length_m": diagnostic.correlation_length_m,
+            "covariance_convention": ("gaussian_one_over_e_surface_covariance_v1"),
+            "method": "poisson_paired_pupil_separation_v1",
+        }
+    return payload
+
+
 def _assignment_fingerprint(
     antenna_id: AntennaId,
     antenna_diameter_m: float,
     definition: ResolvedAnalyticBeamDefinition | ResolvedFITSBeamDefinition,
     pointing: ResolvedPointingOffset | None = None,
     surface_error: ResolvedSurfaceError | None = None,
+    aperture_physics: ResolvedAperturePhysics | None = None,
 ) -> str:
     payload: dict[str, Any] = {
         "schema_version": _SCHEMA_VERSION,
@@ -1165,9 +1440,12 @@ def _assignment_fingerprint(
             "elevation_offset_rad": pointing.elevation_offset_rad,
         }
     if surface_error is not None:
-        payload["surface_error"] = {
-            "rms_surface_error_m": surface_error.rms_surface_error_m,
-        }
+        payload["surface_error"] = _surface_error_payload(surface_error)
+    # Stage-1 aperture physics is array-wide but reaches the response through
+    # every assignment, so it is fingerprinted here beside the mount science and
+    # is absent -- byte for byte -- when the block is absent.
+    if aperture_physics is not None:
+        payload["aperture_physics"] = _aperture_physics_payload(aperture_physics)
     return _canonical_digest(payload)
 
 
@@ -1180,6 +1458,7 @@ class ResolvedBeamAssignment(_ResolvedValue):
     assignment_fingerprint: str
     pointing: ResolvedPointingOffset | None = None
     surface_error: ResolvedSurfaceError | None = None
+    aperture_physics: ResolvedAperturePhysics | None = None
 
     def __post_init__(self) -> None:
         antenna_id = _copy_antenna_id(self.antenna_id, "antenna_id")
@@ -1206,6 +1485,7 @@ class ResolvedBeamAssignment(_ResolvedValue):
                 "surface_error",
             )
             self.surface_error.__post_init__()
+        _require_aperture_physics(self.aperture_physics)
         if self.provenance.canonical_antenna != antenna_id:
             raise ValueError("provenance.canonical_antenna must equal antenna_id")
         _require_fingerprint(self.assignment_fingerprint, "assignment_fingerprint")
@@ -1215,6 +1495,7 @@ class ResolvedBeamAssignment(_ResolvedValue):
             self.definition,
             self.pointing,
             self.surface_error,
+            self.aperture_physics,
         )
         if self.assignment_fingerprint != expected:
             raise ValueError(
@@ -1231,6 +1512,7 @@ def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
     provenance: BeamAssignmentProvenance,
     pointing: ResolvedPointingOffset | None = None,
     surface_error: ResolvedSurfaceError | None = None,
+    aperture_physics: ResolvedAperturePhysics | None = None,
 ) -> ResolvedBeamAssignment:
     fingerprint = _assignment_fingerprint(
         antenna_id,
@@ -1238,6 +1520,7 @@ def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
         definition,
         pointing,
         surface_error,
+        aperture_physics,
     )
     return ResolvedBeamAssignment(
         antenna_id=antenna_id,
@@ -1247,6 +1530,7 @@ def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
         assignment_fingerprint=fingerprint,
         pointing=pointing,
         surface_error=surface_error,
+        aperture_physics=aperture_physics,
     )
 
 
@@ -1647,9 +1931,16 @@ def _create_loaded_beam_state(  # pyright: ignore[reportUnusedFunction]
 
 
 __all__ = [
+    "ZERNIKE_MAX_RADIAL_ORDER",
     "BeamAssignmentProvenance",
     "ResolvedAntennaPointingOffset",
     "ResolvedAntennaSurfaceError",
+    "ResolvedApertureBlockage",
+    "ResolvedAperturePhysics",
+    "ResolvedRuzePowerDiagnostic",
+    "ResolvedSupportLeg",
+    "ResolvedZernikeMode",
+    "ResolvedZernikeSurface",
     "ResolvedBeamPointing",
     "ResolvedBeamSurfaceError",
     "ResolvedPointingOffset",

@@ -19,6 +19,7 @@ from radiosim.core.beam.errors import (
     DuplicateBeamAssignmentError,
     IncompleteBeamAssignmentError,
     InconsistentBeamAssignmentError,
+    InvalidBeamGeometryError,
     NonFiniteBeamResponseError,
     UnknownBeamAntennaError,
     UnsupportedBeamBasisError,
@@ -29,6 +30,7 @@ from radiosim.core.beam.errors import (
     UnsupportedBeamTypeError,
 )
 from radiosim.core.beam.models import (
+    ZERNIKE_MAX_RADIAL_ORDER,
     BeamAssignmentProvenance,
     BeamFileProvenance,
     LoadedBeamHandlerState,
@@ -40,6 +42,8 @@ from radiosim.core.beam.models import (
     ResolvedAnalyticBeamsInput,
     ResolvedAntennaPointingOffset,
     ResolvedAntennaSurfaceError,
+    ResolvedApertureBlockage,
+    ResolvedAperturePhysics,
     ResolvedBeamAssignment,
     ResolvedBeamPointing,
     ResolvedBeamsInput,
@@ -71,9 +75,13 @@ from radiosim.core.beam.models import (
     ResolvedPrimeFocusReflector,
     ResolvedRectangularApertureBeamModel,
     ResolvedReflector,
+    ResolvedRuzePowerDiagnostic,
     ResolvedSharedFITSBeamsInput,
+    ResolvedSupportLeg,
     ResolvedSurfaceError,
     ResolvedUniformTaper,
+    ResolvedZernikeMode,
+    ResolvedZernikeSurface,
 )
 from radiosim.core.beam.resolution import resolve_beam_assignments
 
@@ -81,12 +89,14 @@ if TYPE_CHECKING:
     from radiosim.core.beam.runtime import BeamSystem, load_beam_system
 
 __all__ = [
+    "ZERNIKE_MAX_RADIAL_ORDER",
     "BeamError",
     "BeamAssignmentError",
     "UnknownBeamAntennaError",
     "DuplicateBeamAssignmentError",
     "IncompleteBeamAssignmentError",
     "InconsistentBeamAssignmentError",
+    "InvalidBeamGeometryError",
     "BeamLoadError",
     "BeamDependencyError",
     "BeamFileReadError",
@@ -113,6 +123,12 @@ __all__ = [
     "ResolvedAnalyticBeamChoice",
     "ResolvedAntennaPointingOffset",
     "ResolvedAntennaSurfaceError",
+    "ResolvedApertureBlockage",
+    "ResolvedAperturePhysics",
+    "ResolvedRuzePowerDiagnostic",
+    "ResolvedSupportLeg",
+    "ResolvedZernikeMode",
+    "ResolvedZernikeSurface",
     "ResolvedBeamPointing",
     "ResolvedBeamSurfaceError",
     "ResolvedPointingOffset",

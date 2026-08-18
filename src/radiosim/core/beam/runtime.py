@@ -7,6 +7,7 @@ import logging
 import math
 import threading
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Protocol, cast
@@ -15,6 +16,13 @@ import numpy as np
 from numpy.typing import NDArray
 from typing_extensions import override
 
+from radiosim.core.beam.aperture import (
+    ApertureSpecification,
+    RuzePowerDiagnostic,
+)
+from radiosim.core.beam.aperture import (
+    evaluate_ruze_power_diagnostic as _evaluate_ruze_power_diagnostic,
+)
 from radiosim.core.beam.errors import (
     BeamAngularDomainError,
     BeamDependencyError,
@@ -256,12 +264,14 @@ class _BeamSystemRuntime:
         "handler_id_by_antenna",
         "pointing_by_antenna",
         "response_key_by_antenna",
+        "ruze_diagnostic_by_antenna",
         "surface_error_by_antenna",
     )
     evaluator_by_handler_id: Mapping[str, _BeamEvaluator]
     handler_id_by_antenna: Mapping[AntennaId, str]
     pointing_by_antenna: Mapping[AntennaId, ResolvedPointingOffset]
     surface_error_by_antenna: Mapping[AntennaId, ResolvedSurfaceError]
+    ruze_diagnostic_by_antenna: Mapping[AntennaId, _RuzeDiagnosticPlan]
     response_key_by_antenna: Mapping[AntennaId, str]
 
     def __init__(
@@ -271,6 +281,7 @@ class _BeamSystemRuntime:
         handler_id_by_antenna: dict[AntennaId, str],
         pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset],
         surface_error_by_antenna: dict[AntennaId, ResolvedSurfaceError],
+        ruze_diagnostic_by_antenna: dict[AntennaId, _RuzeDiagnosticPlan],
     ) -> None:
         object.__setattr__(
             self,
@@ -294,6 +305,11 @@ class _BeamSystemRuntime:
         )
         object.__setattr__(
             self,
+            "ruze_diagnostic_by_antenna",
+            MappingProxyType(dict(ruze_diagnostic_by_antenna)),
+        )
+        object.__setattr__(
+            self,
             "response_key_by_antenna",
             MappingProxyType(
                 {
@@ -310,6 +326,17 @@ class _BeamSystemRuntime:
     @override
     def __setattr__(self, name: str, value: object) -> None:
         raise AttributeError("BeamSystem runtime attributes are immutable")
+
+
+@dataclass(frozen=True, slots=True)
+class _RuzeDiagnosticPlan:
+    """Everything one antenna's Ruze power diagnostic needs, resolved once."""
+
+    aperture: ApertureSpecification
+    rms_surface_error_m: float
+    correlation_length_m: float
+    real_dtype: np.dtype[Any]
+    complex_dtype: np.dtype[Any]
 
 
 def _require_exact_finite_float(value: Any, field_name: str) -> float:
@@ -764,6 +791,57 @@ class BeamSystem:
             return host_result
         return _convert_backend_result(backend, host_result)
 
+    def evaluate_ruze_power_diagnostic(
+        self,
+        antenna_id: AntennaId,
+        *,
+        altitude_rad: np.ndarray,
+        azimuth_rad: np.ndarray,
+        frequency_hz: float,
+        time_mjd: float,
+    ) -> RuzePowerDiagnostic:
+        """Return one antenna's Ruze ensemble-power diagnostic.
+
+        ``docs/development/sci005_beam_physics_plan.md`` Section 3.4.2 freezes
+        this contract.  The whole algorithm is host-side, so the method accepts
+        no backend argument; it never mutates or substitutes the matrix returned
+        by :meth:`evaluate_jones`, and it creates no Jones voltage.  Unlike
+        ``evaluate_jones`` it requires at least one direction, because the
+        convergence maxima it retains are part of its result.
+        """
+        canonical = _require_lookup_antenna_id(antenna_id)
+        plan = self.__runtime.ruze_diagnostic_by_antenna.get(canonical)
+        if plan is None:
+            raise BeamEvaluationError(
+                "A Ruze power diagnostic is not configured for this antenna."
+            )
+        if type(altitude_rad) is not np.ndarray or altitude_rad.ndim != 1:
+            raise BeamAngularDomainError(
+                "altitude_rad must be a one-dimensional array."
+            )
+        if type(azimuth_rad) is not np.ndarray or azimuth_rad.ndim != 1:
+            raise BeamAngularDomainError("azimuth_rad must be a one-dimensional array.")
+        if altitude_rad.shape != azimuth_rad.shape:
+            raise BeamAngularDomainError(
+                "altitude_rad and azimuth_rad must have identical shapes."
+            )
+        frequency = _require_exact_finite_float(frequency_hz, "frequency_hz")
+        time_value = _require_exact_finite_float(time_mjd, "time_mjd")
+        if frequency <= 0.0:
+            raise BeamFrequencyDomainError("frequency_hz must be positive.")
+        return _evaluate_ruze_power_diagnostic(
+            plan.aperture,
+            antenna_id=AntennaId(canonical.number, canonical.name),
+            altitude_rad=altitude_rad,
+            azimuth_rad=azimuth_rad,
+            frequency_hz=frequency,
+            time_mjd=time_value,
+            rms_surface_error_m=plan.rms_surface_error_m,
+            correlation_length_m=plan.correlation_length_m,
+            real_dtype=plan.real_dtype,
+            complex_dtype=plan.complex_dtype,
+        )
+
 
 def _validated_observation_frequencies(
     value: tuple[float, ...],
@@ -825,6 +903,7 @@ def _load_beam_system(
     handler_id_by_antenna: dict[AntennaId, str] = {}
     pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset] = {}
     surface_error_by_antenna: dict[AntennaId, ResolvedSurfaceError] = {}
+    ruze_diagnostic_by_antenna: dict[AntennaId, _RuzeDiagnosticPlan] = {}
 
     for assignment in resolved_state.assignments:
         definition = assignment.definition
@@ -834,6 +913,7 @@ def _load_beam_system(
                 _analytic_preload_key(
                     definition,
                     assignment.antenna_diameter_m,
+                    assignment.aperture_physics,
                 ),
             )
         elif type(definition) is ResolvedFITSBeamDefinition:
@@ -851,6 +931,7 @@ def _load_beam_system(
                     observation_frequencies_hz=frequencies,
                     precision=precision,
                     handler_ordinal=handler_ordinal,
+                    aperture_physics=assignment.aperture_physics,
                 )
             else:
                 loaded = _load_fits_handler(
@@ -879,6 +960,32 @@ def _load_beam_system(
             pointing_by_antenna[antenna_id] = assignment.pointing
         if assignment.surface_error is not None:
             surface_error_by_antenna[antenna_id] = assignment.surface_error
+            diagnostic = assignment.surface_error.error_beam_diagnostic
+            if diagnostic is not None:
+                if type(definition) is not ResolvedAnalyticBeamDefinition:
+                    raise UnsupportedBeamBasisError(
+                        "A Ruze power diagnostic requires an analytic circular "
+                        "pupil; configuration resolution should already have "
+                        "rejected this beam family."
+                    )
+                from radiosim.core.beam.analytic import (
+                    _diagnostic_aperture_specification,  # pyright: ignore[reportPrivateUsage]
+                    _real_dtype,  # pyright: ignore[reportPrivateUsage]
+                    _result_dtype,  # pyright: ignore[reportPrivateUsage]
+                )
+
+                complex_dtype = _result_dtype(precision)
+                ruze_diagnostic_by_antenna[antenna_id] = _RuzeDiagnosticPlan(
+                    aperture=_diagnostic_aperture_specification(
+                        definition,
+                        antenna_diameter_m=assignment.antenna_diameter_m,
+                        aperture_physics=assignment.aperture_physics,
+                    ),
+                    rms_surface_error_m=(assignment.surface_error.rms_surface_error_m),
+                    correlation_length_m=diagnostic.correlation_length_m,
+                    real_dtype=_real_dtype(complex_dtype),
+                    complex_dtype=complex_dtype,
+                )
 
     loaded_state = _create_loaded_beam_state(
         resolved=resolved_state,
@@ -890,6 +997,7 @@ def _load_beam_system(
         handler_id_by_antenna=handler_id_by_antenna,
         pointing_by_antenna=pointing_by_antenna,
         surface_error_by_antenna=surface_error_by_antenna,
+        ruze_diagnostic_by_antenna=ruze_diagnostic_by_antenna,
     )
     system = object.__new__(BeamSystem)
     object.__setattr__(system, "_BeamSystem__state", loaded_state)

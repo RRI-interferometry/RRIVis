@@ -25,6 +25,17 @@ class InconsistentBeamAssignmentError(BeamAssignmentError):
     """Resolved assignment state and a later runtime lookup disagree."""
 
 
+class InvalidBeamGeometryError(BeamAssignmentError):
+    """Resolved beam geometry is not physically representable on an antenna.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 3.2 assigns the
+    leg-wider-than-resolved-diameter rejection to beam-assignment resolution
+    rather than to document validation, because per-antenna diameters exist only
+    after instrument resolution. The failure is therefore a typed beam error
+    carrying no ``ConfigIssue`` code.
+    """
+
+
 class BeamLoadError(BeamError):
     """Base class for beam dependency, file, and load-validation failures."""
 
@@ -100,6 +111,7 @@ __all__ = [
     "DuplicateBeamAssignmentError",
     "IncompleteBeamAssignmentError",
     "InconsistentBeamAssignmentError",
+    "InvalidBeamGeometryError",
     "BeamLoadError",
     "BeamDependencyError",
     "BeamFileReadError",
