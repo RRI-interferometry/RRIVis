@@ -1,0 +1,1323 @@
+{
+  "schema_version": "radiosim.sci005.stage1.v1",
+  "stage": 1,
+  "status": "candidate",
+  "generated_at_utc": "2026-08-18T15:04:50Z",
+  "design_sha": "c6a5ce90ae3160150b1699f97b45bb693d4ed886",
+  "red_test_sha": "e246c5d1c092b5321dddfd9506bb1f2d3ae12365",
+  "source_sha": "881b1a963b4f3b250b38989335c2ee0ea2a491bd",
+  "evidence_sha": null,
+  "working_tree_clean": true,
+  "radiosim_version": "0.3.0",
+  "python_version": "3.11.13",
+  "platform": "macOS-26.6.1-x86_64-i386-64bit",
+  "machine": "x86_64",
+  "pixi_environment": "default",
+  "pixi_lock_sha256": "3a8dc9136be95e9ccaff6cb03ad4d7aaf50e54eafa112cb24726a98b40b3fd17",
+  "scientific_conventions": {
+    "pupil_profile_set": "radiosim.circular_stage1_pupil_profiles.v1",
+    "aperture_normalization": "unmodified_ideal_aperture_v1",
+    "aperture_axes": "north_east_azimuth_north_through_east_v1",
+    "support_mask": "radiosim.central_disk_outward_half_strip_ne.v1",
+    "zernike_surface": "radiosim.real_unit_rms_disk_surface_height.v1",
+    "aperture_method": "boundary_fitted_polar_gauss_legendre_v1",
+    "ruze_covariance": "gaussian_one_over_e_surface_covariance_v1",
+    "ruze_method": "poisson_paired_pupil_separation_v1"
+  },
+  "config_cases": [
+    {
+      "case_id": "accepted_blockage_and_support_leg",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::accepted_blockage_and_support_leg",
+      "input_sha256": "48c29d13517c1a0e3cb108f108a713cae17ccecf16ccbdda63adf636b4611fd0",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "eb6698ec85e4cffa8605765e6206f06129fa1627fb20c0934f1f30ef98f71cb2",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "accepted_mask_plus_zernike",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::accepted_mask_plus_zernike",
+      "input_sha256": "abd14ab60acb8ff1f5bcf77ad28b6ff7e10abe5438aaf7f70e082ede10bc71c5",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "ad4bf2b961fa150ffc3308c314e890659de18e4a47b422143d4b8e3cc39c289c",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "accepted_ruze_power_diagnostic",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::accepted_ruze_power_diagnostic",
+      "input_sha256": "80b81f9e8a37b7dc4b34c4f0589fb7c233ff69e7345647f21eac21f096d5b57c",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "97b1f28e1bbc90d00e9b1d604ac07dee861fd885ccc5907f46e36f0a7e03937d",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "accepted_stage1_absent_default",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::accepted_stage1_absent_default",
+      "input_sha256": "f90f156737ec2a9431cfbf988c6ca8923c3099eaac3f09ed79450982aa9aeb9c",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "bf856f89d24212641a81d97e9a86c14852ca3d636c1efbec085932c305cebedb",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "accepted_zernike_only",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::accepted_zernike_only",
+      "input_sha256": "80ccbda4f76824b0f19fa1195459ed1ce4541311781145371ba8ef26b59c931f",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "87cd5b9b212d6c2242ad4d0c5ad4ea148245377900e380ef629a5f57f0af839c",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "rejected_blockage_ratio_domain",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_blockage_ratio_domain",
+      "input_sha256": "bfce6d8c15043d786afc18b0110129dbdde5256a6fc3808dc8403b6efff39e88",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.aperture_physics.blockage_ratio_domain",
+      "exact_message": "beams.aperture_physics.blockage.central_diameter_ratio: must satisfy 0 < central_diameter_ratio < 1",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_diagnostic_on_obstructed_pupil",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_diagnostic_on_obstructed_pupil",
+      "input_sha256": "2308e165cc3c42c10ec3226e15679aafc53be24fda8051e3d88f65b26dd6612b",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.ruze_power_diagnostic.unsupported_obstruction",
+      "exact_message": "beams.surface_error.default.error_beam_diagnostic: Stage-1 Ruze power diagnostics v1 require an unobstructed pupil; the resolved aperture physics declares a blockage.",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_diagnostic_unsupported_precision",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_diagnostic_unsupported_precision",
+      "input_sha256": "5fce28ab26eb84bb7707ed3cf8379fe4a6a10171f955e66cd1d67cc198cf2be3",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.ruze_power_diagnostic.unsupported_precision",
+      "exact_message": "beams.surface_error.default.error_beam_diagnostic: Ruze power diagnostics support only float32/complex64 and float64/complex128 beam precision.",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_identity_aperture_block",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_identity_aperture_block",
+      "input_sha256": "77dea3422d95b38c194c4477649ea7b65301b14cecef7d9fb336d1df48eddf66",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.aperture_physics.identity_block",
+      "exact_message": "beams.aperture_physics: requires at least one effective blockage or zernike_surface child; an aperture block with neither has no effect",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_unsupported_gaussian_pupil",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_unsupported_gaussian_pupil",
+      "input_sha256": "092184107cfd943d457b41890b124ab47d606bea9bec05a9fa0dc35babf61ac7",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.aperture_physics.unsupported_pupil_profile",
+      "exact_message": "beams.aperture_physics: Stage-1 aperture physics requires a canonical circular pupil; resolved model 'circular_aperture' with taper 'gaussian' has no supported v1 profile.",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_zernike_reserved_piston",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_zernike_reserved_piston",
+      "input_sha256": "fc814a66d0a63fe615d661ac39d5b843fa70b9af975e4febff25ac35e80748a6",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.aperture_physics.zernike_mode_reserved",
+      "exact_message": "beams.aperture_physics.zernike_surface.modes[0]: piston (0, 0) and tip/tilt (1, -1) and (1, 1) are already owned by instrumental delay and deterministic pointing",
+      "passed": true
+    }
+  ],
+  "analytic_invariants": [
+    {
+      "case_id": "blocked_uniform_closed_form",
+      "invariant_id": "blocked_uniform_aperture_transform",
+      "backend": "numpy",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_blocked_uniform_aperture_matches_the_closed_form",
+      "input_manifest_sha256": "85cfbca249df40ab396df5e1266b98517813bad0bef8ed48dd02f444fe6b9fb9",
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "51dd41d40dca581baa535651c66ca9ac693d65b71f5bcd5ec62e6085a457df97",
+        "minimum_abs": 0.007015727235708337,
+        "maximum_abs": 0.960000000000002
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "d4978dd53f8ddf109f1bad2397f2e24eee9623b9c9e217194179a90f5ef15989",
+        "minimum_abs": 0.0070157272357083515,
+        "maximum_abs": 0.9599999999999996
+      },
+      "max_abs_residual": 2.3314683517128287e-15,
+      "max_rel_residual": 2.428612866367525e-15,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "extended_mask_plus_zernike",
+      "invariant_id": "extended_precision_mask_plus_zernike",
+      "backend": "numpy",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_extended_precision_composition_never_narrows_to_complex128",
+      "input_manifest_sha256": "b4d1b5ecdfe5f93ac1d02140582ded2911d727ff41db8d557b323bb1bf4d8907",
+      "expected": {
+        "dtype": "complex256",
+        "shape": [
+          4
+        ],
+        "c_order_sha256": "4ab97a62a6948f531b2abed0ce0c5b9dadd6e448d24fcdace7f8e327b272cd91",
+        "minimum_abs": 0.13485104473518691,
+        "maximum_abs": 0.940686343869441
+      },
+      "observed": {
+        "dtype": "complex256",
+        "shape": [
+          4
+        ],
+        "c_order_sha256": "4b49350b666856fa2fca7978d403141bf3955ae7c1a4b2116646b42409461d1d",
+        "minimum_abs": 0.13485104473518697,
+        "maximum_abs": 0.940686343869441
+      },
+      "max_abs_residual": 4.362853193265563e-17,
+      "max_rel_residual": 4.637946773330738e-17,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "extended_unmodified_profile",
+      "invariant_id": "extended_precision_unmodified_profile",
+      "backend": "numpy",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_extended_precision_composition_never_narrows_to_complex128",
+      "input_manifest_sha256": "956ce709c16dbff206d91d0c4e077e7003ebc3b6114e8a280dfdab5dc14d2c1c",
+      "expected": {
+        "dtype": "complex256",
+        "shape": [
+          4
+        ],
+        "c_order_sha256": "98d4921f3c296b56373254084ffddc9a4df1f1c7a8bb74db767169c4133f70de",
+        "minimum_abs": 0.11358127504502083,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "complex256",
+        "shape": [
+          4
+        ],
+        "c_order_sha256": "8037cce37080f8492a98763945327ec979839be4339212fd2d08e6a5e68c4929",
+        "minimum_abs": 0.11358127504502048,
+        "maximum_abs": 1.0
+      },
+      "max_abs_residual": 3.4851001208188737e-16,
+      "max_rel_residual": 3.4851001208188737e-16,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "uniform_pupil_two_j1_over_x",
+      "invariant_id": "normalized_hankel_uniform",
+      "backend": "numpy",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_uniform_profile_reproduces_two_j1_over_x",
+      "input_manifest_sha256": "74364ffb4c0bafed57de886051e3085213df13fbff8d127111996e3fe8b84051",
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "50f9ae3f3f6c1ae1b1942990cb99e02fd943b8d941b4877086735e22ab057222",
+        "minimum_abs": 0.006033127356825572,
+        "maximum_abs": 1.000000000000002
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "61d11b52efbf49741be912aa0bd90a8c176dd41277a99ff2829b8f6d2474b631",
+        "minimum_abs": 0.006033127356825527,
+        "maximum_abs": 1.0
+      },
+      "max_abs_residual": 1.9984014443252818e-15,
+      "max_rel_residual": 1.998401444325278e-15,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "zernike_orthonormality",
+      "invariant_id": "real_unit_rms_zernike_gram_matrix",
+      "backend": "numpy",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_declared_zernike_basis_is_orthonormal_on_the_unobscured_disk",
+      "input_manifest_sha256": "35923fc38a8c38a2807ddb19cf16537ea24501782680b9c85de14c4b5b570a93",
+      "expected": {
+        "dtype": "float64",
+        "shape": [
+          8
+        ],
+        "c_order_sha256": "7559012cb25316ff8189a650a4682019422044477245151fd48f7ec8d18536b9",
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "float64",
+        "shape": [
+          8
+        ],
+        "c_order_sha256": "441e34460d0f7175a3e9aa6b83c22d198b5dc4595953d19db19e2a6b084b1c79",
+        "minimum_abs": 7.05667275196298e-18,
+        "maximum_abs": 0.9999999999999973
+      },
+      "max_abs_residual": 4.829470157119431e-15,
+      "max_rel_residual": 4.829470157119431e-15,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    }
+  ],
+  "rejection_probes": [
+    {
+      "case_id": "rejected_blockage_ratio_domain",
+      "config_path": "beams.aperture_physics.blockage.central_diameter_ratio",
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.aperture_physics.blockage_ratio_domain",
+      "exact_message": "beams.aperture_physics.blockage.central_diameter_ratio: must satisfy 0 < central_diameter_ratio < 1",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_blockage_ratio_domain",
+      "input_sha256": "bfce6d8c15043d786afc18b0110129dbdde5256a6fc3808dc8403b6efff39e88",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_diagnostic_on_obstructed_pupil",
+      "config_path": "beams.surface_error.default.error_beam_diagnostic",
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.ruze_power_diagnostic.unsupported_obstruction",
+      "exact_message": "beams.surface_error.default.error_beam_diagnostic: Stage-1 Ruze power diagnostics v1 require an unobstructed pupil; the resolved aperture physics declares a blockage.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_diagnostic_on_obstructed_pupil",
+      "input_sha256": "2308e165cc3c42c10ec3226e15679aafc53be24fda8051e3d88f65b26dd6612b",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_diagnostic_unsupported_precision",
+      "config_path": "beams.surface_error.default.error_beam_diagnostic",
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.ruze_power_diagnostic.unsupported_precision",
+      "exact_message": "beams.surface_error.default.error_beam_diagnostic: Ruze power diagnostics support only float32/complex64 and float64/complex128 beam precision.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_diagnostic_unsupported_precision",
+      "input_sha256": "5fce28ab26eb84bb7707ed3cf8379fe4a6a10171f955e66cd1d67cc198cf2be3",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_identity_aperture_block",
+      "config_path": "beams.aperture_physics",
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.aperture_physics.identity_block",
+      "exact_message": "beams.aperture_physics: requires at least one effective blockage or zernike_surface child; an aperture block with neither has no effect",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_identity_aperture_block",
+      "input_sha256": "77dea3422d95b38c194c4477649ea7b65301b14cecef7d9fb336d1df48eddf66",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_unsupported_gaussian_pupil",
+      "config_path": "beams.aperture_physics",
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.aperture_physics.unsupported_pupil_profile",
+      "exact_message": "beams.aperture_physics: Stage-1 aperture physics requires a canonical circular pupil; resolved model 'circular_aperture' with taper 'gaussian' has no supported v1 profile.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_unsupported_gaussian_pupil",
+      "input_sha256": "092184107cfd943d457b41890b124ab47d606bea9bec05a9fa0dc35babf61ac7",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_zernike_reserved_piston",
+      "config_path": "beams.aperture_physics.zernike_surface.modes[0]",
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.aperture_physics.zernike_mode_reserved",
+      "exact_message": "beams.aperture_physics.zernike_surface.modes[0]: piston (0, 0) and tip/tilt (1, -1) and (1, 1) are already owned by instrumental delay and deterministic pointing",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_zernike_reserved_piston",
+      "input_sha256": "fc814a66d0a63fe615d661ac39d5b843fa70b9af975e4febff25ac35e80748a6",
+      "passed": true
+    }
+  ],
+  "backend_parity": [
+    {
+      "case_id": "healpix_blockage",
+      "backend": "dask",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "45d77cc00755ab1d58aa34b30299418cbba28bd7505359412c3ec6d230c2b732",
+      "reference_result_sha256": "f1fafaaeec0865e2e9dc76c7140b48c9b1753f4317648565eaae9ac18469b617",
+      "observed_result_sha256": "f1fafaaeec0865e2e9dc76c7140b48c9b1753f4317648565eaae9ac18469b617",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "healpix_blockage",
+      "backend": "jax",
+      "actual_device": "cpu:0",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "b8dedace8ecdc9e6229da18816cc63e855cfb73d23a7cbfe458845f3eb8ef6fd",
+      "reference_result_sha256": "f1fafaaeec0865e2e9dc76c7140b48c9b1753f4317648565eaae9ac18469b617",
+      "observed_result_sha256": "f16a84abcf7656ff0266697aba216cda244f7670fe8fe38e1df9357207fed2ba",
+      "max_abs_difference": 2.47198095326695e-17,
+      "max_rel_difference": 1.8020861205534552e-14,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "healpix_blockage",
+      "backend": "numpy",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "5c7127cc5d579f4fb5cbdd7735c243dee644a421d398d8b76969ae083ae0c097",
+      "reference_result_sha256": "f1fafaaeec0865e2e9dc76c7140b48c9b1753f4317648565eaae9ac18469b617",
+      "observed_result_sha256": "f1fafaaeec0865e2e9dc76c7140b48c9b1753f4317648565eaae9ac18469b617",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "point_blockage",
+      "backend": "dask",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "6944ac9b1c193c8b1277bc73c588df30a4302649f3d3bb21e9fa76475e0a2903",
+      "reference_result_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "observed_result_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "point_blockage",
+      "backend": "jax",
+      "actual_device": "cpu:0",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "84c47296403a1508e09ed5e00cfbae80746dbf9b0130b18916935436280a92a6",
+      "reference_result_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "observed_result_sha256": "cbb838a89d47b8baa8cf361e48b14b137a03ee0c75388f0802b8f468c27d3173",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "point_blockage",
+      "backend": "numpy",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "9fec21a7c5741aeed798c57f3e5167b418d974a8941a94199122e8e6428fe74e",
+      "reference_result_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "observed_result_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    }
+  ],
+  "solver_cases": [
+    {
+      "case_id": "blockage_healpix",
+      "effect": "blockage",
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_aperture_block_changes_the_visibilities[blockage-healpix]",
+      "input_sha256": "21136c32d5d4d2d2a8c85f6e826d41027137c14a17e2a02ff2e3b78630a3ea07",
+      "jones_sha256": "0ada9d3f56dc34879607cef36b3217e96d3fbd6a0a0a1f35eea67ba2ea954697",
+      "visibility_sha256": "f1fafaaeec0865e2e9dc76c7140b48c9b1753f4317648565eaae9ac18469b617",
+      "diagnostic_sha256": null,
+      "jones_call_count": 6,
+      "visibility_changed_element_count": 36,
+      "visibility_change_expected": true,
+      "passed": true
+    },
+    {
+      "case_id": "blockage_point",
+      "effect": "blockage",
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_aperture_block_changes_the_visibilities[blockage-point]",
+      "input_sha256": "4103231b1763274043abfb9c2d2875fc35bb6c8f371eaa9b6bb018be89435eb7",
+      "jones_sha256": "0ada9d3f56dc34879607cef36b3217e96d3fbd6a0a0a1f35eea67ba2ea954697",
+      "visibility_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "diagnostic_sha256": null,
+      "jones_call_count": 6,
+      "visibility_changed_element_count": 36,
+      "visibility_change_expected": true,
+      "passed": true
+    },
+    {
+      "case_id": "ruze_coherent_voltage_point",
+      "effect": "ruze_coherent_voltage",
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_the_coherent_ruze_term_still_scales_cross_baseline_visibilities",
+      "input_sha256": "688b385ae11df3054883ce5a755aa5a0bdbeb2e2d577a46d3500e4de163a17c0",
+      "jones_sha256": "b2035f0fa3a47403dd817d659d56f6023cadce685b8c461618e2104db5a0e9db",
+      "visibility_sha256": "ff390092e77046022efb4753bd4a3e448cad781042d6e09e3fdc35545c806c53",
+      "diagnostic_sha256": null,
+      "jones_call_count": 6,
+      "visibility_changed_element_count": 12,
+      "visibility_change_expected": true,
+      "passed": true
+    },
+    {
+      "case_id": "ruze_power_diagnostic_non_visibility",
+      "effect": "ruze_power_diagnostic_non_visibility",
+      "test_node_id": "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_requesting_the_diagnostic_never_calls_or_changes_evaluate_jones",
+      "input_sha256": "a7e3c60d36a1b268c67930571bceee7efbfae33d3ee57ba8fd4fbbf0c00fa37e",
+      "jones_sha256": "b2035f0fa3a47403dd817d659d56f6023cadce685b8c461618e2104db5a0e9db",
+      "visibility_sha256": "f5b9da94ba25e3eb3a7dc1702e2c6480323a085fa9c73792430c1b6e00fb1586",
+      "diagnostic_sha256": "20b81a24c3b28d04d88fa01d456637c090bb46de0d6b8770bbd1732a469091ae",
+      "jones_call_count": 0,
+      "visibility_changed_element_count": 0,
+      "visibility_change_expected": false,
+      "passed": true
+    },
+    {
+      "case_id": "zernike_healpix",
+      "effect": "zernike",
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_aperture_block_changes_the_visibilities[zernike-healpix]",
+      "input_sha256": "96fd1372fedb9fc8a02d61613dacc36ce94c2cf4ffbc471d4cacb00033272682",
+      "jones_sha256": "e472d0044d183284b1e60b9eafd436c5af108e73acb32533956ca5f5eb649f26",
+      "visibility_sha256": "ba05ffe20f69a851b6c70c0835429d69d8be3cd4ff119d6f7c6aa34d8f022fb3",
+      "diagnostic_sha256": null,
+      "jones_call_count": 6,
+      "visibility_changed_element_count": 36,
+      "visibility_change_expected": true,
+      "passed": true
+    },
+    {
+      "case_id": "zernike_point",
+      "effect": "zernike",
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_aperture_block_changes_the_visibilities[zernike-point]",
+      "input_sha256": "c47846eac74d27af7f26688d79255ad2d0672eb276a7f81c5988df5ce00a6494",
+      "jones_sha256": "e472d0044d183284b1e60b9eafd436c5af108e73acb32533956ca5f5eb649f26",
+      "visibility_sha256": "5d2caef0fb6191bb3e35d999995e36f6514fa59870806f3291fbc57d21fa83fc",
+      "diagnostic_sha256": null,
+      "jones_call_count": 6,
+      "visibility_changed_element_count": 36,
+      "visibility_change_expected": true,
+      "passed": true
+    }
+  ],
+  "output_cases": [
+    {
+      "case_id": "hdf5_blockage",
+      "format": "hdf5",
+      "writer_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_block_survives_the_whole_save_and_reload_path",
+      "reader_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_block_survives_the_whole_save_and_reload_path",
+      "artifact_sha256": "f97b30524eeeda5d80aa8a255911cbe42b9b24f9c4e71360aac565b1eb52b869",
+      "in_memory_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "observed_projection_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 1e-12,
+      "passed": true
+    },
+    {
+      "case_id": "in_memory_blockage",
+      "format": "in_memory",
+      "writer_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_aperture_block_changes_the_visibilities[blockage-point]",
+      "reader_test_node_id": null,
+      "artifact_sha256": null,
+      "in_memory_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "observed_projection_sha256": "4615e5c65f498c652a486f0a7359ea47f081f7d0ea9099754a97a7d803db662b",
+      "roundtrip_max_abs_difference": null,
+      "tolerance": null,
+      "passed": true
+    },
+    {
+      "case_id": "summary_json_blockage",
+      "format": "summary_json",
+      "writer_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_block_survives_the_whole_save_and_reload_path",
+      "reader_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_block_survives_the_whole_save_and_reload_path",
+      "artifact_sha256": "766af7dcf76623bb22cbe37e49df9d7a578ed9a90c20218a9dee59d58614e8e2",
+      "in_memory_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "observed_projection_sha256": "4a30ae7e0b88cac383021c62cb63e1a5c528cbcfa641028a9bedac90cfff7d61",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 1e-12,
+      "passed": true
+    }
+  ],
+  "fingerprint_diff": [
+    {
+      "environment": "default",
+      "workload": "healpix_absent_default",
+      "old_scientific_sha256": "553b1170048fe33829337559539975ddaccfffc0ee211377b076666823e6a394",
+      "new_scientific_sha256": "553b1170048fe33829337559539975ddaccfffc0ee211377b076666823e6a394",
+      "old_raw_cube_sha256": "e29264ad4510f7ad80b95a29bf466486e3c46cfa5fa804542c8b4e3e38214dbe",
+      "new_raw_cube_sha256": "e29264ad4510f7ad80b95a29bf466486e3c46cfa5fa804542c8b4e3e38214dbe",
+      "changed_element_count": 0,
+      "maximum_delta": 0.0,
+      "change_expected": false,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_absent_block_leaves_configuration_fingerprints_and_bytes_untouched[healpix]",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "point_absent_default",
+      "old_scientific_sha256": "7589adb434f6e2e03a5799be401a889dc82cd6014ef7f79f8a92b61885aa2292",
+      "new_scientific_sha256": "7589adb434f6e2e03a5799be401a889dc82cd6014ef7f79f8a92b61885aa2292",
+      "old_raw_cube_sha256": "bc74796b02234bc148314c6c328bb67ec6c3dfdeb777a97060564f3fd687c220",
+      "new_raw_cube_sha256": "bc74796b02234bc148314c6c328bb67ec6c3dfdeb777a97060564f3fd687c220",
+      "changed_element_count": 0,
+      "maximum_delta": 0.0,
+      "change_expected": false,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_absent_block_leaves_configuration_fingerprints_and_bytes_untouched[point]",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "point_blockage_enabled",
+      "old_scientific_sha256": "7589adb434f6e2e03a5799be401a889dc82cd6014ef7f79f8a92b61885aa2292",
+      "new_scientific_sha256": "4615e5c65f498c652a486f0a7359ea47f081f7d0ea9099754a97a7d803db662b",
+      "old_raw_cube_sha256": "bc74796b02234bc148314c6c328bb67ec6c3dfdeb777a97060564f3fd687c220",
+      "new_raw_cube_sha256": "0814734851b887ef9b6ec43d94ba893202cf6ad53ea6b7449921e4496de0a0bb",
+      "changed_element_count": 36,
+      "maximum_delta": 0.00937094657209409,
+      "change_expected": true,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_aperture_block_changes_the_visibilities[blockage-point]",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "point_diagnostic_enabled",
+      "old_scientific_sha256": "6aa02864faff66cc94b16ed88289973283e1f148665f81c0b203773a211aa2a3",
+      "new_scientific_sha256": "ba608529212ba94d6fac8a642219cc7ac19d10b1285331ed2f797a62c5573932",
+      "old_raw_cube_sha256": "f5b9da94ba25e3eb3a7dc1702e2c6480323a085fa9c73792430c1b6e00fb1586",
+      "new_raw_cube_sha256": "f5b9da94ba25e3eb3a7dc1702e2c6480323a085fa9c73792430c1b6e00fb1586",
+      "changed_element_count": 0,
+      "maximum_delta": 0.0,
+      "change_expected": true,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_the_power_diagnostic_changes_the_fingerprint_but_no_visibility",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "point_zernike_enabled",
+      "old_scientific_sha256": "7589adb434f6e2e03a5799be401a889dc82cd6014ef7f79f8a92b61885aa2292",
+      "new_scientific_sha256": "b7f5790362e2edd7c1bf43315ca349ea9188dbca8b77729daeaa49161e6a4055",
+      "old_raw_cube_sha256": "bc74796b02234bc148314c6c328bb67ec6c3dfdeb777a97060564f3fd687c220",
+      "new_raw_cube_sha256": "5d2caef0fb6191bb3e35d999995e36f6514fa59870806f3291fbc57d21fa83fc",
+      "changed_element_count": 36,
+      "maximum_delta": 0.0002952825072006912,
+      "change_expected": true,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_aperture_block_changes_the_visibilities[zernike-point]",
+      "passed": true
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "/opt/homebrew/bin/pixi",
+        "run",
+        "--platform",
+        "osx-64",
+        "--locked",
+        "test",
+        "--",
+        "tests/unit/test_io/test_sci005_beam_config.py",
+        "tests/unit/test_core/test_sci005_aperture_physics.py",
+        "tests/unit/test_core/test_sci005_ruze_diagnostic.py",
+        "tests/integration/test_sci005_beam_physics.py",
+        "tests/unit/test_sci005_stage1_dependency.py",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage1_acceptance.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:03:52Z",
+      "duration_seconds": 46.187,
+      "exit_code": 0,
+      "stdout_sha256": "ea877ee7a0092b216effa3d5505ec66e8645c87cf0894ac8a9b4617b29ff2338",
+      "stderr_sha256": "7c9d13ad4af63b95bf622647c0a7e317af8fa5c83d72f4db902c7f467355b3ba"
+    },
+    {
+      "argv": [
+        "/opt/homebrew/bin/pixi",
+        "run",
+        "--platform",
+        "osx-64",
+        "--locked",
+        "lint"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:04:38Z",
+      "duration_seconds": 0.245,
+      "exit_code": 0,
+      "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "stderr_sha256": "a5ed82e076a36ad1de6d260555c1ed9189657fd19d36cc4059afd7c719d17c2e"
+    },
+    {
+      "argv": [
+        "/opt/homebrew/bin/pixi",
+        "run",
+        "--platform",
+        "osx-64",
+        "--locked",
+        "check-format"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:04:39Z",
+      "duration_seconds": 0.188,
+      "exit_code": 0,
+      "stdout_sha256": "fb4be7333d41539def0a8a7662d9037c5f70b7e4975b078cf3f793cc4314a12f",
+      "stderr_sha256": "171723592ebbb6edf36d0fd41fb6754cc61ae4f8d1afe9da7266f524aa5be57b"
+    },
+    {
+      "argv": [
+        "/opt/homebrew/bin/pixi",
+        "run",
+        "--platform",
+        "osx-64",
+        "--locked",
+        "doctest"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:04:39Z",
+      "duration_seconds": 11.328,
+      "exit_code": 0,
+      "stdout_sha256": "04ce29065c7268128cbc02ae8e96fa8598bc904fde4a00277fa4fbce40920937",
+      "stderr_sha256": "1298f4700f18360e18c373d9d650551261d2d74a3e98725bf6552434eb633ebb"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/development/sci005_beam_physics_plan.md",
+      "sha256": "ab308351d78f48c169aeca3458fe783a48f1a215653f275eb57b9d9dbc92129f",
+      "media_type": "text/markdown",
+      "role": "auxiliary"
+    },
+    {
+      "path": "docs/development/sci005_stage1_evidence.schema.json",
+      "sha256": "e76059cb759b8c7f49658174f06570296aca1c61372f6a4f67b1365893d747d5",
+      "media_type": "application/schema+json",
+      "role": "schema"
+    },
+    {
+      "path": "src/radiosim/core/beam/aperture.py",
+      "sha256": "640809539e5feeb5e7bf50c73cf969ec68bd168468cb8f2e6a796c2d51d414fa",
+      "media_type": "text/x-python",
+      "role": "auxiliary"
+    },
+    {
+      "path": "tools/sci005_stage_evidence.py",
+      "sha256": "8dd46b8d25acd8d65d2c6264c9841a274aac35ee431bfa3ad33e1f78bb8be320",
+      "media_type": "text/x-python",
+      "role": "auxiliary"
+    }
+  ],
+  "limitations": [
+    "Backend parity covers the CPU-only JAX build and Dask over NumPy; no accelerator device was exercised, consistent with PERF-001.",
+    "Config-case and rejection-probe input digests are taken over the canonicalized document, with the volatile temporary workspace prefix replaced by the literal <workspace>, so each digest names the scientific input rather than the host path.",
+    "The retained commands are the Stage-1 focused pytest module set, ruff lint, ruff format --check, and the docstring doctests; the remaining Section 9 gates (whole unit and integration suites, typecheck, the docs build, and the Tier-8 release acceptance module) are not retained here.",
+    "This record was measured and generated on macOS x86_64 under Rosetta 2 using the locked osx-64 environment, because Section 8.1's extended-width predicate is unsatisfiable on the project's default osx-arm64 environment where NumPy longdouble aliases float64 and complex256 does not exist."
+  ],
+  "claims_not_licensed": [
+    "SCI-005 Stage-1 acceptance",
+    "SCI-005 Stages 2 and 3",
+    "SCI-005 whole-row closure",
+    "a GPU or accelerator performance claim",
+    "a deterministic Ruze Jones or error voltage"
+  ],
+  "pupil_profiles": [
+    {
+      "case_id": "circular_parabolic_12db",
+      "model_kind": "circular_aperture",
+      "taper_kind": "parabolic",
+      "edge_taper_db": 12.0,
+      "mixture_weight": 0.251188643150958,
+      "profile_convention": "pU_plus_one_minus_p_P",
+      "hankel_convention": "weighted_linear_combination",
+      "outcome": "accepted",
+      "exception_type": null,
+      "issue_code": null,
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_supported_profiles_reproduce_their_normalized_hankel_transform",
+      "max_abs_residual": 2.6020852139652106e-17,
+      "tolerance": 1.01e-10
+    },
+    {
+      "case_id": "circular_parabolic_squared_12db",
+      "model_kind": "circular_aperture",
+      "taper_kind": "parabolic_squared",
+      "edge_taper_db": 12.0,
+      "mixture_weight": 0.251188643150958,
+      "profile_convention": "pU_plus_one_minus_p_P2",
+      "hankel_convention": "weighted_linear_combination",
+      "outcome": "accepted",
+      "exception_type": null,
+      "issue_code": null,
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_supported_profiles_reproduce_their_normalized_hankel_transform",
+      "max_abs_residual": 1.1492543028346347e-17,
+      "tolerance": 1.01e-10
+    },
+    {
+      "case_id": "circular_uniform",
+      "model_kind": "circular_aperture",
+      "taper_kind": "uniform",
+      "edge_taper_db": null,
+      "mixture_weight": null,
+      "profile_convention": "U",
+      "hankel_convention": "two_J1_over_x",
+      "outcome": "accepted",
+      "exception_type": null,
+      "issue_code": null,
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_supported_profiles_reproduce_their_normalized_hankel_transform",
+      "max_abs_residual": 7.28583859910259e-17,
+      "tolerance": 1.01e-10
+    },
+    {
+      "case_id": "rejected_circular_cosine",
+      "model_kind": "circular_aperture",
+      "taper_kind": "cosine",
+      "edge_taper_db": null,
+      "mixture_weight": null,
+      "profile_convention": null,
+      "hankel_convention": null,
+      "outcome": "rejected",
+      "exception_type": "ConfigSchemaError",
+      "issue_code": "extra_forbidden",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_circular_cosine",
+      "max_abs_residual": null,
+      "tolerance": null
+    },
+    {
+      "case_id": "rejected_circular_gaussian",
+      "model_kind": "circular_aperture",
+      "taper_kind": "gaussian",
+      "edge_taper_db": null,
+      "mixture_weight": null,
+      "profile_convention": null,
+      "hankel_convention": null,
+      "outcome": "rejected",
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.aperture_physics.unsupported_pupil_profile",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_circular_gaussian",
+      "max_abs_residual": null,
+      "tolerance": null
+    },
+    {
+      "case_id": "rejected_elliptical_aperture",
+      "model_kind": "elliptical_aperture",
+      "taper_kind": null,
+      "edge_taper_db": null,
+      "mixture_weight": null,
+      "profile_convention": null,
+      "hankel_convention": null,
+      "outcome": "rejected",
+      "exception_type": "ConfigSchemaError",
+      "issue_code": "missing",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_elliptical_aperture",
+      "max_abs_residual": null,
+      "tolerance": null
+    },
+    {
+      "case_id": "rejected_rectangular_aperture",
+      "model_kind": "rectangular_aperture",
+      "taper_kind": null,
+      "edge_taper_db": null,
+      "mixture_weight": null,
+      "profile_convention": null,
+      "hankel_convention": null,
+      "outcome": "rejected",
+      "exception_type": "ConfigSchemaError",
+      "issue_code": "missing",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::rejected_rectangular_aperture",
+      "max_abs_residual": null,
+      "tolerance": null
+    }
+  ],
+  "support_masks": [
+    {
+      "case_id": "leg_000_north",
+      "diameter_m": 14.0,
+      "central_diameter_ratio": 0.2,
+      "legs": [
+        {
+          "position_angle_deg": 0.0,
+          "width_m": 1.2
+        }
+      ],
+      "probes": [
+        {
+          "north_m": 4.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": -4.0,
+          "east_m": 0.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 4.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": -4.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": 6.0,
+          "east_m": 6.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        }
+      ],
+      "union_control_id": "legs_overlapping_union",
+      "antipodal_control_id": "leg_180_south_antipodal",
+      "topology_sha256": "a720dc87df1d4f52dbe8d003ff3f35f24c6d58f7965191798526eadf5094a7f1",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_a_support_leg_is_one_outward_half_strip_not_a_chord",
+      "passed": true
+    },
+    {
+      "case_id": "leg_090_east",
+      "diameter_m": 14.0,
+      "central_diameter_ratio": 0.2,
+      "legs": [
+        {
+          "position_angle_deg": 90.0,
+          "width_m": 1.2
+        }
+      ],
+      "probes": [
+        {
+          "north_m": 4.0,
+          "east_m": 0.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 4.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": 0.0,
+          "east_m": -4.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": -4.0,
+          "east_m": 0.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": 6.0,
+          "east_m": 6.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        }
+      ],
+      "union_control_id": "legs_overlapping_union",
+      "antipodal_control_id": "leg_180_south_antipodal",
+      "topology_sha256": "5f27da6921ac9c2bcc0089ce7e3c0eab2462770bdd5f61c4fe43677bfcf3e022",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_a_support_leg_is_one_outward_half_strip_not_a_chord",
+      "passed": true
+    },
+    {
+      "case_id": "leg_180_south_antipodal",
+      "diameter_m": 14.0,
+      "central_diameter_ratio": 0.2,
+      "legs": [
+        {
+          "position_angle_deg": 180.0,
+          "width_m": 1.2
+        }
+      ],
+      "probes": [
+        {
+          "north_m": -4.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": 4.0,
+          "east_m": 0.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 4.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": -4.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": 6.0,
+          "east_m": 6.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        }
+      ],
+      "union_control_id": "legs_overlapping_union",
+      "antipodal_control_id": "leg_180_south_antipodal",
+      "topology_sha256": "5595981e124a2ad627e73f89713e975792464e33d6aa72394f1988c13bca1124",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_a_support_leg_is_one_outward_half_strip_not_a_chord",
+      "passed": true
+    },
+    {
+      "case_id": "legs_000_and_180_pair",
+      "diameter_m": 14.0,
+      "central_diameter_ratio": 0.2,
+      "legs": [
+        {
+          "position_angle_deg": 0.0,
+          "width_m": 1.2
+        },
+        {
+          "position_angle_deg": 180.0,
+          "width_m": 1.2
+        }
+      ],
+      "probes": [
+        {
+          "north_m": 4.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": -4.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 4.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": -4.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": 6.0,
+          "east_m": 6.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        }
+      ],
+      "union_control_id": "legs_overlapping_union",
+      "antipodal_control_id": "leg_180_south_antipodal",
+      "topology_sha256": "64ca46f3b7d9ec62a407d5a878edc49d00d1fee6f25d75e14ea426926ca2a97a",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_a_support_leg_is_one_outward_half_strip_not_a_chord",
+      "passed": true
+    },
+    {
+      "case_id": "legs_overlapping_union",
+      "diameter_m": 14.0,
+      "central_diameter_ratio": 0.2,
+      "legs": [
+        {
+          "position_angle_deg": 0.0,
+          "width_m": 1.2
+        },
+        {
+          "position_angle_deg": 10.0,
+          "width_m": 1.2
+        }
+      ],
+      "probes": [
+        {
+          "north_m": 4.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": 4.0,
+          "east_m": 0.5,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": -4.0,
+          "east_m": 0.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 4.0,
+          "expected_transmitting": true,
+          "observed_transmitting": true
+        },
+        {
+          "north_m": 0.0,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        },
+        {
+          "north_m": 6.9,
+          "east_m": 0.0,
+          "expected_transmitting": false,
+          "observed_transmitting": false
+        }
+      ],
+      "union_control_id": "legs_overlapping_union",
+      "antipodal_control_id": "leg_180_south_antipodal",
+      "topology_sha256": "0078add8731f1c4a13b775346e670242a28f4d333e097df02c0bff0513bb0af2",
+      "test_node_id": "tests/unit/test_core/test_sci005_aperture_physics.py::test_a_support_leg_is_one_outward_half_strip_not_a_chord",
+      "passed": true
+    }
+  ],
+  "ruze_power_diagnostics": [
+    {
+      "case_id": "uniform_pupil_defocus_oracle",
+      "resolved_aperture_scientific_sha256": "97b1f28e1bbc90d00e9b1d604ac07dee861fd885ccc5907f46e36f0a7e03937d",
+      "diagnostic": {
+        "schema_version": "radiosim.ruze_power_diagnostic.v1",
+        "method": "poisson_paired_pupil_separation_v1",
+        "covariance_convention": "gaussian_one_over_e_surface_covariance_v1",
+        "normalization_convention": "unmodified_ideal_aperture_v1",
+        "antenna_id": {
+          "number": 0,
+          "name": "ANT0"
+        },
+        "frequency_hz": 100000000.0,
+        "time_mjd": 60000.0,
+        "rms_surface_error_m": 0.02,
+        "correlation_length_m": 2.0,
+        "altitude_rad": {
+          "dtype": "float64",
+          "shape": [
+            3
+          ],
+          "c_order_sha256": "43335258785b28c0f6c37eb0c77693113178ff61a58389d15e6a0486c6f3f774",
+          "minimum": 0.4,
+          "maximum": 1.2
+        },
+        "azimuth_rad": {
+          "dtype": "float64",
+          "shape": [
+            3
+          ],
+          "c_order_sha256": "7ac2fa84e29bded96c7ebdd70c79c4f52a099171d76a8043f6a2b4105b072d2b",
+          "minimum": 0.4,
+          "maximum": 4.0
+        },
+        "coherent_main_power": {
+          "dtype": "float64",
+          "shape": [
+            3
+          ],
+          "c_order_sha256": "73204c789e2e6679f5db4c531af03e3194a78f7614dfe65e04b789acd3ec3be1",
+          "minimum": 1.3255341679719641e-05,
+          "maximum": 0.017188184605982364
+        },
+        "total_ensemble_power": {
+          "dtype": "float64",
+          "shape": [
+            3
+          ],
+          "c_order_sha256": "48568e1b7d5107eda626d8b462fef73fe3e34be6169d8b5afe36a35515f508f9",
+          "minimum": 5.854368672919045e-05,
+          "maximum": 0.01747307501824673
+        },
+        "scattered_power": {
+          "dtype": "float64",
+          "shape": [
+            3
+          ],
+          "c_order_sha256": "b5347437f8158774aa442d6782770976f21a7292249d220e415503b5f9139dfe",
+          "minimum": 2.0310935603965725e-05,
+          "maximum": 0.0002848904122643681
+        },
+        "convergence": {
+          "real_dtype": "float64",
+          "complex_dtype": "complex128",
+          "poisson_mu": 0.007028106169663435,
+          "poisson_first_order": 1,
+          "poisson_last_order": 5,
+          "poisson_term_count": 5,
+          "poisson_lower_omitted_mass": 0.0,
+          "poisson_upper_omitted_mass": 1.6637241450320704e-16,
+          "poisson_total_omitted_mass": 1.6637241450320704e-16,
+          "poisson_retained_weight_sum": 0.0070034667880182295,
+          "separation_cut_m": 10.901460940187492,
+          "separation_omitted_bound": 1.24999999999999e-13,
+          "separation_radial_order": 548,
+          "separation_angular_order_max": 512,
+          "separation_node_count": 169408,
+          "separation_evaluation_count": 392256,
+          "separation_penultimate_max_abs_delta": 2.7755575615628914e-17,
+          "separation_final_max_abs_delta": 2.7755575615628914e-17,
+          "separation_imaginary_max_abs_residual": 1.806094732432846e-18,
+          "separation_topology_sha256": "0bc8139b3604434f4f8ae627f18fc0eddc0efb965103bb7bef20cb583805a0f5",
+          "aperture_method": "boundary_fitted_polar_gauss_legendre_v1",
+          "aperture_partition_count": 1,
+          "aperture_topology_breakpoint_count": 2,
+          "aperture_topology_sha256": "3dc9ede4e449eff69da8d01c1a4a1049548617aee52066a99122a0c39045eb7a",
+          "aperture_refinement_count": 8,
+          "aperture_max_node_count": 158400,
+          "aperture_penultimate_max_abs_delta": 3.2166477725102617e-13,
+          "aperture_final_max_abs_delta": 8.527442884100489e-14,
+          "aperture_q_max": 13.512807694363705,
+          "surface_phase_kappa": 4.191690043903364,
+          "surface_radial_derivative_bound": 0.13856406460551018,
+          "surface_angular_derivative_bound": 0.0,
+          "fhat_evaluation_count": 27,
+          "phase_product_count": 3620112580,
+          "batch_size": 128,
+          "atol": 1e-12,
+          "rtol": 1e-10,
+          "estimated_peak_bytes": 2634508000,
+          "maximum_abs_e_deterministic": 0.13156523282178847,
+          "minimum_scattered_power": 2.0310935603965725e-05,
+          "maximum_total_power": 0.01747307501824673,
+          "returned_balance_max_abs_residual": 0.0
+        }
+      },
+      "direct_pair_oracle": {
+        "test_node_id": "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_small_node_pair_oracle_agrees_with_the_poisson_separation_result",
+        "aperture_node_count": 2048,
+        "direction_count": 3,
+        "max_abs_residual": 4.5102810375396984e-17,
+        "tolerance": 2.7473075018246684e-12
+      },
+      "limit_oracles": [
+        {
+          "kind": "asymmetric_phase",
+          "test_node_id": "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_the_deterministic_phase_enters_the_ensemble_average",
+          "input_sha256": "dc7fcb4b79dfc7ae6105918e3b72a984dcdee6987c5670e9a6d045698127a56e",
+          "max_abs_residual": 1.3877787807814457e-17,
+          "tolerance": 2.3461937583380196e-12
+        },
+        {
+          "kind": "covariance_only_counterexample",
+          "test_node_id": "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_a_covariance_matched_non_gaussian_field_breaks_the_kernel",
+          "input_sha256": "8c7cd02183d036bfe0ad2ada17b54b9916b6c173589af4380b13be809e312a5d",
+          "max_abs_residual": 1.1102230246251565e-16,
+          "tolerance": 1e-12
+        },
+        {
+          "kind": "entire_plane_shift",
+          "test_node_id": "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_whole_plane_separation_coverage_avoids_the_sky_domain_gate",
+          "input_sha256": "c9ba3708940dbad57cecf1f88448533976a953c6a3557691d908ba9708d9176e",
+          "max_abs_residual": 1.7763568394002505e-15,
+          "tolerance": 1.3522807694363704e-09
+        },
+        {
+          "kind": "gaussian_characteristic_function",
+          "test_node_id": "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_the_jointly_gaussian_characteristic_function_licenses_the_kernel",
+          "input_sha256": "46e5002474616e36f46f8dc857131b90d0989a2fc5a9daae3197958b419b6d8a",
+          "max_abs_residual": 2.220446049250313e-16,
+          "tolerance": 1.01e-10
+        },
+        {
+          "kind": "infinite_correlation_length",
+          "test_node_id": "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_infinite_correlation_length_gives_the_closed_scattered_identity",
+          "input_sha256": "74279ef58adfd8a57860a965cd20d92627c575a28458e63ccf50c6101d77679a",
+          "max_abs_residual": 2.8053731213062427e-18,
+          "tolerance": 1.0121225881469043e-12
+        },
+        {
+          "kind": "mu_first_order",
+          "test_node_id": "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_a_vanishing_mu_resolves_the_frozen_zero_term_poisson_case",
+          "input_sha256": "527060d8d1ba6f981bfd2d071f4cf8a8a0e5fcefdfc973d7a7306e03ba7ae966",
+          "max_abs_residual": 0.0,
+          "tolerance": 1e-12
+        }
+      ],
+      "test_node_ids": [
+        "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_every_frozen_resource_cap_is_respected_by_the_shipped_fixture",
+        "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_frozen_diagnostic_fields_types_and_literals",
+        "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_power_balance_is_exact_in_the_result_dtype_without_clipping",
+        "tests/unit/test_core/test_sci005_ruze_diagnostic.py::test_small_node_pair_oracle_agrees_with_the_poisson_separation_result"
+      ]
+    }
+  ]
+}

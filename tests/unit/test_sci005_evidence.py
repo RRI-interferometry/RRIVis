@@ -43,8 +43,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 # fmt: off
 # The flipped 64-hex literals exceed the format line limit by design;
 # Section 7.5's substitution is byte-exact and must not be rewrapped.
-APPROVED_STAGE1_SOURCE_SHA: str | None = None
-APPROVED_STAGE1_EVIDENCE_ARTIFACT_SHA256: str | None = None
+APPROVED_STAGE1_SOURCE_SHA: str | None = "881b1a963b4f3b250b38989335c2ee0ea2a491bd"
+APPROVED_STAGE1_EVIDENCE_ARTIFACT_SHA256: str | None = "4a0c8e96c275bad2bfd84535940a075b4c219c39b705ddada23de16ded85a2c4"
 APPROVED_STAGE2_SOURCE_SHA: str | None = None
 APPROVED_STAGE2_EVIDENCE_ARTIFACT_SHA256: str | None = None
 APPROVED_STAGE3_SOURCE_SHA: str | None = None
