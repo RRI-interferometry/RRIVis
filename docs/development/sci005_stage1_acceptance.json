@@ -1,0 +1,317 @@
+{
+  "schema_version": "radiosim.sci005.stage1-acceptance.v1",
+  "stage": 1,
+  "verdict": "ACCEPT",
+  "generated_at_utc": "2026-08-18T15:36:31Z",
+  "implementation_identity": "sci005-s1-implementer",
+  "reviewer_identity": "sci005-a1-reviewer",
+  "reviewer_independent": true,
+  "design_sha": "c6a5ce90ae3160150b1699f97b45bb693d4ed886",
+  "red_test_sha": "e246c5d1c092b5321dddfd9506bb1f2d3ae12365",
+  "source_sha": "881b1a963b4f3b250b38989335c2ee0ea2a491bd",
+  "evidence_commit_sha": "bbc2b1b4d16bce296c2b6f6597c7c180a70f0f7f",
+  "evidence_artifact_path": "docs/development/sci005_stage1_evidence.json",
+  "evidence_artifact_sha256": "4a0c8e96c275bad2bfd84535940a075b4c219c39b705ddada23de16ded85a2c4",
+  "evidence_schema_path": "docs/development/sci005_stage1_evidence.schema.json",
+  "evidence_schema_sha256": "e76059cb759b8c7f49658174f06570296aca1c61372f6a4f67b1365893d747d5",
+  "toolchain": {
+    "evidence_generator_path": "tools/sci005_stage_evidence.py",
+    "evidence_generator_git_blob": "64005d59fd8ce18bae4e39bb03276a60b4cf3bdb",
+    "evidence_validator_path": "tests/unit/test_sci005_evidence.py",
+    "evidence_validator_git_blob": "5f2017da439e7a42251b59b7241299ca4bbc7066",
+    "acceptance_generator_path": "tools/sci005_stage1_acceptance.py",
+    "acceptance_generator_git_blob": "cab626ee83e9b8af0d0deba0c613d116d6bee899",
+    "acceptance_validator_path": "tests/unit/test_sci005_stage1_acceptance.py",
+    "acceptance_validator_pre_a_git_blob": "4bb397918db51e890a26e4e6da9686ae072f1eac",
+    "acceptance_schema_path": "docs/development/sci005_stage1_acceptance.schema.json",
+    "acceptance_schema_sha256": "60ea24a44ada8fc9139d7e07189dcf48a024d10e2f20866fa5432e29fff75d66"
+  },
+  "acceptance_commit_sha": null,
+  "acceptance_commit_sha_reason": "self-reference: U1 binds the containing A1 commit",
+  "successor_unlocks": [
+    "SCI005.U1"
+  ],
+  "reviewed_artifacts": [
+    {
+      "path": "docs/development/sci005_beam_physics_plan.md",
+      "sha256": "ab308351d78f48c169aeca3458fe783a48f1a215653f275eb57b9d9dbc92129f",
+      "source_sha": "881b1a963b4f3b250b38989335c2ee0ea2a491bd",
+      "authenticated": true
+    },
+    {
+      "path": "docs/development/sci005_stage1_acceptance.schema.json",
+      "sha256": "60ea24a44ada8fc9139d7e07189dcf48a024d10e2f20866fa5432e29fff75d66",
+      "source_sha": "881b1a963b4f3b250b38989335c2ee0ea2a491bd",
+      "authenticated": true
+    },
+    {
+      "path": "docs/development/sci005_stage1_evidence.json",
+      "sha256": "4a0c8e96c275bad2bfd84535940a075b4c219c39b705ddada23de16ded85a2c4",
+      "source_sha": "881b1a963b4f3b250b38989335c2ee0ea2a491bd",
+      "authenticated": true
+    },
+    {
+      "path": "docs/development/sci005_stage1_evidence.schema.json",
+      "sha256": "e76059cb759b8c7f49658174f06570296aca1c61372f6a4f67b1365893d747d5",
+      "source_sha": "881b1a963b4f3b250b38989335c2ee0ea2a491bd",
+      "authenticated": true
+    },
+    {
+      "path": "src/radiosim/core/beam/aperture.py",
+      "sha256": "640809539e5feeb5e7bf50c73cf969ec68bd168468cb8f2e6a796c2d51d414fa",
+      "source_sha": "881b1a963b4f3b250b38989335c2ee0ea2a491bd",
+      "authenticated": true
+    },
+    {
+      "path": "tools/sci005_stage_evidence.py",
+      "sha256": "8dd46b8d25acd8d65d2c6264c9841a274aac35ee431bfa3ad33e1f78bb8be320",
+      "source_sha": "881b1a963b4f3b250b38989335c2ee0ea2a491bd",
+      "authenticated": true
+    }
+  ],
+  "rederived_oracles": [
+    {
+      "oracle_id": "blocked_aperture_transform",
+      "method": "Independent closed form e_eps(x)=2[J1(x)-eps*J1(eps*x)]/x (Sec. 3.2) via scipy.special.jv, D=14m, f=100MHz, eps in {0.1,0.15,0.3}, 5 directions, plus the e(0)=1-eps^2 boresight check; compared against BeamSystem.evaluate_jones (black box, no radiosim.core.beam.aperture import).",
+      "observed": 1.2212453270876722e-15,
+      "fixed_limit": 9.2e-11,
+      "units": "absolute residual",
+      "passed": true
+    },
+    {
+      "oracle_id": "ruze_limit_oracle",
+      "method": "L->infinity identity B_sc=(1-e^-mu)|e_det|^2 (Sec. 3.4.1): independent e_det via the fresh 96x384 polar quadrature and independent mu=(4*pi*rms/lambda)^2, compared against BeamSystem.evaluate_ruze_power_diagnostic at correlation_length_m=1e9, rms=0.02m, mode (2,0,0.02).",
+      "observed": 4.018324301774401e-18,
+      "fixed_limit": 1.0027188184605982e-09,
+      "units": "absolute residual",
+      "passed": true
+    },
+    {
+      "oracle_id": "ruze_pair_oracle",
+      "method": "Independent O(Q^2) pairwise double-sum evaluation of Sec. 3.4's displayed double integral (K_sc(delta)=exp(-mu)*exp(mu*exp(-|delta|^2/L^2))) over a 220x220 uniform Cartesian raster of the unit disk -- a different discretization from any polar Gauss-Legendre x trapezoid raster used in the repository's test suite, and no test-module import -- compared against BeamSystem.evaluate_ruze_power_diagnostic at L=2m, rms=0.02m, mode (2,0,0.02), 3 directions.",
+      "observed": 6.72597411444445e-06,
+      "fixed_limit": 0.0002,
+      "units": "absolute residual",
+      "passed": true
+    },
+    {
+      "oracle_id": "unmodified_profile_transform",
+      "method": "Independent closed forms 2J1(x)/x (uniform) and p*2J1(x)/x+(1-p)*8J2(x)/x^2 (12 dB parabolic taper, Sec. 3.1) via scipy.special.jv, compared against BeamSystem.evaluate_jones for circular_aperture uniform/parabolic tapers.",
+      "observed": 6.938893903907228e-17,
+      "fixed_limit": 1.01e-10,
+      "units": "absolute residual",
+      "passed": true
+    },
+    {
+      "oracle_id": "zernike_phase_transform",
+      "method": "Independent 96-radial x 384-angular polar quadrature (fresh Gauss-Legendre x trapezoid code, no radiosim.core.beam.aperture import) of Sec. 3.1's normalized aperture integral with a (2,0)+(3,1) Zernike surface phase, compared against BeamSystem.evaluate_jones; plus an independent sign-reversal conjugation check (h(-c)=-h(c) => phase(-c)=conj(phase(c))).",
+      "observed": 5.21974453187135e-16,
+      "fixed_limit": 9.847795992178585e-11,
+      "units": "absolute residual",
+      "passed": true
+    }
+  ],
+  "review_checks": [
+    {
+      "check_id": "artifact_authentication",
+      "method": "Computed raw-byte sha256 of docs/development/sci005_stage1_evidence.json and of all 4 files named in its artifacts[].path directly from the E1 (HEAD) worktree, and compared file size and digest to the values named in the acceptance task briefing (55254 bytes, 4a0c8e96c275bad2bfd84535940a075b4c219c39b705ddada23de16ded85a2c4).",
+      "expected_outcome": "all five sha256 digests and the 55254-byte size match exactly",
+      "observed_outcome": "all five sha256 digests and the 55254-byte size match exactly",
+      "passed": true
+    },
+    {
+      "check_id": "default_disabled_fingerprints",
+      "method": "Inspected evidence.fingerprint_diff rows workload=healpix_absent_default and point_absent_default; confirmed old_scientific_sha256==new_scientific_sha256, old_raw_cube_sha256==new_raw_cube_sha256, and changed_element_count=0 for both.",
+      "expected_outcome": "disabled/default fingerprints are byte-identical, changed_element_count 0",
+      "observed_outcome": "disabled/default fingerprints are byte-identical, changed_element_count 0",
+      "passed": true
+    },
+    {
+      "check_id": "diff_authority",
+      "method": "git show --stat / git diff --name-only for R1(e246c5d)->S1(881b1a9)->E1(bbc2b1b); confirmed E1 adds exactly docs/development/sci005_stage1_evidence.json and changes only APPROVED_STAGE1_SOURCE_SHA / APPROVED_STAGE1_EVIDENCE_ARTIFACT_SHA256 in tests/unit/test_sci005_evidence.py (None -> literal), matching Section 7.5's Ei rule.",
+      "expected_outcome": "E1 diff is exactly the new evidence JSON plus the two None->literal constant flips",
+      "observed_outcome": "E1 diff is exactly the new evidence JSON plus the two None->literal constant flips",
+      "passed": true
+    },
+    {
+      "check_id": "gate_replay",
+      "method": "From clean HEAD=E1, reran the Stage-1 focused 7-module pytest set, the full tests/unit/, the full tests/integration/, tests/characterization/ + test_tier8_release_acceptance.py, pixi run lint, pixi run check-format, pixi run doctest, and git diff --check (see commands[]).",
+      "expected_outcome": "every retained command exits 0",
+      "observed_outcome": "every retained command exits 0",
+      "passed": true
+    },
+    {
+      "check_id": "production_data_flow",
+      "method": "Read src/radiosim/core/beam/runtime.py BeamSystem.evaluate_ruze_power_diagnostic directly: it dispatches only to the private _evaluate_ruze_power_diagnostic helper and never touches evaluator_by_handler_id/evaluate_numpy. Independently confirmed at runtime by monkeypatching BeamSystem.evaluate_jones with a call-counting spy, then invoking evaluate_ruze_power_diagnostic on a beam with both aperture_physics and error_beam_diagnostic configured.",
+      "expected_outcome": "evaluate_jones call count is unchanged (0) before and after the diagnostic call",
+      "observed_outcome": "evaluate_jones call count is unchanged (0) before and after the diagnostic call",
+      "passed": true
+    },
+    {
+      "check_id": "typed_rejection",
+      "method": "Independently constructed, via the public config-resolution path (not evidence's own recorded strings), the blockage-ratio-domain, obstructed-diagnostic, and identity-aperture-block configs, caught the raised exceptions, and compared their exception_type/issue_code/exact message against evidence.rejection_probes.",
+      "expected_outcome": "ConfigSemanticError beam.aperture_physics.blockage_ratio_domain, UnsupportedConfigError beam.ruze_power_diagnostic.unsupported_obstruction, and ConfigSemanticError beam.aperture_physics.identity_block, each with Section 3.1/3.4.1's exact frozen message, matching evidence.rejection_probes",
+      "observed_outcome": "ConfigSemanticError beam.aperture_physics.blockage_ratio_domain, UnsupportedConfigError beam.ruze_power_diagnostic.unsupported_obstruction, and ConfigSemanticError beam.aperture_physics.identity_block, each with Section 3.1/3.4.1's exact frozen message, matching evidence.rejection_probes",
+      "passed": true
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/test_core/test_sci005_aperture_physics.py",
+        "tests/unit/test_core/test_sci005_ruze_diagnostic.py",
+        "tests/unit/test_io/test_sci005_beam_config.py",
+        "tests/unit/test_sci005_stage1_dependency.py",
+        "tests/integration/test_sci005_beam_physics.py",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage1_acceptance.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:31:02Z",
+      "duration_seconds": 28.914,
+      "exit_code": 0,
+      "stdout_sha256": "5b892c23e6f1fe9aa7c39bbf65d6edc65acee2caeac717d5e270e807b8bb5294",
+      "stderr_sha256": "524e9ac30c2c3aece19a0ded0b581a5cf0f8de8d938c8044b3b70127709a72e9"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "lint"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:31:30Z",
+      "duration_seconds": 0.226,
+      "exit_code": 0,
+      "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "stderr_sha256": "a5ed82e076a36ad1de6d260555c1ed9189657fd19d36cc4059afd7c719d17c2e"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "check-format"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:31:31Z",
+      "duration_seconds": 0.181,
+      "exit_code": 0,
+      "stdout_sha256": "fb4be7333d41539def0a8a7662d9037c5f70b7e4975b078cf3f793cc4314a12f",
+      "stderr_sha256": "171723592ebbb6edf36d0fd41fb6754cc61ae4f8d1afe9da7266f524aa5be57b"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "doctest"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:31:31Z",
+      "duration_seconds": 8.988,
+      "exit_code": 0,
+      "stdout_sha256": "2e834c16ea6e7bfc93e1707bba6664985dfc7d4466be5ca06b6389d3c5f1e003",
+      "stderr_sha256": "1298f4700f18360e18c373d9d650551261d2d74a3e98725bf6552434eb633ebb"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:31:40Z",
+      "duration_seconds": 127.751,
+      "exit_code": 0,
+      "stdout_sha256": "f3d059a9726eb7aa57a3c52aa3876cbbdb3259e590a62ea3d7ff09f766f6a094",
+      "stderr_sha256": "b87d6433c2cad286135065e50f61b45aeb0cd00353c0ca6323b1b9f1f2cab9cf"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/integration/",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:33:48Z",
+      "duration_seconds": 35.203,
+      "exit_code": 0,
+      "stdout_sha256": "791c41c5e8d43dde08a2c6186aa61b2c8334c963c6064429fdcfab989440ca3a",
+      "stderr_sha256": "04f8a8d4be40035e0c60dc78cb4dcd0c7a53c644ee713fe667dc0b4d7ef7afe5"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/characterization/",
+        "tests/unit/test_tier8_release_acceptance.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:34:23Z",
+      "duration_seconds": 19.965,
+      "exit_code": 0,
+      "stdout_sha256": "7e0fdceb226a11de573d8786c3b60027642a244ed575e6919fad86851f82a318",
+      "stderr_sha256": "95504ba4ed09d2de21b4ae1973922256e01687ca2bad393ea6854fdfc514e7cf"
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:34:43Z",
+      "duration_seconds": 0.64,
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "python",
+        "/private/tmp/claude-501/-Users-kartikmandar-MacProjects-RadioSim/bc773254-8287-40fc-a788-970e3f54a81e/scratchpad/a1_review/run_oracles.py"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-18T15:34:43Z",
+      "duration_seconds": 72.532,
+      "exit_code": 0,
+      "stdout_sha256": "46daff9369ec0c2587502d16bad256b4075f17aacdd37a51c3fd2f7ae1910119",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "blockers": [],
+  "accepted_limitations": [
+    "A1's independent ruze_pair_oracle uses a coarser fixed accuracy bound (2e-4) than production's converged quadrature tolerance because it is evaluated on an independent 220x220 uniform Cartesian raster rather than a boundary-fitted adaptive quadrature.",
+    "The extended-width complex256/float128 analytic-invariant rows in the evidence artifact were not independently re-executed because no required Stage-1 oracle depends on extended precision; A1 instead authenticated those two rows' recorded digests for internal consistency and reproduced every float64 diagnostic field of the uniform_pupil_defocus_oracle case exactly on a native arm64 environment distinct from the evidence's x86_64-under-Rosetta environment."
+  ],
+  "claims_not_licensed": [
+    "SCI-005 Stages 2 and 3",
+    "SCI-005 whole-row closure",
+    "a GPU or accelerator performance claim",
+    "a deterministic Ruze Jones or error voltage"
+  ]
+}
