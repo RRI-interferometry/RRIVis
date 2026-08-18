@@ -7,7 +7,7 @@ All notable changes to RadioSim are documented here.
 ------------
 
 Added
-~~~~~
+^^^^^
 
 - ``SCI-005`` Stage 1: scalar aperture physics. ``beams.aperture_physics``
   (central blockage, support-leg shadow masks, Noll real unit-RMS Zernike
