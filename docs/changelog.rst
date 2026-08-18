@@ -6,6 +6,17 @@ All notable changes to RadioSim are documented here.
 [Unreleased]
 ------------
 
+Added
+~~~~~
+
+- ``SCI-005`` Stage 1: scalar aperture physics. ``beams.aperture_physics``
+  (central blockage, support-leg shadow masks, Noll real unit-RMS Zernike
+  surface heights) and the nested ``error_beam_diagnostic`` (separation-domain
+  Ruze ensemble-power diagnostic, ``poisson_paired_pupil_separation_v1``)
+  with strict typed rejection throughout. Independently accepted 2026-08-16;
+  retained evidence and acceptance certificates live in
+  ``docs/development/``. The register row stays ROADMAP until Stages 2-3.
+
 Fixed
 ^^^^^
 
