@@ -46,8 +46,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 # fmt: off
 # The flipped 64-hex literals exceed the format line limit by design;
 # Section 7.5's substitution is byte-exact and must not be rewrapped.
-APPROVED_EVIDENCE_SHA: str | None = None
-APPROVED_ACCEPTANCE_ARTIFACT_SHA256: str | None = None
+APPROVED_EVIDENCE_SHA: str | None = "56f7fd513cf3dd15d93f1176c8fbe2382921e263"
+APPROVED_ACCEPTANCE_ARTIFACT_SHA256: str | None = "c19c45cc34a6f3870ba5f9f01007911ebe05d643874b663b41a5d2ae733e3d38"
 # fmt: on
 
 TOOL = "tools/sci005_stage2_acceptance.py"

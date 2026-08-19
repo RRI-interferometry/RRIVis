@@ -1,0 +1,298 @@
+{
+  "schema_version": "radiosim.sci005.stage2-acceptance.v1",
+  "stage": 2,
+  "verdict": "ACCEPT",
+  "generated_at_utc": "2026-08-19T11:15:00Z",
+  "implementation_identity": "sci005-s2-implementer",
+  "reviewer_identity": "sci005-a2-reviewer",
+  "reviewer_independent": true,
+  "design_sha": "b6d09b732e93f3e5a533eafd6e38b102f26a4eb0",
+  "red_test_sha": "da18f96e9dfe1a76851c2800f1c0f80460d3ea89",
+  "source_sha": "5c94d925352b389768e0476079e04e811db996e1",
+  "evidence_commit_sha": "56f7fd513cf3dd15d93f1176c8fbe2382921e263",
+  "evidence_artifact_path": "docs/development/sci005_stage2_evidence.json",
+  "evidence_artifact_sha256": "5e3c57eb93c634649e535b02386e1d4211345f23fd851a8a3529480b7c7f1171",
+  "evidence_schema_path": "docs/development/sci005_stage2_evidence.schema.json",
+  "evidence_schema_sha256": "8d2c0d62236b15996b25c2e3f10eb7a4f601852d564adf95658017ad66385889",
+  "toolchain": {
+    "evidence_generator_path": "tools/sci005_stage_evidence.py",
+    "evidence_generator_git_blob": "9c77ba3e14e91b6fa74561afd556c5130d2df81d",
+    "evidence_validator_path": "tests/unit/test_sci005_evidence.py",
+    "evidence_validator_git_blob": "5e0045dd91a9346cc6c81a11abda9e0762c04e9f",
+    "acceptance_generator_path": "tools/sci005_stage2_acceptance.py",
+    "acceptance_generator_git_blob": "75fdc4b21c407e2ad19b615749aee0c66f03f731",
+    "acceptance_validator_path": "tests/unit/test_sci005_stage2_acceptance.py",
+    "acceptance_validator_pre_a_git_blob": "93c5cd27531f5d31186f325b43a07b5b4112781f",
+    "acceptance_schema_path": "docs/development/sci005_stage2_acceptance.schema.json",
+    "acceptance_schema_sha256": "4f75b2ce691955d1091fd90b720684b0f665a904c8467bcbcbea65e902fb3adb"
+  },
+  "acceptance_commit_sha": null,
+  "acceptance_commit_sha_reason": "self-reference: U2 and SCI004.M3 bind the containing A2 commit",
+  "successor_unlocks": [
+    "SCI004.M3",
+    "SCI005.U2"
+  ],
+  "reviewed_artifacts": [
+    {
+      "path": "docs/development/sci005_beam_physics_plan.md",
+      "sha256": "cd5f0c934ac8da0030f0bcee233c98b6eb270b2bfe587cb7457b04ac30629121",
+      "source_sha": "5c94d925352b389768e0476079e04e811db996e1",
+      "authenticated": true
+    },
+    {
+      "path": "docs/development/sci005_stage2_acceptance.schema.json",
+      "sha256": "4f75b2ce691955d1091fd90b720684b0f665a904c8467bcbcbea65e902fb3adb",
+      "source_sha": "5c94d925352b389768e0476079e04e811db996e1",
+      "authenticated": true
+    },
+    {
+      "path": "docs/development/sci005_stage2_evidence.json",
+      "sha256": "5e3c57eb93c634649e535b02386e1d4211345f23fd851a8a3529480b7c7f1171",
+      "source_sha": "5c94d925352b389768e0476079e04e811db996e1",
+      "authenticated": true
+    },
+    {
+      "path": "docs/development/sci005_stage2_evidence.schema.json",
+      "sha256": "8d2c0d62236b15996b25c2e3f10eb7a4f601852d564adf95658017ad66385889",
+      "source_sha": "5c94d925352b389768e0476079e04e811db996e1",
+      "authenticated": true
+    },
+    {
+      "path": "src/radiosim/core/beam/runtime.py",
+      "sha256": "1cb4a208e1d085ac247c0a07dfb74058e2576e8feab4c66c74ba751c82c7b9f6",
+      "source_sha": "5c94d925352b389768e0476079e04e811db996e1",
+      "authenticated": true
+    },
+    {
+      "path": "tools/sci005_stage_evidence.py",
+      "sha256": "64283ccd0615593190511a0b80b3c7e8cd024bf21a21a1cf809c78a89a1a9067",
+      "source_sha": "5c94d925352b389768e0476079e04e811db996e1",
+      "authenticated": true
+    }
+  ],
+  "rederived_oracles": [
+    {
+      "oracle_id": "mechanical_feed_rotation",
+      "method": "Independently derived beta_feed = wrap(beta_mech + eta*psi + nu*alt) and beta_squint = wrap(beta_feed + pi/2) from Section 4.1/4.2.1 text (own mount-factor table: fixed/equatorial=(0,0), alt-az=(1,0), nasmyth-r=(1,1), nasmyth-l=(1,-1); own Rodrigues rotation about a_p = sin(beta_squint) N - cos(beta_squint) E). For fixed, alt-az (boresight_altitude_rad=1.0, boresight_parallactic_rad=0.7, supplied directly to the public BeamSystem.evaluate_jones keyword arguments), and alt-az+nasmyth-r (altitude=0.6, parallactic=-0.4) with a uniform circular-aperture analytic beam (14 m) and positive_native_feed='y', predicted the displaced response centre and located production's actual peak of |E_00| via a SciPy Nelder-Mead search over (altitude_rad, azimuth_rad) starting from that prediction. Confirmed the search is non-trivial by also starting from zenith and from the opposite-sign (wrong) prediction: both converge to the same true peak, 0.0698 rad (2x the 2 deg feed offset) away from the wrong-sign prediction, so the recovered peak is a genuine, discriminating location rather than the optimizer echoing its start. observed is the max small-angle angular separation between predicted and located centres across the three mount cases.",
+      "observed": 1.287007448615977e-09,
+      "fixed_limit": 1e-06,
+      "units": "rad",
+      "passed": true
+    },
+    {
+      "oracle_id": "native_feed_factorization",
+      "method": "Independently built C = M(basis) @ R(chi) from Section 4.2.1's formulas (own matrices, not radiosim.core.jones.receptor). Sampled b_plus/b_minus from a squint-FREE plain BeamSystem's scalar evaluate_jones at MY OWN Rodrigues-rotated displaced directions (rotating the off-boresight probe direction itself, not the boresight, by my own R(-sign*delta; a_p)), for a rotated-linear fixture (chi=27.3 deg, positive_native_feed='x') and a circular fixture (chi=15 deg, positive_native_feed='r'), both at 170 MHz against a 150 MHz reference offset of 2 deg. Computed my own expected = C^dagger @ diag(b0,b1) @ C and compared entrywise to the composed E returned by the squint-enabled production BeamSystem.evaluate_jones at the same probe direction and matching boresight_parallactic_rad=0.0/boresight_altitude_rad=pi/2. For the circular case also independently verified the Section 4.2 identity E == (b0+b1)/2 * I2 - (b0-b1)/2 * sigma_y and exact commutation with a real rotation R(0.9 rad). Also cross-checked, using only the b_plus/b_minus values already stored in the retained extended_precision_native_feed_factorization evidence row (a circular, chi=0 case), that my own closed-form (b0+b1)/2 and (b0-b1)/2 reproduce the row's recorded expected.maximum_abs (0.5700171390542352) and expected.minimum_abs (0.2573210780036615) exactly, as internal-consistency authentication of that complex256 row (see accepted_limitations). observed is the max of the four residuals (linear factorization, circular factorization, circular identity, circular commutation).",
+      "observed": 1.117495626430756e-16,
+      "fixed_limit": 1e-09,
+      "units": "dimensionless_voltage",
+      "passed": true
+    },
+    {
+      "oracle_id": "noncommuting_chain_order",
+      "method": "Reused the rotated-linear fixture above (chi=27.3 deg, positive_native_feed='x', 170 MHz) to obtain production's composed E (from squint-enabled BeamSystem.evaluate_jones) and my own independently sampled b0, b1 (own Rodrigues-rotated directions, own scalar samples from the squint-free BeamSystem). Built my own C = M(linear) @ R(chi) and a nontrivial real rotation P = R(1.234 rad) using jones/parallactic.py's documented but independently-transcribed R(a) = [[cos a, sin a], [-sin a, cos a]] form (a pure algebraic choice, not tied to real sky geometry). Computed CEP = C @ E @ P, DbCP = diag(b0,b1) @ C @ P, and CPE = C @ P @ E with plain NumPy matrix products. Verified inside this method that |CEP - CPE|_max = 0.0855, which is >= 1e-3 (the Section 8.1 order-matters separation bound), confirming the two orders are measurably different for this rotated-linear fixture. observed is max|CEP - DbCP|.",
+      "observed": 1.1102230246251565e-16,
+      "fixed_limit": 1e-09,
+      "units": "dimensionless_voltage",
+      "passed": true
+    },
+    {
+      "oracle_id": "squint_frequency_law",
+      "method": "Independently transcribed the exact Cotton/Uson law delta(nu) = asin[(nu_ref/nu) sin(delta_ref)] and the small-angle limit from Section 4.1. For a fixed-mount, uniform circular-aperture fixture (mechanical angle 35 deg, per-feed reference offset 2 deg at 150 MHz, positive_native_feed='y') evaluated at four frequencies (100, 150, 200, 240 MHz), located production's actual response peak via a SciPy Nelder-Mead search on |E_00| at each frequency (search seeded at my own arcsine-law prediction) and recovered the offset as the angular separation between the located peak and the zenith boresight -- an independent, peak-finding measurement, not a read-back of production's internal delta(nu). observed is the max abs difference between the recovered offset and my own exact arcsine-law prediction across the four frequencies. Also confirmed the small-angle approximation is distinguishable from both the exact law and the recovered offset: at 240 MHz (furthest from the 150 MHz reference) the small-angle law differs from the exact law by 2.70e-6 rad and from the recovered offset by 2.70e-6 rad, both roughly 1900x the observed peak-finding residual.",
+      "observed": 1.4211221713300581e-09,
+      "fixed_limit": 1e-06,
+      "units": "rad",
+      "passed": true
+    }
+  ],
+  "review_checks": [
+    {
+      "check_id": "artifact_authentication",
+      "method": "Computed sha256 of the raw git blob (git cat-file -p 56f7fd5:<path> | shasum -a 256) at E2 for every path in the evidence JSON's artifacts array (docs/development/sci005_beam_physics_plan.md, docs/development/sci005_stage2_evidence.schema.json, src/radiosim/core/beam/runtime.py, tools/sci005_stage_evidence.py), for the evidence JSON itself (docs/development/sci005_stage2_evidence.json), and for docs/development/sci005_stage2_acceptance.schema.json; compared every digest to the JSON's own recorded sha256 fields and to the APPROVED_STAGE2_EVIDENCE_ARTIFACT_SHA256 sentinel now bound in tests/unit/test_sci005_evidence.py.",
+      "expected_outcome": "every artifacts-row sha256, the evidence JSON's own raw sha256 (5e3c57eb93c634649e535b02386e1d4211345f23fd851a8a3529480b7c7f1171), and the acceptance schema's raw sha256 match the E2 git blobs and the approved sentinel exactly",
+      "observed_outcome": "every artifacts-row sha256, the evidence JSON's own raw sha256 (5e3c57eb93c634649e535b02386e1d4211345f23fd851a8a3529480b7c7f1171), and the acceptance schema's raw sha256 match the E2 git blobs and the approved sentinel exactly",
+      "passed": true
+    },
+    {
+      "check_id": "default_disabled_fingerprints",
+      "method": "Using the exact fixture builders tests.fixtures.configs.valid_config_mapping (point route) and hybrid_config_mapping(component='healpix') with a squint-absent analytic beams block, ran Simulator.from_mapping(...).run() twice per route from a fresh clean HEAD==E2 checkout (independent temp directories, independent process state) and compared the two runs' scientific_sha256 and full visibility cube by value (np.array_equal), i.e. real recomputation of the two-run invariant the evidence's fingerprint_diff *_squint_absent_default rows assert, not a read of the stored digests alone. Absolute host tmp_path bytes make bit-for-bit reproduction of the stored old/new digest strings themselves environment-dependent (see accepted_limitations), so the two-run self-consistency invariant is what was independently recomputed.",
+      "expected_outcome": "two independent point-route runs produce identical scientific_sha256 and byte-identical visibility cubes, and two independent healpix-route runs do too",
+      "observed_outcome": "two independent point-route runs produce identical scientific_sha256 and byte-identical visibility cubes, and two independent healpix-route runs do too",
+      "passed": true
+    },
+    {
+      "check_id": "diff_authority",
+      "method": "git log/diff --stat on b6d09b7(D2)->da18f96(R2)->5c94d92(S2)->56f7fd5(E2): confirmed R2 touches only tests/unit/test_core/test_sci005_beam_squint.py, tests/unit/test_io/test_sci005_beam_config.py, tests/unit/test_jones/test_chain_order.py; confirmed S2's 26 changed paths are all members of Section 7.3's writable list, including errors.py/__init__.py append-only diffs and the exactly one-statement api/simulator.py load_beam_system call-site edit; confirmed E2's diff is exactly docs/development/sci005_stage2_evidence.json (new) and tests/unit/test_sci005_evidence.py with exactly the two APPROVED_STAGE2_SOURCE_SHA/APPROVED_STAGE2_EVIDENCE_ARTIFACT_SHA256 sentinel substitutions; confirmed E2^==S2, S2^==R2, R2^==D2 by git rev-parse; confirmed the U1(d6eb4b0)..D2 interval is exactly the four header-recorded commits 3e33609(status-prose, docs/changelog.rst only)/3d60b6f(superseded-design)/0c37815(superseded-design)/2a5d5aa(superseded-red-slice, exactly the four Section 7.3 test paths), matching tools/sci005_stage2_acceptance.py's own INTERVAL_COMMITS table; and confirmed git diff b6d09b7..5c94d92 -- src/radiosim/core/contraction.py is empty.",
+      "expected_outcome": "R2/S2/E2 diffs and the U1..D2 interval match Section 7.3/8.3's writable lists and header records exactly, with no contraction signature change",
+      "observed_outcome": "R2/S2/E2 diffs and the U1..D2 interval match Section 7.3/8.3's writable lists and header records exactly, with no contraction signature change",
+      "passed": true
+    },
+    {
+      "check_id": "gate_replay",
+      "method": "From a clean HEAD==E2 checkout, reran: (1) the four Stage-2 focused test modules, (2) tests/unit/, (3) tests/integration/, (4) -m 'not slow', (5) pixi run doctest, (6) pixi run lint, (7) pixi run check-format, (8) tests/unit/test_tier8_release_acceptance.py; captured stdout/stderr to files and hashed them (see commands).",
+      "expected_outcome": "all eight commands exit 0: 244 passed/1 skipped, 6101 passed/2 skipped, 80 passed, 6377 passed/3 skipped, 41 passed (doctest), lint clean, 412 files already formatted, 18 passed",
+      "observed_outcome": "all eight commands exit 0: 244 passed/1 skipped, 6101 passed/2 skipped, 80 passed, 6377 passed/3 skipped, 41 passed (doctest), lint clean, 412 files already formatted, 18 passed",
+      "passed": true
+    },
+    {
+      "check_id": "production_data_flow",
+      "method": "Read code (not summaries): public entry point is radiosim.api.simulator.Simulator (setup()/run()), which resolves self._receptor_set (resolve_receptors) before self._beam_system = load_beam_system(..., receptors=self._receptor_set) (src/radiosim/api/simulator.py lines ~486-565), then passes both self._beam_system and self.receptors (the same resolved set) into RIMESimulator.calculate_visibilities, which reaches _build_jones_chain in core/visibility.py. There, _resolved_receptor_terms(instrument, receptors) builds the chain's C term from that same receptor set, and a private _ResolvedBeamJones adapter wraps beam_system.evaluate_jones as the chain's E term -- the final composition site is BeamSystem.evaluate_jones / _evaluate_squinted_response in core/beam/runtime.py, which builds C internally from the identical resolved basis/feed_rotation_rad. core/visibility_healpix.py imports and reuses the same _build_jones_chain (grep-confirmed single call site), so there is exactly one beam pathway for both solvers, and load_beam_system( has exactly one production call site (api/simulator.py). git diff b6d09b7..5c94d92 -- src/radiosim/core/contraction.py is empty.",
+      "expected_outcome": "public entry point Simulator; final E composition site BeamSystem.evaluate_jones in core/beam/runtime.py; one beam pathway shared by both solvers; the same ResolvedReceptorSet feeds C and E; no contraction-signature change",
+      "observed_outcome": "public entry point Simulator; final E composition site BeamSystem.evaluate_jones in core/beam/runtime.py; one beam pathway shared by both solvers; the same ResolvedReceptorSet feeds C and E; no contraction-signature change",
+      "passed": true
+    },
+    {
+      "check_id": "typed_rejection",
+      "method": "Built an explicit beams.squint: {} block (no default, no per_antenna) on the shipped two-antenna analytic fixture and called radiosim.io.config_resolution.resolve_config(...) through the public resolution surface.",
+      "expected_outcome": "radiosim.io.config_resolution.ConfigSemanticError is raised, carrying exactly one issue with code 'beam.squint.identity_block', path 'beams.squint', message 'A beams.squint block must carry a default record or at least one per-antenna record.'",
+      "observed_outcome": "radiosim.io.config_resolution.ConfigSemanticError is raised, carrying exactly one issue with code 'beam.squint.identity_block', path 'beams.squint', message 'A beams.squint block must carry a default record or at least one per-antenna record.'",
+      "passed": true
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/test_core/test_sci005_beam_squint.py",
+        "tests/unit/test_io/test_sci005_beam_config.py",
+        "tests/integration/test_sci005_beam_physics.py",
+        "tests/unit/test_jones/test_chain_order.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T11:01:31Z",
+      "duration_seconds": 19.694233,
+      "exit_code": 0,
+      "stdout_sha256": "242ec7cdb7fd9924ae2cd75cc58901c072a3f5cc5cd934547ea5f74c7c3a39be",
+      "stderr_sha256": "29a1d8d274b42c5e9ea821ebfb3427fc161a0023f63f9e32de0070caa6e0d952"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T11:01:56Z",
+      "duration_seconds": 108.788713,
+      "exit_code": 0,
+      "stdout_sha256": "025c28c40399bf59dfe846405aeeda998670909595ce1e0a99aee25dffb683c3",
+      "stderr_sha256": "b87d6433c2cad286135065e50f61b45aeb0cd00353c0ca6323b1b9f1f2cab9cf"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/integration/",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T11:03:52Z",
+      "duration_seconds": 34.711869,
+      "exit_code": 0,
+      "stdout_sha256": "31172be021af8476911aef260508db17dd6371d3d66bfcc9ee15b8c241c5515d",
+      "stderr_sha256": "04f8a8d4be40035e0c60dc78cb4dcd0c7a53c644ee713fe667dc0b4d7ef7afe5"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "-m",
+        "not slow",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T11:04:33Z",
+      "duration_seconds": 196.247117,
+      "exit_code": 0,
+      "stdout_sha256": "93d4bcab58379420e60f2d6a7a94dbd8cfab00f7fe29e7f7dc0792e8e2b125f5",
+      "stderr_sha256": "382f1f1c47cddd6c49a320d21d962038e3a076ca328507ca515f81e5a0e275ae"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "doctest"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T11:07:56Z",
+      "duration_seconds": 7.497453,
+      "exit_code": 0,
+      "stdout_sha256": "f4e46117d245eaa34168bf2b0cd79ea521aec7ededf14c7c95a4fcfc85403b0f",
+      "stderr_sha256": "1298f4700f18360e18c373d9d650551261d2d74a3e98725bf6552434eb633ebb"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "lint"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T11:08:09Z",
+      "duration_seconds": 0.229923,
+      "exit_code": 0,
+      "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "stderr_sha256": "a5ed82e076a36ad1de6d260555c1ed9189657fd19d36cc4059afd7c719d17c2e"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "check-format"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T11:08:16Z",
+      "duration_seconds": 0.186347,
+      "exit_code": 0,
+      "stdout_sha256": "98f576aa113de63f96dc6a04b23b22c3e5c72b9c93bed145d6280f0669151501",
+      "stderr_sha256": "171723592ebbb6edf36d0fd41fb6754cc61ae4f8d1afe9da7266f524aa5be57b"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/test_tier8_release_acceptance.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T11:08:22Z",
+      "duration_seconds": 3.576031,
+      "exit_code": 0,
+      "stdout_sha256": "4b24ff5a32db8e561dd11e3c7c97b6ecc647ed601706dfcc0542e2fe09bbefda",
+      "stderr_sha256": "170eb8d1b330f73c756952cfadc183901e7da41164c00cd652d01c11e8d4da9e"
+    }
+  ],
+  "blockers": [],
+  "accepted_limitations": [
+    "Bit-for-bit reproduction of the exact scientific_sha256/raw_cube_sha256 strings stored in the evidence's fingerprint_diff rows was not attempted, because those digests are sensitive to host-specific absolute tmp_path bytes baked into config provenance; instead the default_disabled_fingerprints check independently reran the squint-absent workload twice on this host and confirmed the two runs agree byte-for-byte, which is the invariant those evidence rows assert.",
+    "Extended-width (complex256) evidence rows (native_feed_factorizations case_id extended_precision_native_feed_factorization) were authenticated for internal consistency -- independently recomputing (b0+b1)/2 and (b0-b1)/2 in float64 from the row's own recorded b_plus/b_minus values and matching the row's recorded expected.maximum_abs/minimum_abs exactly -- rather than re-executed at complex256 width on this reviewer's arm64 macOS host, whose NumPy longdouble/clongdouble alias float64/complex128 (finfo(longdouble).nmant == 52), following the SCI-005 Stage-1 A1 precedent.",
+    "The alt-az and Nasmyth-right cases of the mechanical_feed_rotation oracle supplied boresight_parallactic_rad/boresight_altitude_rad directly as keyword arguments to the public BeamSystem.evaluate_jones surface rather than deriving them from a configured beams.pointing block through the private per-antenna boresight adapter in core/visibility.py (_ResolvedBeamJones._boresight_pair); that adapter's own pointing-offset-to-boresight geometry is pre-existing WP-7 machinery outside Stage 2's scope and was not independently re-derived here.",
+    "The mechanical_feed_rotation and squint_frequency_law oracles located production's response peak with a bounded numerical optimizer (SciPy Nelder-Mead); recorded observed residuals (~1.3e-9 rad and ~1.4e-9 rad) reflect that optimizer's convergence floor rather than an exact closed-form comparison, and the fixed_limit values (1e-6 rad) carry margin above that floor rather than certifying agreement to machine precision.",
+    "This review's four rederived_oracles and six review_checks are the Section 8.2 required set; they do not re-derive every row of the retained Stage-2 evidence document (e.g. individual stokes_v_leakages sign rows, squint_geometries probe rows, or backend_parity rows beyond what the gate_replay command battery exercises), whose authentication rests on artifact hashing (artifact_authentication) plus a green gate_replay rather than an independent row-by-row rederivation."
+  ],
+  "claims_not_licensed": [
+    "SCI-005 Stage 3",
+    "SCI-005 whole-row closure",
+    "a GPU or accelerator performance claim",
+    "a full cross-polar or measured-efield beam response"
+  ]
+}
