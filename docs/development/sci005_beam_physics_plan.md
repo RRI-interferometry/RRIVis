@@ -189,6 +189,57 @@ first draft, the Fourth repair above resolved it, and both reviewers then
 issued their `ACCEPT` verdicts on exactly these pins — and landed with only
 this record sentence added.
 
+**Bounded Stage-2 circular-commutation correction — 2026-08-19.** Stage-2
+implementation against the first red slice
+(`2a5d5aa7fe84a464368993a96c395fc444c2cedb`) stopped on four reported
+findings; independent re-derivation confirms each, and this memo-only
+correction resolves them. First, the physics: for any circular receptor
+the composed `E = C^dagger diag(b_0, b_1) C` equals
+`((b_0+b_1)/2) I_2 - ((b_0-b_1)/2) sigma_y` independent of the feed
+rotation, has exactly equal diagonal entries, and commutes exactly with
+every real rotation — so the red slice's circular-receptor order-matters
+assertions demanded the impossible, and Section 8.1's uniform
+order-control threshold was unsatisfiable for its own required circular
+row. Section 4.2 now records the identity and restricts the order-matters
+oracle to a rotated linear receptor, Section 4.3's invariant names both
+halves, and the Section 8.1 factorization cross-field splits by basis,
+retaining the circular row's exact vanishing as the commutation witness.
+Second, the frozen emission-order rule named an unobservable witness: the
+public collector returns issues in the accepted sorted presentation, and
+the squint/surface-error pair sorts against its traversal order; Section
+4.1.1 now fixes the aperture-physics/squint pair — which sorting preserves
+— as the sole public witness. Third, two pinned-inventory test modules the
+granted Stage-2 surface necessarily moves —
+`tests/unit/test_core/test_beam_models.py` (resolved-leaf field order) and
+`tests/unit/test_core/test_beam_resolution.py` (exact error hierarchy and
+exports) — were missing from Section 7.3 although Stage 1's Section 7.2
+carried both; they are added with their edits bounded to exactly those
+inventories. Fourth, the Section 4.2.1 fingerprint sentence claimed the
+payload function feeds the run-level scientific fingerprint, which the
+accepted transport-key projection makes unreachable; the sentence now
+states the real, verified flow — the payload feeds the assignment
+fingerprint, `scientific_sha256` receives the resolved record's six fields
+including the `cotton_uson_exact_v1` version literal through the accepted
+beam snapshot, and the three derived-convention literals are facets of
+that one version literal. This correction also generalizes Section 8.3's
+interval rule to the header-enumerated three-kind form and names the
+four observed interval commits by SHA, reopening the first red slice for a
+governed re-cut whose `R2` will directly parent this correction. The
+commit containing this correction supersedes
+`0c378153f5d5fa46574ca334d109b40e102f12e6` as the operative `D2` once its
+exact bytes are independently accepted. It implements no beam physics,
+accepts no stage, and does not close the register row. Its exact
+pre-landing memo bytes
+(`sha256:78d02f6ccd0a9484773b329d3a8a548b6bcf72ee1f20163b47f9e5cd79f18496`)
+and parent-relative diff
+(`sha256:8be81154c2f404a5248b66cf0893b944836b4480325c980e5e1a76ac24cad161`)
+received separate fresh independent physics/governance and computational
+`ACCEPT` verdicts on 2026-08-19 — the physics review re-derived the
+commutation identity algebraically and over two thousand random trials,
+and the computational review reproduced the interval walk against real
+history and every failing red assertion's exact magnitude — and landed
+with only this record sentence added.
+
 **Status:** Stage 1 is accepted and closed as a stage: the operative `D1` is
 `c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted succession is
 `R1 e246c5d1c092b5321dddfd9506bb1f2d3ae12365 ->
@@ -1534,7 +1585,13 @@ Stage-2 document checks run after every Stage-1 aperture and diagnostic
 check in Section 3.5's fixed order. Within `beams.squint`, the identity
 check precedes value-domain checks; value-domain checks visit the `default`
 record and then ascending `per_antenna` indices, each record's fields in the
-declared field order; the unsupported-family check runs last. This order,
+declared field order; the unsupported-family check runs last. The public
+collector and the raised error both present issues in the accepted sorted
+order, so the Stage-1-before-Stage-2 traversal is publicly observable only
+through a path pair that sorting preserves — the aperture-physics/squint
+pair, whose paths sort in traversal order — and red and evidence witnesses
+of the traversal rule use exactly that pair; the squint/surface-error pair
+sorts against its traversal order and is not a witness. This discipline,
 together with `ConfigIssue` sorting, fixes the first rejection recorded in
 evidence.
 
@@ -1594,9 +1651,24 @@ receptor. The old statement that squint merely makes `E` diagonal is retired.
 
 Stage 2 must replace the scalar-only order-unobservability oracle with an
 analytic non-commuting case: choose unequal finite `b0` and `b1`, a nontrivial
-unitary `C`, and a nontrivial `P`; prove `C E P` equals `D_b C P` and differs
-from `C P E`. The scalar disabled case remains a separate byte-identity
-regression.
+unitary `C` built on a **rotated linear** receptor, and a nontrivial `P`;
+prove `C E P` equals `D_b C P` and differs from `C P E`. The scalar disabled
+case remains a separate byte-identity regression. The restriction to a
+linear receptor is exact physics, not caution: for any circular receptor
+`C = S R(chi)` and any `b0 != b1`,
+
+$$
+E=C^\dagger\operatorname{diag}(b_0,b_1)\,C
+=\frac{b_0+b_1}{2}\,I_2-\frac{b_0-b_1}{2}\,\sigma_y,
+$$
+
+independent of `chi`, whose diagonal entries are exactly equal and which
+commutes exactly with every real rotation because
+`R(theta) = exp(i * theta * sigma_y)`. A circular-receptor order control is
+therefore identically zero, and its exact vanishing is itself a retained
+witness of the factorization (Section 8.1); the order-matters negative
+control is observable only through a linear receptor. `E` remains generally
+full in both bases — the circular case has `|E_{01}| = |b_0-b_1|/2 > 0`.
 
 The common deterministic `beams.pointing` rotation is applied first to express
 the true visible direction in the common beam frame; the `+delta` and `-delta`
@@ -1737,13 +1809,20 @@ Literal["cotton_uson_exact_v1"]`, `reference_frequency_hz: float`,
 `per_feed_offset_deg_at_reference: float`,
 `mechanical_feed_position_angle_deg: float`, `positive_native_feed:
 Literal["x", "y", "r", "l"]`, and `mount_type` holding one of the five
-accepted mount literals. It enters `_assignment_fingerprint` and the
-handler-independent scientific fingerprint only when present, through one
+accepted mount literals. It enters `_assignment_fingerprint` only when present, through one
 payload function whose exact key set is the six field values above plus
 the convention literals `"direction_convention":
 "feed_ray_plus_half_pi_north_through_east_v1"`, `"frame_convention":
 "pointing_then_squint_great_circle_v1"`, and `"factorization_convention":
-"receptor_conjugated_native_diagonal_v1"`. Squint is per-antenna state like
+"receptor_conjugated_native_diagonal_v1"`. The run-level
+`scientific_sha256` receives the resolved record's six fields — including
+the `cotton_uson_exact_v1` version literal — through the accepted beam
+snapshot, which is how Section 2's convention-literal rule is satisfied:
+the three derived-convention literals above are facets versioned by that
+one squint convention literal, enter the assignment fingerprint through
+the payload function, and are retained in the Stage-2 evidence
+`scientific_conventions`; they are not independent version axes and add
+no field to `ResolvedSquint`. Squint is per-antenna state like
 pointing and surface error: it never enters the handler preload key, and
 two antennas sharing a handler may carry different squint records.
 
@@ -1757,7 +1836,8 @@ Acceptance requires:
 - exact orthogonality to the physical feed-location ray, the declared `+pi/2`
   handedness, label-keyed feed-sign reversal, and mechanical-angle rotation;
 - analytic `E=C^dagger D_b C`, physical `C E P` order, and an order-matters
-  negative control;
+  negative control on a rotated linear receptor, together with the exact
+  circular-receptor commutation identity of Section 4.2;
 - the first-order Stokes-V leakage sign for a declared R/L assignment, with the
   sign reversed when the assignment reverses;
 - scalar disabled/default byte identity;
@@ -2178,6 +2258,10 @@ authenticates it through Section 8.2.
   keyword; no other statement changes)
 - `tests/unit/test_io/test_sci005_beam_config.py`
 - `tests/unit/test_core/test_sci005_beam_squint.py` (new)
+- `tests/unit/test_core/test_beam_models.py` (only the pinned resolved-leaf
+  and field-order inventories the granted `ResolvedSquint` surface moves)
+- `tests/unit/test_core/test_beam_resolution.py` (only the pinned exact
+  error-hierarchy/export inventory the two granted error classes move)
 - `tests/unit/test_core/test_beam_runtime.py`
 - `tests/unit/test_core/test_beam_solver_integration.py`
 - `tests/unit/test_jones/test_chain_order.py`
@@ -2751,9 +2835,13 @@ entrywise absolute difference between the production `C @ E @ P` and the
 physical `D_b @ C @ P`; and `order_control_max_abs_difference` is the
 largest entrywise absolute difference between `C @ E @ P` and
 `C @ P @ E`. Cross-field validation requires
-`factorization_max_abs_residual <= atol`,
-`chain_order_max_abs_residual <= atol`,
-and `order_control_max_abs_difference >= max(1e-3, 1024 * atol)`. The
+`factorization_max_abs_residual <= atol` and
+`chain_order_max_abs_residual <= atol` on every row, and splits the order
+control by basis per Section 4.2's exact commutation identity: a `linear`
+row requires `order_control_max_abs_difference >= max(1e-3, 1024 * atol)`,
+while a `circular` row requires
+`order_control_max_abs_difference <= atol` — the exact vanishing is the
+retained commutation witness. The
 array contains at least one `circular` row, at least one `linear` row with
 non-zero `feed_rotation_deg`, and exactly one row with `case_id`
 `extended_precision_native_feed_factorization` whose projections are
@@ -3090,29 +3178,41 @@ accepted programme commits may otherwise change shared paths and those bytes
 become the `G1` red baseline.
 
 The second starred edge, `U1 ->* D2`, is ancestor reachability from `U1` to
-`D2` through zero or more separately authorized status-prose commits plus
-the superseded commits of the Stage-2 design succession. Every commit in
+the operative `D2` through commits this memo's header enumerates
+exhaustively by SHA. Every commit in
 `U1..D2` other than `D2` itself is a single-parent non-merge of exactly one
-of two kinds. A status-prose commit's parent-relative diff touches only
+of three header-recorded kinds. A status-prose commit's parent-relative
+diff touches only
 Section 7.5 status paths and contains no source, schema, test, tool,
 artifact, fingerprint, tolerance, or historical-acceptance-byte change. A
 superseded design commit is an earlier operative `D2` that a later,
-independently accepted, header-recorded correction supersedes; the
-superseded design commits form the terminal segment of the interval, each
-directly parenting the next design commit, and each touches exactly the
-paths its own header record names. Across the interval every Section 7.3
-path marked `new` or `successor only` remains absent, and the retained
+independently accepted, header-recorded correction supersedes; each
+touches exactly the paths its own header record names. A superseded
+red-slice commit is a Stage-2 red commit whose slice a header-recorded
+correction reopened for a governed re-cut; each touches only Section 7.3
+test paths and no production, tool, schema, or documentation byte. Across
+the interval every Section 7.3
+path marked `new` or `successor only` remains absent — except that a
+header-recorded superseded red-slice commit may introduce the `new`-marked
+test paths its re-cut supersedes — and the retained
 Stage-1 evidence and acceptance artifacts, their schemas, their validators,
 their tools, and every approved digest constant remain byte-identical to
 `U1`, except through the one bounded four-line dependency-validator
-deletion the design succession's header records authorize. The observed
-interval at this gate is exactly two commits: the one changelog heading
-repair recorded in this memo's header
-(`3e336095009e72bf4ae6064d5e97d381e063258f`), followed by the superseded
-original gate commit (`3d60b6f428e9ac94407f50dfd9153aad27d5e098`), which
+deletion the design succession's header records authorize. The validator
+requires every interval commit to be named by a header record with its
+kind and to touch exactly the paths its kind allows; a commit the header
+does not name invalidates the edge. The observed
+interval at this gate is exactly four commits: the changelog heading
+repair (`3e336095009e72bf4ae6064d5e97d381e063258f`, status-prose); the
+superseded original gate commit
+(`3d60b6f428e9ac94407f50dfd9153aad27d5e098`), which
 landed the Stage-2 memo amendment plus the bounded four-line
-dependency-validator deletion and which the heading-and-binding correction
-supersedes. The operative `D2` — the commit containing that correction —
+dependency-validator deletion; the superseded heading-and-binding
+correction (`0c378153f5d5fa46574ca334d109b40e102f12e6`); and the
+superseded first red slice
+(`2a5d5aa7fe84a464368993a96c395fc444c2cedb`), reopened by the
+circular-commutation correction for the governed re-cut. The operative
+`D2` — the commit containing the latest header-recorded correction —
 touches exactly `docs/development/sci005_beam_physics_plan.md` and no other
 path; the four-line deletion was performed once, by the superseded gate
 commit, and is never repeated.
