@@ -256,3 +256,234 @@ def test_a_rejected_aperture_block_stops_the_run_before_publishing(
         "beam.aperture_physics.unsupported_pupil_profile"
     ]
     assert not list(output_dir.glob("**/*.h5"))
+
+
+# ==============================================================================
+# SCI-005 Stage 2: beam squint through ``Simulator``
+# ==============================================================================
+#
+# Sections 4.1 and 4.2.1 make squint an ordinary member of the same two
+# symmetric demands Stage 1 answered above: an enabled block must reach the
+# visibilities on both the point and the HEALPix route and move the retained
+# scientific hash, and an absent block must change nothing at all. Section 4.3
+# adds one composition case that only an integration run can see -- "the Ruze
+# voltage factor applied once to the composed ``E``, with squint composing
+# correctly with the Stage-1 aperture-physics branch".
+#
+# Every squint fixture is a ``fixed``-mount array: the shipped layout carries
+# no mount type, ``None`` retains its accepted ``fixed`` reading (Section 4.1),
+# and Section 4.2.1 rules the rotating-mount boresight undefined at an exactly
+# zenith pointing, which is what an unpointed fixture has. The rotating-mount
+# rejection itself lives in ``tests/unit/test_core/test_sci005_beam_squint.py``.
+
+SQUINT: dict[str, Any] = {
+    "default": {
+        "convention": "cotton_uson_exact_v1",
+        "reference_frequency_hz": 1.5e8,
+        "per_feed_offset_deg_at_reference": 2.0,
+        "mechanical_feed_position_angle_deg": 35.0,
+        "positive_native_feed": "x",
+    }
+}
+
+
+def _squint_beams(
+    *,
+    squint: dict[str, Any] | None = None,
+    surface_error: dict[str, Any] | None = None,
+    aperture_physics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    beams: dict[str, Any] = {"mode": "analytic", "model": dict(UNIFORM_CIRCULAR)}
+    if squint is not None:
+        beams["squint"] = squint
+    if surface_error is not None:
+        beams["surface_error"] = surface_error
+    if aperture_physics is not None:
+        beams["aperture_physics"] = aperture_physics
+    return beams
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("route", ["point", "healpix"])
+def test_an_enabled_squint_block_changes_the_visibilities(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    """Section 4.3: "point and HEALPix paths", and Section 2's rule that
+    "Fingerprints change only for a workload that explicitly enables the
+    landed effect".
+
+    Squint is the first beam effect that makes ``E`` non-diagonal in RadioSim's
+    sky-side space (Section 4.2), so the change here is not a rescaling: the
+    two native feeds sample the pattern at oppositely displaced directions and
+    the composed ``C^dagger D_b C`` mixes them.
+    """
+    _, control = _run(tmp_path / f"{route}-squint-off", _squint_beams(), route=route)
+    _, enabled = _run(
+        tmp_path / f"{route}-squint-on",
+        _squint_beams(squint=SQUINT),
+        route=route,
+    )
+
+    assert np.all(np.isfinite(enabled.visibilities))
+    assert float(np.max(np.abs(enabled.visibilities))) > 0.0
+    assert enabled.visibilities.shape == control.visibilities.shape
+    changed = int(np.count_nonzero(enabled.visibilities != control.visibilities))
+    assert changed > 0
+    assert enabled.scientific_sha256 != control.scientific_sha256
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("route", ["point", "healpix"])
+def test_an_absent_squint_block_leaves_fingerprints_and_bytes_untouched(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    """GREEN CONTROL. Section 2: "No absent or disabled beam block changes the
+    resolved configuration, assignment/state/scientific fingerprints, result
+    bytes, logs, or output", and Section 4.3's "scalar disabled/default byte
+    identity".
+
+    The equality form is pinned rather than a digest literal, so this control
+    is meaningful both before and after Stage 2 lands.
+    """
+    omitted_simulator, omitted = _run(
+        tmp_path / f"{route}-no-squint", _squint_beams(), route=route
+    )
+    repeat_simulator, repeat = _run(
+        tmp_path / f"{route}-no-squint-again", _squint_beams(), route=route
+    )
+
+    assert getattr(omitted_simulator.config.beams, "squint", None) is None
+    assert getattr(repeat_simulator.config.beams, "squint", None) is None
+    assert repeat.scientific_sha256 == omitted.scientific_sha256
+    np.testing.assert_array_equal(repeat.visibilities, omitted.visibilities)
+    assert repeat.visibilities.dtype == omitted.visibilities.dtype
+
+
+@pytest.mark.integration
+def test_an_enabled_squint_block_survives_the_whole_save_and_reload_path(
+    tmp_path: Path,
+) -> None:
+    """The effect must reach the retained artifact, not only the in-memory cube.
+
+    Section 8.1's Stage-2 envelope requires "at least one ``in_memory`` row and
+    one ``hdf5`` row for a squint-enabled workload".
+    """
+    from radiosim.io.hdf5 import load_result_hdf5
+
+    simulator, result = _run(tmp_path / "run", _squint_beams(squint=SQUINT))
+
+    written = simulator.save(tmp_path / "squint.h5", format=ResultFormat.HDF5)
+    loaded = load_result_hdf5(written)
+
+    assert loaded.scientific_sha256 == result.scientific_sha256
+    np.testing.assert_array_equal(loaded.visibilities, result.visibilities)
+
+
+@pytest.mark.integration
+def test_the_ruze_voltage_factor_is_applied_once_to_the_composed_squint_e(
+    tmp_path: Path,
+) -> None:
+    """Section 4.2.1: the Ruze factor is applied "to the composed ``E`` exactly
+    where the scalar path applies it today (the factor is scalar and
+    commutes)".
+
+    Applied once per composed ``E``, a shared surface RMS scales every
+    visibility by exactly ``eta_v^2 == eta_s``, the same power efficiency the
+    Stage-1 coherent-Ruze case above asserts. An implementation that applied
+    the voltage factor to each of the two native samples ``b_+`` and ``b_-``
+    before composing would scale by ``eta_s^2`` instead, which is why the
+    scaling and not merely a change is asserted.
+    """
+    rms_surface_error_m = 0.02
+    control_simulator, control = _run(
+        tmp_path / "squint-ruze-off",
+        _squint_beams(squint=SQUINT),
+        single_channel=True,
+    )
+    _, scaled = _run(
+        tmp_path / "squint-ruze-on",
+        _squint_beams(
+            squint=SQUINT,
+            surface_error={"default": {"rms_surface_error_m": rms_surface_error_m}},
+        ),
+        single_channel=True,
+    )
+
+    frequencies = control_simulator.config.frequency.channel_frequencies_hz
+    assert len(frequencies) == 1
+    wavelength_m = _SPEED_OF_LIGHT_M_PER_S / float(frequencies[0])
+    efficiency = float(
+        np.exp(-((4.0 * np.pi * rms_surface_error_m / wavelength_m) ** 2))
+    )
+    assert 0.0 < efficiency < 1.0
+
+    expected = np.asarray(control.visibilities) * efficiency
+    residual = float(np.max(np.abs(np.asarray(scaled.visibilities) - expected)))
+    assert residual <= ATOL + RTOL * float(np.max(np.abs(expected)))
+    assert float(np.max(np.abs(np.asarray(control.visibilities)))) > 0.0
+    # Not vacuous: a doubly applied factor would be a different cube.
+    doubly_applied = np.asarray(control.visibilities) * efficiency * efficiency
+    assert float(np.max(np.abs(doubly_applied - expected))) > residual
+
+
+@pytest.mark.integration
+def test_squint_composes_with_the_stage1_aperture_physics_branch(
+    tmp_path: Path,
+) -> None:
+    """Section 4.2.1: the two displaced evaluations call "the analytic path,
+    including any Stage-1 aperture-physics branch".
+
+    Section 4.1.1 admits "every analytic model, including the Stage-1
+    aperture-physics branch ... because squint only re-evaluates the existing
+    scalar response at displaced directions", so the two effects must compose
+    rather than exclude one another.
+    """
+    _, aperture_only = _run(
+        tmp_path / "aperture", _squint_beams(aperture_physics=BLOCKAGE)
+    )
+    _, squint_only = _run(tmp_path / "squint", _squint_beams(squint=SQUINT))
+    _, both = _run(
+        tmp_path / "both",
+        _squint_beams(squint=SQUINT, aperture_physics=BLOCKAGE),
+    )
+
+    assert np.all(np.isfinite(both.visibilities))
+    assert float(np.max(np.abs(both.visibilities))) > 0.0
+    assert int(np.count_nonzero(both.visibilities != aperture_only.visibilities)) > 0
+    assert int(np.count_nonzero(both.visibilities != squint_only.visibilities)) > 0
+    assert both.scientific_sha256 not in {
+        aperture_only.scientific_sha256,
+        squint_only.scientific_sha256,
+    }
+
+
+@pytest.mark.integration
+def test_a_rejected_squint_block_stops_the_run_before_publishing(
+    tmp_path: Path,
+) -> None:
+    """Section 4.1.1's exclusions reach the public entry point, and a rejected
+    document publishes nothing."""
+    output_dir = tmp_path / "output"
+    data = valid_config_mapping(
+        tmp_path,
+        beams={
+            "mode": "shared_fits",
+            "beam": {"kind": "fits", "path": str(tmp_path / "beam.fits")},
+            "squint": SQUINT,
+        },
+    )
+
+    with pytest.raises(UnsupportedConfigError) as error:
+        Simulator.from_mapping(data, base_dir=tmp_path)
+
+    assert [issue.path for issue in error.value.issues] == ["beams.squint"]
+    assert [issue.code for issue in error.value.issues] == [
+        "beam.squint.unsupported_beam_family"
+    ]
+    assert error.value.issues[0].message == (
+        "Stage-2 beam squint supports only the analytic beams mode; resolved "
+        "beams mode is 'shared_fits'."
+    )
+    assert not list(output_dir.glob("**/*.h5"))

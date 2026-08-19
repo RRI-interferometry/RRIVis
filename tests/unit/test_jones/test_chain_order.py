@@ -703,3 +703,183 @@ def test_a_field_rotation_is_two_phases_on_a_circular_receptor(
             )
         )
         np.testing.assert_allclose(composite, expected, rtol=0.0, atol=1e-14)
+
+
+# ---------------------------------------------------------------------------
+# SCI-005 Stage 2: the replacement order oracle, with a non-scalar E
+# ---------------------------------------------------------------------------
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 4.2 (the
+# factorization prose the Stage-2 gate carries under its 4.1.1 heading) retires
+# the scalar-only order oracle outright:
+#
+#     "Stage 2 must replace the scalar-only order-unobservability oracle with
+#     an analytic non-commuting case: choose unequal finite ``b0`` and ``b1``, a
+#     nontrivial unitary ``C``, and a nontrivial ``P``; prove ``C E P`` equals
+#     ``D_b C P`` and differs from ``C P E``. The scalar disabled case remains a
+#     separate byte-identity regression."
+#
+# The two halves live in different files by design. The ``C E P == D_b C P``
+# statement is an ``E``-composition property and is asserted against an
+# independently built ``D_b`` in
+# ``tests/unit/test_core/test_sci005_beam_squint.py``. What belongs *here* is
+# the chain-order half: with squint enabled the solver's own ``E`` no longer
+# commutes with ``C``, so ``H @ C @ E`` becomes an observable claim about the
+# order the solver composes rather than a claim that happens to hold because
+# every factor is a scalar multiple of the identity.
+#
+# Every existing test above is untouched. ``test_composed_chain_equals_h_
+# times_c_times_e`` remains exactly the disabled-case regression Section 4.2
+# asks to keep: same fixture, no squint block, scalar ``E``.
+
+#: The Stage-2 squint block, in the frozen Section 4.1 field spelling.  The
+#: shipped layout carries no mount type, so both antennas resolve to ``fixed``
+#: and the boresight the adapter derives is well defined at zenith (Section
+#: 4.2.1 rules only the *rotating* mount undefined there).
+SQUINT_BLOCK: dict[str, Any] = {
+    "default": {
+        "convention": "cotton_uson_exact_v1",
+        "reference_frequency_hz": 1.5e8,
+        "per_feed_offset_deg_at_reference": 2.0,
+        "mechanical_feed_position_angle_deg": 35.0,
+        "positive_native_feed": "r",
+    }
+}
+
+
+def _squint_solver_components(
+    tmp_path: Path,
+    receptors: dict[str, object],
+) -> tuple[SolverInstrumentView, BeamSystem, ResolvedReceptorSet]:
+    """The same solver pieces as :func:`_solver_components`, with squint on.
+
+    Written separately rather than by widening ``_simulator`` so that no
+    existing test's fixture changes.
+    """
+    mapping = valid_config_mapping(
+        tmp_path,
+        frequency={
+            "mode": "explicit",
+            "channel_frequencies_hz": FREQUENCIES_HZ.tolist(),
+            "channel_widths_hz": [1e6],
+        },
+        beams={
+            "mode": "analytic",
+            "model": {"kind": "circular_aperture", "taper": {"kind": "uniform"}},
+            "squint": SQUINT_BLOCK,
+        },
+    )
+    mapping["receptors"] = receptors
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
+    simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
+    simulator._ensure_beam_system()
+    return (
+        SolverInstrumentView.from_state(simulator._instrument_state),
+        simulator.beam_system,
+        simulator.receptors,
+    )
+
+
+def test_a_squint_enabled_chain_makes_the_h_c_e_order_observable(
+    tmp_path: Path,
+) -> None:
+    """Section 4.2's replacement oracle: ``E`` no longer commutes with ``C``.
+
+    A circular receptor reported in a linear output basis gives three
+    genuinely different matrices -- ``H = P S^dagger``, ``C = S`` and a full
+    ``E = C^dagger D_b C`` -- and the composed antenna Jones must be exactly
+    ``H @ C @ E``. Two negative controls make that a statement about order:
+    ``C @ E`` differs from ``E @ C``, so the middle pair does not commute, and
+    the ``H @ E @ C`` permutation is a different matrix.
+
+    ``E`` is read back from the chain's own ``E`` slot rather than recomputed,
+    because what is under test here is the *composition* order; the physics of
+    ``E`` itself is pinned in ``test_sci005_beam_squint.py``.
+    """
+    instrument, beam_system, receptor_set = _squint_solver_components(
+        tmp_path,
+        {
+            "default": {"basis": "circular", "feed_rotation_deg": 0.0},
+            "output_basis": "linear",
+        },
+    )
+    backend = get_backend("numpy")
+    n_sources = 3
+    # Directions off the boresight, where the two displaced native samples are
+    # unequal and ``E`` is therefore not a multiple of the identity.
+    altitude = np.array([np.pi / 2.0 - 0.05, np.pi / 2.0 - 0.08, np.pi / 2.0 - 0.03])
+    azimuth = np.array([0.4, 2.1, 4.0])
+
+    chain = _build_jones_chain(
+        backend,
+        instrument,
+        altitude,
+        azimuth,
+        FREQUENCIES_HZ[0],
+        0,
+        n_sources,
+        LOCATION,
+        TIME_MJD,
+        beam_system,
+        receptor_set,
+    )
+    assert [term.name for term in chain.terms] == ["H", "C", "E"]
+
+    directions = DirectionBatch(
+        alt_rad=altitude,
+        az_rad=azimuth,
+        dir_l=np.cos(altitude) * np.sin(azimuth),
+        dir_m=np.cos(altitude) * np.cos(azimuth),
+        dir_n=np.sin(altitude),
+        ra_rad=np.zeros(n_sources),
+        dec_rad=np.zeros(n_sources),
+        hour_angle_rad=np.zeros(n_sources),
+        n_dir=n_sources,
+    )
+
+    def _term(name: str) -> np.ndarray:
+        term = chain.get_term(name)
+        assert term is not None
+        return np.asarray(
+            term.compute_jones_batch(
+                antenna_idx=0,
+                directions=directions,
+                frequency_hz=float(FREQUENCIES_HZ[0]),
+                freq_idx=0,
+                time_mjd=TIME_MJD,
+                time_idx=0,
+                backend=backend,
+                dtype=np.complex128,
+            )
+        )
+
+    transform = _term("H")
+    receptor = _term("C")
+    beam = _term("E")
+
+    # The pre-Stage-2 situation this test replaces: a scalar ``E`` commutes
+    # with everything, so the order could not be seen.  It is not scalar here.
+    assert beam.shape == (n_sources, 2, 2)
+    assert float(np.max(np.abs(beam[:, 0, 1]))) > 1e-3
+    assert float(np.max(np.abs(beam[:, 0, 0] - beam[:, 1, 1]))) > 1e-3
+
+    composed = np.asarray(
+        chain.compute_antenna_jones_batch(
+            antenna_idx=0,
+            directions=directions,
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            freq_idx=0,
+            time_mjd=TIME_MJD,
+            time_idx=0,
+            dtype=np.complex128,
+        )
+    )
+    expected = transform @ receptor @ beam
+    np.testing.assert_allclose(composed, expected, rtol=0.0, atol=1e-14)
+
+    # Order controls.  ``C`` and ``E`` genuinely do not commute now, and the
+    # permuted product is a different matrix.
+    assert float(np.max(np.abs(receptor @ beam - beam @ receptor))) > 1e-3
+    assert not np.allclose(expected, transform @ beam @ receptor, atol=1e-6)
+    assert not np.allclose(expected, receptor @ transform @ beam, atol=1e-6)

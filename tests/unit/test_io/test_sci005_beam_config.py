@@ -1444,3 +1444,781 @@ def test_a_leg_exactly_as_wide_as_the_aperture_is_not_wider_and_resolves(
         ) from exc
 
     assert len(state.assignments) == 2
+
+
+# ==============================================================================
+# SCI-005 Stage 2: the strict ``beams.squint`` document contract
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Sections 4.1 and 4.1.1 freeze
+# a second optional beam block: a strict default-plus-per-antenna ``squint``
+# record set. The taxonomy is the Stage-1 one, unchanged (Section 2): authored
+# kinds fail as ``ConfigSchemaError`` with Pydantic's own codes, resolved
+# identity and value-domain failures as ``ConfigSemanticError`` with the four
+# frozen ``beam.squint.*`` codes, and the one unsupported beams-mode
+# combination as ``UnsupportedConfigError``.
+#
+# Three Stage-2 rejections are deliberately *not* here: the unknown and
+# duplicate per-antenna references, the arcsine frequency preflight, and the
+# receptor-basis mismatch. Section 4.1.1 assigns all three to beam-assignment
+# resolution or beam-system load, "because they need resolved instrument,
+# receptor, or frequency state", and they are asserted in
+# ``tests/unit/test_core/test_sci005_beam_squint.py``.
+#
+# Every code, path, and message literal below is transcribed from Section
+# 4.1.1; the memo wraps them for line width and the wrapped fragments are
+# rejoined with single spaces here.
+
+SQUINT_PATH = "beams.squint"
+SQUINT_DEFAULT_PATH = "beams.squint.default"
+
+SQUINT_CONVENTION = "cotton_uson_exact_v1"
+
+#: Section 4.1.1's four frozen ``ConfigSemanticError`` codes.
+SQUINT_IDENTITY = "beam.squint.identity_block"
+SQUINT_REFERENCE_FREQUENCY_DOMAIN = "beam.squint.reference_frequency_domain"
+SQUINT_OFFSET_DOMAIN = "beam.squint.offset_domain"
+SQUINT_MECHANICAL_ANGLE_DOMAIN = "beam.squint.mechanical_angle_domain"
+
+#: Section 4.1.1's one frozen ``UnsupportedConfigError`` code.
+SQUINT_UNSUPPORTED_FAMILY = "beam.squint.unsupported_beam_family"
+
+#: Section 4.1.1's exact identity message.
+SQUINT_IDENTITY_MESSAGE = (
+    "A beams.squint block must carry a default record or at least one "
+    "per-antenna record."
+)
+
+
+def _squint_reference_frequency_message(value: object) -> str:
+    """Section 4.1.1's exact ``reference_frequency_domain`` message."""
+    return (
+        "squint reference_frequency_hz must be a positive finite frequency in "
+        f"Hz; resolved {value!r}."
+    )
+
+
+def _squint_offset_message(value: object) -> str:
+    """Section 4.1.1's exact ``offset_domain`` message."""
+    return (
+        "squint per_feed_offset_deg_at_reference must lie in the open interval "
+        f"(0, 90); resolved {value!r}."
+    )
+
+
+def _squint_mechanical_angle_message(value: object) -> str:
+    """Section 4.1.1's exact ``mechanical_angle_domain`` message."""
+    return (
+        "squint mechanical_feed_position_angle_deg must lie in (-180, 180]; "
+        f"resolved {value!r}."
+    )
+
+
+def _squint_unsupported_family_message(mode: str) -> str:
+    """Section 4.1.1's exact unsupported-beams-mode message."""
+    return (
+        "Stage-2 beam squint supports only the analytic beams mode; resolved "
+        f"beams mode is {mode!r}."
+    )
+
+
+#: The reference record: five fields, all authored, every value in domain.
+SQUINT_REFERENCE_FREQUENCY_HZ = 1.5e8
+SQUINT_OFFSET_DEG = 2.0
+SQUINT_MECHANICAL_ANGLE_DEG = 35.0
+
+
+def _squint_record(**changes: Any) -> dict[str, Any]:
+    """One complete Section 4.1 squint record, all five fields authored."""
+    record: dict[str, Any] = {
+        "convention": SQUINT_CONVENTION,
+        "reference_frequency_hz": SQUINT_REFERENCE_FREQUENCY_HZ,
+        "per_feed_offset_deg_at_reference": SQUINT_OFFSET_DEG,
+        "mechanical_feed_position_angle_deg": SQUINT_MECHANICAL_ANGLE_DEG,
+        "positive_native_feed": "x",
+    }
+    record.update(changes)
+    return record
+
+
+def _squint_per_antenna(number: int, **changes: Any) -> dict[str, Any]:
+    """One per-antenna record: ``antenna`` plus one complete squint record."""
+    return {
+        "antenna": {"kind": "number", "number": number},
+        **_squint_record(**changes),
+    }
+
+
+def _squint_beams(
+    *,
+    default: dict[str, Any] | None = None,
+    per_antenna: list[dict[str, Any]] | None = None,
+    model: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    block: dict[str, Any] = {}
+    if default is not None:
+        block["default"] = default
+    if per_antenna is not None:
+        block["per_antenna"] = per_antenna
+    beams = _analytic_beams(model)
+    beams["squint"] = block
+    return beams
+
+
+def _default_squint_beams(**changes: Any) -> dict[str, Any]:
+    return _squint_beams(default=_squint_record(**changes))
+
+
+def _squint_block_document(block: dict[str, Any]) -> dict[str, Any]:
+    """An analytic document carrying this exact ``beams.squint`` mapping."""
+    beams = _analytic_beams()
+    beams["squint"] = deepcopy(block)
+    return beams
+
+
+def _fits_beams(mode: str, tmp_path: Path) -> dict[str, Any]:
+    """One document per non-analytic beams mode, for the family rejection."""
+    if mode == "shared_fits":
+        return {
+            "mode": "shared_fits",
+            "beam": {"kind": "fits", "path": str(tmp_path / "beam.fits")},
+        }
+    if mode == "per_antenna_fits":
+        return {
+            "mode": "per_antenna_fits",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": number},
+                    "beam": {"kind": "fits", "path": str(tmp_path / "beam.fits")},
+                }
+                for number in (0, 1)
+            ],
+        }
+    if mode == "mixed":
+        return {
+            "mode": "mixed",
+            "analytic_model": deepcopy(UNIFORM_CIRCULAR),
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": number},
+                    "beam": {"kind": "analytic"},
+                }
+                for number in (0, 1)
+            ],
+        }
+    raise AssertionError(f"unknown beams mode {mode!r}")  # pragma: no cover
+
+
+# --- Stage-2 accepted strict parse --------------------------------------------
+
+
+def test_squint_resolves_a_default_and_ascending_per_antenna_records(
+    tmp_path: Path,
+) -> None:
+    """Section 4.1.1: exactly two fields, ``default`` and ``per_antenna``.
+
+    "A per-antenna record carries exactly ``antenna`` -- an exact antenna
+    number or name reference, following the accepted ``beams.pointing``
+    reference forms -- plus one complete squint record's five fields."
+    """
+    bundle = _resolve(
+        tmp_path,
+        _squint_beams(
+            default=_squint_record(),
+            per_antenna=[
+                _squint_per_antenna(
+                    1,
+                    reference_frequency_hz=2.0e8,
+                    per_feed_offset_deg_at_reference=3.5,
+                    mechanical_feed_position_angle_deg=180.0,
+                    positive_native_feed="y",
+                )
+            ],
+        ),
+    )
+
+    squint = bundle.runtime.beams.squint
+    assert squint.default.convention == SQUINT_CONVENTION
+    assert squint.default.reference_frequency_hz == SQUINT_REFERENCE_FREQUENCY_HZ
+    assert squint.default.per_feed_offset_deg_at_reference == SQUINT_OFFSET_DEG
+    assert (
+        squint.default.mechanical_feed_position_angle_deg == SQUINT_MECHANICAL_ANGLE_DEG
+    )
+    assert squint.default.positive_native_feed == "x"
+    for value in (
+        squint.default.reference_frequency_hz,
+        squint.default.per_feed_offset_deg_at_reference,
+        squint.default.mechanical_feed_position_angle_deg,
+    ):
+        assert type(value) is float
+
+    assert type(squint.per_antenna) is tuple
+    assert len(squint.per_antenna) == 1
+    entry = squint.per_antenna[0]
+    assert entry.reference_frequency_hz == 2.0e8
+    assert entry.per_feed_offset_deg_at_reference == 3.5
+    # ``180.0`` is inside the canonical half-open interval and is kept as
+    # authored: Section 4.1.1 says the value "is never wrapped".
+    assert entry.mechanical_feed_position_angle_deg == 180.0
+    assert entry.positive_native_feed == "y"
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        pytest.param({"default": _squint_record()}, id="default_only"),
+        pytest.param(
+            {"per_antenna": [_squint_per_antenna(0)]},
+            id="per_antenna_only",
+        ),
+    ],
+)
+def test_either_half_of_the_squint_block_alone_is_a_real_effect(
+    tmp_path: Path,
+    block: dict[str, Any],
+) -> None:
+    """Section 4.1.1: "an array in which some antennas must not squint while
+    others do is authored with no ``default`` and one record per squinting
+    antenna"."""
+    beams = _analytic_beams()
+    beams["squint"] = deepcopy(block)
+    bundle = _resolve(tmp_path, beams)
+
+    squint = bundle.runtime.beams.squint
+    assert (squint.default is None) == ("default" not in block)
+    assert len(squint.per_antenna) == len(block.get("per_antenna", ()))
+
+
+def test_an_absent_squint_block_leaves_the_resolved_document_untouched(
+    tmp_path: Path,
+) -> None:
+    """GREEN CONTROL. Section 2: "No absent or disabled beam block changes the
+    resolved configuration".
+
+    Pinned as an equality form rather than a literal: two resolutions of the
+    same squint-free document must produce byte-identical resolved runtime
+    JSON, and the document must carry no squint state. Both are true before
+    Stage 2 lands and must stay true after it.
+    """
+    first = _resolve(tmp_path, _analytic_beams())
+    second = _resolve(tmp_path, _analytic_beams())
+
+    assert getattr(first.runtime.beams, "squint", None) is None
+    assert getattr(second.runtime.beams, "squint", None) is None
+    assert first.runtime.to_json_safe() == second.runtime.to_json_safe()
+
+
+# --- Stage-2 schema rejections -------------------------------------------------
+
+_SQUINT_PER_ANTENNA_0 = "beams.squint.per_antenna[0]"
+
+
+@pytest.mark.parametrize(
+    ("beams", "path", "code"),
+    [
+        pytest.param(
+            _squint_block_document({"default": _squint_record(), "enabled": True}),
+            "beams.squint.enabled",
+            "extra_forbidden",
+            id="unknown_block_field",
+        ),
+        pytest.param(
+            _default_squint_beams(convention_version="v1"),
+            "beams.squint.default.convention_version",
+            "extra_forbidden",
+            id="unknown_record_field",
+        ),
+        pytest.param(
+            _squint_beams(per_antenna=[_squint_per_antenna(0, suppressed=True)]),
+            f"{_SQUINT_PER_ANTENNA_0}.suppressed",
+            "extra_forbidden",
+            id="no_per_antenna_suppression_form",
+        ),
+        pytest.param(
+            _squint_beams(per_antenna=[{"antenna": {"kind": "number", "number": 0}}]),
+            f"{_SQUINT_PER_ANTENNA_0}.convention",
+            "missing",
+            id="per_antenna_record_is_not_optional",
+        ),
+        pytest.param(
+            _squint_beams(
+                default={
+                    key: value
+                    for key, value in _squint_record().items()
+                    if key != "positive_native_feed"
+                }
+            ),
+            "beams.squint.default.positive_native_feed",
+            "missing",
+            id="missing_positive_native_feed",
+        ),
+        pytest.param(
+            _default_squint_beams(convention="cotton_uson_small_angle_v1"),
+            "beams.squint.default.convention",
+            "literal_error",
+            id="wrong_convention_literal",
+        ),
+        pytest.param(
+            _default_squint_beams(positive_native_feed="X"),
+            "beams.squint.default.positive_native_feed",
+            "literal_error",
+            id="wrong_feed_literal_case",
+        ),
+        pytest.param(
+            _default_squint_beams(positive_native_feed="q"),
+            "beams.squint.default.positive_native_feed",
+            "literal_error",
+            id="unknown_feed_literal",
+        ),
+        pytest.param(
+            _default_squint_beams(reference_frequency_hz="1.5e8"),
+            "beams.squint.default.reference_frequency_hz",
+            "float_type",
+            id="string_reference_frequency",
+        ),
+        pytest.param(
+            _default_squint_beams(per_feed_offset_deg_at_reference=float("inf")),
+            "beams.squint.default.per_feed_offset_deg_at_reference",
+            "finite_number",
+            id="non_finite_offset",
+        ),
+        pytest.param(
+            _default_squint_beams(mechanical_feed_position_angle_deg=float("nan")),
+            "beams.squint.default.mechanical_feed_position_angle_deg",
+            "finite_number",
+            id="nan_mechanical_angle",
+        ),
+        pytest.param(
+            _squint_beams(
+                default=_squint_record(), per_antenna={"0": _squint_record()}
+            ),
+            "beams.squint.per_antenna",
+            "tuple_type",
+            id="per_antenna_is_a_sequence",
+        ),
+        pytest.param(
+            _squint_beams(per_antenna=[{**_squint_per_antenna(0), "antenna": 0}]),
+            f"{_SQUINT_PER_ANTENNA_0}.antenna",
+            "model_attributes_type",
+            id="antenna_reference_must_be_tagged",
+        ),
+    ],
+)
+def test_squint_shape_type_and_unknown_field_failures_are_schema_errors(
+    tmp_path: Path,
+    beams: dict[str, Any],
+    path: str,
+    code: str,
+) -> None:
+    """Section 2 and Section 4.1.1: "Unknown fields, wrong kinds, and missing
+    required fields fail as ``ConfigSchemaError`` with Pydantic's own issue
+    codes"."""
+    with pytest.raises(ConfigSchemaError) as error:
+        _resolve(tmp_path, beams)
+
+    assert (path, code) in _rows(error.value)
+
+
+SQUINT_FLOAT_FIELDS = (
+    "reference_frequency_hz",
+    "per_feed_offset_deg_at_reference",
+    "mechanical_feed_position_angle_deg",
+)
+
+
+@pytest.mark.parametrize("field", SQUINT_FLOAT_FIELDS)
+@pytest.mark.parametrize(
+    "value", [True, False, 1, 0], ids=["true", "false", "one", "zero"]
+)
+@pytest.mark.parametrize("scope", ["default", "per_antenna"])
+def test_every_squint_float_field_rejects_bool_and_int_uniformly(
+    tmp_path: Path,
+    field: str,
+    value: bool | int,
+    scope: str,
+) -> None:
+    """Section 4.1.1: the three floats "are exact finite Python floats that
+    reject ``bool`` and ``int`` through Pydantic's own ``float_type`` issue
+    code".
+
+    Uniformity across both authoring scopes is the point: a ``default`` that
+    rejected ``0`` while the per-antenna record coerced it would satisfy
+    neither Section 2's rule nor this test.
+    """
+    if scope == "default":
+        beams = _default_squint_beams(**{field: value})
+        path = f"beams.squint.default.{field}"
+    else:
+        beams = _squint_beams(per_antenna=[_squint_per_antenna(0, **{field: value})])
+        path = f"{_SQUINT_PER_ANTENNA_0}.{field}"
+
+    with pytest.raises(ConfigSchemaError) as error:
+        _resolve(tmp_path, beams)
+
+    assert (path, "float_type") in _rows(error.value)
+
+
+# --- Stage-2 semantic rejections ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        pytest.param({}, id="empty_block"),
+        pytest.param({"per_antenna": []}, id="empty_per_antenna"),
+        pytest.param({"default": None, "per_antenna": []}, id="explicit_nulls"),
+    ],
+)
+def test_a_squint_block_with_no_record_is_an_exact_identity_and_is_rejected(
+    tmp_path: Path,
+    block: dict[str, Any],
+) -> None:
+    """Section 4.1.1: "an explicitly present block with no ``default`` and an
+    empty ``per_antenna`` is an exact identity and is rejected", which is
+    Section 2's "Every explicitly present block must resolve to a real effect".
+    """
+    beams = _analytic_beams()
+    beams["squint"] = deepcopy(block)
+
+    with pytest.raises(ConfigSemanticError) as error:
+        _resolve(tmp_path, beams)
+
+    assert _rows(error.value) == [(SQUINT_PATH, SQUINT_IDENTITY)]
+    assert error.value.issues[0].message == SQUINT_IDENTITY_MESSAGE
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "code", "message_for"),
+    [
+        pytest.param(
+            "reference_frequency_hz",
+            0.0,
+            SQUINT_REFERENCE_FREQUENCY_DOMAIN,
+            _squint_reference_frequency_message,
+            id="zero_reference_frequency",
+        ),
+        pytest.param(
+            "reference_frequency_hz",
+            -1.5e8,
+            SQUINT_REFERENCE_FREQUENCY_DOMAIN,
+            _squint_reference_frequency_message,
+            id="negative_reference_frequency",
+        ),
+        pytest.param(
+            "per_feed_offset_deg_at_reference",
+            0.0,
+            SQUINT_OFFSET_DOMAIN,
+            _squint_offset_message,
+            id="zero_offset_is_the_identity_endpoint",
+        ),
+        pytest.param(
+            "per_feed_offset_deg_at_reference",
+            90.0,
+            SQUINT_OFFSET_DOMAIN,
+            _squint_offset_message,
+            id="ninety_degree_offset_is_excluded",
+        ),
+        pytest.param(
+            "per_feed_offset_deg_at_reference",
+            -3.0,
+            SQUINT_OFFSET_DOMAIN,
+            _squint_offset_message,
+            id="negative_offset",
+        ),
+        pytest.param(
+            "mechanical_feed_position_angle_deg",
+            -180.0,
+            SQUINT_MECHANICAL_ANGLE_DOMAIN,
+            _squint_mechanical_angle_message,
+            id="minus_180_is_outside_the_half_open_interval",
+        ),
+        pytest.param(
+            "mechanical_feed_position_angle_deg",
+            180.5,
+            SQUINT_MECHANICAL_ANGLE_DOMAIN,
+            _squint_mechanical_angle_message,
+            id="just_past_180",
+        ),
+        pytest.param(
+            "mechanical_feed_position_angle_deg",
+            360.0,
+            SQUINT_MECHANICAL_ANGLE_DOMAIN,
+            _squint_mechanical_angle_message,
+            id="an_unwrapped_full_turn_is_not_wrapped_for_the_author",
+        ),
+    ],
+)
+@pytest.mark.parametrize("scope", ["default", "per_antenna"])
+def test_squint_value_domain_failures_carry_the_frozen_code_path_and_message(
+    tmp_path: Path,
+    field: str,
+    value: float,
+    code: str,
+    message_for: Any,
+    scope: str,
+) -> None:
+    """Section 4.1.1's three frozen value-domain rows, in both authoring scopes.
+
+    The per-antenna path form is frozen as
+    ``beams.squint.per_antenna[i].<field>`` "with the zero-based authored index
+    ``i``", so index 1 is used below to show the index is the authored position
+    and not a constant.
+    """
+    if scope == "default":
+        beams = _default_squint_beams(**{field: value})
+        path = f"beams.squint.default.{field}"
+    else:
+        beams = _squint_beams(
+            per_antenna=[
+                _squint_per_antenna(0),
+                _squint_per_antenna(1, **{field: value}),
+            ]
+        )
+        path = f"beams.squint.per_antenna[1].{field}"
+
+    with pytest.raises(ConfigSemanticError) as error:
+        _resolve(tmp_path, beams)
+
+    assert _rows(error.value) == [(path, code)]
+    assert error.value.issues[0].message == message_for(value)
+
+
+@pytest.mark.parametrize(
+    "mechanical_feed_position_angle_deg",
+    [-179.999, 0.0, 179.999, 180.0],
+    ids=["just_inside_lower", "zero", "just_inside_upper", "exactly_180"],
+)
+def test_the_canonical_mechanical_angle_interval_is_half_open_and_accepted(
+    tmp_path: Path,
+    mechanical_feed_position_angle_deg: float,
+) -> None:
+    """Section 4.1: the angle is "resolved into ``(-180, 180]``".
+
+    The closed upper endpoint matters as much as the open lower one: rejecting
+    exactly ``180`` would be a stricter rule than the one that was accepted,
+    and accepting exactly ``-180`` would make two authored values name the same
+    physical ray.
+    """
+    bundle = _resolve(
+        tmp_path,
+        _default_squint_beams(
+            mechanical_feed_position_angle_deg=mechanical_feed_position_angle_deg
+        ),
+    )
+
+    assert (
+        bundle.runtime.beams.squint.default.mechanical_feed_position_angle_deg
+        == mechanical_feed_position_angle_deg
+    )
+
+
+# --- Stage-2 unsupported beams-mode rejection ----------------------------------
+
+
+@pytest.mark.parametrize("mode", ["shared_fits", "per_antenna_fits", "mixed"])
+def test_squint_on_a_non_analytic_beams_mode_is_an_unsupported_family(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    """Section 4.1.1: "Stage-2 v1 accepts ``beams.squint`` only when the
+    resolved beams mode is ``analytic``".
+
+    "A measured file's pattern may already contain the physical feed
+    displacement, and the scalar accepted subset provides no metadata by which
+    RadioSim could prove it does not". ``mixed`` is rejected even when every
+    authored assignment happens to be analytic, because the rejection is on the
+    resolved *mode*.
+    """
+    beams = _fits_beams(mode, tmp_path)
+    beams["squint"] = {"default": _squint_record()}
+
+    with pytest.raises(UnsupportedConfigError) as error:
+        _resolve(tmp_path, beams)
+
+    squint_rows = [row for row in _rows(error.value) if row[0] == SQUINT_PATH]
+    assert squint_rows == [(SQUINT_PATH, SQUINT_UNSUPPORTED_FAMILY)]
+    issue = next(item for item in error.value.issues if item.path == SQUINT_PATH)
+    assert issue.message == _squint_unsupported_family_message(mode)
+
+
+def test_the_family_rejection_precedes_no_antenna_reference_matching(
+    tmp_path: Path,
+) -> None:
+    """Section 4.1.1: a non-analytic document "is rejected at the document
+    stage with no antenna-reference matching".
+
+    The per-antenna record below names an antenna the shipped fixture does not
+    have. If the family rejection ran after reference matching, this document
+    would fail with ``UnknownBeamAntennaError`` from beam-assignment resolution
+    instead.
+    """
+    beams = _fits_beams("shared_fits", tmp_path)
+    beams["squint"] = {"per_antenna": [_squint_per_antenna(7)]}
+
+    with pytest.raises(UnsupportedConfigError) as error:
+        _resolve(tmp_path, beams)
+
+    assert (SQUINT_PATH, SQUINT_UNSUPPORTED_FAMILY) in _rows(error.value)
+
+
+# --- Stage-2 check ordering ----------------------------------------------------
+
+
+def test_stage1_aperture_checks_precede_every_stage2_squint_check(
+    tmp_path: Path,
+) -> None:
+    """Section 4.1.1: "Stage-2 document checks run after every Stage-1 aperture
+    and diagnostic check in Section 3.5's fixed order"."""
+    beams = _analytic_beams(
+        aperture_physics=_aperture_physics(blockage=_blockage(1.5)),
+    )
+    beams["squint"] = {"default": _squint_record(per_feed_offset_deg_at_reference=0.0)}
+
+    with pytest.raises(ConfigSemanticError) as error:
+        _resolve(tmp_path, beams)
+
+    assert _rows(error.value) == [
+        (
+            "beams.aperture_physics.blockage.central_diameter_ratio",
+            SEMANTIC_CODES["blockage_ratio_domain"],
+        ),
+        (
+            "beams.squint.default.per_feed_offset_deg_at_reference",
+            SQUINT_OFFSET_DOMAIN,
+        ),
+    ]
+
+
+def test_stage2_squint_checks_are_emitted_after_the_stage1_diagnostic_checks(
+    tmp_path: Path,
+) -> None:
+    """Section 4.1.1's emission order, read where it is actually observable.
+
+    ``ConfigResolutionError`` sorts its issues by ``(stage, path, code)``, and
+    ``"beams.squint" < "beams.surface_error"`` lexicographically, so the
+    *presented* order of a squint issue beside a Stage-1 diagnostic issue is
+    the sort's and not the collector's. The frozen rule is about the order the
+    checks *run* in, which is exactly what ``collect_semantic_issues`` returns
+    before ``ConfigResolutionError`` reorders it.
+    """
+    from radiosim.io.config import RadioSimConfig, collect_semantic_issues
+
+    beams = _analytic_beams(
+        surface_error={
+            "default": {
+                "rms_surface_error_m": 0.001,
+                "error_beam_diagnostic": _diagnostic(-0.25),
+            }
+        },
+    )
+    beams["squint"] = {"default": _squint_record(reference_frequency_hz=0.0)}
+    data = valid_config_mapping(tmp_path, beams=beams)
+
+    issues = collect_semantic_issues(RadioSimConfig.model_validate(data))
+
+    assert [(issue.path, issue.code) for issue in issues] == [
+        (
+            f"{DEFAULT_DIAGNOSTIC_PATH}.correlation_length_m",
+            SEMANTIC_CODES["correlation_length_domain"],
+        ),
+        (
+            "beams.squint.default.reference_frequency_hz",
+            SQUINT_REFERENCE_FREQUENCY_DOMAIN,
+        ),
+    ]
+
+
+def test_squint_value_domain_checks_visit_the_default_then_ascending_indices(
+    tmp_path: Path,
+) -> None:
+    """Section 4.1.1: "value-domain checks visit the ``default`` record and
+    then ascending ``per_antenna`` indices"."""
+    beams = _squint_beams(
+        default=_squint_record(reference_frequency_hz=0.0),
+        per_antenna=[
+            _squint_per_antenna(0, per_feed_offset_deg_at_reference=0.0),
+            _squint_per_antenna(1, mechanical_feed_position_angle_deg=-180.0),
+        ],
+    )
+
+    with pytest.raises(ConfigSemanticError) as error:
+        _resolve(tmp_path, beams)
+
+    assert _rows(error.value) == [
+        (
+            "beams.squint.default.reference_frequency_hz",
+            SQUINT_REFERENCE_FREQUENCY_DOMAIN,
+        ),
+        (
+            "beams.squint.per_antenna[0].per_feed_offset_deg_at_reference",
+            SQUINT_OFFSET_DOMAIN,
+        ),
+        (
+            "beams.squint.per_antenna[1].mechanical_feed_position_angle_deg",
+            SQUINT_MECHANICAL_ANGLE_DOMAIN,
+        ),
+    ]
+
+
+def test_the_unsupported_family_check_runs_after_the_value_domain_checks(
+    tmp_path: Path,
+) -> None:
+    """Section 4.1.1: "the unsupported-family check runs last".
+
+    Both fire on the same document, so a family rejection that short-circuited
+    the value-domain pass would drop the semantic row entirely -- and the
+    document would raise ``UnsupportedConfigError`` rather than
+    ``ConfigSemanticError``.
+    """
+    beams = _fits_beams("shared_fits", tmp_path)
+    beams["squint"] = {"default": _squint_record(per_feed_offset_deg_at_reference=95.0)}
+
+    with pytest.raises(ConfigSemanticError) as error:
+        _resolve(tmp_path, beams)
+
+    rows = _rows(error.value)
+    assert (
+        "beams.squint.default.per_feed_offset_deg_at_reference",
+        SQUINT_OFFSET_DOMAIN,
+    ) in rows
+    assert (SQUINT_PATH, SQUINT_UNSUPPORTED_FAMILY) in rows
+    # ``semantic`` sorts before ``unsupported``, so "last" is observable here.
+    assert rows.index(
+        ("beams.squint.default.per_feed_offset_deg_at_reference", SQUINT_OFFSET_DOMAIN)
+    ) < rows.index((SQUINT_PATH, SQUINT_UNSUPPORTED_FAMILY))
+
+
+# --- Stage-2 field allowlist ---------------------------------------------------
+
+
+def test_squint_is_registered_in_the_beam_field_allowlist() -> None:
+    """Section 4.1.1: "the override field allowlist entries ``beams.squint``
+    and ``beams.squint.default``".
+
+    The only allowlist in the codebase carrying entries of that exact shape is
+    ``radiosim.io.config._KNOWN_FIELDS_BY_PARENT``, which already holds
+    ``beams.pointing`` and ``beams.pointing.default`` -- the block Section
+    4.1.1 says ``beams.squint`` follows. (``SimulationOverrides`` itself
+    carries no ``beams`` field at all, for ``pointing`` or anything else; see
+    the module-level note in ``test_sci005_beam_squint.py``.)
+
+    The parent ``"beams"`` tuple entry is asserted with them because that is
+    where the unknown-field guidance finds a mistyped child, and because both
+    ``pointing`` and ``surface_error`` are registered there.
+
+    The two entries are asserted against Section 4.1.1's own field lists rather
+    than against a model's ``model_fields``: ``D2`` freezes the field names but
+    not the Pydantic class names, and a test that named the classes would pin a
+    spelling the design never fixed.
+    """
+    from radiosim.io.config import _KNOWN_FIELDS_BY_PARENT
+
+    assert "squint" in _KNOWN_FIELDS_BY_PARENT["beams"]
+    assert set(_KNOWN_FIELDS_BY_PARENT["beams.squint"]) == {"default", "per_antenna"}
+    assert set(_KNOWN_FIELDS_BY_PARENT["beams.squint.default"]) == {
+        "convention",
+        "reference_frequency_hz",
+        "per_feed_offset_deg_at_reference",
+        "mechanical_feed_position_angle_deg",
+        "positive_native_feed",
+    }
