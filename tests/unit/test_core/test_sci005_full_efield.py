@@ -202,12 +202,37 @@ ANT1 = AntennaId(1, "ANT1")
 #: with non-zero ``feed_rotation_deg``.
 ROTATED_FEED_ROTATION_DEG = 31.0
 
-#: Probe directions inside the visible hemisphere. The first entry is the
-#: zenith itself, where the North/East tangent limit lives.
-_PROBE_ZENITH_ANGLE_RAD = np.array([0.0, 0.12, 0.35, 0.60, 0.95], dtype=np.float64)
-_PROBE_AZIMUTH_RAD = np.array([0.0, 0.4, 2.1, 3.6, 5.2], dtype=np.float64)
-PROBE_ALTITUDE_RAD = np.pi / 2.0 - _PROBE_ZENITH_ANGLE_RAD
-PROBE_AZIMUTH_RAD = _PROBE_AZIMUTH_RAD
+#: Probe directions, all of them **stored-grid** nodes of the shipped fixture.
+#:
+#: Corrected Section 5.2.1: "Every conversion, factorization, and oracle
+#: comparison held to a frozen Stage-3 tolerance is evaluated at stored-grid
+#: directions -- directions that lie exactly on the file's own ``axis1_array``
+#: and ``axis2_array`` nodes -- because that is where the accepted
+#: ``az_za_simple`` bilinear interpolation is exact and where the Stage-3
+#: conversion law is therefore the only thing under test." An off-grid probe
+#: on this coarse fixture measures the interpolator, whose bilinear error is
+#: of order ``1e-1`` there, not the conversion.
+#:
+#: The first entry is the zenith itself, where the North/East tangent limit
+#: lives. The azimuth-uv node ``pi/4`` is included because the quadrupolar
+#: cross-hand ``sin(2 phi)`` vanishes on the principal planes and a probe set
+#: made only of those would make every cross-hand assertion vacuous.
+_PROBE_ZENITH_ANGLE_UV_RAD = np.array(
+    [0.0, np.pi / 8.0, np.pi / 4.0, 3.0 * np.pi / 8.0, np.pi / 4.0],
+    dtype=np.float64,
+)
+_PROBE_AZIMUTH_UV_RAD = np.array(
+    [
+        np.pi / 2.0,
+        np.pi / 4.0,
+        3.0 * np.pi / 4.0,
+        5.0 * np.pi / 4.0,
+        7.0 * np.pi / 4.0,
+    ],
+    dtype=np.float64,
+)
+PROBE_ALTITUDE_RAD = np.pi / 2.0 - _PROBE_ZENITH_ANGLE_UV_RAD
+PROBE_AZIMUTH_RAD = (np.pi / 2.0 - _PROBE_AZIMUTH_UV_RAD) % (2.0 * np.pi)
 
 
 # --- memo-derived oracles, written here rather than imported -------------------
@@ -390,6 +415,36 @@ def fits_beams(
     }
 
 
+def per_antenna_fits_beams(
+    paths: dict[int, Path],
+    *,
+    normalization: str = FULL_EFIELD_NORMALIZATION,
+    frequency_interpolation: str = "cubic",
+) -> dict[str, Any]:
+    """One ``per_antenna_fits`` beams block, one authored transport per antenna.
+
+    Corrected Section 5.2.1's third retained witness needs "two **different**
+    files, or two per-antenna definitions, each of whose metadata matches its
+    own antenna's receptor under item 6", which is exactly what this mode
+    expresses and what a single ``shared_fits`` source cannot.
+    """
+    return {
+        "mode": "per_antenna_fits",
+        "assignments": [
+            {
+                "antenna": {"kind": "number", "number": number},
+                "beam": {
+                    "kind": "fits",
+                    "path": str(path),
+                    "normalization": normalization,
+                    "frequency_interpolation": frequency_interpolation,
+                },
+            }
+            for number, path in sorted(paths.items())
+        ],
+    }
+
+
 def receptors_block(
     *,
     basis: str = "linear",
@@ -450,6 +505,7 @@ def load_efield_system(
     *,
     beam: Any = None,
     path: Path | None = None,
+    beams: dict[str, Any] | None = None,
     normalization: str = FULL_EFIELD_NORMALIZATION,
     receptors: dict[str, Any] | None = None,
     beam_precision: str | None = None,
@@ -461,7 +517,8 @@ def load_efield_system(
     loader seam ``core/beam/runtime._load_beam_system`` already exposes, which
     is how the accepted suite reaches states pyuvdata refuses to write. When it
     is ``None`` the real transport at ``path`` is read by the production
-    loader.
+    loader. ``beams`` overrides the whole beams block for the modes a single
+    ``shared_fits`` source cannot express.
 
     Section 5.1.1 rules the receptor half of items 5 through 7 onto beam-system
     load and reuses ``load_beam_system``'s already-accepted ``receptors``
@@ -476,13 +533,15 @@ def load_efield_system(
     from radiosim.core.receptor import resolve_receptors
 
     tmp_path.mkdir(parents=True, exist_ok=True)
-    if path is None:
-        path = tmp_path / "efield.beamfits"
-        if not path.exists():
-            path.write_bytes(b"injected dependency transport for a Stage-3 probe")
+    if beams is None:
+        if path is None:
+            path = tmp_path / "efield.beamfits"
+            if not path.exists():
+                path.write_bytes(b"injected dependency transport for a Stage-3 probe")
+        beams = fits_beams(path, normalization=normalization)
     bundle = resolve_document(
         tmp_path,
-        fits_beams(path, normalization=normalization),
+        beams,
         receptors=receptors,
         beam_precision=beam_precision,
     )
@@ -1036,7 +1095,10 @@ def test_the_full_efield_literal_resolves_into_the_beam_definition(
 
     beams = bundle.runtime.beams
     assert beams.mode == "shared_fits"
-    definition = beams.assignments[0].definition
+    # ``ResolvedSharedFITSBeamsInput`` exposes exactly one ``beam`` leaf; the
+    # ``assignments`` tuple belongs to ``per_antenna_fits`` and ``mixed``
+    # alone, which is the only spelling Section 5.1.1 names for each mode.
+    definition = beams.beam
     assert definition.normalization == FULL_EFIELD_NORMALIZATION
     assert definition.kind == "fits"
 
@@ -1060,8 +1122,8 @@ def test_the_two_normalization_literals_never_share_a_definition_fingerprint(
         receptors=receptors_block(),
     )
 
-    scalar_definition = scalar.runtime.beams.assignments[0].definition
-    full_definition = full.runtime.beams.assignments[0].definition
+    scalar_definition = scalar.runtime.beams.beam
+    full_definition = full.runtime.beams.beam
     assert scalar_definition.normalization == "peak"
     assert full_definition.normalization == FULL_EFIELD_NORMALIZATION
     assert (
@@ -1263,18 +1325,85 @@ def test_the_full_efield_subset_requires_the_resolved_receptor_set(
         )
 
 
-def test_the_response_key_separates_two_receptors_sharing_one_efield_file(
+def test_the_efield_response_key_differs_from_the_bare_handler_id(
     tmp_path: Path,
 ) -> None:
-    """Section 5.2.1: the efield sub-object's "receptor half is part of the
-    identity because ``E = C^dagger J_native`` differs between two antennas
-    that share one handler and one file but not one receptor", and "the
-    HEALPix cache is that same identity".
-    """
+    """Corrected Section 5.2.1's first retained witness: "the efield response
+    key differs from the bare ``handler_id`` for an antenna that carries a
+    full-efield definition"."""
     written = write_efield_beamfits(tmp_path)
     system, _receptors, _state = load_efield_system(
         tmp_path,
         path=written.path,
+        receptors=receptors_block(),
+    )
+
+    handler_id = system.state.handlers[0].handler_id
+    assert system.response_key(ANT0) != handler_id
+    assert system.response_key(ANT1) != handler_id
+
+
+def test_two_antennas_sharing_one_accepted_efield_file_share_one_response_key(
+    tmp_path: Path,
+) -> None:
+    """The identity corrected Section 5.2.1 records, asserted rather than
+    assumed.
+
+    "Section 5.1.1 item 6 requires the file's two ``feed_angle`` values to
+    equal every assigned antenna's ``feed_angle_rad`` within ``1e-12`` modulo
+    ``2*pi`` ... A single accepted file therefore pins the static rotation
+    ``chi``, and it pins the basis too, because the two patterns can never
+    coincide -- equality would require ``pi/2 == 0``. Two antennas assigned one
+    accepted file consequently have identical ``C`` and identical composed
+    ``E`` by construction."
+
+    This is the exact-vanishing companion of the difference witness below, in
+    the same spirit as Section 4.2's circular-commutation identity: the
+    scenario the superseded slice tried to build is not merely hard, it is
+    unconstructible, and the honest retained statement is that both antennas
+    coincide.
+    """
+    written = write_efield_beamfits(tmp_path)
+    system, receptor_set, _state = load_efield_system(
+        tmp_path,
+        path=written.path,
+        receptors=receptors_block(),
+    )
+
+    assert len(system.state.handlers) == 1
+    first_receptor = receptor_set.receptor_by_antenna[ANT0]
+    second_receptor = receptor_set.receptor_by_antenna[ANT1]
+    assert first_receptor.basis == second_receptor.basis
+    assert first_receptor.feed_rotation_rad == second_receptor.feed_rotation_rad
+    assert system.response_key(ANT0) == system.response_key(ANT1)
+    np.testing.assert_array_equal(evaluate(system, ANT0), evaluate(system, ANT1))
+
+
+def test_two_per_antenna_efield_definitions_receive_different_response_keys(
+    tmp_path: Path,
+) -> None:
+    """Corrected Section 5.2.1's third retained witness: "two antennas whose
+    composed ``E`` legitimately differs -- which requires two **different**
+    files, or two per-antenna definitions, each of whose metadata matches its
+    own antenna's receptor under item 6 -- receive different keys."
+
+    Each file below carries the ``feed_angle`` pair its own antenna's receptor
+    resolves to, so item 6 is satisfied for both assignments and the two
+    composed responses differ only through the static rotation ``chi``.
+    """
+    unrotated = write_efield_beamfits(
+        tmp_path / "unrotated",
+        science=EfieldScienceVariant.QUADRUPOLAR,
+        feed_rotation_rad=0.0,
+    )
+    rotated = write_efield_beamfits(
+        tmp_path / "rotated",
+        science=EfieldScienceVariant.QUADRUPOLAR,
+        feed_rotation_rad=math.radians(ROTATED_FEED_ROTATION_DEG),
+    )
+    system, receptor_set, _state = load_efield_system(
+        tmp_path,
+        beams=per_antenna_fits_beams({0: unrotated.path, 1: rotated.path}),
         receptors=receptors_block(
             overrides=[
                 {
@@ -1285,13 +1414,10 @@ def test_the_response_key_separates_two_receptors_sharing_one_efield_file(
         ),
     )
 
-    handler_id = system.state.handlers[0].handler_id
-    assert len(system.state.handlers) == 1
-    first = system.response_key(ANT0)
-    second = system.response_key(ANT1)
-    assert first != second
-    assert first != handler_id
-    assert second != handler_id
+    assert len(system.state.handlers) == 2
+    assert receptor_set.receptor_by_antenna[ANT0].feed_rotation_rad == 0.0
+    assert receptor_set.receptor_by_antenna[ANT1].feed_rotation_rad != 0.0
+    assert system.response_key(ANT0) != system.response_key(ANT1)
     assert not np.array_equal(evaluate(system, ANT0), evaluate(system, ANT1))
 
 
@@ -1394,12 +1520,17 @@ def test_a_file_whose_feed_pair_matches_one_antenna_and_not_another_is_rejected(
             tmp_path,
             path=written.path,
             receptors=receptors_block(
+                # A mixed linear/circular array cannot resolve ``auto``: it
+                # dies in ``resolve_receptors`` with ``AmbiguousOutputBasisError``
+                # before any beam code runs, so the array-wide reporting basis
+                # is authored explicitly here.
+                output_basis="linear",
                 overrides=[
                     {
                         "antenna": {"kind": "number", "number": 1},
                         "basis": "circular",
                     }
-                ]
+                ],
             ),
         )
 
@@ -1527,12 +1658,15 @@ FROZEN_PROVENANCE_FIELD_ORDER: tuple[str, ...] = (
 #: The seven appended names alone.
 STAGE3_PROVENANCE_FIELDS: tuple[str, ...] = FROZEN_PROVENANCE_FIELD_ORDER[23:]
 
-#: An azimuth at which ``T(phi)`` is both non-identity and non-symmetric.
-#: ``T`` is symmetric only where ``cos(phi) == 0`` and is the identity only at
-#: ``phi = pi/2``, so any sample with a non-zero cosine serves; the canonical
-#: grid's ``az_uv = pi/4`` gives ``phi = pi/4``.
+#: A **stored-grid** direction at which ``T(phi)`` is both non-identity and
+#: non-symmetric. ``T`` is symmetric only where ``cos(phi) == 0`` and is the
+#: identity only at ``phi = pi/2``, so any node with a non-zero cosine serves;
+#: the canonical azimuth node ``az_uv = pi/4`` gives ``phi = pi/4``, and
+#: ``pi/4`` is likewise a node of the canonical zenith-angle axis
+#: ``linspace(0, pi/2, 5)``. Corrected Section 5.2.1 requires the comparison to
+#: be on-grid, where the accepted bilinear interpolation is exact.
 OBSERVABLE_AZIMUTH_UV_RAD = np.pi / 4.0
-OBSERVABLE_ZENITH_ANGLE_RAD = 0.62
+OBSERVABLE_ZENITH_ANGLE_RAD = np.pi / 4.0
 
 
 def test_t_of_phi_is_non_identity_and_non_symmetric_where_it_is_exercised() -> None:

@@ -255,7 +255,12 @@ def write_scalar_efield_beamfits(
         Path, runtime digest from actual bytes, native dtype, and science identity.
     """
     variant = _require_science_variant(variant)
-    root = Path(directory).resolve(strict=True)
+    root = Path(directory)
+    # Created rather than required, matching ``write_efield_beamfits``: a
+    # caller writing one comparison pair into two sibling subdirectories should
+    # not have to remember which of the two writers creates its own.
+    root.mkdir(parents=True, exist_ok=True)
+    root = root.resolve(strict=True)
     if not root.is_dir():
         raise NotADirectoryError(root)
     native_dtype = _normalise_complex_dtype(dtype)

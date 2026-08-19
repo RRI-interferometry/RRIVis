@@ -1091,6 +1091,18 @@ def test_a_full_efield_chain_makes_the_h_c_e_order_observable(
     A general ``J_native`` makes the composed ``E = C^dagger J_native``
     genuinely non-commuting for *every* receptor basis, which is exactly the
     property Stage 2's diagonal ``D_b`` did not have on a circular receptor.
+
+    The ``H`` half splits by basis, exactly as corrected Section 5.2.1 rules
+    and in the same spirit as Section 4.2's circular-commutation identity:
+    "``H`` is exactly ``I2`` whenever an antenna's native receptor basis is the
+    output basis ... An assertion that reordering ``H`` against the rest of the
+    chain is observable is therefore impossible on a same-basis
+    parametrization, not merely delicate. Any ``H``-order observability control
+    must use a **cross-basis** parametrization ... and the exact vanishing on a
+    same-basis row is itself a legitimate retained witness of the identity."
+    The two same-basis rows below therefore assert that exact vanishing, and
+    the two cross-basis rows carry the observability control. Every ``C``/``E``
+    assertion is unchanged and runs on all four rows.
     """
     feeds = ("x", "y") if receptor_basis == "linear" else ("r", "l")
     instrument, beam_system, receptor_set = _efield_solver_components(
@@ -1190,4 +1202,19 @@ def test_a_full_efield_chain_makes_the_h_c_e_order_observable(
         STAGE3_SEPARATION_BOUND
     )
     assert not np.allclose(composed, transform @ beam @ receptor, atol=1e-6)
-    assert not np.allclose(composed, receptor @ transform @ beam, atol=1e-6)
+
+    # The ``H`` half, split by corrected Section 5.2.1's recorded identity.
+    native_output_basis = {"linear": "linear", "circular": "circular"}[receptor_basis]
+    if output_basis == native_output_basis:
+        # Same basis: ``basis_transform_matrix`` returns the identity, so the
+        # reordered product is not merely close to the composed one, it is the
+        # very same matrix. Asserted exactly, as the retained witness.
+        np.testing.assert_array_equal(
+            transform, np.broadcast_to(np.eye(2), transform.shape)
+        )
+        np.testing.assert_array_equal(receptor @ transform @ beam, receptor @ beam)
+    else:
+        # Cross basis: ``H`` is a genuine change of reporting basis and its
+        # position in the product is observable.
+        assert float(np.max(np.abs(transform - np.eye(2)))) >= STAGE3_SEPARATION_BOUND
+        assert not np.allclose(composed, receptor @ transform @ beam, atol=1e-6)
