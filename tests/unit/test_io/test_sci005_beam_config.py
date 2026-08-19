@@ -2089,27 +2089,35 @@ def test_stage1_aperture_checks_precede_every_stage2_squint_check(
     ]
 
 
-def test_stage2_squint_checks_are_emitted_after_the_stage1_diagnostic_checks(
+def test_the_public_collector_presents_the_aperture_squint_pair_in_order(
     tmp_path: Path,
 ) -> None:
-    """Section 4.1.1's emission order, read where it is actually observable.
+    """Section 4.1.1's traversal rule, on its one ruled public witness.
 
-    ``ConfigResolutionError`` sorts its issues by ``(stage, path, code)``, and
-    ``"beams.squint" < "beams.surface_error"`` lexicographically, so the
-    *presented* order of a squint issue beside a Stage-1 diagnostic issue is
-    the sort's and not the collector's. The frozen rule is about the order the
-    checks *run* in, which is exactly what ``collect_semantic_issues`` returns
-    before ``ConfigResolutionError`` reorders it.
+    "The public collector and the raised error both present issues in the
+    accepted sorted order, so the Stage-1-before-Stage-2 traversal is publicly
+    observable only through a path pair that sorting preserves -- the
+    aperture-physics/squint pair, whose paths sort in traversal order -- and
+    red and evidence witnesses of the traversal rule use exactly that pair;
+    the squint/surface-error pair sorts against its traversal order and is not
+    a witness."
+
+    The sibling above reads the same pair off the raised
+    ``ConfigSemanticError``; this one reads it off ``collect_semantic_issues``,
+    the other of the two surfaces the rule names. The lexicographic facts that
+    make one pair a witness and the other not are asserted directly, so a
+    future reader does not have to rediscover why the witness is this pair.
     """
     from radiosim.io.config import RadioSimConfig, collect_semantic_issues
 
+    aperture_path = "beams.aperture_physics.blockage.central_diameter_ratio"
+    squint_path = "beams.squint.default.reference_frequency_hz"
+    # Why this pair and not the other: the sort key is ``(stage, path, code)``.
+    assert aperture_path < squint_path
+    assert "beams.squint" < "beams.surface_error"
+
     beams = _analytic_beams(
-        surface_error={
-            "default": {
-                "rms_surface_error_m": 0.001,
-                "error_beam_diagnostic": _diagnostic(-0.25),
-            }
-        },
+        aperture_physics=_aperture_physics(blockage=_blockage(1.5)),
     )
     beams["squint"] = {"default": _squint_record(reference_frequency_hz=0.0)}
     data = valid_config_mapping(tmp_path, beams=beams)
@@ -2117,14 +2125,8 @@ def test_stage2_squint_checks_are_emitted_after_the_stage1_diagnostic_checks(
     issues = collect_semantic_issues(RadioSimConfig.model_validate(data))
 
     assert [(issue.path, issue.code) for issue in issues] == [
-        (
-            f"{DEFAULT_DIAGNOSTIC_PATH}.correlation_length_m",
-            SEMANTIC_CODES["correlation_length_domain"],
-        ),
-        (
-            "beams.squint.default.reference_frequency_hz",
-            SQUINT_REFERENCE_FREQUENCY_DOMAIN,
-        ),
+        (aperture_path, SEMANTIC_CODES["blockage_ratio_domain"]),
+        (squint_path, SQUINT_REFERENCE_FREQUENCY_DOMAIN),
     ]
 
 

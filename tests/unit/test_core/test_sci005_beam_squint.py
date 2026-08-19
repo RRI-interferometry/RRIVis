@@ -1524,13 +1524,38 @@ def test_c_times_e_times_p_equals_the_physical_d_b_c_p_and_order_matters(
     feed_rotation_deg: float,
     feed: str,
 ) -> None:
-    """Section 4.2: "prove ``C E P`` equals ``D_b C P`` and differs from
-    ``C P E``".
+    """Section 4.2: ``C E P == D_b C P``, with the order control split by basis.
+
+    "Prove ``C E P`` equals ``D_b C P`` and differs from ``C P E``" holds on
+    every row, but Section 4.2 restricts the *order-matters* half to "a
+    nontrivial unitary ``C`` built on a **rotated linear** receptor", and says
+    why in exact algebra rather than in caution: for any circular receptor
+    ``C = S R(chi)`` and any ``b0 != b1``,
+
+        E = C^dagger diag(b0, b1) C
+          = ((b0 + b1)/2) I2 - ((b0 - b1)/2) sigma_y,
+
+    independent of ``chi``, "whose diagonal entries are exactly equal and which
+    commutes exactly with every real rotation because
+    ``R(theta) = exp(i * theta * sigma_y)``". The circular order control is
+    therefore identically zero, and "its exact vanishing is itself a retained
+    witness of the factorization (Section 8.1)". Section 8.1's
+    ``native_feed_factorizations`` cross-field splits the same way: a
+    ``linear`` row requires ``order_control_max_abs_difference >=
+    max(1e-3, 1024 * atol)``, a ``circular`` row requires ``<= atol``.
+
+    The circular branch below asserts the identity entry by entry rather than
+    only its consequence, so a production ``E`` that vanished under the order
+    control for the wrong reason -- a degenerate ``D_b``, say -- would still
+    fail. ``E`` stays "generally full in both bases": the circular case has
+    ``|E_01| = |b0 - b1| / 2 > 0``, which is asserted too.
 
     A single far probe is used so that ``b_0`` and ``b_1`` are strongly
     unequal: at ``0.09 rad`` from the boresight at 150 MHz the two samples are
-    about ``0.82`` and ``0.31``, which is what makes the order control a
-    statement about ordering rather than about a near-degenerate ``D_b``.
+    about ``0.82`` and ``0.31``, which is what makes the linear order control a
+    statement about ordering rather than about a near-degenerate ``D_b``, and
+    what makes the circular vanishing a statement about the identity rather
+    than about two nearly equal samples.
     """
     system, _instrument, _receptors, _state = _beam_system(
         tmp_path,
@@ -1591,9 +1616,32 @@ def test_c_times_e_times_p_equals_the_physical_d_b_c_p_and_order_matters(
     physical = diagonal @ receptor @ field_rotation
     chain = receptor @ observed @ field_rotation
     swapped = receptor @ field_rotation @ observed
+    order_control = _max_abs_difference(chain, swapped)
 
     assert _max_abs_difference(chain, physical) <= ATOL
-    assert _max_abs_difference(chain, swapped) >= SEPARATION_BOUND
+
+    if basis == "linear":
+        # Section 8.1: a ``linear`` row requires
+        # ``order_control_max_abs_difference >= max(1e-3, 1024 * atol)``.
+        assert order_control >= SEPARATION_BOUND
+        return
+
+    # Section 4.2's exact circular identity, entry by entry.  ``sigma_y`` is
+    # ``[[0, -i], [i, 0]]``, so ``E01 = +i (b0 - b1) / 2`` and
+    # ``E10 = -i (b0 - b1) / 2``.
+    half_sum = complex(0.5 * (diagonal[0, 0, 0] + diagonal[0, 1, 1]))
+    half_difference = complex(0.5 * (diagonal[0, 0, 0] - diagonal[0, 1, 1]))
+    assert _max_abs_difference(observed[:, 0, 0], observed[:, 1, 1]) <= ATOL
+    assert abs(complex(observed[0, 0, 0]) - half_sum) <= ATOL
+    assert abs(complex(observed[0, 1, 1]) - half_sum) <= ATOL
+    assert abs(complex(observed[0, 0, 1]) - 1j * half_difference) <= ATOL
+    assert abs(complex(observed[0, 1, 0]) + 1j * half_difference) <= ATOL
+    # Still generally full: ``|E01| = |b0 - b1| / 2 > 0``.
+    assert abs(complex(observed[0, 0, 1])) >= SEPARATION_BOUND
+    # Section 8.1: a ``circular`` row requires
+    # ``order_control_max_abs_difference <= atol`` -- the retained commutation
+    # witness.
+    assert order_control <= ATOL
 
 
 @pytest.mark.skipif(

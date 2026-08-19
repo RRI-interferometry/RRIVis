@@ -709,53 +709,78 @@ def test_a_field_rotation_is_two_phases_on_a_circular_receptor(
 # SCI-005 Stage 2: the replacement order oracle, with a non-scalar E
 # ---------------------------------------------------------------------------
 #
-# ``docs/development/sci005_beam_physics_plan.md`` Section 4.2 (the
-# factorization prose the Stage-2 gate carries under its 4.1.1 heading) retires
-# the scalar-only order oracle outright:
+# ``docs/development/sci005_beam_physics_plan.md`` Section 4.2 retires the
+# scalar-only order oracle outright:
 #
 #     "Stage 2 must replace the scalar-only order-unobservability oracle with
 #     an analytic non-commuting case: choose unequal finite ``b0`` and ``b1``, a
-#     nontrivial unitary ``C``, and a nontrivial ``P``; prove ``C E P`` equals
-#     ``D_b C P`` and differs from ``C P E``. The scalar disabled case remains a
-#     separate byte-identity regression."
+#     nontrivial unitary ``C`` built on a **rotated linear** receptor, and a
+#     nontrivial ``P``; prove ``C E P`` equals ``D_b C P`` and differs from
+#     ``C P E``. The scalar disabled case remains a separate byte-identity
+#     regression."
 #
 # The two halves live in different files by design. The ``C E P == D_b C P``
 # statement is an ``E``-composition property and is asserted against an
 # independently built ``D_b`` in
 # ``tests/unit/test_core/test_sci005_beam_squint.py``. What belongs *here* is
-# the chain-order half: with squint enabled the solver's own ``E`` no longer
-# commutes with ``C``, so ``H @ C @ E`` becomes an observable claim about the
-# order the solver composes rather than a claim that happens to hold because
-# every factor is a scalar multiple of the identity.
+# the chain-order half: with squint enabled on a rotated linear receptor the
+# solver's own ``E`` no longer commutes with ``C``, so ``H @ C @ E`` becomes an
+# observable claim about the order the solver composes rather than a claim that
+# happens to hold because every factor is a scalar multiple of the identity.
+#
+# The receptor really has to be linear. Section 4.2 rules that for any circular
+# receptor ``C = S R(chi)``,
+#
+#     E = C^dagger diag(b0, b1) C
+#       = ((b0 + b1)/2) I2 - ((b0 - b1)/2) sigma_y,
+#
+# independent of ``chi``, with exactly equal diagonals and exact commutation
+# with every real rotation -- so a circular fixture could not express an
+# order-matters control at all. Its exact vanishing is a retained witness in
+# its own right, and the companion assertion at the end of the test below keeps
+# that witness next to the oracle it explains.
 #
 # Every existing test above is untouched. ``test_composed_chain_equals_h_
 # times_c_times_e`` remains exactly the disabled-case regression Section 4.2
 # asks to keep: same fixture, no squint block, scalar ``E``.
 
-#: The Stage-2 squint block, in the frozen Section 4.1 field spelling.  The
-#: shipped layout carries no mount type, so both antennas resolve to ``fixed``
-#: and the boresight the adapter derives is well defined at zenith (Section
-#: 4.2.1 rules only the *rotating* mount undefined there).
-SQUINT_BLOCK: dict[str, Any] = {
-    "default": {
-        "convention": "cotton_uson_exact_v1",
-        "reference_frequency_hz": 1.5e8,
-        "per_feed_offset_deg_at_reference": 2.0,
-        "mechanical_feed_position_angle_deg": 35.0,
-        "positive_native_feed": "r",
+
+def _squint_block(positive_native_feed: str) -> dict[str, Any]:
+    """The Stage-2 squint block, in the frozen Section 4.1 field spelling.
+
+    The shipped layout carries no mount type, so both antennas resolve to
+    ``fixed`` and the boresight the adapter derives is well defined at zenith
+    (Section 4.2.1 rules only the *rotating* mount undefined there).  The feed
+    label is a parameter because Section 4.1.1 requires it to belong to the
+    resolved receptor basis: ``x``/``y`` for ``linear``, ``r``/``l`` for
+    ``circular``.
+    """
+    return {
+        "default": {
+            "convention": "cotton_uson_exact_v1",
+            "reference_frequency_hz": 1.5e8,
+            "per_feed_offset_deg_at_reference": 2.0,
+            "mechanical_feed_position_angle_deg": 35.0,
+            "positive_native_feed": positive_native_feed,
+        }
     }
-}
 
 
 def _squint_solver_components(
     tmp_path: Path,
     receptors: dict[str, object],
+    *,
+    positive_native_feed: str = "x",
 ) -> tuple[SolverInstrumentView, BeamSystem, ResolvedReceptorSet]:
     """The same solver pieces as :func:`_solver_components`, with squint on.
 
     Written separately rather than by widening ``_simulator`` so that no
-    existing test's fixture changes.
+    existing test's fixture changes.  ``tmp_path`` is created if absent:
+    ``valid_config_mapping`` writes the antenna layout straight into it without
+    creating parents, and a caller that wants a second system in its own
+    subdirectory would otherwise have to remember.
     """
+    tmp_path.mkdir(parents=True, exist_ok=True)
     mapping = valid_config_mapping(
         tmp_path,
         frequency={
@@ -766,7 +791,7 @@ def _squint_solver_components(
         beams={
             "mode": "analytic",
             "model": {"kind": "circular_aperture", "taper": {"kind": "uniform"}},
-            "squint": SQUINT_BLOCK,
+            "squint": _squint_block(positive_native_feed),
         },
     )
     mapping["receptors"] = receptors
@@ -786,12 +811,21 @@ def test_a_squint_enabled_chain_makes_the_h_c_e_order_observable(
 ) -> None:
     """Section 4.2's replacement oracle: ``E`` no longer commutes with ``C``.
 
-    A circular receptor reported in a linear output basis gives three
-    genuinely different matrices -- ``H = P S^dagger``, ``C = S`` and a full
-    ``E = C^dagger D_b C`` -- and the composed antenna Jones must be exactly
-    ``H @ C @ E``. Two negative controls make that a statement about order:
-    ``C @ E`` differs from ``E @ C``, so the middle pair does not commute, and
-    the ``H @ E @ C`` permutation is a different matrix.
+    A **rotated linear** receptor reported in a circular output basis gives
+    three genuinely different matrices -- a non-identity ``H``, ``C = P
+    R(chi)`` and a full ``E = C^dagger D_b C`` -- and the composed antenna
+    Jones must be exactly ``H @ C @ E``. Two negative controls make that a
+    statement about order: ``C @ E`` differs from ``E @ C``, so the middle pair
+    does not commute, and the permuted products are different matrices.
+
+    Section 4.2 requires the receptor to be linear here and says why in exact
+    algebra: with ``C = P R(chi)`` the composed ``E`` is
+    ``R(chi)^dagger diag(b1, b0) R(chi)``, whose diagonals differ by
+    ``cos(2 chi) (b1 - b0)`` and whose off-diagonal is
+    ``sin(2 chi) (b1 - b0) / 2`` -- both non-zero at ``chi = 31 deg`` with
+    unequal samples. The circular receptor cannot express this control at all,
+    which the companion assertion at the end of this test demonstrates rather
+    than asserts on faith.
 
     ``E`` is read back from the chain's own ``E`` slot rather than recomputed,
     because what is under test here is the *composition* order; the physics of
@@ -800,8 +834,8 @@ def test_a_squint_enabled_chain_makes_the_h_c_e_order_observable(
     instrument, beam_system, receptor_set = _squint_solver_components(
         tmp_path,
         {
-            "default": {"basis": "circular", "feed_rotation_deg": 0.0},
-            "output_basis": "linear",
+            "default": {"basis": "linear", "feed_rotation_deg": 31.0},
+            "output_basis": "circular",
         },
     )
     backend = get_backend("numpy")
@@ -883,3 +917,52 @@ def test_a_squint_enabled_chain_makes_the_h_c_e_order_observable(
     assert float(np.max(np.abs(receptor @ beam - beam @ receptor))) > 1e-3
     assert not np.allclose(expected, transform @ beam @ receptor, atol=1e-6)
     assert not np.allclose(expected, receptor @ transform @ beam, atol=1e-6)
+
+    # Companion witness: the same squint on a *circular* receptor gives the
+    # Section 4.2 identity instead -- exactly equal diagonals and exact
+    # commutation with every real rotation -- which is why the oracle above
+    # cannot be built on one.  ``E`` is still generally full there.
+    _instrument, circular_beams, circular_receptors = _squint_solver_components(
+        tmp_path / "circular",
+        {
+            "default": {"basis": "circular", "feed_rotation_deg": 17.0},
+            "output_basis": "linear",
+        },
+        positive_native_feed="r",
+    )
+    circular_chain = _build_jones_chain(
+        backend,
+        instrument,
+        altitude,
+        azimuth,
+        FREQUENCIES_HZ[0],
+        0,
+        n_sources,
+        LOCATION,
+        TIME_MJD,
+        circular_beams,
+        circular_receptors,
+    )
+    circular_e_term = circular_chain.get_term("E")
+    assert circular_e_term is not None
+    circular_beam = np.asarray(
+        circular_e_term.compute_jones_batch(
+            antenna_idx=0,
+            directions=directions,
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            freq_idx=0,
+            time_mjd=TIME_MJD,
+            time_idx=0,
+            backend=backend,
+            dtype=np.complex128,
+        )
+    )
+    rotation = plan_rotation(0.6)
+    assert (
+        float(np.max(np.abs(circular_beam[:, 0, 0] - circular_beam[:, 1, 1]))) <= 1e-14
+    )
+    assert (
+        float(np.max(np.abs(circular_beam @ rotation - rotation @ circular_beam)))
+        <= 1e-14
+    )
+    assert float(np.max(np.abs(circular_beam[:, 0, 1]))) > 1e-3
