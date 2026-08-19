@@ -240,21 +240,148 @@ and the computational review reproduced the interval walk against real
 history and every failing red assertion's exact magnitude — and landed
 with only this record sentence added.
 
-**Status:** Stage 1 is accepted and closed as a stage: the operative `D1` is
-`c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted succession is
+**Stage-3 design gate — 2026-08-19.** This amendment is the Stage-3 design
+gate `D3`. It freezes the complete normative Stage-3 evidence envelope
+(Section 8.1), completes Section 5's strict configuration, load, coordinate,
+factorization, diagnostic, precision, and output contract (Sections 5.1.1 and
+5.2.1 and the appended rulings in Sections 5.3 through 5.5), adds the Stage-3
+acceptance-validator and closure-parent contracts Sections 8.3 and 9 need, and
+grants the two bounded Stage-3 writable-path additions in Section 7.4. It is
+memo-only: unlike the superseded original Stage-2 gate it lands no second
+path, because the interval-freeze validator that forced that exception was
+already repaired. Nine findings from reading the real repository and the
+pinned pyuvdata 3.2.1 are recorded here because they correct or sharpen what
+Section 5 previously assumed, and every one of them narrows this gate rather
+than widening it.
+
+First, Section 5.1's activation premise is inverted relative to the code. The
+*already accepted* scalar subset in `core/beam/fits.py` requires
+`beam_type == "efield"` — a RadioSim scalar beam is an efield file whose
+composed Jones is `e I2` — so the file's `beam_type` does not select the
+stage. What selects it is the strict `normalization` literal on the existing
+`FITSBeamSourceConfig`, whose accepted value is today exactly `peak`; Stage 3
+widens that field to `Literal["peak", "uvbeam_peak_common_v1"]`, and the two
+literals name two different accepted subsets of the same `beam_type`. Section
+5.1.1 therefore rules the activation on the literal alone, splits document and
+load ownership accordingly, and freezes no rejection that the file's
+`beam_type` could own. Second, and consequently, the document-stage rejections
+this gate freezes carry Pydantic's own issue codes through `ConfigSchemaError`
+rather than new `beam.efield.*` codes: `normalization` lives only inside
+`FITSBeamSourceConfig`, an analytic block has no such field at all, and an
+unknown literal and a misplaced field are already exact strict-schema failures.
+Section 3.5's accepted mechanic — reporting Pydantic's own `float_type` code
+through `ConfigSchemaError` — is the precedent, and inventing a semantic code
+for a condition strict parsing already owns would freeze an unreachable law.
+
+Third, the mutual exclusion Section 4.2 declares between an accepted
+full-efield file and `beams.squint` is already delivered, in full, by the
+Stage-2 frozen rejection: `beams.squint` is accepted only when the resolved
+beams mode is `analytic`, and every full-efield file requires a
+`shared_fits`, `per_antenna_fits`, or `mixed` mode. Section 5.1.1 freezes the
+owning stage, exception, code, path, and message by name and adds no Stage-3
+code; the Stage-3 envelope re-witnesses it as a `rejection_probes` row.
+Fourth, `api/simulator.py` already passes `receptors=self._receptor_set` to
+`load_beam_system` unconditionally under the Stage-2 grant, so the resolved
+receptor set the `E = C^\dagger J_{\rm native}` factorization needs is already
+present at load and Stage 3 grants no `api/simulator.py` authority. Fifth,
+every Stage-3 rejection maps onto an existing class of the
+`core/beam/errors.py` hierarchy, so this gate grants no append-only error
+path and no `core/beam/__init__.py` export, and
+`tests/unit/test_core/test_beam_resolution.py`'s pinned error-hierarchy
+inventory does not move.
+
+Sixth, a widened `BeamFileProvenance` would otherwise change the scientific
+identity of every existing scalar FITS workload, because the whole record
+reaches `scientific_sha256` through `LoadedBeamState.to_snapshot()` and
+`_scientific_beam_projection`, which drops only the seven transport keys.
+Section 5.2.1 therefore requires every new provenance field to be declared
+with an exact `None` default and left `None` on the scalar path, which
+`models._optional_block_fields` omits from both the snapshot and the canonical
+fingerprint payload — the same mechanism that keeps a squint-free assignment
+byte-identical. Seventh, `core/beam/resolution.py` is *not* needed: the
+efield subset is a property of one resolved definition, `ResolvedFITSBeamDefinition`
+is constructed in the already-granted `io/config_resolution.py`, and the
+receptor-consistency check cannot live in assignment resolution at all
+because `resolve_beam_assignments` receives no receptor set. Eighth, the
+accepted scalar path validates its unit peak over the **visible** rows only,
+while `UVBeam.peak_normalize` divides by `abs(data_array[:, :, i]).max()` over
+the complete stored grid; Section 5.1.1 freezes the full-stored-grid predicate
+for the efield subset alone and leaves the scalar predicate untouched, which
+is why the same file may be accepted under one literal and rejected under the
+other.
+
+Ninth, and decisive for the evidence platform: the FITS path is
+`complex64`/`complex128`-only and already rejects `float128` beam precision
+with a typed `UnsupportedBeamPrecisionError` and an exact existing message,
+because pyuvdata interpolation returns `complex128`. No Stage-3 computation
+can be performed at extended width, so the Stage-3 envelope requires **no**
+`complex256` row and the official `E3` artifact may be generated on any
+available NumPy platform. The inherited expectation that `E3` would need the
+Rosetta `osx-64` flow is retired: requiring extended-width evidence for a
+computation the production path is designed to refuse would be evidence of
+nothing. Stage 3 instead retains the existing typed extended-precision
+rejection as a `rejection_probes` row. This gate also grants exactly one
+Stage-3 writable-path addition in Section 7.4: a new non-gating
+cross-validation generator, because the frozen evidence transaction must
+authenticate an artifact's schema, source, versions, and inputs and
+`tests/crossvalidation/` carries no `conftest.py` through which a `pytest`
+option could supply an output path. No test-inventory grant is needed, and
+this gate makes none: the `BeamFileProvenance` field-order pin is
+`test_public_provenance_field_order_and_detached_snapshot` in
+`tests/unit/test_core/test_beam_fits.py`, which Section 7.4 already carries,
+and `tests/unit/test_core/test_beam_models.py` moves nothing — its
+`test_resolved_leaf_field_order_is_exact` does not enumerate
+`BeamFileProvenance` at all, the `ResolvedFITSBeamDefinition` tuple it does
+enumerate keeps every field name because only that field's `Literal` widens,
+and `LoadedBeamHandlerState`, `LoadedBeamState`, and `ResolvedBeamAssignment`
+gain no field because the efield subset is a property of one resolved
+definition rather than per-antenna state. Its export-location inventory does
+not move either, since Stage 3 adds no export. Finally,
+`output/crossvalidation/README.md` documents the convention
+`<YYYY-MM-DD>-pyuvsim-<version>[-<tag>].json`, which Section 7.4's frozen
+Stage-3 basename does not follow; Section 7.4 wins, and that README — already
+on the Stage-3 writable list — records the exception at `S3`.
+
+The commit containing this amendment is the operative `D3` once its exact
+bytes are independently accepted per Section 7.1. `R3` may begin only after
+that acceptance, with `R3^ == D3`. It implements no beam physics, accepts no
+stage, and does not close the register row; `SCI-005` remains **ROADMAP**
+until whole-row closure after Stage 3. Its exact pre-landing memo bytes
+(`sha256:e1e3254fc868dcb0a04a45e5c42502d5f31716007dd94ad05e23d5f8af43ca29`)
+and parent-relative diff
+(`sha256:f51ed745b999f82c8f204799466abec2b0011e10ffc90decbb98a8ac536c4b2e`)
+received separate fresh independent governance/physics and computational
+reviews on 2026-08-19 — the initial computational review returned two major
+findings and one minor finding while the governance/physics review returned
+none, all three were resolved by one combined delta frozen into these bytes,
+and both reviewers then issued their `ACCEPT` verdicts on exactly these pins
+— and landed with only this record sentence added.
+
+**Status:** Stage 1 and Stage 2 are both accepted and closed as stages. The
+operative `D1` is `c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted
+Stage-1 succession is
 `R1 e246c5d1c092b5321dddfd9506bb1f2d3ae12365 ->
 S1 881b1a963b4f3b250b38989335c2ee0ea2a491bd ->
 E1 bbc2b1b4d16bce296c2b6f6597c7c180a70f0f7f ->
 A1 2281f2f00576abbc98a0a047ce192ad3013aa202 ->
-U1 d6eb4b083d4db704cd31abcf70e22cb745291e15`, with the retained evidence and
-acceptance artifacts authenticated by their approved validator constants.
-The commit containing this amendment is the operative `D2` once its exact
-bytes are independently accepted per Section 7.1. Stage 2 may begin `R2`
-only after that acceptance, with `R2^ == D2`, and must complete its own
-source, evidence, acceptance, and status succession through `U2`. Stage 3
-remains a later, sequential, independently accepted slice behind its own
-`D3`. This gate implements no beam physics and accepts no stage. `SCI-005`
-remains **ROADMAP** until whole-row closure after Stage 3.
+U1 d6eb4b083d4db704cd31abcf70e22cb745291e15`. The operative `D2` is
+`b6d09b732e93f3e5a533eafd6e38b102f26a4eb0`, reached from `U1` through the
+starred edge whose four interval commits this memo's header enumerates by
+SHA, and the accepted Stage-2 succession is
+`R2 da18f96e9dfe1a76851c2800f1c0f80460d3ea89 ->
+S2 5c94d925352b389768e0476079e04e811db996e1 ->
+E2 56f7fd513cf3dd15d93f1176c8fbe2382921e263 ->
+A2 7523706c8c8d480de079100bc21871eb5616536e ->
+U2 f275e7538a19f713b99e07563a1c5a2a45e83a3d`. Both stages' retained evidence
+and acceptance artifacts are authenticated by their approved validator
+constants. The commit containing this amendment is the operative `D3` once
+its exact bytes are independently accepted per Section 7.1; it directly
+parents `U2` through Section 8.3's exact unstarred edge `D3^ == U2`. Stage 3
+may begin `R3` only after that acceptance, with `R3^ == D3`, and must
+complete its own source, evidence, acceptance, and status succession through
+`U3` before the whole-row closure successor `C`. This gate implements no beam
+physics and accepts no stage. `SCI-005` remains **ROADMAP** until whole-row
+closure after Stage 3.
 
 ## 1. Ruling and bounded scope
 
@@ -1920,6 +2047,189 @@ intrinsic-node full-grid maxima and tolerance are recorded before the accepted
 complex frequency interpolation. Direction-independent spectral gain remains
 the configured `B` term's responsibility.
 
+#### 5.1.1 Strict document contract, activation, and typed load rejections
+
+The full-efield mode is selected by exactly one authored literal on the
+already accepted FITS source block. `FITSBeamSourceConfig.normalization`
+widens from `Literal["peak"]` to `Literal["peak", "uvbeam_peak_common_v1"]`,
+keeping its `"peak"` default, and the resolved leaf
+`ResolvedFITSBeamDefinition.normalization` widens identically. No other field
+is added anywhere in `beams:`. The literal is therefore authorable in exactly
+the three places a FITS source already is — `beams.beam` in `shared_fits`,
+`beams.assignments[i].beam` in `per_antenna_fits`, and
+`beams.assignments[i].beam` whose `kind` is `fits` in `mixed` — and nowhere
+else. Because the resolved leaf's `definition_fingerprint` payload already
+binds `normalization`, and because the pre-load handler key already includes
+it, the two literals never share a loaded handler and a `peak` document's
+every fingerprint stays byte-identical.
+
+The literal selects an **accepted subset**, not a normalizing operation. Both
+subsets require the same pyuvdata `beam_type == "efield"`; they differ in
+which committed bytes they accept and in nothing else. `peak` is the accepted
+scalar subset: identity basis vectors, negligible cross-hands, equal
+diagonals, and a visible-row unit scalar peak. `uvbeam_peak_common_v1` is the
+Stage-3 full-efield subset frozen below: a general real basis-vector array, a
+generally full matrix, and a full-stored-grid unit peak. RadioSim renormalizes
+nothing under either literal. The two subsets are nevertheless different
+accepted *interpretations* of the same bytes, not a strict widening: the
+`peak` subset takes an identity-basis, equal-diagonal, cross-hand-free file to
+declare one direction-independent scalar response and reads its diagonal
+directly, while `uvbeam_peak_common_v1` applies the complete coordinate
+conversion of Section 5.2.1 and therefore reads the stored vector components
+as the physical azimuth/zenith-angle field components they are declared to be.
+The two populations are very nearly disjoint, and Section 5.2.1's zenith rule
+makes that explicit rather than leaving it to be discovered: a file whose
+converted zenith row is not single-valued is rejected, which an identity-basis
+scalar file generally is. Neither literal is a repair of the other, this gate
+changes no byte of the accepted `peak` path, and the Stage-3 envelope retains
+the measured comparison as a control rather than as a claim. The internal
+accepted-subset version
+literal is exactly `tier3-scalar-v1` for `peak` and exactly
+`sci005-stage3-full-efield-v1` for `uvbeam_peak_common_v1`; it enters the
+handler pre-load key and the handler scientific fingerprint exactly where the
+scalar literal does today.
+
+Four document-stage rejections are frozen, and none of them introduces a
+`beam.efield.*` issue code, because strict parsing already owns every one of
+them. An unknown normalization literal is a `ConfigSchemaError` carrying
+Pydantic's own `literal_error` issue code at the authored path of that FITS
+source's `normalization` field. Attaching `normalization` to an analytic
+beams block, an `AnalyticBeamChoiceConfig`, or any other block is a
+`ConfigSchemaError` carrying Pydantic's own `extra_forbidden` issue code,
+because no analytic model carries the field at all; Stage 3 adds no analytic
+field and no analytic hint entry. This is Section 3.5's accepted mechanic,
+not a weakening: a semantic code for a condition strict parsing already
+rejects would be unreachable law. The mutual exclusion with `beams.squint`
+that Section 4.2 declares is owned entirely by **Stage 2** and is already in
+force: `beams.squint` is accepted only when the resolved beams mode is
+`analytic`, and every full-efield file requires `shared_fits`,
+`per_antenna_fits`, or `mixed`, so the pair is rejected as
+`UnsupportedConfigError` with the frozen Section 4.1.1 code
+`beam.squint.unsupported_beam_family`, the frozen path `beams.squint`, and
+the frozen exact message `Stage-2 beam squint supports only the analytic
+beams mode; resolved beams mode is {mode!r}.` Stage 3 freezes no second code
+for it and changes no byte of that check; it re-witnesses it. Likewise
+`beams.aperture_physics` and a nested Ruze diagnostic remain rejected against
+any FITS source by Stage 1's frozen `beam.aperture_physics.unsupported_beam_family`
+and `beam.ruze_power_diagnostic.unsupported_beam_family` under Section 3.1's
+unchanged aperture-first ordering, so a full-efield file cannot acquire a
+second aperture physics.
+
+Every remaining rejection is owned by beam-system load, because it needs the
+committed file bytes, the resolved receptor set, or the resolved precision.
+The load-stage acceptance contract for one file assigned under
+`uvbeam_peak_common_v1` is exactly the following, evaluated in exactly this
+order so that the first recorded rejection is deterministic:
+
+1. **Dependency and structure.** The pinned `pyuvdata 3.2.1` version check and
+   `UVBeam.check(check_extra=True, run_check_acceptability=True)` run first and
+   keep their accepted classifications.
+2. **Beam and antenna type.** `beam_type` must be exactly `"efield"` and
+   `antenna_type` exactly `"simple"`; a power beam, a phased-array antenna, or
+   a non-string value is `UnsupportedBeamTypeError`. No phased-array coupling,
+   element delay, or station array factor is read, requested, or accepted.
+3. **Pixel coordinate system.** `pixel_coordinate_system` must be exactly
+   `"az_za"`; `"healpix"` and `"orthoslant_zenith"` are
+   `UnsupportedBeamCoordinateError`. UVBeam HEALPix files remain rejected in
+   v1 while RadioSim's HEALPix **sky solver** consumes the accepted `az_za`
+   response unchanged.
+4. **Vector dimensions.** `Naxes_vec` and `Ncomponents_vec` must both be the
+   exact integer `2`; anything else is `UnsupportedBeamBasisError`. pyuvdata
+   permits `3`; Stage-3 v1 does not, because a three-component field has no
+   two-column tangent image and no frozen conversion here.
+5. **Feed identity.** `Nfeeds` must be `2` and `feed_array` must be exactly the
+   ordered pair `("x", "y")` or exactly `("r", "l")`, and that pair must equal
+   `ResolvedReceptor.feed_array` for **every** antenna the file is assigned to.
+   A different pair, a different order, a one-feed file, or a shared file whose
+   pair matches one assigned antenna and not another is
+   `UnsupportedBeamFeedError`.
+6. **Feed angles.** For each such antenna with resolved static feed rotation
+   $\chi$ = `feed_rotation_rad`, the two file `feed_angle` values must equal
+   that receptor's `feed_angle_rad` — `(pi/2 + chi, chi)` for a `linear`
+   receptor and `(chi, chi)` for a `circular` one — element-wise modulo
+   `2*pi`, within the retained `1e-12` radian tolerance already fixed as
+   `_FEED_ANGLE_TOLERANCE_RAD`. A mismatch is `UnsupportedBeamFeedError`.
+7. **Derived orientation consistency.** RadioSim recomputes pyuvdata 3.2.1's
+   `get_x_orientation_from_feeds()` from the file's own `feed_array` and
+   `feed_angle` and independently from the resolved receptor's
+   `feed_array` and `feed_angle_rad`, and requires the two results to be the
+   identical member of `{"east", "north", None}`; any legacy `x_orientation`
+   the reader exposes must equal the file-derived value. It is consistency
+   metadata and is never applied as a second rotation. A disagreement is
+   `UnsupportedBeamFeedError`. `None` is a legal, common result — it is what
+   that function returns for a rotated linear receptor and for a circular
+   receptor whose $\chi$ is neither `0` nor `pi/2` — and is never itself a
+   rejection.
+8. **Mount.** `mount_type` must be exact `"fixed"`, declaring that the stored
+   `az_za` pattern is intrinsic to the antenna beam frame. Any of pyuvdata's
+   eight other mount literals, or a missing or non-string value, is
+   `UnsupportedBeamFeedError`. RadioSim's instrument plus the `P` term remain
+   the sole owners of alt-az, equatorial, and Nasmyth field rotation.
+9. **Grid.** The `az_za` axes keep every accepted regularity, zero-origin,
+   `2*pi` closure, and monotone-frequency predicate unchanged, and
+   `axis2_array` must reach the horizon within the retained
+   `_HORIZON_COVERAGE_TOLERANCE_RAD` of `1e-10`; a short grid remains
+   `BeamAngularDomainError` and an irregular one
+   `UnsupportedBeamCoordinateError`.
+10. **Basis-vector array.** `basis_vector_array` must be present, of exact
+    stored dtype `float64`, of exact shape `(2, 2, Naxes2, Naxes1)`, and
+    finite. A complex or integer array, or a `float32` array, is
+    `UnsupportedBeamBasisError`; a non-finite one is
+    `NonFiniteBeamResponseError`. The `float64` requirement is a v1
+    narrowing scoped to this subset alone — the accepted `peak` subset's
+    handling of a narrower stored basis is unchanged — because the
+    non-degeneracy and power-preservation predicates of Section 5.2.1 are
+    fixed at `1e-12` and a `float32` array cannot carry them. pyuvdata
+    declares this parameter real-valued with `acceptable_range` `(-1, 1)`;
+    Stage 3 requires realness rather than inferring it.
+11. **Data.** `data_array` must be a NumPy array of exact shape
+    `(2, 2, Nfreqs, Naxes2, Naxes1)` and exact dtype `complex64` or
+    `complex128`; another dtype is `UnsupportedBeamPrecisionError` and another
+    shape is `UnsupportedBeamBasisError`. A non-finite entry is
+    `NonFiniteBeamResponseError`.
+12. **Normalization.** `data_normalization` must be exactly `"peak"`;
+    `"physical"` and `"solid_angle"` are `BeamNormalizationError`.
+    `bandpass_array` must have shape `(Nfreqs,)` and be unit within the
+    existing dtype-derived `normalization_absolute_tolerance`, and at every
+    intrinsic frequency index `i` the quantity
+    `max(abs(data_array[:, :, i, :, :]))` — the maximum over both vector axes,
+    both feeds, and the **complete stored grid**, below-horizon rows included —
+    must equal one within that same tolerance. This is exactly the common
+    scalar factor `UVBeam.peak_normalize` divides by. RadioSim never calls
+    that mutating operation while loading, never normalizes a matrix element,
+    feed, co/cross component, or diagonal independently, and never
+    renormalizes over the visible rows alone; a producer may run the official
+    operation before writing, but the simulator accepts or rejects the
+    committed bytes as authored. A zero, non-finite, or non-unit common
+    maximum is `BeamNormalizationError`. The realized per-frequency maxima and
+    the tolerance are recorded before any frequency interpolation.
+13. **Precision.** The resolved beam precision must be `float32` or `float64`.
+    `float128` keeps its existing typed `UnsupportedBeamPrecisionError` and its
+    existing exact message, because accepted files and pyuvdata interpolation
+    provide at most `complex128`. Stage 3 introduces no extended-width efield
+    path and no extended-width evidence.
+
+Message policy follows the Stage-2 precedent exactly. The document-stage
+failures above carry Pydantic's own codes and messages and are pinned by code
+and path rather than by rendered bytes. Every load-stage message is
+**named-fields**, not byte-frozen: it must name the resolved file path, the
+offending metadata field, the observed value, and — where the failure is a
+receptor disagreement — the canonical antenna number and name and both
+compared values, because those interpolate per-antenna state that no fixture
+can pin across arrays. Tests assert the concrete exception type first and the
+named fields second, exactly as Section 2 requires. The one byte-frozen
+load-stage message Stage 3 retains is the existing `float128` rejection, which
+is unchanged.
+
+Because the receptor half of items 5 through 7 needs the resolved receptor
+set, `load_beam_system` requires its already-accepted `receptors` keyword
+whenever any resolved antenna is assigned a `uvbeam_peak_common_v1`
+definition, exactly as it already does for squint, and raises the same
+`TypeError` when it is absent. No new parameter is added: `api/simulator.py`
+already supplies the resolved set unconditionally. Receptor resolution stays
+the single authority, so the `C` inside `E` and the chain's own `C` cannot
+disagree.
+
 ### 5.2 Coordinates, Ludwig-3, and receptor factorization
 
 Raw UVBeam vector-axis order is not assumed to be RadioSim's field basis.
@@ -1982,6 +2292,230 @@ fixed chain. Any metadata/receptor mismatch is rejected rather than repaired or
 guessed. `H` alone converts native receptor voltages into the selected output
 basis.
 
+#### 5.2.1 Exact conversion, tolerances, factorization ownership, and precision
+
+The conversion Section 5.2 requires is one fixed real orthogonal matrix per
+direction, derived here so that no implementation has to guess a sign. In
+pyuvdata 3.2.1 the `az_za` system is documented as "uniformly gridded azimuth,
+zenith angle" with axes `[azimuth, zen_angle]` "where az runs from East to
+North", so `basis_vector_array[a, c']` carries `c' = 0` for the azimuth
+direction and `c' = 1` for the zenith-angle direction. RadioSim's accepted
+direction mapping is `az_uv = (pi/2 - az_radiosim) mod 2*pi`; write
+$\varphi$ for `az_radiosim`, measured North through East, and
+$\theta$ for the zenith angle. Then $\theta$ and the UVBeam zenith-angle
+coordinate are the same coordinate, while
+$\mathrm{az}_{\rm uv}=\pi/2-\varphi$ gives
+$\hat{\mathbf e}_{\mathrm{az_{uv}}}=-\hat{\mathbf e}_\varphi$ exactly. With
+the field components
+$E_{\mathrm{az_{uv}}}=\sum_a \operatorname{data}[a,f]\operatorname{basis}[a,0]$
+and $E_\theta=\sum_a \operatorname{data}[a,f]\operatorname{basis}[a,1]$, so
+that $E_\varphi=-E_{\mathrm{az_{uv}}}$, Ludwig's third definition with
+$\varphi=0$ north and increasing east gives
+
+$$
+E_{\rm co}=E_\theta\cos\varphi-E_\varphi\sin\varphi
+=E_\theta\cos\varphi+E_{\mathrm{az_{uv}}}\sin\varphi,
+\qquad
+E_{\rm cross}=E_\theta\sin\varphi+E_\varphi\cos\varphi
+=E_\theta\sin\varphi-E_{\mathrm{az_{uv}}}\cos\varphi .
+$$
+
+Collecting those two lines, the frozen conversion is exactly
+
+$$
+T(\varphi)=
+\begin{pmatrix}
+\sin\varphi & -\cos\varphi\\
+\cos\varphi & \ \ \sin\varphi
+\end{pmatrix},
+\qquad
+B[a,c]=\sum_{c'}\operatorname{basis}[a,c']\,T(\varphi)[c',c],
+\qquad
+J_{\rm native}[f,c]=\sum_a \operatorname{data}[a,f]\,B[a,c],
+$$
+
+with no conjugation and no implicit transpose anywhere. Section 5.2's frozen
+sum is this last expression; the `basis` symbol there is the converted array
+$B$, not the raw one. $T$ is real with
+$\det T=\sin^2\varphi+\cos^2\varphi=1$ and $T^{\mathsf T}T=I_2$, so the
+conversion preserves total field power exactly, by construction rather than by
+measurement. The two RadioSim tangent-field columns are therefore
+$c=0$ co-polar and $c=1$ cross-polar, whose $\theta\to0$ limit at
+$\varphi=0$ is exactly $(\hat{\mathbf N},\hat{\mathbf E})$: at
+$\varphi=0$ the matrix $T(0)$ has rows `(0, -1)` and `(1, 0)`, while
+$\hat{\mathbf e}_\theta\to\hat{\mathbf N}$ and
+$\hat{\mathbf e}_{\mathrm{az_{uv}}}\to-\hat{\mathbf E}$. This is what makes
+Section 5.2's North/East tangent limit and its Ludwig-3 pair the same
+statement rather than two conventions that must be reconciled. The
+convention literal is `ludwig3_az_za_to_north_east_v1`. Because
+`basis_vector_array` is real by the pyuvdata contract and $T$ is real, $B$ is
+real and every complex phase stays in `data`; a test therefore uses a legal
+real, non-identity, non-symmetric `basis_vector_array` together with complex
+efield samples, so that a transpose or a conjugation mistake is independently
+observable and cannot hide behind a symmetric fixture.
+
+Interpolation requests the basis vectors explicitly. In pyuvdata 3.2.1
+`UVBeam.interp` takes the keyword-only `return_basis_vector: bool | None`,
+returns a two-tuple whose second element is `None` when it is `False`, and
+returns interpolated data of shape
+`(Naxes_vec, Nfeeds, requested_freqs, Npoints)` with dtype `complex128`
+alongside basis vectors of shape `(Naxes_vec, Ncomponents_vec, Npoints)` with
+dtype `float64`. The Stage-3 evaluator passes `return_basis_vector=True`
+explicitly rather than relying on the version-dependent `None` default, keeps
+every other accepted interpolation argument — `interpolation_function`
+`az_za_simple`, `spline_opts` `{"kx": 1, "ky": 1, "s": 0}`, the resolved
+`freq_interp_kind`, and `freq_interp_tol` — byte-identical to the scalar
+path, and rejects a returned tuple of another length, a `None` basis, a
+non-`complex128` data dtype, a non-`float64` basis dtype, or an unexpected
+shape as `UnsupportedBeamBasisError`. It requests `polarizations` never: that
+argument is a power-beam knob and has no efield meaning.
+
+No new tolerance is introduced. Every Stage-3 numerical predicate reuses a
+tolerance the accepted code already fixes and already retains in
+`BeamFileProvenance` and the handler fingerprint's `contracts` block:
+
+- basis-vector predicates — realness of $B$, finiteness, non-degeneracy, and
+  the orthogonality residual $\|T^{\mathsf T}T-I_2\|_{\max}$ — use the
+  existing fixed `_BASIS_TOLERANCE` of `1e-12`, which is meaningful because
+  item 10 of Section 5.1.1 requires the stored array to be `float64`.
+  Non-degeneracy is the explicit predicate that at every stored grid point the
+  smaller singular value of the real $2\times2$ matrix
+  `basis_vector_array[:, :, z, y]` exceeds `1e-12`, so that the two stored
+  vector axes actually span the tangent plane there; a file that fails it
+  cannot represent a general incident field at that direction and is rejected
+  as `UnsupportedBeamBasisError` rather than silently projected. Because
+  $T(\varphi)$ is orthogonal, the same predicate holds for $B$;
+- feed-angle agreement uses the existing `_FEED_ANGLE_TOLERANCE_RAD` of
+  `1e-12`, applied element-wise modulo `2*pi`;
+- normalization predicates use the existing dtype-derived
+  `normalization_absolute_tolerance`, namely
+  `max(1e-12, 32 * finfo(real component of the native complex dtype).eps)`;
+- every predicate on a **converted complex matrix** — the zenith limit, wrap
+  continuity, the `C E = J_native` residual, and the output-basis control —
+  uses the existing dtype-derived pair
+  `scalar_absolute_tolerance = max(1e-12, 32 * eps)` and
+  `scalar_relative_tolerance = max(1e-10, 32 * eps)` in the accepted combined
+  form `atol + rtol * scale`, where `scale` is the largest absolute entry of
+  the compared matrices. These are the same two constants the accepted scalar
+  cross-hand and equal-diagonal checks already use, so a `complex64` file is
+  judged at `complex64` precision and a `complex128` file at `complex128`
+  precision without a second table.
+
+None of these may be authored in YAML, and none of the existing point,
+HEALPix, backend, or output tolerances is widened.
+
+Two continuity predicates are frozen against the file grid itself, evaluated
+at every intrinsic frequency before any frequency interpolation. **Zenith
+limit:** `axis2_array` begins at exactly zero, so the entire first
+zenith-angle row is the single physical direction at the zenith while its
+`Naxes1` azimuth samples carry arbitrary $\varphi$. After conversion, all
+`Naxes1` converted matrices of that row must be equal within the converted-
+matrix tolerance above; RadioSim then uses the $\varphi=0$ member as the
+zenith value. A file whose converted zenith row is not single-valued declares
+a physical matrix that depends on an arbitrary coordinate and is rejected as
+`UnsupportedBeamCoordinateError` — the coordinate class rather than the basis
+class, because the failure is a degenerate row of the native `az_za` grid and
+not a defect of the Jones structure — and it is never averaged, extrapolated,
+or silently repaired. An identity-basis scalar file generally fails exactly
+this predicate, which is the honest boundary between the two accepted
+subsets. **Wrap continuity:** the azimuth axis is endpoint-excluded and
+closes `2*pi`, so the converted matrix at the last azimuth sample and at the
+first must be continuous across the seam; the retained witness is the
+converted-matrix difference across the wrap compared against the difference
+across the interior sample pair adjacent to it, and a discontinuity larger
+than the interior comparison plus the converted-matrix tolerance is
+`UnsupportedBeamCoordinateError`. Neither predicate touches the accepted
+`peak` path.
+
+The beam runtime owns the factorization, exactly as Section 4.2.1 gives it
+`D_b` assembly and the squint `E` composition. `core/beam/fits.py` validates
+the file, performs the coordinate conversion, and publishes an evaluator that
+returns the complete `J_native` batch of shape `(S, 2, 2)` at the resolved
+result dtype; `core/beam/runtime.py` then composes
+
+$$
+E=C^\dagger J_{\rm native},
+\qquad
+C E=J_{\rm native},
+$$
+
+inside `BeamSystem.evaluate_jones`, at the same site and under the same rules
+as the squint composition, reusing the accepted receptor construction
+`C = M(basis) @ R(chi)` with
+`R(chi) = [[cos chi, sin chi], [-sin chi, cos chi]]`,
+`M(linear) = [[0, 1], [1, 0]]`, and
+`M(circular) = (1/sqrt(2)) * [[1, i], [1, -i]]` evaluated at the resolved beam
+dtype. The accepted Ruze voltage factor, when configured, applies to the
+composed `E` exactly where it applies today; it is a real scalar and
+commutes. Backend conversion of the finished `E` batch happens at the
+existing adapter boundary and nowhere earlier. `evaluate_jones` gains no
+parameter: an efield antenna carries no squint, so both Stage-2 boresight
+keywords remain `None` for it and the accepted two-sided rule is unchanged.
+
+Precision is split exactly as Stage 2 splits it. Direction geometry — the
+accepted `az_uv` mapping, $\varphi$, $\theta$, the horizon gate, and every
+entry of $T(\varphi)$ — is binary64 throughout, matching the accepted
+`DirectionBatch` and pointing-rotation contract. Matrix data — `data`, $B$,
+$J_{\rm native}$, `C`, and the composition — is evaluated at the resolved
+beam dtype, which for this path is exactly `complex64` or `complex128`. There
+is no extended-width efield path: `float128` beam precision keeps its
+existing typed rejection, so the memo's extended-width rules stay
+analytic-only exactly as accepted, and Stage 3 requires no `complex256`
+evidence anywhere.
+
+The per-antenna response identity widens exactly when the full-efield subset
+is present, mirroring Section 4.2.1's squint precedent. `_response_key`'s
+payload gains one `"efield"` sub-object with exactly the four keys
+`normalization`, `accepted_subset_version`, `receptor_basis`, and
+`feed_rotation_rad`. The receptor half is part of the identity because
+`E = C^dagger J_native` differs between two antennas that share one handler
+and one file but not one receptor; the file's own content identity is already
+inside `handler_id`, which embeds the handler scientific fingerprint, so it is
+not repeated. An antenna with no efield definition contributes no key at all
+and produces a byte-identical response key to today. Within one solver step
+the private adapter cache is keyed on this response identity as today, and the
+HEALPix cache is that same identity — so no matrix is ever reused across
+differing receptors, squint records, normalization literals, or full-efield
+files, which is Section 5.5's requirement satisfied by construction rather
+than by a second cache rule.
+
+The scientific identity flows through surfaces that were verified reachable
+rather than assumed. `LoadedBeamState.to_snapshot()` is the run-level beam
+snapshot, and `core/result.py`'s `_scientific_beam_projection` drops only the
+seven transport keys `path`, `resolved_path`, `path_provenance_key`,
+`definition_fingerprint`, `assignment_fingerprint`, `state_fingerprint`, and
+`loaded_fingerprint`. Everything else survives into `scientific_sha256`
+directly: the resolved `ResolvedFITSBeamDefinition.normalization` literal,
+the whole `BeamFileProvenance` record including the file content `sha256`, and
+the handler's own `scientific_fingerprint`, which is where the accepted
+subset version, the validated metadata, the contract literals, and the
+tolerances already live. Stage 3 therefore adds no new fingerprint path and
+no new payload function. It extends the handler fingerprint's existing
+`validated_metadata` and `contracts` blocks with the resolved feed pair, the
+derived orientation, the mount, the basis-vector convention literal
+`ludwig3_az_za_to_north_east_v1`, the factorization literal
+`receptor_conjugated_native_efield_v1`, the zenith-limit literal
+`north_east_tangent_limit_v1`, and the realized per-frequency common maxima,
+and it extends `BeamFileProvenance` with fields recording the same facts.
+
+Every one of those new `BeamFileProvenance` fields is declared with an exact
+`None` default and is left `None` on the accepted scalar path. This is not
+stylistic: `models._optional_block_fields` omits a field whose declared
+default is `None` and whose value is `None` from both `to_snapshot` and the
+canonical fingerprint payload, so a `peak` document's beam snapshot,
+scientific digest, HDF5 `provenance/beam_json`, and result bytes are
+byte-identical to today. The existing `x_orientation` field widens in
+annotation only, to `str | None`, because
+`get_x_orientation_from_feeds()` legitimately returns `None` for a rotated
+linear receptor and for a circular receptor whose $\chi$ is neither `0` nor
+`pi/2`; the scalar path continues to store `"east"` and its bytes do not
+move. The record's `feed_array` predicate widens to accept exactly
+`("x", "y")` or `("r", "l")`, and its hard-coded `mount_type`,
+`data_normalization`, `beam_type`, `antenna_type`, and
+`pixel_coordinate_system` expectations are unchanged, since the Stage-3
+subset requires the same values. The exactly-`1e-12` `basis_tolerance`
+predicate is retained unchanged.
+
 ### 5.3 Cross-polar and IXR diagnostics
 
 For each finite nonsingular `J_native`, Stage 3 may report singular values
@@ -1995,6 +2529,102 @@ An exactly unitary-scaled matrix has infinite IXR; a singular matrix is marked
 with an explicit diagnostic state rather than converted to NaN. IXR is a
 derived diagnostic over the full accepted matrix. It does not alter `E`, and no
 `ixr_db` beam config is added.
+
+This gate fixes the surface at the minimum that is honest: Stage 3 adds **no
+public production method, no public dataclass, no `core/beam/__init__.py`
+export, and no configuration field** for it. IXR is a pure function of the
+accepted `J_native`, which the evidence already retains as an authenticated
+projection, so a production accessor would add API surface carrying no
+scientific content the matrix does not already carry, and Section 7.5's
+ruling that the Stage-3 output contract is test-only at production level
+applies to a diagnostic before it applies to a writer. The diagnostic is
+therefore computed in the red tests and the retained evidence from the
+accepted matrix, and its home is the `ixr_diagnostics` array of Section 8.1.
+This is a deliberate departure from the Stage-1 Ruze precedent, where the
+diagnostic was public because it required an entire production algorithm —
+the Poisson/separation solve — that existed nowhere else; nothing of the kind
+is true here.
+
+The definitions are frozen so that the retained rows are reproducible without
+the implementation. For one accepted `J_native` at one direction and
+frequency, let $\sigma_{\max}\geq\sigma_{\min}\geq0$ be the two singular
+values of the $2\times2$ complex matrix, computed in binary64 from the
+converted matrix promoted once to `complex128`.
+
+Classification is by **fixed relative tolerance**, never by exact floating
+equality. Exact equality would be unreachable law: a mathematically singular
+matrix returns $\sigma_{\min}$ of order $10^{-16}$ rather than zero, and a
+matrix that is exactly $b\,C^\dagger C$ for unitary $C$ returns a split
+$\sigma_{\max}-\sigma_{\min}$ of the same order, so an exact-tie rule would
+make the `singular` and `unitary_scaled` states essentially unreachable and
+the envelope's requirement that each state appear at least once
+unsatisfiable. The frozen tolerance is `1e-12`, the same fixed float64
+constant the accepted `_BASIS_TOLERANCE` uses for float64 structural
+predicates, applied **relatively** to $\sigma_{\max}$ because a condition
+number is scale-free. It is design-fixed and can never be authored in YAML.
+
+The state is exactly one of three literals, assigned by this total,
+deterministic rule, evaluated in this exact precedence order, first match
+winning:
+
+1. `singular` when $\sigma_{\max}=0$, or when
+   $\sigma_{\min}\leq10^{-12}\,\sigma_{\max}$;
+2. `unitary_scaled` when
+   $\sigma_{\max}-\sigma_{\min}\leq10^{-12}\,\sigma_{\max}$;
+3. `nonsingular` otherwise.
+
+The rule is total over every finite input, including the all-zero matrix,
+which rule 1's first clause assigns to `singular`. It is unambiguous because
+the two conditions can overlap only when $\sigma_{\max}=0$: for
+$\sigma_{\max}>0$ they would together require
+$(1-10^{-12})\,\sigma_{\max}\leq\sigma_{\min}\leq10^{-12}\,\sigma_{\max}$,
+hence $1-10^{-12}\leq10^{-12}$, which is false. The declared precedence
+therefore settles the one degenerate overlap and nothing else, and no input
+falls through. The state is always explicit and is never encoded as `NaN` or
+as an infinity; none of these states is ever a load rejection, and the matrix
+is recorded rather than discarded in all three.
+
+Which derived fields are finite and which are null is fixed per state:
+
+- `singular`: $\kappa$, $\mathrm{IXR}_J$, $\mathrm{IXR}_{\rm dB}$, and $|d|$
+  are all JSON null. The condition number is unbounded and the IXR expression
+  is degenerate, and `allow_nan: false` forbids writing either.
+- `unitary_scaled`: $\kappa=\sigma_{\max}/\sigma_{\min}$ is recorded as the
+  **realized finite ratio**, not forced to exactly one; rule 2 bounds it by
+  $1\leq\kappa\leq1/(1-10^{-12})$, so
+  $1\leq\kappa\leq1+2\times10^{-12}$ is a valid frozen envelope predicate.
+  All three of $\mathrm{IXR}_J$, $\mathrm{IXR}_{\rm dB}$, and $|d|$ are JSON
+  null, because $\kappa-1$ is here at or below the classification tolerance
+  and $(\kappa+1)/(\kappa-1)$ carries no significant digits: the honest value
+  is "infinite within tolerance", which is exactly what this state records.
+- `nonsingular`: all four are finite and recorded, with
+
+  $$
+  \kappa=\frac{\sigma_{\max}}{\sigma_{\min}},
+  \qquad
+  \mathrm{IXR}_J=\left(\frac{\kappa+1}{\kappa-1}\right)^2,
+  \qquad
+  \mathrm{IXR}_{\rm dB}=10\log_{10}\mathrm{IXR}_J .
+  $$
+
+  The two negated classification conditions bound this state on both sides:
+  rule 1 not matching gives $\sigma_{\min}>10^{-12}\sigma_{\max}$ and hence
+  $\kappa<10^{12}$, and rule 2 not matching gives
+  $\sigma_{\min}<(1-10^{-12})\sigma_{\max}$ and hence
+  $\kappa>1/(1-10^{-12})>1+10^{-12}$. So $\kappa-1>10^{-12}$ strictly, every
+  expression above is well defined and finite, and $\mathrm{IXR}_J$ is at
+  most about $4\times10^{24}$ — far inside binary64 range. The dB form is the
+  one `docs/development/beam_physics_scope.md` already fixes through
+  $\mathrm{IXR}_{\rm lin}=10^{\mathrm{IXR}_{\rm dB}/10}$, so the two
+  documents state one convention.
+
+A `nonsingular` row must also carry the leakage cross-check
+$|d|=1/\sqrt{\mathrm{IXR}_J}$, which is the same relation the implemented `D`
+term uses, so that an inverted-formula regression of the kind the scope
+document already corrected cannot pass unnoticed. IXR never enters `E`, never
+enters a fingerprint, and never becomes a second leakage configuration
+surface; the existing `D` term remains the sole owner of configured
+instrumental leakage.
 
 ### 5.4 Result and file-format behavior
 
@@ -2022,6 +2652,53 @@ derived diagnostic over the full accepted matrix. It does not alter `E`, and no
 Every writer gets a non-scalar efield round-trip/equivalence case in both
 linear and circular output bases. Scalar BeamFITS output remains byte-identical.
 
+The equivalence predicate each of those cases must satisfy is frozen here, at
+test level only. No production output module is writable at Stage 3 (Section
+7.5), so each predicate is a statement about bytes the existing writers
+already produce, and a red output test that cannot be satisfied without
+changing one of them pauses the stage for a bounded design correction rather
+than silently expanding the slice.
+
+- **`in_memory`.** The result carries all four correlation products in the
+  single declared `receptors.output_basis`, its correlation labels are exactly
+  those `core/polarization_basis.py` gives that basis, and both cross-hand
+  products are non-zero somewhere in the cube — the last being the whole point
+  of a non-scalar `E`. Reader, artifact, round-trip, and tolerance fields are
+  null, as the common `output_cases` schema already permits for this format
+  alone.
+- **`summary_json`.** The bounded `beam` block reports the full-efield mode,
+  the convention-version literals, the file content digest, and bounded
+  diagnostic extrema, and embeds no direction-sized matrix. The retained
+  witness is a two-fixture control: the same workload evaluated at two
+  different direction counts must produce beam blocks with the identical key
+  set and identical serialized length, so a direction-sized value cannot have
+  leaked in.
+- **`hdf5`.** The reader reconstructs scientific equality exactly:
+  `provenance/beam_json` round-trips the complete beam snapshot, the
+  reconstructed `scientific_sha256` equals the written one, and the
+  reconstructed visibility cube differs from the in-memory cube by exactly
+  zero. A schema bump is required only if the reader's fixed field set
+  changes, and must never be performed to rename scalar wording.
+- **`uvfits` and `measurement_set`.** Both serialize the four
+  already-corrupted correlation products in the result's declared output
+  basis. The predicate is that every per-correlation round-trip difference
+  lies within that writer's **existing accepted** output tolerance, which is
+  not widened; that the antenna feed metadata equals the resolved
+  `ResolvedReceptorSet` values rather than any file row label; and that the
+  existing HISTORY provenance carries `source_scientific_sha256`. Neither
+  format is claimed to preserve a reusable efield beam model, and no invented
+  standard table is added.
+
+The minimum retained matrix is therefore exactly ten `output_cases` rows —
+each of `in_memory`, `summary_json`, `hdf5`, `uvfits`, and
+`measurement_set`, once with `receptors.output_basis` resolving to
+`linear_xy` and once to `circular_rl` — beside whatever `reader_projection`
+rows the readers' own contracts require. Both bases are exercised on the same
+underlying efield fixture so that the pair isolates `H` and nothing else.
+Separately, a scalar BeamFITS workload written by every one of those writers
+must remain byte-identical to its pre-Stage-3 output, which is the
+disabled-control half of the same evidence.
+
 ### 5.5 Point, HEALPix, backend, and independent comparison
 
 Point and HEALPix solvers consume the same complete `_ResolvedBeamJones` batch.
@@ -2042,6 +2719,13 @@ and open disagreements". It never licenses an unqualified "validated" claim.
 The retained artifact lives under `output/crossvalidation/`, is generated from
 a clean source SHA before it exists, and is authenticated by a standard-suite
 schema/digest test. No existing cross-validation artifact is overwritten.
+
+Section 8.1's evidence-generation transaction freezes the exact command that
+produces it, the generator that Section 7.4 grants for the purpose, its
+absolute out-of-repository output path, the artifact's own strict field set,
+and the checks the evidence tool performs before importing it to the dated
+repository target. The comparison runs only in the optional `crossval`
+environment, is marked `crossval` and `slow`, and never gates.
 
 ### 5.6 Stage-3 acceptance invariants
 
@@ -2315,6 +2999,8 @@ authenticates it through Section 8.2.
 - `tests/unit/test_jones/test_backend_parity.py`
 - `tests/integration/test_sci005_beam_physics.py`
 - `tests/crossvalidation/test_sci005_efield_pyuvsim.py` (new, optional)
+- `tools/sci005_stage3_crossvalidation.py` (new; the non-gating cross-validation
+  artifact generator and standalone validator of Section 8.1, and nothing else)
 - `tests/characterization/test_h5py_output_contract.py`
 - `tests/characterization/test_pyuvdata_321_output_contract.py`
 - `tests/characterization/test_pyuvdata_321_polarization_contract.py`
@@ -2342,6 +3028,52 @@ authenticates it through Section 8.2.
 - `docs/development/sci005_stage3_evidence.json` (new evidence successor only)
 - `docs/development/sci005_stage3_acceptance.json` (new acceptance successor
   only)
+
+The accepted `D3` adds exactly one path to the list this memo previously
+carried, bounded above and grounded in a verified repository fact.
+`tools/sci005_stage3_crossvalidation.py` is granted because Section 8.1's
+evidence transaction requires the generator to authenticate the imported
+artifact's strict schema, `source_sha == S3`, reference package versions,
+input content hashes, and target basename before it may enter the repository,
+and none of that is expressible through the granted comparison test module:
+`tests/crossvalidation/` carries no `conftest.py`, so a `pytest` option
+supplying an absolute output path would itself require an ungranted path, and
+the accepted precedent for exactly this job —
+`tools/wp6_sci007_evidence.py`, which produced
+`output/crossvalidation/2026-08-11-pyuvsim-1.4.0-sci007.json` — is a
+dedicated tool with `generate` and `validate` forms. The grant is scoped to
+that generator and its standalone validator alone: the tool computes and
+emits scientific comparison values, is never imported by production or by a
+gating test, adds no dependency, and may not write anything but the absolute
+out-of-repository artifact its frozen command names.
+The `BeamFileProvenance` field-order pin that the Section 5.2.1 widening moves
+needs no grant, because it already sits on this list: it is the tuple asserted
+by `test_public_provenance_field_order_and_detached_snapshot` in
+`tests/unit/test_core/test_beam_fits.py`, and `S3` must extend exactly that
+assertion with the appended optional fields. Unlike Stages 1 and 2, this stage
+grants no `tests/unit/test_core/test_beam_models.py` authority, because
+nothing that module pins moves:
+`test_resolved_leaf_field_order_is_exact` does not enumerate
+`BeamFileProvenance`; the `ResolvedFITSBeamDefinition` tuple it does
+enumerate — `("kind", "path", "normalization", "angular_interpolation",
+"frequency_interpolation", "path_provenance_key", "definition_fingerprint")` —
+is unchanged, because Stage 3 widens that field's `Literal` and adds no field;
+`LoadedBeamHandlerState`, `LoadedBeamState`, and `ResolvedBeamAssignment` gain
+no field; and its export-location inventory is unchanged because Stage 3 adds
+no export. For the same reason
+`tests/unit/test_core/test_beam_sampling.py`, which constructs a
+`BeamFileProvenance` directly, needs no grant: every new field is declared
+with an exact `None` default, so its existing keyword construction stays
+valid. No further path is
+granted: no new beam error class is needed, so `core/beam/errors.py`,
+`core/beam/__init__.py`, and
+`tests/unit/test_core/test_beam_resolution.py`'s pinned error-hierarchy
+inventory are untouched at Stage 3; `core/beam/resolution.py` is not needed,
+because the efield subset is a property of one resolved definition built in
+the granted `io/config_resolution.py` and the receptor-consistency check
+cannot live in assignment resolution at all; and `api/simulator.py` is not
+needed, because it already passes the resolved receptor set to
+`load_beam_system` unconditionally.
 
 ### 7.5 Evidence, acceptance, and closure successors
 
@@ -2437,13 +3169,14 @@ fingerprint_diff, commands, artifacts, limitations, claims_not_licensed
 `schema_version` is respectively `radiosim.sci005.stage1.v1`,
 `radiosim.sci005.stage2.v1`, or `radiosim.sci005.stage3.v1`. Missing and unknown
 fields fail validation. The bounded correction freezes the complete Stage-1
-envelope below, and the accepted `D2` freezes the complete Stage-2 envelope
-below it. Stage 3 retains its accepted common envelope, but its
-stage-specific extensions are deliberately not frozen here; mandatory
-`D3` independently freezes its exact normative rows, keys, types, and
-cross-field predicates before its red slice. The corresponding `S2` or `S3`
-then checks in the literal JSON Schema transcription before its artifact
-successor.
+envelope below, the accepted `D2` freezes the complete Stage-2 envelope below
+it, and the accepted `D3` freezes the complete Stage-3 envelope below that.
+Stage 3's stage-specific extensions were deliberately left unfrozen by the
+earlier gates; the mandatory `D3` this amendment lands discharges that
+obligation, fixing its exact normative rows, keys, types, and cross-field
+predicates before its red slice, so no stage's extensions remain unfrozen.
+The corresponding `S2` or `S3` then checks in the literal JSON Schema
+transcription before its artifact successor.
 
 For the following contract, JSON `number` means finite, non-boolean binary64;
 `integer` means a non-negative, non-boolean JSON integer unless the field says
@@ -2878,6 +3611,323 @@ once across the array. `exception_type` is frozen per kind:
 `exact_message` equals the Section 4.2.1 frozen literal. Rows are sorted by
 unique `case_id`.
 
+#### Stage-3 evidence envelope
+
+Stage 3 appends, in order, the top-level arrays `efield_file_contracts`,
+`basis_conversions`, `receptor_factorizations`, `ixr_diagnostics`, and
+`crossvalidation_comparisons` to the common field sequence. Its exact
+top-level scalar contract is the Stage-1 contract with these substitutions:
+`schema_version` is `radiosim.sci005.stage3.v1`, `stage` is integer `3`, and
+`source_sha` names the clean checked-out Stage-3 implementation candidate
+`S3`. Every array field is non-empty except that `limitations` may be empty.
+
+The official `E3` artifact requires **no** extended-width platform predicate
+and may be generated on any available NumPy platform. This is a deliberate
+departure from Stages 1 and 2, and it is a consequence of the production
+contract rather than a relaxation of evidence: the full-efield path accepts
+only `complex64` and `complex128` native data, pyuvdata interpolation returns
+`complex128`, and a resolved `float128` beam precision is rejected with a
+typed `UnsupportedBeamPrecisionError`, so there exists no Stage-3 computation
+that a `complex256` row could authenticate. Requiring extended-width evidence
+for a computation the production path is designed to refuse would establish
+nothing, and would make `E3` depend on a platform predicate for no scientific
+reason. The Stage-3 envelope instead retains that refusal directly, as the
+`extended_precision` row of `efield_file_contracts` below. No `complex256`
+`numeric_projection` appears anywhere in this envelope, and a row carrying one
+fails validation.
+
+`S3` checks in `docs/development/sci005_stage3_evidence.schema.json` as the
+literal JSON Schema transcription of this envelope, authenticated by an
+`artifacts` row with role `schema`; the prose here wins if the red slice
+exposes a transcription difference. `S3` extends
+`tests/unit/test_sci005_evidence.py` with the Stage-3 validation and
+synthetic-document tests while changing no Stage-1 or Stage-2 validation
+logic, constant, or synthetic fixture, and adds the Stage-3 entry to the
+generator's stage-keyed measurement table, which today has entries for
+Stages 1 and 2 alone.
+
+Stage 3's `scientific_conventions` has exactly:
+
+```text
+efield_normalization: uvbeam_peak_common_v1
+efield_basis_conversion: ludwig3_az_za_to_north_east_v1
+efield_zenith_limit: north_east_tangent_limit_v1
+efield_factorization: receptor_conjugated_native_efield_v1
+```
+
+The first is the authored configuration literal of Section 5.1.1; the other
+three are the derived facets Section 5.2.1 fixes, versioned by that one
+literal exactly as Stage 2's three squint facets are versioned by
+`cotton_uson_exact_v1`. They are not independent version axes, they add no
+resolved field, and they enter the scientific identity through the handler
+fingerprint's existing `validated_metadata` and `contracts` blocks.
+
+The common rows specialize for Stage 3 as follows. `analytic_invariants`
+requires no extended-width case identifiers, for the reason given above; the
+Stage-1 sentence naming `extended_precision_unmodified_profile` and
+`extended_precision_mask_plus_zernike` remains scoped to Stage 1.
+`solver_cases.effect` is one of exactly `efield_point` or `efield_healpix`;
+each appears at least once, `diagnostic_sha256` is null on every row,
+`visibility_change_expected` is true, and `visibility_changed_element_count`
+is positive. `backend_parity` retains the common all-three-backends rule with
+the `float64`/`complex128` pair for at least one full-efield case, and NumPy
+and Dask must be byte-identical while JAX agrees at the existing float64
+tolerance. `output_cases` contains at least the ten rows Section 5.4 requires,
+whose `case_id` values are exactly `efield_in_memory_linear_xy`,
+`efield_in_memory_circular_rl`, `efield_summary_json_linear_xy`,
+`efield_summary_json_circular_rl`, `efield_hdf5_linear_xy`,
+`efield_hdf5_circular_rl`, `efield_uvfits_linear_xy`,
+`efield_uvfits_circular_rl`, `efield_measurement_set_linear_xy`, and
+`efield_measurement_set_circular_rl`, each with the matching `format`; the
+basis is carried in the identifier because the common row schema has no basis
+field and is not changed. `rejection_probes` contains at least the four
+document-stage Stage-3 probes — Pydantic's own `literal_error` for an unknown
+normalization literal and `extra_forbidden` for the literal authored on a
+block that has no such field, together with the reused
+`beam.squint.unsupported_beam_family` and
+`beam.aperture_physics.unsupported_beam_family` codes, each with its exact
+frozen path and message. A row records the full rendered message as observed
+data; the test behind it asserts the concrete exception type, the issue code,
+and the config path, never a message substring. `fingerprint_diff` keeps the
+common enabled-plus-disabled-control rule, and its disabled control must
+include a scalar `peak` FITS workload whose old and new digests and cube
+bytes are equal. `claims_not_licensed` must contain exactly the members
+`SCI-005 Stage-3 acceptance`, `SCI-005 whole-row closure`,
+`a station, array-factor, or mutual-coupling response`,
+`near-field or Fresnel-regime behavior`, and
+`an unqualified validation against pyuvsim`; for Stage 3 this list supersedes
+the Stage-1-scoped member rule in the common `commands`/`artifacts` paragraph
+above.
+
+Each `efield_file_contracts` row has exactly
+`{case_id, probe_kind, outcome, beam_type, antenna_type,
+pixel_coordinate_system, feed_array, feed_angle_rad, derived_x_orientation,
+mount_type, data_normalization, basis_vector_dtype, native_data_dtype,
+receptor_basis, receptor_feed_rotation_rad, common_peak_by_frequency,
+normalization_tolerance, exception_type, exact_message, test_node_id,
+input_sha256, passed}`. `case_id`, `test_node_id`, and the five metadata
+strings are strings; `outcome` is `accepted` or `rejected`; `feed_array` is an
+array of exactly two non-empty strings and `feed_angle_rad` an array of
+exactly two numbers; `derived_x_orientation` is `east`, `north`, or null;
+`basis_vector_dtype` and `native_data_dtype` are non-empty strings naming the
+**observed** NumPy dtype, so that a rejected row can record the offending
+width rather than being unable to express it; `receptor_basis` is `linear` or
+`circular`;
+`receptor_feed_rotation_rad` is a signed finite number in `(-pi, pi]`;
+`normalization_tolerance` is a positive number; `input_sha256` is a `sha256`;
+and `passed` is boolean. `common_peak_by_frequency` is a non-empty array of
+exact objects `{frequency_hz, observed_peak}`, strictly increasing in positive
+`frequency_hz`, whose `observed_peak` is a non-negative number equal to the
+full-stored-grid maximum of Section 5.1.1 item 12. `probe_kind` is one of
+exactly:
+
+```text
+accepted_linear_pair, accepted_circular_pair, power_beam,
+phased_array_antenna, healpix_pixels, vector_dimension, feed_pair,
+feed_pair_receptor_mismatch, feed_angle, derived_orientation, mount,
+grid_coverage, zenith_single_valued, wrap_continuity, basis_vector_dtype,
+basis_vector_complex, basis_vector_degenerate, basis_vector_non_finite,
+data_dtype, data_non_finite, data_normalization, bandpass, visible_only_peak,
+extended_precision
+```
+
+Every one of those twenty-four kinds appears at least once across the array. The
+two `accepted_*` kinds have `outcome` `accepted` and every other kind has
+`outcome` `rejected`. Cross-field validation requires an accepted row to
+carry null `exception_type` and `exact_message`, `basis_vector_dtype` exactly
+`float64`, `native_data_dtype` exactly `complex64` or `complex128`,
+`derived_x_orientation` agreeing between the file and the resolved receptor,
+and every `observed_peak` within `normalization_tolerance` of one; and
+requires a rejected row to carry non-null `exception_type` and
+`exact_message`.
+`exception_type` is frozen per rejected kind: `UnsupportedBeamTypeError` for
+`power_beam` and `phased_array_antenna`; `UnsupportedBeamCoordinateError` for
+`healpix_pixels`, `zenith_single_valued`, and `wrap_continuity`;
+`BeamAngularDomainError` for `grid_coverage`, which is the accepted
+horizon-coverage rejection and keeps the class the existing loader already
+raises for it; `UnsupportedBeamBasisError` for
+`vector_dimension`, `basis_vector_dtype`, `basis_vector_complex`, and
+`basis_vector_degenerate`;
+`UnsupportedBeamFeedError` for `feed_pair`, `feed_pair_receptor_mismatch`,
+`feed_angle`, `derived_orientation`, and `mount`;
+`UnsupportedBeamPrecisionError` for `data_dtype` and `extended_precision`;
+`NonFiniteBeamResponseError` for `basis_vector_non_finite` and
+`data_non_finite`, which are the retained witnesses of the two non-finite
+rejections Section 5.1.1 items 10 and 11 freeze; and
+`BeamNormalizationError` for `data_normalization`, `bandpass`, and
+`visible_only_peak`. The `zenith_single_valued` and `wrap_continuity` rows are
+the typed rejections of the two Section 5.2.1 continuity predicates, whose
+measured residuals the `basis_conversions` rows carry separately; a
+`zenith_single_valued` row's file is the identity-basis scalar file that
+Section 5.1.1 names as the honest boundary between the two accepted subsets.
+The `visible_only_peak` row is the one that proves the
+predicate is full-stored-grid and not visible-only: its file is unit-peak over
+the visible rows and is rejected because a below-horizon row exceeds one. The
+`extended_precision` row's `exact_message` equals the existing frozen
+`float128` rejection literal. Rows are sorted by unique `case_id`.
+
+Each `basis_conversions` row has exactly
+`{case_id, oracle_kind, receptor_basis, frequency_hz, probe_azimuth_rad,
+probe_zenith_angle_rad, expected, observed, max_abs_residual,
+power_preservation_max_abs_residual, orthogonality_max_abs_residual,
+wrap_continuity_max_abs_delta, wrap_continuity_bound,
+zenith_limit_max_abs_delta, atol, rtol, test_node_id, passed}`.
+`oracle_kind` is one of exactly `crossed_ideal_dipole`, `quadrupolar`,
+`ludwig3_rotation`, or `scalar_subset_control`, and each appears at least
+once; `receptor_basis` is `linear` or `circular`; `frequency_hz` is a
+positive number; `probe_azimuth_rad` and `probe_zenith_angle_rad` are
+`array_projection` values of identical `float64` shape `[S]` with `S >= 1`;
+`expected` and `observed` are `numeric_projection` values of identical dtype
+and shape, with dtype exactly `complex128` and shape `[S, 2, 2]` for the same
+`S`; the six residual and bound fields are numbers; `atol` is positive and
+`rtol` non-negative; and `passed` is boolean. Here `expected` projects an
+independently evaluated closed-form oracle and `observed` projects the
+production conversion. Cross-field validation requires, on every row except a
+`scalar_subset_control` one,
+`max_abs_residual <= atol + rtol * observed.maximum_abs`,
+`zenith_limit_max_abs_delta <= atol + rtol * observed.maximum_abs`, and
+`wrap_continuity_max_abs_delta <= wrap_continuity_bound`; and on every row
+without exception,
+`power_preservation_max_abs_residual <= 1e-12` and
+`orthogonality_max_abs_residual <= 1e-12`, those two being predicates on the
+real `float64` conversion matrix and therefore judged at the fixed basis
+tolerance rather than at the converted-matrix pair. A `scalar_subset_control`
+row instead requires
+`max_abs_residual >= max(1e-3, 1024 * atol)` and
+`zenith_limit_max_abs_delta >= max(1e-3, 1024 * atol)`: it records the
+measured divergence between the accepted scalar subset's reading of one
+identity-basis file and the full-efield subset's conversion of the same
+bytes, and that divergence — together with the zenith row's failure to be
+single-valued — is the retained witness that the two literals name two
+interpretations rather than a repair. The `quadrupolar` oracle fixes the
+principal-plane zeros and the opposite parity of the two feed rows and never
+becomes a public production model. Rows are sorted by unique `case_id`.
+
+Each `receptor_factorizations` row has exactly
+`{case_id, receptor_basis, feed_rotation_deg, output_basis,
+parallactic_angle_rad, frequency_hz, e_matrix, noncommuting_component,
+j_native, composed_e, factorization_max_abs_residual,
+chain_order_max_abs_residual, order_control_max_abs_difference,
+output_basis_max_abs_residual, atol, test_node_id, passed}`.
+`receptor_basis` is `linear` or `circular`; `output_basis` is `linear_xy` or
+`circular_rl`; `feed_rotation_deg` and `parallactic_angle_rad` are signed
+finite numbers; `frequency_hz` is positive; `j_native` and `composed_e` are
+`numeric_projection` values of identical dtype `complex128` and identical
+shape `[2, 2]` or `[S, 2, 2]` with `S >= 1`; the four residual fields are
+numbers; `atol` is positive; and `passed` is boolean. `e_matrix` is an array
+of exactly two arrays of exactly two `{real, imag}` objects of signed finite
+numbers, in row-major order, projecting the composed `E` at one retained
+direction, and `noncommuting_component` is a non-negative number.
+`factorization_max_abs_residual` is the largest entrywise absolute difference
+between the production `C @ E` and `J_native`;
+`chain_order_max_abs_residual` is the largest entrywise absolute difference
+between `C @ E @ P` and `J_native @ P`;
+`order_control_max_abs_difference` is the largest entrywise absolute
+difference between `C @ E @ P` and `C @ P @ E`; and
+`output_basis_max_abs_residual` is the largest entrywise absolute difference
+between the reported correlation matrix and an independently composed
+`H E ... E^dagger H^dagger` in the row's `output_basis`. Cross-field
+validation requires `factorization_max_abs_residual <= atol`,
+`chain_order_max_abs_residual <= atol`, and
+`output_basis_max_abs_residual <= atol` on every row; recomputes
+`noncommuting_component` from `e_matrix` in binary64 as
+`abs(E[0][0] - E[1][1]) + abs(E[0][1] + E[1][0])`, requiring agreement within
+`1e-15`; and requires both
+`noncommuting_component >= max(1e-3, 1024 * atol)` and
+`order_control_max_abs_difference >= max(1e-3, 1024 * atol)` on every row.
+That recomputation is the exact algebraic condition for non-commutation and
+is why Stage 3 needs no per-basis split: writing
+`E = a I_2 + b sigma_x + c sigma_y + d sigma_z` gives
+`E_00 - E_11 = 2d` and `E_01 + E_10 = 2b`, and a real rotation
+`R(theta) = exp(i theta sigma_y)` commutes with `E` exactly when `b = d = 0`,
+so a positive recomputed component certifies that the order control *must*
+be non-zero. Stage 2's circular-receptor vanishing does not recur here
+because it followed from `D_b` being diagonal with the circular `C`, which a
+general `J_native` is not. The array contains at least one row for each of
+the four `(receptor_basis, output_basis)` combinations, and at least one
+`linear` row with non-zero `feed_rotation_deg`. Rows are sorted by unique
+`case_id`.
+
+Each `ixr_diagnostics` row has exactly
+`{case_id, state, receptor_basis, frequency_hz, probe_altitude_rad,
+probe_azimuth_rad, j_matrix, sigma_max, sigma_min, condition_number,
+ixr_linear, ixr_db, leakage_magnitude, test_node_id, passed}`. `state` is one
+of exactly `nonsingular`, `unitary_scaled`, or `singular`, and each appears at
+least once across the array; `receptor_basis` is `linear` or `circular`;
+`frequency_hz` is positive; the two probe coordinates are signed finite
+numbers; `j_matrix` has the same two-by-two `{real, imag}` shape as
+`e_matrix` above and projects the accepted `J_native` at that direction;
+`sigma_max` and `sigma_min` are non-negative numbers; `condition_number`,
+`ixr_linear`, `ixr_db`, and `leakage_magnitude` are numbers or null; and
+`passed` is boolean. Cross-field validation requires
+`sigma_max >= sigma_min`, and recomputes `state` from the recorded singular
+values by the identical total, deterministic, fixed-relative-tolerance rule
+Section 5.3 freezes, evaluated in that same precedence order: `singular` when
+`sigma_max == 0` or `sigma_min <= 1e-12 * sigma_max`; otherwise
+`unitary_scaled` when `sigma_max - sigma_min <= 1e-12 * sigma_max`; otherwise
+`nonsingular`. The recorded `state` must equal that recomputation. The two
+statements of the rule may never diverge; if a transcription difference
+appears, Section 5.3's prose wins.
+
+The per-state field contract is then exact. A `singular` row requires
+`condition_number`, `ixr_linear`, `ixr_db`, and `leakage_magnitude` all null.
+A `unitary_scaled` row requires `condition_number` to be a finite number
+satisfying `1.0 <= condition_number <= 1.0 + 2e-12` — the realized ratio, not
+a forced `1.0` — and requires `ixr_linear`, `ixr_db`, and
+`leakage_magnitude` all null. A `nonsingular` row requires all four non-null
+and recomputes them in binary64 from the recorded singular values as
+`condition_number = sigma_max / sigma_min`,
+`ixr_linear = ((condition_number + 1) / (condition_number - 1)) ** 2`,
+`ixr_db = 10 * log10(ixr_linear)`, and
+`leakage_magnitude = 1 / sqrt(ixr_linear)`, requiring each recorded value to
+agree with its recomputation to a relative difference of `1e-9`. That
+recomputation predicate is scoped to `nonsingular` rows alone, because it is
+the only state in which the expressions are well defined; the classification
+bounds `condition_number - 1 > 1e-12` there, so every recomputation is finite
+and carries significant digits. No infinite or `NaN` value is ever written: an
+IXR that is infinite within tolerance is the `unitary_scaled` state and a
+matrix that is degenerate within tolerance is the `singular` state, both
+recorded by their literal and by null derived fields rather than by a
+non-finite number. Rows are sorted by unique `case_id`.
+
+Each `crossvalidation_comparisons` row has exactly
+`{case_id, artifact_path, artifact_sha256, artifact_generated_at_utc,
+reference_package, reference_version, pyuvdata_version, pyradiosky_version,
+astropy_version, radiosim_source_sha, input_hashes, convention_mappings,
+correlation_residuals, output_basis, gating, open_disagreements,
+test_node_id, passed}`. `artifact_path` is a `canonical_path`;
+`artifact_sha256` is a `sha256`; `artifact_generated_at_utc` is a timestamp;
+`reference_package` is exactly `pyuvsim`, `reference_version` exactly
+`1.4.0`, and `pyuvdata_version` exactly `3.2.1`; `pyradiosky_version` and
+`astropy_version` are non-empty strings; `radiosim_source_sha` is a
+`git_sha`; `output_basis` is `linear_xy` or `circular_rl`; `gating` is
+exactly the boolean `false`; `open_disagreements` is a sorted unique string
+array that may be empty; and `passed` is boolean. `input_hashes` is a
+non-empty array of exact objects `{name, sha256}` sorted by unique `name`,
+covering at minimum the UVBeam file, the sky model, the antenna layout, and
+the observation specification. `convention_mappings` is a non-empty array of
+exact objects `{radiosim_convention, reference_convention, equivalent}`
+sorted by unique `radiosim_convention`, the last field boolean, covering at
+minimum the east-X orientation, the fringe sign, the Stokes-to-coherency
+factor, and the beam normalization. `correlation_residuals` is an array of
+exactly four exact objects
+`{correlation, max_abs_residual, max_rel_residual, reference_max_abs}` sorted
+by unique `correlation`, whose four `correlation` values are exactly the
+complete ordered label set that `core/polarization_basis.py` gives the row's
+`output_basis`, and whose three numeric fields are non-negative numbers.
+Cross-field validation requires `radiosim_source_sha` to equal the top-level
+`source_sha`; requires `artifact_path` to be exactly
+`output/crossvalidation/<date>-sci005-efield-pyuvsim-1.4.0.json` where
+`<date>` is the `YYYY-MM-DD` UTC date of `artifact_generated_at_utc`;
+requires `artifact_sha256` to equal the digest of the `artifacts` row whose
+`path` is that same `artifact_path`; and requires `gating` to be `false`.
+Every row names the same `artifact_path` and `artifact_sha256`, because
+exactly one dated artifact exists. These rows license only the sentence
+"compared against pyuvsim for the named fixture, with the recorded agreements
+and open disagreements" and never an unqualified validation claim, which is
+why `an unqualified validation against pyuvsim` is a required member of
+`claims_not_licensed`. Rows are sorted by unique `case_id`.
+
 #### Evidence-generation transaction
 
 The exact evidence invocation is:
@@ -2899,8 +3949,11 @@ claims_not_licensed
 
 Stage 1 appends exactly `pupil_profiles`, `support_masks`, and
 `ruze_power_diagnostics`; Stage 2 appends exactly the five arrays the
-Stage-2 envelope above freezes, in that order; `D3` freezes the Stage-3
-input extensions with its evidence rows. Every supplied value uses the
+Stage-2 envelope above freezes, in that order; and Stage 3 appends exactly
+`efield_file_contracts`, `basis_conversions`, `receptor_factorizations`,
+`ixr_diagnostics`, and `crossvalidation_comparisons`, in that order, which
+are the Stage-3 input extensions this gate freezes together with the
+evidence rows above. Every supplied value uses the
 corresponding evidence shape above. Missing/unknown/duplicate keys, a
 non-regular or symlink input, a non-finite value, an incomplete row set, a false
 row, or a nonzero command fails before a repository write.
@@ -2918,6 +3971,56 @@ versions, input hashes, and target basename before importing it. Host temporary
 paths never enter evidence or scientific identity. The generator derives the
 sorted evidence `artifacts` rows and their raw SHA-256 values; the caller cannot
 supply a digest.
+
+The exact D3-frozen cross-validation command, run once from globally clean
+`HEAD == S3` in the optional `crossval` environment, is:
+
+```text
+pixi run --environment crossval -- python \
+  tools/sci005_stage3_crossvalidation.py generate \
+  --approved-source-sha <40hex-S3> \
+  --output <absolute-temporary-artifact.json>
+```
+
+`--approved-source-sha` must equal the clean `HEAD`, and the generator
+refuses to run from a dirty tree or from any other commit, so the artifact
+cannot be produced from unrecorded bytes. `--output` must be an absolute
+regular-file path that does not already exist and that resolves **outside**
+repository root; an output inside the repository is refused, because the only
+admissible way for those bytes to enter the repository is the evidence
+transaction above. The artifact is a strict UTF-8 JSON object emitted without
+a byte-order mark, with LF endings, `ensure_ascii=false`, `allow_nan=false`,
+two-space indentation, and one final newline, carrying exactly the keys
+`schema_version`, `generated_at_utc`, `source_sha`, `target_path`, `gating`,
+`reference_package`, `reference_version`, `pyuvdata_version`,
+`pyradiosky_version`, `astropy_version`, `radiosim_version`, `output_basis`,
+`input_hashes`, `convention_mappings`, `correlation_residuals`,
+`open_disagreements`, and `commands`, in that order. Its `schema_version` is
+exactly `radiosim.sci005.stage3-crossvalidation.v1`; its `gating` is exactly
+the boolean `false`; its `source_sha` is the clean `S3`; its `target_path` is
+exactly `output/crossvalidation/<date>-sci005-efield-pyuvsim-1.4.0.json`,
+where `<date>` is the `YYYY-MM-DD` **UTC date of generation** taken from
+`generated_at_utc`; and its remaining arrays use the exact shapes the
+`crossvalidation_comparisons` rows above freeze. Before importing it the
+evidence generator requires that schema literal, `source_sha == S3`, the
+three pinned reference versions, every `input_hashes` digest to match the
+bytes it can reach at `S3`, and the `artifact_inputs` row's target `path` to
+equal `target_path`; any mismatch fails before a repository write. The
+generator tool additionally exposes the standalone read-only form
+
+```text
+pixi run python tools/sci005_stage3_crossvalidation.py validate \
+  --approved-source-sha <40hex-S3> \
+  --artifact-sha256 <64hex> \
+  --input output/crossvalidation/<date>-sci005-efield-pyuvsim-1.4.0.json
+```
+
+which is the command `output/crossvalidation/README.md` records at `S3`,
+mirroring the accepted `tools/wp6_sci007_evidence.py` precedent. Neither form
+gates: the comparison lives in the optional `crossval` environment, is marked
+`crossval` and `slow`, and no workflow may depend on it. No existing
+cross-validation artifact is read for anything but its name and none is
+overwritten.
 
 The generator derives and forbids caller overrides of `schema_version`,
 `stage`, `status`, `design_sha`, `red_test_sha`, `source_sha`, `evidence_sha`,
@@ -3234,6 +4337,45 @@ parent is `A1` to be `U1` and to satisfy the committed Stage-1
 committed Stage-1 `verify` form, and checks every interval commit in
 `U1..D2` other than `D2` against the status-prose rule above.
 
+The Stage-3 acceptance validator authenticates the `U2 -> D3` edge from Git
+objects alone, by the same discipline and with one structural simplification.
+It locates `A2` as the unique commit introducing the Stage-2 acceptance
+artifact authenticated by the Stage-2 approved constants; requires the unique
+commit on `D3`'s first-parent ancestry whose direct parent is `A2` to be `U2`
+and to satisfy the committed Stage-2 `verify-status` form; requires `A2` to
+be an ancestor of `D3` through the committed Stage-2 `verify` form; and
+requires the exact unstarred edge `D3^ == U2`. Because that edge is exact and
+not starred, the interval `U2..D3` contains no commit other than `D3` itself,
+so no interval-kind enumeration, no header-recorded commit table, and no
+per-kind path rule is needed or permitted for it; a validator that finds any
+intervening commit has found a broken succession, not an interval to classify.
+The operative `D3` touches exactly
+`docs/development/sci005_beam_physics_plan.md` and no other path, and the
+Stage-1 and Stage-2 evidence and acceptance artifacts, their schemas, their
+validators, their tools, and every approved digest constant are byte-identical
+at `D3` to their values at `U2`. Should a bounded Stage-3 design correction
+later prove necessary, it supersedes `D3` exactly as the Stage-2 corrections
+superseded their gate, and the starred-edge machinery of the second edge —
+with its header-enumerated commits, its three kinds, and its per-kind path
+rules — then applies to `U2 ->* D3` unchanged; until such a correction is
+recorded, the exact edge stands and is the stronger statement.
+
+Whole-row closure carries one further Git-object obligation, which
+`tools/sci005_stage3_acceptance.py` owns as the closure-parent certificate
+verifier Section 8.2 names it. Before the closure successor `C` may be
+committed, that tool must be run in both of its committed read-only forms
+against the accepted `A3`: `verify` with `--acceptance-commit <A3>` and
+`--descendant` naming the proposed `C`, which must emit the canonical
+certificate line with verdict `ACCEPT` and the unlock array `["SCI005.U3"]`
+and exit zero; and `verify-status` with `--acceptance-commit <A3>` and
+`--status-commit` naming `U3`, which must exit zero and silent, so that
+`U3^ == A3` and the `A3..U3` diff allowlist are both reauthenticated from
+committed objects rather than from the working tree. `C^ == U3` is required
+exactly, and `C` reconciles the complete scope and support wording without
+rewriting one byte of historical acceptance text. A green workflow, an
+appended memo sentence, or the `SCI005.U3` unlock literal alone is
+insufficient for any of these.
+
 At `Ei`, the evidence validator authenticates raw evidence bytes, requires its
 `source_sha == Si` and `evidence_sha == null`, requires `Ei^ == Si`, and
 requires the `Si..Ei` diff to match Section 7.5. At `Ai`, the acceptance record
@@ -3288,7 +4430,12 @@ pixi run python tools/sci005_stage{i}_acceptance.py verify-status \
 The exact sentinel `INDEX` requires `HEAD == Ai` and validates the staged diff;
 a Git SHA requires `Ui^ == Ai`. Success is silent. After its `D` gate, the next
 stage's red preflight reruns the committed form; `C` does the same after Stage
-3 before accepting its direct parent.
+3 before accepting its direct parent, running
+`tools/sci005_stage3_acceptance.py verify` with accepted `A3` and the proposed
+`C` as descendant and `tools/sci005_stage3_acceptance.py verify-status` with
+accepted `A3` and `U3`, exactly as Section 8.3's closure-parent obligation
+requires, and treating a non-zero exit or an absent certificate as a blocker
+rather than as a condition to be reconciled in prose.
 
 This verifier and certificate are the complete SCI-005 export for the WP-9 M3
 dependency. This memo does not grant SCI-004 writable authority. Before an M3
