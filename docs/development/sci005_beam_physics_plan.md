@@ -150,6 +150,45 @@ finding, both findings were resolved by a five-edit delta frozen into these
 bytes, and both reviewers then issued their `ACCEPT` verdicts on exactly
 these pins — and landed with only this record sentence added.
 
+**Bounded Stage-2 heading and binding correction — 2026-08-19.** Red-test
+authoring against the landed gate surfaced three defects, reported rather
+than resolved by the authoring pass, and this memo-only correction repairs
+them together with a fourth its own reviews then proved necessary. First, the gate's landing edits consumed the two heading lines
+`### 4.2 Factorization into the canonical chain` and
+`### 4.3 Stage-2 acceptance invariants` while leaving both sections' prose
+intact and unrenumbered; the two lines are restored verbatim at their
+original positions, so every existing reference to Sections 4.2 and 4.3
+resolves again, and no other prose moves. Second, Section 4.1.1 claimed
+`beams.squint` would participate in `SimulationOverrides` "exactly as
+`beams.pointing` does" — a false premise, because `SimulationOverrides`
+carries no `beams` field at all and `beams.pointing` participates only in
+the document-schema known-field hint table; the sentence now names that
+real surface and adds no override field. Third, two granted surfaces were
+left unnamed: the correction freezes `load_beam_system`'s new keyword-only
+parameter as `receptors` (typed `ResolvedReceptorSet | None = None`) and
+the resolved record as frozen dataclass `ResolvedSquint` stored at
+`ResolvedBeamAssignment.squint`. Fourth, this correction's own independent
+reviews proved that a bare supersession sentence would leave Sections 7.1
+and 8.3 mechanically unverifiable — the superseded gate commit would sit
+inside `U1..D2` and fail the status-prose interval rule — so the
+correction also amends Section 8.3's second-starred-edge rule to admit the
+header-recorded superseded design commits as the interval's terminal
+segment, updates the observed-interval and operative-`D2` file-scope
+sentences to the real two-commit history, and re-scopes Section 7.1's
+recorded four-line-deletion exception to the superseded gate commit. The
+commit containing this correction
+supersedes the gate commit as the operative `D2` once its exact bytes are
+independently accepted; `R2` then directly parents it. Its exact
+pre-landing memo bytes
+(`sha256:1d8cdb606558756490d6459131e9bca0b87d2b641749376c829e3cbc05e0ee19`)
+and parent-relative diff
+(`sha256:fdde54572567ae044fbab37526a4943dc26aae063f583d9fb6f0de126846c72e`)
+received separate fresh independent governance and computational reviews on
+2026-08-19 — both returned the same blocking succession finding against the
+first draft, the Fourth repair above resolved it, and both reviewers then
+issued their `ACCEPT` verdicts on exactly these pins — and landed with only
+this record sentence added.
+
 **Status:** Stage 1 is accepted and closed as a stage: the operative `D1` is
 `c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted succession is
 `R1 e246c5d1c092b5321dddfd9506bb1f2d3ae12365 ->
@@ -1448,10 +1487,11 @@ Every squint record's five fields are strict in the Section 3.5 sense:
 reject `bool` and `int` through Pydantic's own `float_type` issue code; and
 `positive_native_feed` is exactly one of the literals `x`, `y`, `r`, or `l`.
 Unknown fields, wrong kinds, and missing required fields fail as
-`ConfigSchemaError` with Pydantic's own issue codes. `beams.squint`
-participates in `SimulationOverrides` exactly as `beams.pointing` does, with
-the override field allowlist entries `beams.squint` and
-`beams.squint.default`.
+`ConfigSchemaError` with Pydantic's own issue codes. `SimulationOverrides`
+carries no `beams` field and Stage 2 adds none; the document-schema
+known-field hint table that already names `beams.pointing` and
+`beams.pointing.default` gains the entries `beams.squint` and
+`beams.squint.default`, so unknown-field hints stay exact.
 
 Document-level value and cross-field failures are `ConfigSemanticError`
 carrying exactly these frozen codes, paths, and messages, where `{value!r}`
@@ -1530,6 +1570,8 @@ Both classes are appended to `core/beam/errors.py` as
 native feed of a squint record is fixed by the label pair of its basis —
 `x` pairs with `y` and `r` pairs with `l` — and receives the negative
 displacement; no second label is authored.
+
+### 4.2 Factorization into the canonical chain
 
 Let the two displaced scalar voltage samples in native-feed order be
 
@@ -1666,8 +1708,10 @@ conversion of the finished `E` batch happens at the existing adapter
 boundary and nowhere earlier.
 
 To make this possible, `load_beam_system` gains the resolved receptor set:
-the `Simulator` passes its already-resolved `ResolvedReceptorSet` through a
-new keyword under Section 7.3's bounded `api/simulator.py` grant, and
+the `Simulator` passes its already-resolved `ResolvedReceptorSet` through
+the new keyword-only parameter `receptors` (typed
+`ResolvedReceptorSet | None = None`) under Section 7.3's bounded
+`api/simulator.py` grant, and
 `load_beam_system` requires it whenever any resolved antenna carries
 squint. Receptor resolution is unchanged and remains the accepted single
 authority; the runtime reads only each squint antenna's resolved basis and
@@ -1685,7 +1729,9 @@ cache is keyed on this response identity as today; across steps each
 adapter is rebuilt, so the time dependence of a rotating mount's
 `beta_feed` never crosses a cache boundary.
 
-The resolved squint record is one frozen dataclass in `core/beam/models.py`
+The resolved squint record is one frozen dataclass `ResolvedSquint` in
+`core/beam/models.py`, stored on the assignment as
+`ResolvedBeamAssignment.squint`,
 with exactly the fields `convention:
 Literal["cotton_uson_exact_v1"]`, `reference_frequency_hz: float`,
 `per_feed_offset_deg_at_reference: float`,
@@ -1700,6 +1746,8 @@ the convention literals `"direction_convention":
 "receptor_conjugated_native_diagonal_v1"`. Squint is per-antenna state like
 pointing and surface error: it never enters the handler preload key, and
 two antennas sharing a handler may carry different squint records.
+
+### 4.3 Stage-2 acceptance invariants
 
 Acceptance requires:
 
@@ -1988,10 +2036,12 @@ complete normative Stage-2 evidence envelope before `R2`; `D3` directly
 parents `U2` and does the same for Stage 3 before `R3`.
 Those later design gates may write only the paths above, change no production,
 red oracle, retained artifact, or prior acceptance text, and require their own
-exact-byte independent design reviews, with one recorded exception: `D2`
-additionally lands the bounded four-line deletion in
+exact-byte independent design reviews, with one recorded exception: the
+superseded original Stage-2 gate commit additionally landed the bounded
+four-line deletion in
 `tests/unit/test_sci005_stage1_dependency.py` that its header record and
-Section 8.3 authorize, and changes no other byte of that file. Omitting an
+Section 8.3 authorize, changing no other byte of that file; the operative
+`D2` and every later design gate touch only the paths above. Omitting an
 applicable `D2` or `D3`, or combining it with red tests, invalidates the
 following stage.
 
@@ -3040,19 +3090,32 @@ accepted programme commits may otherwise change shared paths and those bytes
 become the `G1` red baseline.
 
 The second starred edge, `U1 ->* D2`, is ancestor reachability from `U1` to
-`D2` through zero or more separately authorized status-prose commits. Every
-commit in `U1..D2` other than `D2` itself is a single-parent non-merge whose
-parent-relative diff touches only Section 7.5 status paths and contains no
-source, schema, test, tool, artifact, fingerprint, tolerance, or
-historical-acceptance-byte change; across that interval every Section 7.3
+`D2` through zero or more separately authorized status-prose commits plus
+the superseded commits of the Stage-2 design succession. Every commit in
+`U1..D2` other than `D2` itself is a single-parent non-merge of exactly one
+of two kinds. A status-prose commit's parent-relative diff touches only
+Section 7.5 status paths and contains no source, schema, test, tool,
+artifact, fingerprint, tolerance, or historical-acceptance-byte change. A
+superseded design commit is an earlier operative `D2` that a later,
+independently accepted, header-recorded correction supersedes; the
+superseded design commits form the terminal segment of the interval, each
+directly parenting the next design commit, and each touches exactly the
+paths its own header record names. Across the interval every Section 7.3
 path marked `new` or `successor only` remains absent, and the retained
 Stage-1 evidence and acceptance artifacts, their schemas, their validators,
 their tools, and every approved digest constant remain byte-identical to
-`U1`. The observed interval at this gate is exactly the one changelog
-heading repair recorded in this memo's header. `D2` itself is the design
-gate: it touches exactly `docs/development/sci005_beam_physics_plan.md`
-plus the bounded four-line dependency-validator deletion its header
-records, and no other path.
+`U1`, except through the one bounded four-line dependency-validator
+deletion the design succession's header records authorize. The observed
+interval at this gate is exactly two commits: the one changelog heading
+repair recorded in this memo's header
+(`3e336095009e72bf4ae6064d5e97d381e063258f`), followed by the superseded
+original gate commit (`3d60b6f428e9ac94407f50dfd9153aad27d5e098`), which
+landed the Stage-2 memo amendment plus the bounded four-line
+dependency-validator deletion and which the heading-and-binding correction
+supersedes. The operative `D2` — the commit containing that correction —
+touches exactly `docs/development/sci005_beam_physics_plan.md` and no other
+path; the four-line deletion was performed once, by the superseded gate
+commit, and is never repeated.
 
 Thus `R1^ == G1`, `Si^ == Ri`, `Ei^ == Si`,
 `Ai^ == Ei`, `Ui^ == Ai`,
