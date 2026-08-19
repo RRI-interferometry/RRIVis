@@ -1,0 +1,896 @@
+{
+  "schema_version": "radiosim.sci005.stage2.v1",
+  "stage": 2,
+  "status": "candidate",
+  "generated_at_utc": "2026-08-19T10:40:05Z",
+  "design_sha": "b6d09b732e93f3e5a533eafd6e38b102f26a4eb0",
+  "red_test_sha": "da18f96e9dfe1a76851c2800f1c0f80460d3ea89",
+  "source_sha": "5c94d925352b389768e0476079e04e811db996e1",
+  "evidence_sha": null,
+  "working_tree_clean": true,
+  "radiosim_version": "0.3.0",
+  "python_version": "3.11.13",
+  "platform": "macOS-26.6.1-x86_64-i386-64bit",
+  "machine": "x86_64",
+  "pixi_environment": "default",
+  "pixi_lock_sha256": "3a8dc9136be95e9ccaff6cb03ad4d7aaf50e54eafa112cb24726a98b40b3fd17",
+  "scientific_conventions": {
+    "squint_frequency_law": "cotton_uson_exact_v1",
+    "squint_direction": "feed_ray_plus_half_pi_north_through_east_v1",
+    "squint_beam_frame": "pointing_then_squint_great_circle_v1",
+    "squint_factorization": "receptor_conjugated_native_diagonal_v1"
+  },
+  "config_cases": [
+    {
+      "case_id": "accepted_default_plus_per_antenna_squint",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_resolves_a_default_and_ascending_per_antenna_records",
+      "input_sha256": "594e36ee88c8b1c5505cd0d9d4b429256b95ab60835a60b284e37c013fdccd52",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "be39db177d69710c7a8b3f9be02569a2a2f4d70b759a5c4f14061267c8957d50",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "accepted_default_squint_record",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_resolves_a_default_and_ascending_per_antenna_records",
+      "input_sha256": "9e2d9e174e780e683c7e63d6102d31a5c4ce0a00424771056de723c3fdd5428c",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "a99700aab59e0041af010809910cfd61bb205b50742e6bd85bb32bafa7ad04ec",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "accepted_squint_absent_control",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_an_absent_squint_block_leaves_the_resolved_document_untouched",
+      "input_sha256": "e9f65b68cfb2ffbd348b0e7ae9febdba4bd698420e2918bac1760668830937c2",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "91c9ffd713b3d57794fc3cd35cb7ed6346df7f3c2a3f500511b45d6f6d8dbe4b",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "rejected_identity_squint_block",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_a_squint_block_with_no_record_is_an_exact_identity_and_is_rejected",
+      "input_sha256": "05bbf905265d4a5147ade116a9d59841db7ac5e2298a1f0df3082e4e319506fc",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.squint.identity_block",
+      "exact_message": "A beams.squint block must carry a default record or at least one per-antenna record.",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_mechanical_angle_domain",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_value_domain_failures_carry_the_frozen_code_path_and_message",
+      "input_sha256": "8f9e326ee183ca73d57822dc96271a22d383f4ce2c0c8869724d8c6d9b80aa97",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.squint.mechanical_angle_domain",
+      "exact_message": "squint mechanical_feed_position_angle_deg must lie in (-180, 180]; resolved 180.5.",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_offset_domain",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_value_domain_failures_carry_the_frozen_code_path_and_message",
+      "input_sha256": "95e3eaa5b76361f6c6f8aa2a4c55d40c15276e5fe27faead213b10678da0e6e2",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.squint.offset_domain",
+      "exact_message": "squint per_feed_offset_deg_at_reference must lie in the open interval (0, 90); resolved 0.0.",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_reference_frequency_domain",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_value_domain_failures_carry_the_frozen_code_path_and_message",
+      "input_sha256": "c997bab600f1fca5a91477b2b4d1346051ac6a615ffcdb735d7ebbb569dfd4ec",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.squint.reference_frequency_domain",
+      "exact_message": "squint reference_frequency_hz must be a positive finite frequency in Hz; resolved -150000000.0.",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_unsupported_beam_family",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_on_a_non_analytic_beams_mode_is_an_unsupported_family",
+      "input_sha256": "bc8caa64a42680ac3131887f1fd23cf03e715bae5d51112b06ce3135eb2629bf",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.squint.unsupported_beam_family",
+      "exact_message": "Stage-2 beam squint supports only the analytic beams mode; resolved beams mode is 'shared_fits'.",
+      "passed": true
+    }
+  ],
+  "analytic_invariants": [
+    {
+      "case_id": "composed_e_receptor_conjugated_native_diagonal",
+      "invariant_id": "e_equals_c_dagger_d_b_c",
+      "backend": "numpy",
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_the_composed_e_is_the_receptor_conjugated_native_diagonal",
+      "input_manifest_sha256": "79f533615a444448611d50b55433a33b36174f7541af66ad26d40ea91b8cd354",
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "85e713608ab73e694cbdfbf9c93fc5a2834fa768c539fbc6ee0e55886ec19908",
+        "minimum_abs": 0.0,
+        "maximum_abs": 0.92874308772102
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "8a5659709458ae4d25a3736be14c3495fa4a9b088194d90c0d66e84aac929181",
+        "minimum_abs": 3.3306690738754696e-16,
+        "maximum_abs": 0.9287430877210141
+      },
+      "max_abs_residual": 5.88418203051333e-15,
+      "max_rel_residual": 1.025881561979741e-13,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "cotton_uson_arcsine_law_three_channels",
+      "invariant_id": "squint_exact_frequency_law",
+      "backend": "independent_oracle",
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_the_resolved_offset_follows_the_exact_arcsine_law_at_three_frequencies",
+      "input_manifest_sha256": "64f785d989e61222df38a9cbc44e7a30c5c9a027283292d95dcb97931f9f18d7",
+      "expected": {
+        "dtype": "float64",
+        "shape": [
+          3
+        ],
+        "c_order_sha256": "f2eb939d198cad299f14f752cbd3fb549045ff8c916584ad5390d7447249c83d",
+        "minimum_abs": 0.026177612201728123,
+        "maximum_abs": 0.05237318461212435
+      },
+      "observed": {
+        "dtype": "float64",
+        "shape": [
+          3
+        ],
+        "c_order_sha256": "6f6863642976eea353ed63cad8324ac183796719baba91e5b346ba6946c1d2ed",
+        "minimum_abs": 0.026177612201728043,
+        "maximum_abs": 0.05237318461212421
+      },
+      "max_abs_residual": 1.3877787807814457e-16,
+      "max_rel_residual": 3.975693351829396e-15,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    }
+  ],
+  "rejection_probes": [
+    {
+      "case_id": "rejected_identity_squint_block",
+      "config_path": "beams.squint",
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.squint.identity_block",
+      "exact_message": "A beams.squint block must carry a default record or at least one per-antenna record.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_a_squint_block_with_no_record_is_an_exact_identity_and_is_rejected",
+      "input_sha256": "05bbf905265d4a5147ade116a9d59841db7ac5e2298a1f0df3082e4e319506fc",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_mechanical_angle_domain",
+      "config_path": "beams.squint.default.mechanical_feed_position_angle_deg",
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.squint.mechanical_angle_domain",
+      "exact_message": "squint mechanical_feed_position_angle_deg must lie in (-180, 180]; resolved 180.5.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_value_domain_failures_carry_the_frozen_code_path_and_message",
+      "input_sha256": "8f9e326ee183ca73d57822dc96271a22d383f4ce2c0c8869724d8c6d9b80aa97",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_offset_domain",
+      "config_path": "beams.squint.per_antenna[0].per_feed_offset_deg_at_reference",
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.squint.offset_domain",
+      "exact_message": "squint per_feed_offset_deg_at_reference must lie in the open interval (0, 90); resolved 0.0.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_value_domain_failures_carry_the_frozen_code_path_and_message",
+      "input_sha256": "95e3eaa5b76361f6c6f8aa2a4c55d40c15276e5fe27faead213b10678da0e6e2",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_reference_frequency_domain",
+      "config_path": "beams.squint.default.reference_frequency_hz",
+      "exception_type": "ConfigSemanticError",
+      "issue_code": "beam.squint.reference_frequency_domain",
+      "exact_message": "squint reference_frequency_hz must be a positive finite frequency in Hz; resolved -150000000.0.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_value_domain_failures_carry_the_frozen_code_path_and_message",
+      "input_sha256": "c997bab600f1fca5a91477b2b4d1346051ac6a615ffcdb735d7ebbb569dfd4ec",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_unsupported_beam_family",
+      "config_path": "beams.squint",
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.squint.unsupported_beam_family",
+      "exact_message": "Stage-2 beam squint supports only the analytic beams mode; resolved beams mode is 'shared_fits'.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_squint_on_a_non_analytic_beams_mode_is_an_unsupported_family",
+      "input_sha256": "bc8caa64a42680ac3131887f1fd23cf03e715bae5d51112b06ce3135eb2629bf",
+      "passed": true
+    }
+  ],
+  "backend_parity": [
+    {
+      "case_id": "squint_point_rotated_linear_receptor",
+      "backend": "dask",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "ac967e648d43b213fb8433382e7ce7ed63416e805722b1202ee21ab81038977a",
+      "reference_result_sha256": "311fa88b572840a545c740a906251856cdfd42322688f7b67200e5691c90c74c",
+      "observed_result_sha256": "311fa88b572840a545c740a906251856cdfd42322688f7b67200e5691c90c74c",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 0.0,
+      "rtol": 0.0,
+      "passed": true
+    },
+    {
+      "case_id": "squint_point_rotated_linear_receptor",
+      "backend": "jax",
+      "actual_device": "cpu:0",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "ac967e648d43b213fb8433382e7ce7ed63416e805722b1202ee21ab81038977a",
+      "reference_result_sha256": "311fa88b572840a545c740a906251856cdfd42322688f7b67200e5691c90c74c",
+      "observed_result_sha256": "311fa88b572840a545c740a906251856cdfd42322688f7b67200e5691c90c74c",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 0.0,
+      "rtol": 1e-12,
+      "passed": true
+    },
+    {
+      "case_id": "squint_point_rotated_linear_receptor",
+      "backend": "numpy",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "ac967e648d43b213fb8433382e7ce7ed63416e805722b1202ee21ab81038977a",
+      "reference_result_sha256": "311fa88b572840a545c740a906251856cdfd42322688f7b67200e5691c90c74c",
+      "observed_result_sha256": "311fa88b572840a545c740a906251856cdfd42322688f7b67200e5691c90c74c",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 0.0,
+      "rtol": 0.0,
+      "passed": true
+    }
+  ],
+  "solver_cases": [
+    {
+      "case_id": "squint_healpix_two_antenna_workload",
+      "effect": "squint_healpix",
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_squint_block_changes_the_visibilities[healpix]",
+      "input_sha256": "a55c01258c98db9859907a19b272f361099367d720f54d255b679911f6a9025e",
+      "jones_sha256": "a519dea3348e5c047cde55ba0ea2b610353946438c04161a6bbfdb34293b4562",
+      "visibility_sha256": "85745621e2b65f9a50f50588c070c01c71749bd8a011d19f8125cb04935478fd",
+      "diagnostic_sha256": null,
+      "jones_call_count": 6,
+      "visibility_changed_element_count": 36,
+      "visibility_change_expected": true,
+      "passed": true
+    },
+    {
+      "case_id": "squint_point_two_antenna_workload",
+      "effect": "squint_point",
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_squint_block_changes_the_visibilities[point]",
+      "input_sha256": "a9bf2b9ab74cd6b071d754e08668b75a641551a9e5efbc1b29c19111e9e433a7",
+      "jones_sha256": "219dafd0db172ab98476a47371506e528b612c8010e7f954d1d0960d8c200182",
+      "visibility_sha256": "1b455c1bc0eb98cb6746c6e6ed60cb58a07b51b908cb14578170c5b798ed7ea9",
+      "diagnostic_sha256": null,
+      "jones_call_count": 6,
+      "visibility_changed_element_count": 36,
+      "visibility_change_expected": true,
+      "passed": true
+    }
+  ],
+  "output_cases": [
+    {
+      "case_id": "hdf5_squint_point",
+      "format": "hdf5",
+      "writer_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_squint_block_survives_the_whole_save_and_reload_path",
+      "reader_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_squint_block_survives_the_whole_save_and_reload_path",
+      "artifact_sha256": "61146805ae7a22d5a46891300dfa123ced1231b1b55c0012ea5d59d278b7e4b3",
+      "in_memory_sha256": "1b455c1bc0eb98cb6746c6e6ed60cb58a07b51b908cb14578170c5b798ed7ea9",
+      "observed_projection_sha256": "1b455c1bc0eb98cb6746c6e6ed60cb58a07b51b908cb14578170c5b798ed7ea9",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 1e-12,
+      "passed": true
+    },
+    {
+      "case_id": "in_memory_squint_point",
+      "format": "in_memory",
+      "writer_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_squint_block_changes_the_visibilities[point]",
+      "reader_test_node_id": null,
+      "artifact_sha256": null,
+      "in_memory_sha256": "1b455c1bc0eb98cb6746c6e6ed60cb58a07b51b908cb14578170c5b798ed7ea9",
+      "observed_projection_sha256": "fc08ec1ecdb67ab6a583aacf73ab0cde6fe1f4322c43775e840f417f35374904",
+      "roundtrip_max_abs_difference": null,
+      "tolerance": null,
+      "passed": true
+    }
+  ],
+  "fingerprint_diff": [
+    {
+      "environment": "default",
+      "workload": "healpix_squint_absent_default",
+      "old_scientific_sha256": "553b1170048fe33829337559539975ddaccfffc0ee211377b076666823e6a394",
+      "new_scientific_sha256": "553b1170048fe33829337559539975ddaccfffc0ee211377b076666823e6a394",
+      "old_raw_cube_sha256": "e29264ad4510f7ad80b95a29bf466486e3c46cfa5fa804542c8b4e3e38214dbe",
+      "new_raw_cube_sha256": "e29264ad4510f7ad80b95a29bf466486e3c46cfa5fa804542c8b4e3e38214dbe",
+      "changed_element_count": 0,
+      "maximum_delta": 0.0,
+      "change_expected": false,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_absent_squint_block_leaves_fingerprints_and_bytes_untouched[healpix]",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "healpix_squint_enabled",
+      "old_scientific_sha256": "553b1170048fe33829337559539975ddaccfffc0ee211377b076666823e6a394",
+      "new_scientific_sha256": "c05c0c963ead19801d5ed03a94e723e374e6bd7bfb09fe431c4e19c590627e2c",
+      "old_raw_cube_sha256": "e29264ad4510f7ad80b95a29bf466486e3c46cfa5fa804542c8b4e3e38214dbe",
+      "new_raw_cube_sha256": "85745621e2b65f9a50f50588c070c01c71749bd8a011d19f8125cb04935478fd",
+      "changed_element_count": 36,
+      "maximum_delta": 0.000916218640118933,
+      "change_expected": true,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_squint_block_changes_the_visibilities[healpix]",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "point_squint_absent_default",
+      "old_scientific_sha256": "7589adb434f6e2e03a5799be401a889dc82cd6014ef7f79f8a92b61885aa2292",
+      "new_scientific_sha256": "7589adb434f6e2e03a5799be401a889dc82cd6014ef7f79f8a92b61885aa2292",
+      "old_raw_cube_sha256": "bc74796b02234bc148314c6c328bb67ec6c3dfdeb777a97060564f3fd687c220",
+      "new_raw_cube_sha256": "bc74796b02234bc148314c6c328bb67ec6c3dfdeb777a97060564f3fd687c220",
+      "changed_element_count": 0,
+      "maximum_delta": 0.0,
+      "change_expected": false,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_absent_squint_block_leaves_fingerprints_and_bytes_untouched[point]",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "point_squint_enabled",
+      "old_scientific_sha256": "7589adb434f6e2e03a5799be401a889dc82cd6014ef7f79f8a92b61885aa2292",
+      "new_scientific_sha256": "fc08ec1ecdb67ab6a583aacf73ab0cde6fe1f4322c43775e840f417f35374904",
+      "old_raw_cube_sha256": "bc74796b02234bc148314c6c328bb67ec6c3dfdeb777a97060564f3fd687c220",
+      "new_raw_cube_sha256": "1b455c1bc0eb98cb6746c6e6ed60cb58a07b51b908cb14578170c5b798ed7ea9",
+      "changed_element_count": 36,
+      "maximum_delta": 0.003950108460607364,
+      "change_expected": true,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_an_enabled_squint_block_changes_the_visibilities[point]",
+      "passed": true
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "/opt/homebrew/bin/pixi",
+        "run",
+        "--platform",
+        "osx-64",
+        "--locked",
+        "test",
+        "--",
+        "tests/unit/test_core/test_sci005_beam_squint.py",
+        "tests/unit/test_io/test_sci005_beam_config.py",
+        "tests/integration/test_sci005_beam_physics.py",
+        "tests/unit/test_jones/test_chain_order.py",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage2_acceptance.py",
+        "tests/unit/test_sci005_stage1_dependency.py",
+        "tests/unit/test_sci005_stage1_acceptance.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T10:37:40Z",
+      "duration_seconds": 45.493,
+      "exit_code": 0,
+      "stdout_sha256": "58667d4d0a32681d6c65114010c6e864eca85790cf0cf958124070c7ab464d49",
+      "stderr_sha256": "0238eccd268a454d882cc18803d105d1fe2b900900b1d18d8a8725878410098c"
+    },
+    {
+      "argv": [
+        "/opt/homebrew/bin/pixi",
+        "run",
+        "--platform",
+        "osx-64",
+        "--locked",
+        "lint"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T10:38:26Z",
+      "duration_seconds": 4.65,
+      "exit_code": 0,
+      "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "stderr_sha256": "a5ed82e076a36ad1de6d260555c1ed9189657fd19d36cc4059afd7c719d17c2e"
+    },
+    {
+      "argv": [
+        "/opt/homebrew/bin/pixi",
+        "run",
+        "--platform",
+        "osx-64",
+        "--locked",
+        "check-format"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T10:38:30Z",
+      "duration_seconds": 0.282,
+      "exit_code": 0,
+      "stdout_sha256": "98f576aa113de63f96dc6a04b23b22c3e5c72b9c93bed145d6280f0669151501",
+      "stderr_sha256": "171723592ebbb6edf36d0fd41fb6754cc61ae4f8d1afe9da7266f524aa5be57b"
+    },
+    {
+      "argv": [
+        "/opt/homebrew/bin/pixi",
+        "run",
+        "--platform",
+        "osx-64",
+        "--locked",
+        "doctest"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-19T10:38:30Z",
+      "duration_seconds": 16.165,
+      "exit_code": 0,
+      "stdout_sha256": "4478513dc94608f6b20e9b8e35bc32f1f0ff8bbcae13e5e775cfdf8838130702",
+      "stderr_sha256": "1298f4700f18360e18c373d9d650551261d2d74a3e98725bf6552434eb633ebb"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/development/sci005_beam_physics_plan.md",
+      "sha256": "cd5f0c934ac8da0030f0bcee233c98b6eb270b2bfe587cb7457b04ac30629121",
+      "media_type": "text/markdown",
+      "role": "auxiliary"
+    },
+    {
+      "path": "docs/development/sci005_stage2_evidence.schema.json",
+      "sha256": "8d2c0d62236b15996b25c2e3f10eb7a4f601852d564adf95658017ad66385889",
+      "media_type": "application/schema+json",
+      "role": "schema"
+    },
+    {
+      "path": "src/radiosim/core/beam/runtime.py",
+      "sha256": "1cb4a208e1d085ac247c0a07dfb74058e2576e8feab4c66c74ba751c82c7b9f6",
+      "media_type": "text/x-python",
+      "role": "auxiliary"
+    },
+    {
+      "path": "tools/sci005_stage_evidence.py",
+      "sha256": "64283ccd0615593190511a0b80b3c7e8cd024bf21a21a1cf809c78a89a1a9067",
+      "media_type": "text/x-python",
+      "role": "auxiliary"
+    }
+  ],
+  "limitations": [
+    "An alt-az antenna with no pointing offset has an exactly zenith boresight, where the parallactic angle is undefined; Section 4.2.1 refuses that case rather than approximating it, so the retained rotating-mount geometry row supplies a boresight altitude away from the pole and the degeneracy itself is retained only as a rejection.",
+    "Backend parity covers the CPU-only JAX build and Dask over NumPy; no accelerator device was exercised, consistent with PERF-001.",
+    "Config-case, rejection-probe, solver and backend-parity input digests are taken over the canonicalized document, with the volatile temporary workspace prefix replaced by the literal <workspace>, so each digest names the scientific input rather than the host path.",
+    "The retained commands are the Stage-2 focused pytest module set, ruff lint, ruff format --check, and the docstring doctests; the remaining Section 9 gates (whole unit and integration suites, typecheck, the docs build, and the Tier-8 release acceptance module) are not retained here.",
+    "This record was measured and generated on macOS x86_64 under Rosetta 2 using the locked osx-64 environment, because Section 8.1's extended-width predicate is unsatisfiable on the project's default osx-arm64 environment where NumPy longdouble aliases float64 and complex256 does not exist."
+  ],
+  "claims_not_licensed": [
+    "SCI-005 Stage 3",
+    "SCI-005 Stage-2 acceptance",
+    "SCI-005 whole-row closure",
+    "a full cross-polar or measured-efield beam response"
+  ],
+  "squint_frequency_laws": [
+    {
+      "case_id": "cotton_uson_exact_law_five_degree_reference_100mhz",
+      "reference_frequency_hz": 100000000.0,
+      "per_feed_offset_deg_at_reference": 5.0,
+      "samples": [
+        {
+          "frequency_hz": 100000000.0,
+          "expected_offset_rad": 0.08726646259971647,
+          "observed_offset_rad": 0.08726646259971634,
+          "small_angle_offset_rad": 0.08726646259971646
+        },
+        {
+          "frequency_hz": 150000000.0,
+          "expected_offset_rad": 0.058136571886452694,
+          "observed_offset_rad": 0.05813657188645258,
+          "small_angle_offset_rad": 0.05817764173314431
+        },
+        {
+          "frequency_hz": 200000000.0,
+          "expected_offset_rad": 0.04359167579436838,
+          "observed_offset_rad": 0.04359167579436816,
+          "small_angle_offset_rad": 0.04363323129985823
+        }
+      ],
+      "small_angle_control_frequency_hz": 150000000.0,
+      "small_angle_abs_separation": 4.106984669161734e-05,
+      "max_abs_residual": 2.220446049250313e-16,
+      "tolerance": 1e-12,
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_the_resolved_offset_follows_the_exact_arcsine_law_at_three_frequencies",
+      "passed": true
+    },
+    {
+      "case_id": "cotton_uson_exact_law_two_degree_reference_150mhz",
+      "reference_frequency_hz": 150000000.0,
+      "per_feed_offset_deg_at_reference": 2.0,
+      "samples": [
+        {
+          "frequency_hz": 100000000.0,
+          "expected_offset_rad": 0.05237318461212435,
+          "observed_offset_rad": 0.05237318461212421,
+          "small_angle_offset_rad": 0.05235987755982988
+        },
+        {
+          "frequency_hz": 150000000.0,
+          "expected_offset_rad": 0.03490658503988659,
+          "observed_offset_rad": 0.03490658503988645,
+          "small_angle_offset_rad": 0.03490658503988659
+        },
+        {
+          "frequency_hz": 200000000.0,
+          "expected_offset_rad": 0.026177612201728123,
+          "observed_offset_rad": 0.026177612201728043,
+          "small_angle_offset_rad": 0.02617993877991494
+        }
+      ],
+      "small_angle_control_frequency_hz": 100000000.0,
+      "small_angle_abs_separation": 1.3307052294464494e-05,
+      "max_abs_residual": 1.3877787807814457e-16,
+      "tolerance": 1e-12,
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_the_resolved_offset_follows_the_exact_arcsine_law_at_three_frequencies",
+      "passed": true
+    }
+  ],
+  "squint_geometries": [
+    {
+      "case_id": "altaz_rotating_mount_linear_receptor",
+      "mount_type": "alt-az",
+      "mechanical_feed_position_angle_deg": 35.0,
+      "positive_native_feed": "x",
+      "receptor_basis": "linear",
+      "parallactic_angle_rad": 0.7,
+      "boresight_altitude_rad": 1.1,
+      "frequency_hz": 150000000.0,
+      "resolved_offset_rad": 0.03490658503988659,
+      "probes": [
+        {
+          "kind": "orthogonality_dot_abs",
+          "observed": 2.4424906541753444e-14,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "handedness_plus_half_pi_residual_rad",
+          "observed": 2.4424906541753444e-14,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "midpoint_center_residual_rad",
+          "observed": 0.0,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "total_separation_residual_rad",
+          "observed": 3.969047313034935e-15,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "mount_rotation_residual_rad",
+          "observed": 2.4424906541753444e-14,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "opposite_mount_sign_min_abs_delta_rad",
+          "observed": 0.044969535175919596,
+          "bound": 0.001,
+          "relation": "ge",
+          "passed": true
+        }
+      ],
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_the_mount_field_rotation_law_holds_for_every_accepted_mount_literal",
+      "passed": true
+    },
+    {
+      "case_id": "fixed_mount_linear_receptor",
+      "mount_type": "fixed",
+      "mechanical_feed_position_angle_deg": 35.0,
+      "positive_native_feed": "x",
+      "receptor_basis": "linear",
+      "parallactic_angle_rad": 0.0,
+      "boresight_altitude_rad": 1.5707963267948966,
+      "frequency_hz": 150000000.0,
+      "resolved_offset_rad": 0.03490658503988659,
+      "probes": [
+        {
+          "kind": "orthogonality_dot_abs",
+          "observed": 6.261657858885883e-14,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "handedness_plus_half_pi_residual_rad",
+          "observed": 6.261657858885883e-14,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "midpoint_center_residual_rad",
+          "observed": 1.886794600618715e-15,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "total_separation_residual_rad",
+          "observed": 9.71445146547012e-16,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "mechanical_rotation_residual_rad",
+          "observed": 5.0737192225369654e-14,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        },
+        {
+          "kind": "feed_sign_reversal_center_residual_rad",
+          "observed": 0.0,
+          "bound": 1e-12,
+          "relation": "le",
+          "passed": true
+        }
+      ],
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_the_squint_direction_is_orthogonal_to_the_feed_ray_with_plus_half_pi",
+      "passed": true
+    }
+  ],
+  "native_feed_factorizations": [
+    {
+      "case_id": "circular_commutation_witness",
+      "receptor_basis": "circular",
+      "feed_rotation_deg": 17.0,
+      "parallactic_angle_rad": 0.0,
+      "positive_native_feed": "r",
+      "b_plus": {
+        "real": 0.8273382170578967,
+        "imag": 0.0
+      },
+      "b_minus": {
+        "real": 0.3126960610505737,
+        "imag": 0.0
+      },
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          1,
+          2,
+          2
+        ],
+        "c_order_sha256": "49f4afb1295c2a02947bf20e576a9281c13aa8b8475df2594bdcb39c59886433",
+        "minimum_abs": 0.2573210780036614,
+        "maximum_abs": 0.570017139054235
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          1,
+          2,
+          2
+        ],
+        "c_order_sha256": "e76d5e322fb72eabd36c4c59723be952e78778515c63de002ac0558a8636c738",
+        "minimum_abs": 0.2573210780036592,
+        "maximum_abs": 0.5700171390542309
+      },
+      "factorization_max_abs_residual": 4.107825191113079e-15,
+      "chain_order_max_abs_residual": 4.5083804476868555e-15,
+      "order_control_max_abs_difference": 1.1102230246251565e-16,
+      "atol": 1e-12,
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_c_times_e_times_p_equals_the_physical_d_b_c_p_and_order_matters",
+      "passed": true
+    },
+    {
+      "case_id": "extended_precision_native_feed_factorization",
+      "receptor_basis": "circular",
+      "feed_rotation_deg": 0.0,
+      "parallactic_angle_rad": 0.0,
+      "positive_native_feed": "r",
+      "b_plus": {
+        "real": 0.8273382170578967,
+        "imag": 0.0
+      },
+      "b_minus": {
+        "real": 0.3126960610505737,
+        "imag": 0.0
+      },
+      "expected": {
+        "dtype": "complex256",
+        "shape": [
+          1,
+          2,
+          2
+        ],
+        "c_order_sha256": "3a0e41d5d8817a64040973e18411c971869d7b8c105eac643daae09eab698cae",
+        "minimum_abs": 0.2573210780036615,
+        "maximum_abs": 0.5700171390542352
+      },
+      "observed": {
+        "dtype": "complex256",
+        "shape": [
+          1,
+          2,
+          2
+        ],
+        "c_order_sha256": "3920ebb7ab43ebc161a54873c6f9b0f506931e424e6534481cdbb16c70fbd91b",
+        "minimum_abs": 0.2573210780036593,
+        "maximum_abs": 0.5700171390542307
+      },
+      "factorization_max_abs_residual": 4.4937469544092945e-15,
+      "chain_order_max_abs_residual": 4.7605027966333975e-15,
+      "order_control_max_abs_difference": 3.8332335417084355e-20,
+      "atol": 1e-12,
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_extended_precision_factorization_never_narrows_to_complex128",
+      "passed": true
+    },
+    {
+      "case_id": "rotated_linear_order_control",
+      "receptor_basis": "linear",
+      "feed_rotation_deg": 31.0,
+      "parallactic_angle_rad": 0.0,
+      "positive_native_feed": "x",
+      "b_plus": {
+        "real": 0.8273382170578967,
+        "imag": 0.0
+      },
+      "b_minus": {
+        "real": 0.3126960610505737,
+        "imag": 0.0
+      },
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          1,
+          2,
+          2
+        ],
+        "c_order_sha256": "5e69da89f075bf94e00f855ae79da0aa5544bbd286f8cf2c9fa5de8e06dcdc15",
+        "minimum_abs": 0.22720102641519704,
+        "maximum_abs": 0.6908220676823642
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          1,
+          2,
+          2
+        ],
+        "c_order_sha256": "b16d1e8cd340fc56aeaed74843562d341e262089340f391d407421bebfdd9d38",
+        "minimum_abs": 0.22720102641519513,
+        "maximum_abs": 0.6908220676823591
+      },
+      "factorization_max_abs_residual": 5.10702591327572e-15,
+      "chain_order_max_abs_residual": 5.662137425588298e-15,
+      "order_control_max_abs_difference": 0.24908323435188856,
+      "atol": 1e-12,
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_c_times_e_times_p_equals_the_physical_d_b_c_p_and_order_matters",
+      "passed": true
+    }
+  ],
+  "stokes_v_leakages": [
+    {
+      "case_id": "leakage_left_hand_positive",
+      "positive_native_feed": "l",
+      "reversed_case_id": "leakage_right_hand_positive",
+      "frequency_hz": 150000000.0,
+      "probe_altitude_rad": 1.5207963267948967,
+      "probe_azimuth_rad": 2.181661564992912,
+      "observed_v_over_i": -0.4290206011192337,
+      "expected_sign": -1,
+      "observed_sign": -1,
+      "min_abs_v_over_i": 0.001,
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_the_first_order_stokes_v_leakage_sign_follows_the_positive_native_feed",
+      "passed": true
+    },
+    {
+      "case_id": "leakage_right_hand_positive",
+      "positive_native_feed": "r",
+      "reversed_case_id": "leakage_left_hand_positive",
+      "frequency_hz": 150000000.0,
+      "probe_altitude_rad": 1.5207963267948967,
+      "probe_azimuth_rad": 2.181661564992912,
+      "observed_v_over_i": 0.4290206011192337,
+      "expected_sign": 1,
+      "observed_sign": 1,
+      "min_abs_v_over_i": 0.001,
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_the_first_order_stokes_v_leakage_sign_follows_the_positive_native_feed",
+      "passed": true
+    }
+  ],
+  "squint_setup_rejections": [
+    {
+      "case_id": "arcsine_argument_out_of_domain",
+      "case_kind": "frequency_domain",
+      "exception_type": "SquintFrequencyDomainError",
+      "exact_message": "beams.squint: canonical antenna number=0, name='ANT0' has no real feed displacement at observation frequency 50000000.0 Hz: the exact Cotton/Uson argument (reference_frequency_hz=150000000.0 / 50000000.0) * sin(radians(per_feed_offset_deg_at_reference=30.0)) is 1.4999999999999998, which is outside [-1, 1]; RadioSim rejects the observation rather than clipping the displacement.",
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_an_out_of_domain_arcsine_argument_is_rejected_at_beam_system_load",
+      "passed": true
+    },
+    {
+      "case_id": "native_feed_from_the_wrong_basis",
+      "case_kind": "receptor_basis",
+      "exception_type": "SquintReceptorBasisError",
+      "exact_message": "beams.squint: canonical antenna number=0, name='ANT0' declares positive_native_feed='r', which requires the 'circular' receptor basis, but the antenna's resolved receptor basis is 'linear'; 'x'/'y' belong to 'linear' and 'r'/'l' to 'circular'.",
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_a_feed_label_from_the_wrong_basis_is_rejected_at_beam_system_load",
+      "passed": true
+    },
+    {
+      "case_id": "repeated_per_antenna_reference",
+      "case_kind": "duplicate_antenna",
+      "exception_type": "DuplicateBeamAssignmentError",
+      "exact_message": "beams.squint.per_antenna[1].antenna='ANT0': canonical antenna number=0, name='ANT0' was already assigned at index 0.",
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_a_repeated_squint_antenna_reference_is_rejected_at_assignment_resolution",
+      "passed": true
+    },
+    {
+      "case_id": "rotating_mount_at_an_exactly_zenith_boresight",
+      "case_kind": "boresight_degenerate",
+      "exception_type": "BeamAngularDomainError",
+      "exact_message": "Beam squint on a rotating mount is undefined at an exactly zenith boresight.",
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_a_rotating_mount_at_an_exactly_zenith_boresight_is_rejected",
+      "passed": true
+    },
+    {
+      "case_id": "unknown_per_antenna_reference",
+      "case_kind": "unknown_antenna",
+      "exception_type": "UnknownBeamAntennaError",
+      "exact_message": "beams.squint.per_antenna[0].antenna=7: no canonical antenna matches; use an exact Tier 2 number or case-sensitive canonical name.",
+      "test_node_id": "tests/unit/test_core/test_sci005_beam_squint.py::test_an_unknown_squint_antenna_reference_is_rejected_at_assignment_resolution",
+      "passed": true
+    }
+  ]
+}
