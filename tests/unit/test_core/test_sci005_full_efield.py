@@ -19,9 +19,7 @@ factorization:
     \\begin{pmatrix}\\sin\\varphi & -\\cos\\varphi\\\\
     \\cos\\varphi & \\sin\\varphi\\end{pmatrix},
     \\qquad
-    B[a,c]=\\sum_{c'}\\mathrm{basis}[a,c']\\,T(\\varphi)[c',c],
-    \\qquad
-    J_{\\rm native}[f,c]=\\sum_a \\mathrm{data}[a,f]\\,B[a,c],
+    J_{\\rm native}[f,c]=\\sum_a \\mathrm{data}[a,f]\\,T(\\varphi)[a,c],
 
 .. math::
 
@@ -75,18 +73,29 @@ therefore binds the stage exclusively through the authored document and
 through ``load_beam_system``'s already-accepted ``receptors`` keyword, so no
 assertion depends on a private signature the design does not freeze.
 
-**One design defect is deliberately not tested here.** Section 5.2 requires a
-case built on "a legal real, non-identity, non-symmetric ``basis_vector_array``
-together with complex efield samples". Against the pinned pyuvdata 3.2.1 that
-case cannot exist: ``UVBeam._prepare_basis_vector_array`` raises
-``NotImplementedError`` for any stored basis with a strictly positive
-off-diagonal entry and otherwise *discards* the stored array, returning the
-hard-coded identity at every requested direction. The pinned behaviour is
-recorded as a dependency control in
-``tests/unit/test_core/test_beam_pyuvdata_contract.py`` and reported for a
-bounded design correction rather than guessed at here. Every accepted fixture
-below therefore stores the identity basis, which is the one array both
-readings of Section 5.2.1 agree on.
+**The stored basis is validated, never composed.** The accepted bounded
+basis-vector and provenance correction settles what the first cut of this
+module reported as unbuildable. ``UVBeam._prepare_basis_vector_array`` raises a
+bare untyped ``NotImplementedError`` for any stored basis with a strictly
+positive off-diagonal entry and otherwise *discards* the stored array,
+rebuilding the exact native identity per interpolation point, so a stored
+non-identity basis either crashes evaluation outside every typed rejection or
+is silently replaced. Corrected Section 5.1.1 item 10 therefore requires the
+stored array to be **exactly** the native identity -- ``1.0`` diagonals and
+``0.0`` off-diagonals, at a real floating stored dtype judged by kind and
+width with both widths accepted -- under the frozen precedence *non-finite,
+then dtype kind, then identity*; corrected Section 5.2.1 drops the
+``B = basis * T`` composition entirely and applies
+``J_native[f,c] = sum_a data[a,f] T(phi)[a,c]`` to the native components; and
+the evaluator keeps ``return_basis_vector=True`` in order to **verify** that
+the returned array is the identity, a violated pinned-dependency contract
+being an internal failure raised as ``UnsupportedBeamBasisError``. The
+transpose- and conjugation-observability the retired stored-non-identity
+fixture was meant to provide is supplied here by ``T(phi)`` itself -- real,
+non-identity, non-symmetric, and direction-dependent, so it cannot be absorbed
+into any constant relabelling -- evaluated against complex efield samples. The
+pinned dependency behaviour behind all of this is measured in
+``tests/unit/test_core/test_beam_pyuvdata_contract.py``.
 """
 
 from __future__ import annotations
@@ -100,12 +109,17 @@ import pytest
 
 from radiosim.core.instrument import AntennaId
 from tests.fixtures.beamfits import (
+    NON_IDENTITY_STORED_BASES,
     EfieldScienceVariant,
     UnsupportedEfieldVariant,
+    build_efield_uvbeam,
     build_efield_variant,
     canonical_azimuth_grid,
     canonical_zenith_angle_grid,
+    constant_basis_vector_array,
     crossed_ideal_dipole_components,
+    forge_interpolation_basis,
+    native_identity_basis_vector_array,
     quadrupolar_native_jones,
     scalar_voltage_reference,
     write_efield_beamfits,
@@ -163,9 +177,8 @@ REJECTION_EXCEPTION_BY_PROBE_KIND: dict[str, str] = {
     "wrap_continuity": "UnsupportedBeamCoordinateError",
     "grid_coverage": "BeamAngularDomainError",
     "vector_dimension": "UnsupportedBeamBasisError",
-    "basis_vector_dtype": "UnsupportedBeamBasisError",
+    "basis_vector_not_identity": "UnsupportedBeamBasisError",
     "basis_vector_complex": "UnsupportedBeamBasisError",
-    "basis_vector_degenerate": "UnsupportedBeamBasisError",
     "feed_pair": "UnsupportedBeamFeedError",
     "feed_pair_receptor_mismatch": "UnsupportedBeamFeedError",
     "feed_angle": "UnsupportedBeamFeedError",
@@ -216,19 +229,20 @@ def radiosim_azimuth_rad(azimuth_uv_rad: Any) -> np.ndarray:
     return np.asarray((np.pi / 2.0 - np.asarray(azimuth_uv_rad)) % (2.0 * np.pi))
 
 
-def convert_native_jones(
-    data: np.ndarray,
-    basis: np.ndarray,
-    phi_rad: float,
-) -> np.ndarray:
-    """Return Section 5.2.1's ``J_native`` from one direction's stored arrays.
+def convert_native_jones(data: np.ndarray, phi_rad: float) -> np.ndarray:
+    """Return corrected Section 5.2.1's ``J_native`` for one direction.
 
-    ``data`` is ``[vector_axis, feed]`` and ``basis`` is
-    ``[vector_axis, component]``; neither index is conjugated or transposed.
+    ``J_native[f,c] = sum_a data[a,f] T(phi)[a,c]``, "with no conjugation and
+    no implicit transpose anywhere, and with no intermediate composed basis:
+    the stored array contributes no factor, because it is required to be the
+    identity and is discarded by the interpolator in any case". ``data`` is
+    indexed ``[vector_axis, feed]``, vector axis ``0`` being the azimuth
+    component and ``1`` the zenith-angle component.
     """
-    converted_basis = np.asarray(basis, dtype=np.float64) @ tangent_conversion(phi_rad)
     return np.einsum(
-        "af,ac->fc", np.asarray(data, dtype=np.complex128), converted_basis
+        "af,ac->fc",
+        np.asarray(data, dtype=np.complex128),
+        tangent_conversion(phi_rad),
     )
 
 
@@ -303,14 +317,6 @@ def crossed_dipole_expected_jones(
     expected[1, 0] = north @ e_co
     expected[1, 1] = north @ e_cross
     return expected
-
-
-def identity_basis(zenith_count: int, azimuth_count: int) -> np.ndarray:
-    """Return the stored identity ``basis_vector_array`` of that grid."""
-    basis = np.zeros((2, 2, zenith_count, azimuth_count), dtype=np.float64)
-    basis[0, 0] = 1.0
-    basis[1, 1] = 1.0
-    return basis
 
 
 def ixr_state(sigma_max: float, sigma_min: float) -> str:
@@ -599,7 +605,6 @@ def test_the_frozen_conversion_reproduces_the_ludwig3_dipole_oracle() -> None:
     """
     azimuth = canonical_azimuth_grid()
     zenith_angle = canonical_zenith_angle_grid()
-    basis = identity_basis(1, 1)[:, :, 0, 0]
 
     worst = 0.0
     for az_value in azimuth:
@@ -610,7 +615,6 @@ def test_the_frozen_conversion_reproduces_the_ludwig3_dipole_oracle() -> None:
             )
             observed = convert_native_jones(
                 data,
-                basis,
                 float(radiosim_azimuth_rad(az_value)),
             )
             expected = crossed_dipole_expected_jones(float(az_value), float(za_value))
@@ -630,7 +634,6 @@ def test_the_crossed_dipole_zenith_row_is_single_valued_at_the_north_east_pair()
     converted zenith matrix is exactly the exchange matrix at every azimuth.
     """
     azimuth = canonical_azimuth_grid()
-    basis = identity_basis(1, 1)[:, :, 0, 0]
     matrices = np.stack(
         [
             convert_native_jones(
@@ -638,7 +641,6 @@ def test_the_crossed_dipole_zenith_row_is_single_valued_at_the_north_east_pair()
                     azimuth_uv_rad=value,
                     zenith_angle_rad=0.0,
                 ),
-                basis,
                 float(radiosim_azimuth_rad(value)),
             )
             for value in azimuth
@@ -709,7 +711,6 @@ def test_the_frozen_conversion_is_continuous_across_the_azimuth_wrap() -> None:
     """Section 5.2.1's wrap witness: the converted difference across the seam
     is compared against the difference across the adjacent interior pair."""
     azimuth = canonical_azimuth_grid()
-    basis = identity_basis(1, 1)[:, :, 0, 0]
     zenith_angle = 0.42
 
     def converted(index: int) -> np.ndarray:
@@ -719,7 +720,6 @@ def test_the_frozen_conversion_is_continuous_across_the_azimuth_wrap() -> None:
                 azimuth_uv_rad=value,
                 zenith_angle_rad=zenith_angle,
             ),
-            basis,
             float(radiosim_azimuth_rad(value)),
         )
 
@@ -743,7 +743,6 @@ def test_the_scalar_subset_file_is_not_zenith_single_valued_under_the_conversion
     physical matrices, which is exactly what the rule rejects.
     """
     azimuth = canonical_azimuth_grid()
-    basis = identity_basis(1, 1)[:, :, 0, 0]
     matrices = []
     for value in azimuth:
         scalar = complex(
@@ -756,9 +755,7 @@ def test_the_scalar_subset_file_is_not_zenith_single_valued_under_the_conversion
         data = np.zeros((2, 2), dtype=np.complex128)
         data[0, 0] = scalar
         data[1, 1] = scalar
-        matrices.append(
-            convert_native_jones(data, basis, float(radiosim_azimuth_rad(value)))
-        )
+        matrices.append(convert_native_jones(data, float(radiosim_azimuth_rad(value))))
 
     spread = float(np.max(np.abs(np.stack(matrices) - matrices[0])))
     assert spread >= max(1e-3, 1024.0 * ATOL)
@@ -771,7 +768,6 @@ def test_the_scalar_reading_and_the_full_efield_conversion_of_one_file_diverge()
     are two *interpretations* of the same bytes, not a repair of one another,
     and the retained witness is the measured divergence.
     """
-    basis = identity_basis(1, 1)[:, :, 0, 0]
     azimuth_uv = np.pi / 4.0
     zenith_angle = 0.31
     scalar = complex(
@@ -788,7 +784,6 @@ def test_the_scalar_reading_and_the_full_efield_conversion_of_one_file_diverge()
     scalar_reading = scalar * np.eye(2, dtype=np.complex128)
     full_efield_reading = convert_native_jones(
         data,
-        basis,
         float(radiosim_azimuth_rad(azimuth_uv)),
     )
     residual = float(np.max(np.abs(scalar_reading - full_efield_reading)))
@@ -1481,3 +1476,395 @@ def test_extended_precision_keeps_its_existing_byte_frozen_rejection(
     assert str(error.value) == FLOAT128_MESSAGE_TEMPLATE.format(
         path=written.path.resolve(strict=False)
     )
+
+
+# ==============================================================================
+# Red: the corrected stored-basis contract and the T(phi) observability control
+# ==============================================================================
+#
+# The accepted bounded basis-vector and provenance correction replaced the
+# gate's "general real basis-vector array" with an exactness predicate, retired
+# the ``basis_vector_dtype`` and ``basis_vector_degenerate`` probe kinds in
+# favour of ``basis_vector_not_identity``, froze the seven new
+# ``BeamFileProvenance`` fields by name, order, and annotation, and moved the
+# transpose/conjugation control onto ``T(phi)`` itself.
+
+#: Corrected Section 5.2.1's exact seven-field extension, in its frozen order
+#: after the twenty-three fields ``BeamFileProvenance`` already declares.
+FROZEN_PROVENANCE_FIELD_ORDER: tuple[str, ...] = (
+    "resolved_path",
+    "size_bytes",
+    "sha256",
+    "pyuvdata_version",
+    "beam_type",
+    "antenna_type",
+    "pixel_coordinate_system",
+    "mount_type",
+    "data_normalization",
+    "feed_array",
+    "x_orientation",
+    "data_shape",
+    "native_dtype",
+    "frequency_min_hz",
+    "frequency_max_hz",
+    "frequency_count",
+    "azimuth_step_rad",
+    "zenith_angle_step_rad",
+    "zenith_angle_max_rad",
+    "basis_tolerance",
+    "scalar_absolute_tolerance",
+    "scalar_relative_tolerance",
+    "normalization_absolute_tolerance",
+    "accepted_subset_version",
+    "radiosim_normalization",
+    "resolved_feed_array",
+    "derived_x_orientation_verdict",
+    "basis_vector_convention",
+    "factorization_convention",
+    "stored_grid_peak_by_frequency",
+)
+
+#: The seven appended names alone.
+STAGE3_PROVENANCE_FIELDS: tuple[str, ...] = FROZEN_PROVENANCE_FIELD_ORDER[23:]
+
+#: An azimuth at which ``T(phi)`` is both non-identity and non-symmetric.
+#: ``T`` is symmetric only where ``cos(phi) == 0`` and is the identity only at
+#: ``phi = pi/2``, so any sample with a non-zero cosine serves; the canonical
+#: grid's ``az_uv = pi/4`` gives ``phi = pi/4``.
+OBSERVABLE_AZIMUTH_UV_RAD = np.pi / 4.0
+OBSERVABLE_ZENITH_ANGLE_RAD = 0.62
+
+
+def test_t_of_phi_is_non_identity_and_non_symmetric_where_it_is_exercised() -> None:
+    """Corrected Section 5.2.1: the retired stored-non-identity fixture is
+    replaced by ``T(phi)`` itself, "real, non-identity, non-symmetric, and
+    direction-dependent", so a transpose mistake cannot be absorbed into a
+    constant relabelling.
+
+    This green control proves the probe azimuth actually has that property
+    before any test relies on it.
+    """
+    matrix = tangent_conversion(float(radiosim_azimuth_rad(OBSERVABLE_AZIMUTH_UV_RAD)))
+
+    assert float(np.max(np.abs(matrix - np.eye(2)))) >= SEPARATION_BOUND
+    assert float(np.max(np.abs(matrix - matrix.T))) >= SEPARATION_BOUND
+    # Direction dependence: a second azimuth gives a genuinely different matrix.
+    other = tangent_conversion(
+        float(radiosim_azimuth_rad(OBSERVABLE_AZIMUTH_UV_RAD + 1.0))
+    )
+    assert float(np.max(np.abs(matrix - other))) >= SEPARATION_BOUND
+
+
+def test_the_conversion_is_observable_under_transpose_and_conjugation() -> None:
+    """Corrected Section 5.2 and 5.2.1's replacement observability control.
+
+    The frozen sum uses ``T(phi)`` with "no conjugation and no implicit
+    transpose". Substituting ``T(phi).T`` or conjugating the complex efield
+    samples must both change ``J_native`` by more than the frozen separation
+    bound, which is what makes the production comparison below a real test of
+    the mapping rather than of a symmetric coincidence.
+    """
+    phi = float(radiosim_azimuth_rad(OBSERVABLE_AZIMUTH_UV_RAD))
+    data = np.asarray(
+        quadrupolar_components_at(
+            OBSERVABLE_AZIMUTH_UV_RAD, OBSERVABLE_ZENITH_ANGLE_RAD
+        ),
+        dtype=np.complex128,
+    )
+    assert float(np.max(np.abs(data.imag))) >= SEPARATION_BOUND
+
+    frozen = convert_native_jones(data, phi)
+    transposed = np.einsum("af,ca->fc", data, tangent_conversion(phi))
+    conjugated = convert_native_jones(np.conj(data), phi)
+    swapped_rows = np.einsum("fa,ac->fc", data, tangent_conversion(phi))
+
+    assert float(np.max(np.abs(frozen - transposed))) >= SEPARATION_BOUND
+    assert float(np.max(np.abs(frozen - conjugated))) >= SEPARATION_BOUND
+    assert float(np.max(np.abs(frozen - swapped_rows))) >= SEPARATION_BOUND
+
+
+def quadrupolar_components_at(
+    azimuth_uv_rad: float,
+    zenith_angle_rad: float,
+) -> np.ndarray:
+    """Return the quadrupolar stored components at one direction."""
+    from tests.fixtures.beamfits import quadrupolar_components
+
+    return np.asarray(
+        quadrupolar_components(
+            azimuth_uv_rad=azimuth_uv_rad,
+            zenith_angle_rad=zenith_angle_rad,
+        ),
+        dtype=np.complex128,
+    )
+
+
+def test_the_production_conversion_uses_t_of_phi_untransposed_and_unconjugated(
+    tmp_path: Path,
+) -> None:
+    """The production side of the same control.
+
+    ``C @ E`` recovers ``J_native``, which must equal the frozen ``T(phi)``
+    mapping of the file's own stored components and must differ from both the
+    transposed and the conjugated variants by more than the separation bound.
+    """
+    written = write_efield_beamfits(tmp_path, science=EfieldScienceVariant.QUADRUPOLAR)
+    system, receptor_set, _state = load_efield_system(
+        tmp_path,
+        path=written.path,
+        receptors=receptors_block(),
+    )
+
+    zenith_angle = OBSERVABLE_ZENITH_ANGLE_RAD
+    azimuth_uv = OBSERVABLE_AZIMUTH_UV_RAD
+    phi = float(radiosim_azimuth_rad(azimuth_uv))
+    response = evaluate(
+        system,
+        altitude_rad=np.array([np.pi / 2.0 - zenith_angle], dtype=np.float64),
+        azimuth_rad=np.array([phi], dtype=np.float64),
+    )
+    receptor = receptor_set.receptor_by_antenna[ANT0]
+    native = receptor_matrix(receptor.basis, receptor.feed_rotation_rad) @ response[0]
+
+    data = quadrupolar_components_at(azimuth_uv, zenith_angle)
+    expected = convert_native_jones(data, phi)
+    transposed = np.einsum("af,ca->fc", data, tangent_conversion(phi))
+    conjugated = convert_native_jones(np.conj(data), phi)
+
+    assert float(np.max(np.abs(native - expected))) <= combined_bound(expected, native)
+    assert float(np.max(np.abs(native - transposed))) >= SEPARATION_BOUND
+    assert float(np.max(np.abs(native - conjugated))) >= SEPARATION_BOUND
+
+
+@pytest.mark.parametrize("label", sorted(NON_IDENTITY_STORED_BASES))
+def test_a_stored_basis_that_is_not_exactly_the_native_identity_is_rejected(
+    tmp_path: Path,
+    label: str,
+) -> None:
+    """Corrected Section 5.1.1 item 10: "Any other stored basis -- including
+    one pyuvdata itself would tolerate, such as ``0.5*I`` or a negative
+    off-diagonal -- is ``UnsupportedBeamBasisError`` with the frozen probe
+    kind ``basis_vector_not_identity``."
+
+    All four stored bases below pass ``UVBeam.check``; only RadioSim rejects
+    them, which is exactly the point -- pyuvdata would otherwise either crash
+    evaluation with an untyped ``NotImplementedError`` or silently substitute
+    a different basis than the file declares.
+    """
+    expected = _beam_error("UnsupportedBeamBasisError")
+    beam = build_efield_uvbeam(
+        basis_vector_array=constant_basis_vector_array(NON_IDENTITY_STORED_BASES[label])
+    )
+    assert beam.check(check_extra=True, run_check_acceptability=True) is True
+
+    with pytest.raises(expected):
+        load_efield_system(tmp_path, beam=beam, receptors=receptors_block())
+
+
+@pytest.mark.parametrize("stored_dtype", [np.float32, np.float64])
+def test_both_stored_identity_widths_are_accepted(
+    tmp_path: Path,
+    stored_dtype: Any,
+) -> None:
+    """Corrected Section 5.1.1 item 10 judges the stored dtype "by **kind and
+    width**, never by a byte-order-qualified comparison", and accepts both
+    real floating widths "because the identity values ``1.0`` and ``0.0`` are
+    exactly representable and round-trip bit-exactly in each".
+
+    This case is what the retired ``basis_vector_dtype`` rejection becomes: the
+    ``float32`` exact-identity file the first cut asserted must be rejected is
+    accepted under the corrected law.
+    """
+    root = tmp_path / np.dtype(stored_dtype).name
+    written = write_efield_beamfits(
+        root,
+        basis_vector_array=native_identity_basis_vector_array(dtype=stored_dtype),
+    )
+    system, _receptors, _state = load_efield_system(
+        root,
+        path=written.path,
+        receptors=receptors_block(),
+    )
+
+    handler = system.state.handlers[0]
+    assert handler.file is not None
+    assert handler.file.sha256 == written.sha256
+    response = evaluate(system)
+    assert response.shape == (PROBE_ALTITUDE_RAD.size, 2, 2)
+    assert np.all(np.isfinite(response))
+
+
+def test_the_stored_basis_precedence_is_non_finite_then_dtype_then_identity(
+    tmp_path: Path,
+) -> None:
+    """Corrected Section 5.1.1 item 10's frozen precedence.
+
+    Each fixture below violates the identity predicate *as well as* its own
+    one, so the reported type is decided by the precedence and by nothing
+    else: "a ``NaN`` basis reports non-finiteness rather than a dtype or
+    identity failure, and a complex basis reports its dtype rather than
+    non-identity".
+    """
+    matrix = NON_IDENTITY_STORED_BASES["half_identity"]
+
+    non_finite = build_efield_uvbeam()
+    basis = constant_basis_vector_array(matrix)
+    basis[0, 0, 0, 0] = np.nan
+    non_finite.basis_vector_array = basis
+    with pytest.raises(_beam_error("NonFiniteBeamResponseError")):
+        load_efield_system(
+            tmp_path / "non-finite", beam=non_finite, receptors=receptors_block()
+        )
+
+    complex_basis = build_efield_uvbeam()
+    complex_basis.basis_vector_array = np.array(
+        constant_basis_vector_array(matrix), dtype=np.complex128
+    )
+    with pytest.raises(_beam_error("UnsupportedBeamBasisError")):
+        load_efield_system(
+            tmp_path / "complex", beam=complex_basis, receptors=receptors_block()
+        )
+
+    real_non_identity = build_efield_uvbeam(
+        basis_vector_array=constant_basis_vector_array(matrix)
+    )
+    with pytest.raises(_beam_error("UnsupportedBeamBasisError")):
+        load_efield_system(
+            tmp_path / "identity", beam=real_non_identity, receptors=receptors_block()
+        )
+
+
+def test_a_returned_interpolation_basis_that_is_not_the_identity_is_an_internal_failure(
+    tmp_path: Path,
+) -> None:
+    """Corrected Section 5.2.1: the returned basis "is requested in order to be
+    **verified**, not composed", and an array that is not the identity "means
+    the pinned dependency contract has changed beneath RadioSim. It is
+    therefore an **internal failure**, not a file rejection, and raises
+    ``UnsupportedBeamBasisError`` naming the pinned ``pyuvdata 3.2.1``
+    contract."
+
+    No committed file can express that state, because pyuvdata builds the
+    returned array from ``numpy.ones`` and ``numpy.zeros`` itself, so the probe
+    is a dependency object that violates the pinned return contract on purpose
+    while remaining an ordinary accepted file at load.
+    """
+    beam = forge_interpolation_basis(
+        build_efield_uvbeam(science=EfieldScienceVariant.QUADRUPOLAR)
+    )
+    system, _receptors, _state = load_efield_system(
+        tmp_path,
+        beam=beam,
+        receptors=receptors_block(),
+    )
+
+    with pytest.raises(_beam_error("UnsupportedBeamBasisError")) as error:
+        evaluate(system)
+
+    assert "3.2.1" in str(error.value)
+
+
+def test_the_widened_provenance_field_order_is_exact(tmp_path: Path) -> None:
+    """Corrected Section 5.2.1 freezes the seven appended
+    ``BeamFileProvenance`` fields "by name, order, and annotation, because
+    Section 7.4 requires ``S3`` to extend the exact field-order pin ... and an
+    unnamed surface cannot be extended twice the same way".
+
+    Section 7.4 assigns the *extension of the accepted pin* in
+    ``tests/unit/test_core/test_beam_fits.py`` to ``S3``; this is the
+    Stage-3-owned red statement of the same tuple, so the two agree by
+    construction once the implementation lands.
+    """
+    import dataclasses
+
+    from radiosim.core.beam import BeamFileProvenance
+
+    observed = tuple(field.name for field in dataclasses.fields(BeamFileProvenance))
+    assert observed == FROZEN_PROVENANCE_FIELD_ORDER
+    annotations = {
+        field.name: field for field in dataclasses.fields(BeamFileProvenance)
+    }
+    for name in STAGE3_PROVENANCE_FIELDS:
+        assert annotations[name].default is None
+
+
+def test_a_peak_document_leaves_every_new_provenance_field_none(
+    tmp_path: Path,
+) -> None:
+    """Corrected Section 5.2.1: "Every one is annotated ``<type> | None = None``
+    and is left ``None`` on the accepted ``peak`` path, which is what keeps the
+    ``None``-omission fingerprint mechanism above intact."
+
+    The companion green control
+    :func:`test_a_peak_document_keeps_todays_beam_provenance_snapshot_keys`
+    asserts the observable consequence -- that the scalar snapshot's key set
+    does not move -- and stays green at every stage.
+    """
+    written = write_scalar_efield_beamfits(tmp_path)
+    system, _receptors, _state = load_efield_system(
+        tmp_path,
+        path=written.path,
+        normalization="peak",
+        receptors=receptors_block(),
+    )
+
+    provenance = system.state.handlers[0].file
+    assert provenance is not None
+    for name in STAGE3_PROVENANCE_FIELDS:
+        assert getattr(provenance, name) is None
+
+
+def test_the_full_efield_provenance_records_the_frozen_stage_three_facts(
+    tmp_path: Path,
+) -> None:
+    """Corrected Section 5.2.1 fixes each field's full-efield value exactly.
+
+    ``derived_x_orientation_verdict`` renders item 7's agreed ``None`` as the
+    lower-case string ``none`` "so the field stays a ``str | None`` whose
+    ``None`` means 'scalar path' rather than 'circular receptor'"; the
+    unrotated linear fixture here agrees at ``east``.
+    """
+    written = write_efield_beamfits(tmp_path)
+    system, _receptors, _state = load_efield_system(
+        tmp_path,
+        path=written.path,
+        receptors=receptors_block(),
+    )
+
+    provenance = system.state.handlers[0].file
+    assert provenance is not None
+    assert provenance.accepted_subset_version == FULL_EFIELD_SUBSET_VERSION
+    assert provenance.radiosim_normalization == FULL_EFIELD_NORMALIZATION
+    assert provenance.resolved_feed_array == ("x", "y")
+    assert provenance.derived_x_orientation_verdict == "east"
+    assert provenance.basis_vector_convention == BASIS_CONVERSION_CONVENTION
+    assert provenance.factorization_convention == FACTORIZATION_CONVENTION
+
+    peaks = provenance.stored_grid_peak_by_frequency
+    assert type(peaks) is tuple
+    frequencies = [pair[0] for pair in peaks]
+    assert frequencies == sorted(frequencies)
+    assert len(set(frequencies)) == len(frequencies)
+    for _frequency_hz, observed_peak in peaks:
+        assert abs(float(observed_peak) - 1.0) <= NORMALIZATION_ATOL
+
+
+def test_a_rotated_linear_receptor_records_the_none_orientation_verdict(
+    tmp_path: Path,
+) -> None:
+    """Item 7: ``None`` "is a legal, common result -- it is what that function
+    returns for a rotated linear receptor" -- and corrected Section 5.2.1
+    renders it as the lower-case string ``none``."""
+    written = write_efield_beamfits(
+        tmp_path,
+        feed_rotation_rad=math.radians(ROTATED_FEED_ROTATION_DEG),
+    )
+    system, _receptors, _state = load_efield_system(
+        tmp_path,
+        path=written.path,
+        receptors=receptors_block(feed_rotation_deg=ROTATED_FEED_ROTATION_DEG),
+    )
+
+    provenance = system.state.handlers[0].file
+    assert provenance is not None
+    assert provenance.derived_x_orientation_verdict == "none"

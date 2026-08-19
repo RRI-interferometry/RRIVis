@@ -484,9 +484,8 @@ class UnsupportedEfieldVariant(str, Enum):
     MOUNT = "mount"
     GRID_COVERAGE = "grid_coverage"
     WRAP_CONTINUITY = "wrap_continuity"
-    BASIS_VECTOR_DTYPE = "basis_vector_dtype"
+    BASIS_VECTOR_NOT_IDENTITY = "basis_vector_not_identity"
     BASIS_VECTOR_COMPLEX = "basis_vector_complex"
-    BASIS_VECTOR_DEGENERATE = "basis_vector_degenerate"
     BASIS_VECTOR_NON_FINITE = "basis_vector_non_finite"
     DATA_DTYPE = "data_dtype"
     DATA_NON_FINITE = "data_non_finite"
@@ -508,6 +507,20 @@ QUADRUPOLAR_THETA_REF_RAD = np.pi / 2.0
 QUADRUPOLAR_ROW_PHASE_SLOPE: tuple[float, float] = (0.37, 0.48)
 
 
+#: Stored bases that pyuvdata 3.2.1 itself tolerates and that corrected
+#: Section 5.1.1 item 10 nevertheless rejects, because they are not *exactly*
+#: the native identity. The memo names the first two by hand -- "including one
+#: pyuvdata itself would tolerate, such as ``0.5*I`` or a negative
+#: off-diagonal" -- and the third is the fixture the retired
+#: ``basis_vector_degenerate`` probe already shipped.
+NON_IDENTITY_STORED_BASES: dict[str, tuple[tuple[float, float], ...]] = {
+    "half_identity": ((0.5, 0.0), (0.0, 0.5)),
+    "negative_off_diagonal": ((0.9553, -0.2955), (-0.2955, 0.9553)),
+    "rank_one": ((1.0, 0.0), (1.0, 0.0)),
+    "anti_diagonal": ((0.0, -1.0), (-1.0, 0.0)),
+}
+
+
 def canonical_full_sphere_zenith_angle_grid() -> NDArray[np.float64]:
     """Return a nine-sample grid from the zenith through the nadir.
 
@@ -517,6 +530,94 @@ def canonical_full_sphere_zenith_angle_grid() -> NDArray[np.float64]:
     ``peak`` subset's visible-row one.
     """
     return np.linspace(0.0, np.pi, 9, dtype=np.float64)
+
+
+def native_identity_basis_vector_array(
+    *,
+    dtype: Any = np.float64,
+    zenith_angle_rad: NDArray[np.float64] | None = None,
+    azimuth_uv_rad: NDArray[np.float64] | None = None,
+) -> NDArray[np.floating[Any]]:
+    """Return the exact native identity ``basis_vector_array`` of one grid.
+
+    Corrected Section 5.1.1 item 10 requires entries ``[0, 0]`` and ``[1, 1]``
+    to be exactly ``1.0`` and ``[0, 1]`` and ``[1, 0]`` exactly ``0.0``, and
+    accepts either real floating stored width, "because the identity values
+    ``1.0`` and ``0.0`` are exactly representable and round-trip bit-exactly
+    in each".
+    """
+    normalized = np.dtype(dtype)
+    if normalized.kind != "f":
+        raise ValueError("dtype must be a real floating NumPy dtype")
+    azimuth = canonical_azimuth_grid() if azimuth_uv_rad is None else azimuth_uv_rad
+    zenith_angle = (
+        canonical_zenith_angle_grid() if zenith_angle_rad is None else zenith_angle_rad
+    )
+    basis = np.zeros((2, 2, zenith_angle.size, azimuth.size), dtype=normalized)
+    basis[0, 0] = 1.0
+    basis[1, 1] = 1.0
+    return basis
+
+
+def constant_basis_vector_array(
+    matrix: Any,
+    *,
+    dtype: Any = np.float64,
+    zenith_angle_rad: NDArray[np.float64] | None = None,
+    azimuth_uv_rad: NDArray[np.float64] | None = None,
+) -> NDArray[np.floating[Any]]:
+    """Return a stored ``basis_vector_array`` holding one constant 2x2 matrix."""
+    normalized = np.dtype(dtype)
+    azimuth = canonical_azimuth_grid() if azimuth_uv_rad is None else azimuth_uv_rad
+    zenith_angle = (
+        canonical_zenith_angle_grid() if zenith_angle_rad is None else zenith_angle_rad
+    )
+    values = np.asarray(matrix, dtype=np.float64)
+    if values.shape != (2, 2):
+        raise ValueError("matrix must be exactly 2x2")
+    basis = np.zeros((2, 2, zenith_angle.size, azimuth.size), dtype=normalized)
+    for row in range(2):
+        for column in range(2):
+            basis[row, column, :, :] = values[row, column]
+    return basis
+
+
+class ForgedInterpolationBasisUVBeam(UVBeam):
+    """A UVBeam whose interpolation returns a non-identity basis.
+
+    Corrected Section 5.2.1 requires the evaluator to *verify* the returned
+    basis rather than compose it, and rules that a returned array which is not
+    the identity "means the pinned dependency contract has changed beneath
+    RadioSim. It is therefore an **internal failure**, not a file rejection".
+    No committed file can express that state, because pyuvdata builds the
+    returned array from ``numpy.ones`` and ``numpy.zeros`` itself, so the only
+    honest probe is a dependency object that violates the pinned return
+    contract on purpose.
+
+    The class is applied to an already-built beam by ``__class__``
+    reassignment in :func:`forge_interpolation_basis`, so every load-stage
+    predicate still sees an ordinary accepted file.
+    """
+
+    #: The value written into the returned ``[0, 1]`` basis entry.
+    forged_off_diagonal: float = 0.25
+
+    def interp(self, **kwargs: Any) -> Any:
+        """Delegate to pyuvdata, then corrupt the returned basis vectors."""
+        result = super().interp(**kwargs)
+        if isinstance(result, tuple) and len(result) == 2 and result[1] is not None:
+            basis = np.array(result[1], copy=True)
+            basis[0, 1, :] = type(self).forged_off_diagonal
+            return (result[0], basis)
+        return result
+
+
+def forge_interpolation_basis(beam: UVBeam) -> UVBeam:
+    """Return ``beam`` re-typed so its interpolation violates the contract."""
+    if not isinstance(beam, UVBeam):
+        raise TypeError("beam must be a UVBeam")
+    beam.__class__ = ForgedInterpolationBasisUVBeam
+    return beam
 
 
 def crossed_ideal_dipole_components(
@@ -711,12 +812,10 @@ def build_efield_uvbeam(
         else feed_angle_rad
     )
     if basis_vector_array is None:
-        basis_vector_array = np.zeros(
-            (2, 2, zenith_angle.size, azimuth.size),
-            dtype=np.float64,
+        basis_vector_array = native_identity_basis_vector_array(
+            zenith_angle_rad=zenith_angle,
+            azimuth_uv_rad=azimuth,
         )
-        basis_vector_array[0, 0] = 1.0
-        basis_vector_array[1, 1] = 1.0
     if data_array is None:
         data_array = efield_grid_data(
             science=science,
@@ -955,33 +1054,17 @@ def build_efield_variant(
         data[..., -1] = data[..., -1] + 0.5
         beam.data_array = data
         return EfieldVariantFixture(variant, classification, beam)
-    if variant is UnsupportedEfieldVariant.BASIS_VECTOR_DTYPE:
-        azimuth = canonical_azimuth_grid()
-        zenith_angle = canonical_zenith_angle_grid()
-        basis = np.zeros(
-            (2, 2, zenith_angle.size, azimuth.size),
-            dtype=np.float32,
-        )
-        basis[0, 0] = 1.0
-        basis[1, 1] = 1.0
+    if variant is UnsupportedEfieldVariant.BASIS_VECTOR_NOT_IDENTITY:
         return EfieldVariantFixture(
             variant,
             classification,
-            build_efield_uvbeam(science=science, dtype=dtype, basis_vector_array=basis),
-        )
-    if variant is UnsupportedEfieldVariant.BASIS_VECTOR_DEGENERATE:
-        azimuth = canonical_azimuth_grid()
-        zenith_angle = canonical_zenith_angle_grid()
-        basis = np.zeros(
-            (2, 2, zenith_angle.size, azimuth.size),
-            dtype=np.float64,
-        )
-        basis[0, 0] = 1.0
-        basis[1, 0] = 1.0
-        return EfieldVariantFixture(
-            variant,
-            classification,
-            build_efield_uvbeam(science=science, dtype=dtype, basis_vector_array=basis),
+            build_efield_uvbeam(
+                science=science,
+                dtype=dtype,
+                basis_vector_array=constant_basis_vector_array(
+                    NON_IDENTITY_STORED_BASES["rank_one"]
+                ),
+            ),
         )
     if variant is UnsupportedEfieldVariant.BASIS_VECTOR_COMPLEX:
         beam = build_efield_uvbeam(science=science, dtype=dtype)

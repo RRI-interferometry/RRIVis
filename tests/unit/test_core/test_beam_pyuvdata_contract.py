@@ -1036,20 +1036,23 @@ def test_counting_loader_rejects_invalid_one_based_attempts(
 # SCI-005 Stage 3: the pinned dependency's stored-basis behaviour
 # ==============================================================================
 #
-# ``docs/development/sci005_beam_physics_plan.md`` Section 5.2 requires the
-# Stage-3 conversion to be applied to "the returned basis vectors" and Section
-# 5.2.1 requires a test built on "a legal real, non-identity, non-symmetric
-# ``basis_vector_array`` together with complex efield samples, so that a
-# transpose or a conjugation mistake is independently observable".
-#
-# Neither is reachable against the pinned pyuvdata 3.2.1. Its
 # ``UVBeam._prepare_basis_vector_array`` -- the single site both ``az_za``
-# interpolation functions use to build the returned basis -- either raises
-# ``NotImplementedError`` or discards the stored array entirely and returns the
-# hard-coded ``theta``/``phi`` identity at every requested direction. The two
-# tests below pin that behaviour as observed dependency fact so the Stage-3
-# design correction it requires rests on a measurement rather than on a reading
-# of the dependency source.
+# interpolation functions use to build the returned basis -- either raises a
+# bare untyped ``NotImplementedError``, whenever any stored off-diagonal entry
+# is strictly positive, or discards the stored array entirely and rebuilds the
+# exact native identity at every requested direction. The three tests below pin
+# that behaviour, and the exact round-trip of a stored identity in both real
+# floating widths, as observed dependency fact.
+#
+# These measurements are the ones the accepted bounded basis-vector and
+# provenance correction rests on. ``docs/development/sci005_beam_physics_plan.md``
+# Section 5.1.1 item 10 now requires a committed ``basis_vector_array`` to be
+# **exactly** the native identity at a real floating stored dtype judged by kind
+# and width, and corrected Section 5.2.1 keeps ``return_basis_vector=True`` only
+# in order to *verify* the returned identity, applying RadioSim's own
+# ``T(phi)`` to the native components instead of composing the stored array. The
+# round-trip control is what makes an exactness predicate -- rather than a
+# tolerance -- the correct and reachable one.
 
 
 def _stage3_constant_basis_beam(matrix: np.ndarray) -> UVBeam:
@@ -1127,3 +1130,43 @@ def test_interp_returns_the_identity_basis_whatever_the_file_stored(
     stored = np.asarray(beam.basis_vector_array, dtype=np.float64)
     identical = bool(np.allclose(np.asarray(matrix), np.eye(2)))
     assert identical == bool(np.allclose(stored[:, :, 0, 0], np.eye(2)))
+
+
+@pytest.mark.parametrize("stored_dtype", [np.float32, np.float64])
+def test_a_stored_identity_basis_round_trips_bit_exactly_in_both_widths(
+    tmp_path: Path,
+    stored_dtype: Any,
+) -> None:
+    """Corrected Section 5.1.1 item 10's justification, measured.
+
+    "Both stored widths are accepted, because the identity values ``1.0`` and
+    ``0.0`` are exactly representable and round-trip bit-exactly in each --
+    which is why the predicate above is exact equality rather than a
+    tolerance." The same measurement shows why the dtype must be judged by kind
+    and width: BeamFITS returns the array big-endian, so an equality test
+    against ``numpy.float64`` would reject every committed beam.
+    """
+    from tests.fixtures.beamfits import (
+        build_efield_uvbeam,
+        native_identity_basis_vector_array,
+    )
+
+    stored = native_identity_basis_vector_array(dtype=stored_dtype)
+    beam = build_efield_uvbeam(basis_vector_array=stored)
+    target = tmp_path / f"identity-{np.dtype(stored_dtype).name}.beamfits"
+    assert beam.write_beamfits(target, clobber=True) is None
+
+    read = _read_beamfits(target)
+    observed = np.asarray(read.basis_vector_array)
+
+    np.testing.assert_array_equal(observed, stored)
+    assert observed.dtype.kind == "f"
+    assert observed.dtype.itemsize == np.dtype(stored_dtype).itemsize
+    assert observed.dtype.name == np.dtype(stored_dtype).name
+    # Exactly the native identity, entry by entry, after the round trip.
+    assert bool(np.all(observed[0, 0] == 1.0))
+    assert bool(np.all(observed[1, 1] == 1.0))
+    assert bool(np.all(observed[0, 1] == 0.0))
+    assert bool(np.all(observed[1, 0] == 0.0))
+    # The byte-order-qualified comparison the correction retires.
+    assert observed.dtype != np.dtype(stored_dtype)
