@@ -1030,3 +1030,100 @@ def test_counting_loader_rejects_invalid_one_based_attempts(
         match=("^fail_on_attempts must be a frozenset of positive one-based integers$"),
     ):
         CountingBeamFITSLoader(fail_on_attempts=fail_on_attempts)
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the pinned dependency's stored-basis behaviour
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.2 requires the
+# Stage-3 conversion to be applied to "the returned basis vectors" and Section
+# 5.2.1 requires a test built on "a legal real, non-identity, non-symmetric
+# ``basis_vector_array`` together with complex efield samples, so that a
+# transpose or a conjugation mistake is independently observable".
+#
+# Neither is reachable against the pinned pyuvdata 3.2.1. Its
+# ``UVBeam._prepare_basis_vector_array`` -- the single site both ``az_za``
+# interpolation functions use to build the returned basis -- either raises
+# ``NotImplementedError`` or discards the stored array entirely and returns the
+# hard-coded ``theta``/``phi`` identity at every requested direction. The two
+# tests below pin that behaviour as observed dependency fact so the Stage-3
+# design correction it requires rests on a measurement rather than on a reading
+# of the dependency source.
+
+
+def _stage3_constant_basis_beam(matrix: np.ndarray) -> UVBeam:
+    """Build one scalar fixture whose stored basis is this constant matrix."""
+    beam = build_scalar_efield_uvbeam(dtype=np.complex128)
+    basis = np.zeros_like(np.asarray(beam.basis_vector_array, dtype=np.float64))
+    for row in range(2):
+        for column in range(2):
+            basis[row, column, :, :] = float(matrix[row][column])
+    beam.basis_vector_array = basis
+    assert beam.check(check_extra=True, run_check_acceptability=True) is True
+    return beam
+
+
+def test_interp_refuses_a_stored_basis_with_a_positive_off_diagonal_entry() -> None:
+    """A legal real non-identity basis can make ``interp`` unusable.
+
+    ``UVBeam.check`` accepts the file -- pyuvdata declares
+    ``basis_vector_array`` real with ``acceptable_range`` ``(-1, 1)`` -- but
+    every ``az_za`` interpolation of it raises ``NotImplementedError``. The
+    rotation below is the ordinary ``[[cos, -sin], [sin, cos]]`` at ``0.3``
+    radians, whose ``[1, 0]`` entry is positive.
+    """
+    rotation = [
+        [np.cos(0.3), -np.sin(0.3)],
+        [np.sin(0.3), np.cos(0.3)],
+    ]
+    beam = _stage3_constant_basis_beam(rotation)
+
+    with pytest.raises(NotImplementedError, match="not aligned to the"):
+        _interp(
+            beam,
+            azimuth=np.array([0.1, 0.7]),
+            zenith_angle=np.array([0.2, 0.4]),
+            frequencies=np.array([100e6]),
+            return_basis=True,
+        )
+
+
+@pytest.mark.parametrize(
+    ("label", "matrix"),
+    [
+        ("identity", [[1.0, 0.0], [0.0, 1.0]]),
+        ("negative_off_diagonals", [[0.9553, -0.2955], [-0.2955, 0.9553]]),
+        ("uniformly_scaled", [[0.5, 0.0], [0.0, 0.5]]),
+        ("anti_diagonal", [[0.0, -1.0], [-1.0, 0.0]]),
+    ],
+)
+def test_interp_returns_the_identity_basis_whatever_the_file_stored(
+    label: str,
+    matrix: list[list[float]],
+) -> None:
+    """Every basis ``interp`` does accept is replaced by the identity.
+
+    ``return_basis_vector=True`` never reports the committed array: the
+    dependency rebuilds ``[[1, 0], [0, 1]]`` per point from
+    ``theta hat``/``phi hat``. A Stage-3 conversion that multiplies the
+    *returned* basis therefore cannot see a file's stored one at all.
+    """
+    beam = _stage3_constant_basis_beam(matrix)
+
+    _data, basis = _interp(
+        beam,
+        azimuth=np.array([0.1, 0.7]),
+        zenith_angle=np.array([0.2, 0.4]),
+        frequencies=np.array([100e6]),
+        return_basis=True,
+    )
+
+    assert basis is not None
+    assert basis.shape == (2, 2, 2)
+    assert basis.dtype == np.dtype(np.float64)
+    expected = np.repeat(np.eye(2)[:, :, np.newaxis], 2, axis=2)
+    np.testing.assert_array_equal(basis, expected)
+    stored = np.asarray(beam.basis_vector_array, dtype=np.float64)
+    identical = bool(np.allclose(np.asarray(matrix), np.eye(2)))
+    assert identical == bool(np.allclose(stored[:, :, 0, 0], np.eye(2)))

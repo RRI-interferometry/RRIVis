@@ -966,3 +966,228 @@ def test_a_squint_enabled_chain_makes_the_h_c_e_order_observable(
         <= 1e-14
     )
     assert float(np.max(np.abs(circular_beam[:, 0, 1]))) > 1e-3
+
+
+# ---------------------------------------------------------------------------
+# SCI-005 Stage 3: the order oracle with a generally full efield ``E``
+# ---------------------------------------------------------------------------
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.6 requires "full
+# Jones order tests with non-commuting ``C``, ``E``, and ``P``", and Section
+# 8.1's ``receptor_factorizations`` row fixes the three measurements exactly:
+#
+#     ``factorization_max_abs_residual`` is the largest entrywise absolute
+#     difference between the production ``C @ E`` and ``J_native``;
+#     ``chain_order_max_abs_residual`` is the largest entrywise absolute
+#     difference between ``C @ E @ P`` and ``J_native @ P``; and
+#     ``order_control_max_abs_difference`` is the largest entrywise absolute
+#     difference between ``C @ E @ P`` and ``C @ P @ E``.
+#
+# and requires ``noncommuting_component >= max(1e-3, 1024 * atol)`` on every
+# row, recomputed from the composed ``E`` as
+# ``abs(E[0][0] - E[1][1]) + abs(E[0][1] + E[1][0])``. Section 8.1 states why
+# Stage 3 needs no per-basis split, unlike Stage 2: "Stage 2's
+# circular-receptor vanishing does not recur here because it followed from
+# ``D_b`` being diagonal with the circular ``C``, which a general
+# ``J_native`` is not."
+#
+# ``P`` is written here as an explicit real rotation rather than taken from a
+# ``jones:`` block, because the two products above are statements about
+# matrices and the solver's own optional-term inventory is not what Section 8.1
+# measures. Every existing test in this module is untouched.
+
+STAGE3_NORMALIZATION = "uvbeam_peak_common_v1"
+
+#: Section 5.2.1's dtype-derived converted-matrix ``atol`` at ``complex128``,
+#: and Section 8.1's frozen separation bound built on it.
+STAGE3_ATOL = max(1e-12, 32.0 * float(np.finfo(np.float64).eps))
+STAGE3_SEPARATION_BOUND = max(1e-3, 1024.0 * STAGE3_ATOL)
+
+
+def _efield_solver_components(
+    tmp_path: Path,
+    receptors: dict[str, object],
+    *,
+    feed_array: tuple[str, str] = ("x", "y"),
+    feed_rotation_deg: float = 0.0,
+) -> tuple[SolverInstrumentView, BeamSystem, ResolvedReceptorSet]:
+    """The same solver pieces as :func:`_solver_components`, on a full-efield
+    ``shared_fits`` document carrying Section 5.1.1's activation literal."""
+    from tests.fixtures.beamfits import EfieldScienceVariant, write_efield_beamfits
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    written = write_efield_beamfits(
+        tmp_path,
+        science=EfieldScienceVariant.QUADRUPOLAR,
+        feed_array=feed_array,
+        feed_rotation_rad=np.radians(feed_rotation_deg),
+    )
+    mapping = valid_config_mapping(
+        tmp_path,
+        frequency={
+            "mode": "explicit",
+            "channel_frequencies_hz": FREQUENCIES_HZ.tolist(),
+            "channel_widths_hz": [1e6],
+        },
+        beams={
+            "mode": "shared_fits",
+            "beam": {
+                "kind": "fits",
+                "path": str(written.path),
+                "normalization": STAGE3_NORMALIZATION,
+            },
+        },
+    )
+    mapping["receptors"] = receptors
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
+    simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
+    simulator._ensure_beam_system()
+    return (
+        SolverInstrumentView.from_state(simulator._instrument_state),
+        simulator.beam_system,
+        simulator.receptors,
+    )
+
+
+def _stage3_directions(n_sources: int) -> tuple[np.ndarray, np.ndarray, DirectionBatch]:
+    altitude = np.pi / 2.0 - np.array([0.30, 0.55, 0.80][:n_sources])
+    azimuth = np.array([0.4, 2.1, 4.0][:n_sources])
+    return (
+        altitude,
+        azimuth,
+        DirectionBatch(
+            alt_rad=altitude,
+            az_rad=azimuth,
+            dir_l=np.cos(altitude) * np.sin(azimuth),
+            dir_m=np.cos(altitude) * np.cos(azimuth),
+            dir_n=np.sin(altitude),
+            ra_rad=np.zeros(n_sources),
+            dec_rad=np.zeros(n_sources),
+            hour_angle_rad=np.zeros(n_sources),
+            n_dir=n_sources,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("receptor_basis", "feed_rotation_deg", "output_basis"),
+    [
+        ("linear", 0.0, "linear"),
+        ("linear", 31.0, "circular"),
+        ("circular", 0.0, "circular"),
+        ("circular", 17.0, "linear"),
+    ],
+)
+def test_a_full_efield_chain_makes_the_h_c_e_order_observable(
+    tmp_path: Path,
+    receptor_basis: str,
+    feed_rotation_deg: float,
+    output_basis: str,
+) -> None:
+    """Section 5.6's full order test, on all four
+    ``(receptor_basis, output_basis)`` combinations Section 8.1 requires.
+
+    A general ``J_native`` makes the composed ``E = C^dagger J_native``
+    genuinely non-commuting for *every* receptor basis, which is exactly the
+    property Stage 2's diagonal ``D_b`` did not have on a circular receptor.
+    """
+    feeds = ("x", "y") if receptor_basis == "linear" else ("r", "l")
+    instrument, beam_system, receptor_set = _efield_solver_components(
+        tmp_path,
+        {
+            "default": {
+                "basis": receptor_basis,
+                "feed_rotation_deg": feed_rotation_deg,
+            },
+            "output_basis": output_basis,
+        },
+        feed_array=feeds,
+        feed_rotation_deg=feed_rotation_deg,
+    )
+    backend = get_backend("numpy")
+    n_sources = 3
+    altitude, azimuth, directions = _stage3_directions(n_sources)
+
+    chain = _build_jones_chain(
+        backend,
+        instrument,
+        altitude,
+        azimuth,
+        FREQUENCIES_HZ[0],
+        0,
+        n_sources,
+        LOCATION,
+        TIME_MJD,
+        beam_system,
+        receptor_set,
+    )
+    assert [term.name for term in chain.terms] == ["H", "C", "E"]
+
+    def _term(name: str) -> np.ndarray:
+        term = chain.get_term(name)
+        assert term is not None
+        return np.asarray(
+            term.compute_jones_batch(
+                antenna_idx=0,
+                directions=directions,
+                frequency_hz=float(FREQUENCIES_HZ[0]),
+                freq_idx=0,
+                time_mjd=TIME_MJD,
+                time_idx=0,
+                backend=backend,
+                dtype=np.complex128,
+            )
+        )
+
+    transform = _term("H")
+    receptor = _term("C")
+    beam = _term("E")
+
+    assert beam.shape == (n_sources, 2, 2)
+    # Section 8.1's exact algebraic non-commutation condition, recomputed from
+    # the composed ``E`` itself.
+    noncommuting = np.abs(beam[:, 0, 0] - beam[:, 1, 1]) + np.abs(
+        beam[:, 0, 1] + beam[:, 1, 0]
+    )
+    assert float(np.max(noncommuting)) >= STAGE3_SEPARATION_BOUND
+
+    composed = np.asarray(
+        chain.compute_antenna_jones_batch(
+            antenna_idx=0,
+            directions=directions,
+            frequency_hz=float(FREQUENCIES_HZ[0]),
+            freq_idx=0,
+            time_mjd=TIME_MJD,
+            time_idx=0,
+            dtype=np.complex128,
+        )
+    )
+    np.testing.assert_allclose(
+        composed,
+        transform @ receptor @ beam,
+        rtol=0.0,
+        atol=1e-14,
+    )
+
+    # Section 8.1's three retained residuals, with an explicit real rotation
+    # standing in for ``P``.
+    native = receptor @ beam
+    field_rotation = plan_rotation(0.61)
+    chain_order_residual = float(
+        np.max(np.abs(receptor @ beam @ field_rotation - native @ field_rotation))
+    )
+    order_control = float(
+        np.max(
+            np.abs(receptor @ beam @ field_rotation - receptor @ field_rotation @ beam)
+        )
+    )
+    assert chain_order_residual <= STAGE3_ATOL
+    assert order_control >= STAGE3_SEPARATION_BOUND
+    # ``C`` and ``E`` themselves do not commute, and the permuted products are
+    # different matrices.
+    assert float(np.max(np.abs(receptor @ beam - beam @ receptor))) >= (
+        STAGE3_SEPARATION_BOUND
+    )
+    assert not np.allclose(composed, transform @ beam @ receptor, atol=1e-6)
+    assert not np.allclose(composed, receptor @ transform @ beam, atol=1e-6)

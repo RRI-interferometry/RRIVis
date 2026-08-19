@@ -487,3 +487,232 @@ def test_a_rejected_squint_block_stops_the_run_before_publishing(
         "beams mode is 'shared_fits'."
     )
     assert not list(output_dir.glob("**/*.h5"))
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the full efield response through the public entry point
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.5: "Point and
+# HEALPix solvers consume the same complete ``_ResolvedBeamJones`` batch ...
+# NumPy and Dask must be byte-identical, and JAX must agree at the existing
+# float64 tolerance after the host matrix is transferred." Section 8.1 fixes
+# ``solver_cases.effect`` as exactly ``efield_point`` or ``efield_healpix``,
+# each appearing at least once, with ``visibility_change_expected`` true and
+# ``visibility_changed_element_count`` positive.
+#
+# The disabled control is the other half of the same evidence: Section 8.1's
+# ``fingerprint_diff`` "disabled control must include a scalar ``peak`` FITS
+# workload whose old and new digests and cube bytes are equal".
+
+EFIELD_NORMALIZATION = "uvbeam_peak_common_v1"
+
+
+def _stage3_transport(tmp_path: Path, *, feed_array: tuple[str, str] = ("x", "y")):
+    """Write one full-efield BeamFITS transport shared by a comparison pair."""
+    from tests.fixtures.beamfits import EfieldScienceVariant, write_efield_beamfits
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    return write_efield_beamfits(
+        tmp_path,
+        science=EfieldScienceVariant.QUADRUPOLAR,
+        feed_array=feed_array,
+    )
+
+
+def _scalar_transport(tmp_path: Path):
+    """Write the accepted scalar BeamFITS transport, unchanged by this stage."""
+    from tests.fixtures.beamfits import write_scalar_efield_beamfits
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    return write_scalar_efield_beamfits(tmp_path)
+
+
+def _fits_beams_block(path: Path, normalization: str) -> dict[str, Any]:
+    return {
+        "mode": "shared_fits",
+        "beam": {
+            "kind": "fits",
+            "path": str(path),
+            "normalization": normalization,
+        },
+    }
+
+
+def _run_beamfits(
+    tmp_path: Path,
+    beams: dict[str, Any],
+    *,
+    route: str = "point",
+    receptors: dict[str, Any] | None = None,
+    backend: str | None = None,
+) -> tuple[Simulator, Any]:
+    """Run one tiny BeamFITS workload through the public entry point."""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    overrides: dict[str, Any] = {"beams": beams}
+    if receptors is not None:
+        overrides["receptors"] = receptors
+    if route == "point":
+        data = valid_config_mapping(tmp_path, **overrides)
+    else:
+        data = hybrid_config_mapping(tmp_path, component="healpix", **overrides)
+    if backend is not None:
+        data["execution"]["backend"] = backend
+    simulator = Simulator.from_mapping(data, base_dir=tmp_path)
+    return simulator, simulator.run(progress=False)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("route", ["point", "healpix"])
+def test_a_scalar_beamfits_workload_stays_byte_identical(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    """Section 5.1.1: "this gate changes no byte of the accepted ``peak``
+    path", and Section 8.1's disabled control requires the scalar ``peak``
+    FITS workload's digests and cube bytes to be equal.
+
+    The scalar ``E`` is ``e I2``, so both cross-hand products are exactly zero
+    -- which is precisely the property the full-efield subset must break.
+    """
+    written = _scalar_transport(tmp_path)
+    beams = _fits_beams_block(written.path, "peak")
+
+    first_simulator, first = _run_beamfits(
+        tmp_path / f"{route}-first", beams, route=route
+    )
+    _second_simulator, second = _run_beamfits(
+        tmp_path / f"{route}-second", beams, route=route
+    )
+
+    assert first.scientific_sha256 == second.scientific_sha256
+    np.testing.assert_array_equal(first.visibilities, second.visibilities)
+    assert first_simulator.config.beams.beam.normalization == "peak"
+    assert first.visibilities.shape[-1] == 4
+    np.testing.assert_array_equal(
+        first.visibilities[..., 1], np.zeros_like(first.visibilities[..., 1])
+    )
+    np.testing.assert_array_equal(
+        first.visibilities[..., 2], np.zeros_like(first.visibilities[..., 2])
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("route", ["point", "healpix"])
+def test_a_full_efield_beam_changes_the_visibilities_and_fills_the_cross_hands(
+    tmp_path: Path,
+    route: str,
+) -> None:
+    """Section 8.1's ``efield_point`` and ``efield_healpix`` solver cases.
+
+    ``in_memory``'s frozen predicate (Section 5.4) is asserted alongside: the
+    result carries all four correlation products in the single declared output
+    basis "and both cross-hand products are non-zero somewhere in the cube --
+    the last being the whole point of a non-scalar ``E``".
+    """
+    scalar = _scalar_transport(tmp_path / "scalar")
+    efield = _stage3_transport(tmp_path / "efield")
+
+    _control_simulator, control = _run_beamfits(
+        tmp_path / f"{route}-scalar",
+        _fits_beams_block(scalar.path, "peak"),
+        route=route,
+    )
+    _enabled_simulator, enabled = _run_beamfits(
+        tmp_path / f"{route}-efield",
+        _fits_beams_block(efield.path, EFIELD_NORMALIZATION),
+        route=route,
+    )
+
+    assert np.all(np.isfinite(enabled.visibilities))
+    assert enabled.visibilities.shape == control.visibilities.shape
+    changed = int(np.count_nonzero(enabled.visibilities != control.visibilities))
+    assert changed > 0
+    assert enabled.scientific_sha256 != control.scientific_sha256
+    assert float(np.max(np.abs(enabled.visibilities[..., 1]))) > 0.0
+    assert float(np.max(np.abs(enabled.visibilities[..., 2]))) > 0.0
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("output_basis", ["linear", "circular"])
+def test_a_full_efield_result_reports_the_declared_output_basis(
+    tmp_path: Path,
+    output_basis: str,
+) -> None:
+    """Section 5.4's ``in_memory`` predicate, on the two output bases Section
+    8.1 requires: "Both bases are exercised on the same underlying efield
+    fixture so that the pair isolates ``H`` and nothing else"."""
+    from radiosim.core.polarization_basis import PolarizationBasis
+
+    efield = _stage3_transport(tmp_path / "efield")
+    simulator, result = _run_beamfits(
+        tmp_path / output_basis,
+        _fits_beams_block(efield.path, EFIELD_NORMALIZATION),
+        receptors={
+            "default": {"basis": "linear", "feed_rotation_deg": 0.0},
+            "output_basis": output_basis,
+        },
+    )
+
+    expected_basis: PolarizationBasis = (
+        "linear_xy" if output_basis == "linear" else "circular_rl"
+    )
+    assert simulator.receptors.output_basis == expected_basis
+    assert result.visibilities.shape[-1] == 4
+    assert float(np.max(np.abs(result.visibilities[..., 1]))) > 0.0
+    assert float(np.max(np.abs(result.visibilities[..., 2]))) > 0.0
+
+
+@pytest.mark.integration
+def test_a_full_efield_workload_survives_the_whole_save_and_reload_path(
+    tmp_path: Path,
+) -> None:
+    """Section 5.4's ``hdf5`` predicate: ``provenance/beam_json`` round-trips
+    the complete beam snapshot, "the reconstructed ``scientific_sha256`` equals
+    the written one, and the reconstructed visibility cube differs from the
+    in-memory cube by exactly zero"."""
+    from radiosim.io.hdf5 import load_result_hdf5
+
+    efield = _stage3_transport(tmp_path / "efield")
+    simulator, result = _run_beamfits(
+        tmp_path / "run",
+        _fits_beams_block(efield.path, EFIELD_NORMALIZATION),
+    )
+
+    written = simulator.save(tmp_path / "efield.h5", format=ResultFormat.HDF5)
+    loaded = load_result_hdf5(written)
+
+    assert loaded.scientific_sha256 == result.scientific_sha256
+    np.testing.assert_array_equal(loaded.visibilities, result.visibilities)
+
+
+@pytest.mark.integration
+def test_a_full_efield_workload_agrees_across_the_three_backends(
+    tmp_path: Path,
+) -> None:
+    """Section 5.5: "NumPy and Dask must be byte-identical, and JAX must agree
+    at the existing float64 tolerance after the host matrix is transferred."
+
+    The existing tolerance is the accepted backend-parity one recorded in
+    ``CLAUDE.md`` and the backend documentation, ``rtol=1e-12``; it is not
+    widened here.
+    """
+    pytest.importorskip("jax")
+    efield = _stage3_transport(tmp_path / "efield")
+    beams = _fits_beams_block(efield.path, EFIELD_NORMALIZATION)
+
+    _numpy_simulator, numpy_result = _run_beamfits(
+        tmp_path / "numpy", beams, backend="numpy"
+    )
+    _dask_simulator, dask_result = _run_beamfits(
+        tmp_path / "dask", beams, backend="dask"
+    )
+    _jax_simulator, jax_result = _run_beamfits(tmp_path / "jax", beams, backend="jax")
+
+    np.testing.assert_array_equal(dask_result.visibilities, numpy_result.visibilities)
+    np.testing.assert_allclose(
+        np.asarray(jax_result.visibilities),
+        numpy_result.visibilities,
+        rtol=1e-12,
+        atol=0.0,
+    )

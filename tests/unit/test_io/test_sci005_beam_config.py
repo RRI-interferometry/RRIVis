@@ -2224,3 +2224,323 @@ def test_squint_is_registered_in_the_beam_field_allowlist() -> None:
         "mechanical_feed_position_angle_deg",
         "positive_native_feed",
     }
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the strict full-efield activation literal
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.1.1 selects the
+# whole stage with exactly one authored literal on the already accepted FITS
+# source block: ``FITSBeamSourceConfig.normalization`` widens from
+# ``Literal["peak"]`` to ``Literal["peak", "uvbeam_peak_common_v1"]``, "keeping
+# its ``"peak"`` default", and "No other field is added anywhere in ``beams:``".
+# The literal is therefore authorable "in exactly the three places a FITS
+# source already is -- ``beams.beam`` in ``shared_fits``,
+# ``beams.assignments[i].beam`` in ``per_antenna_fits``, and
+# ``beams.assignments[i].beam`` whose ``kind`` is ``fits`` in ``mixed`` -- and
+# nowhere else".
+#
+# Four document-stage rejections are frozen and "none of them introduces a
+# ``beam.efield.*`` issue code, because strict parsing already owns every one of
+# them":
+#
+#   * an unknown literal is a ``ConfigSchemaError`` carrying Pydantic's own
+#     ``literal_error`` at that source's ``normalization`` path;
+#   * the field attached to any block that has none is a ``ConfigSchemaError``
+#     carrying Pydantic's own ``extra_forbidden``;
+#   * the pair with ``beams.squint`` is owned entirely by **Stage 2** and is
+#     re-witnessed, not re-coded; and
+#   * ``beams.aperture_physics`` against a FITS source stays Stage 1's frozen
+#     family rejection under Section 3.1's unchanged aperture-first ordering.
+#
+# Section 5.1.1 pins the first two "by code and path rather than by rendered
+# bytes", because widening the literal necessarily changes Pydantic's own
+# rendered ``literal_error`` message.
+
+EFIELD_NORMALIZATION = "uvbeam_peak_common_v1"
+SCALAR_NORMALIZATION = "peak"
+
+#: Pydantic's own two issue codes, which Section 5.1.1 keeps rather than
+#: inventing a ``beam.efield.*`` namespace for a condition strict parsing
+#: already rejects.
+LITERAL_ERROR = "literal_error"
+EXTRA_FORBIDDEN = "extra_forbidden"
+
+
+def _efield_transport(tmp_path: Path) -> Path:
+    """Write one real BeamFITS transport for the document-stage cases.
+
+    Document resolution never opens the file -- it only requires the resolved
+    path to exist and be a regular file -- so the accepted scalar fixture is
+    enough here, and the Stage-3 *load* contract is exercised in
+    ``tests/unit/test_core/test_sci005_full_efield.py``.
+    """
+    from tests.fixtures.beamfits import write_scalar_efield_beamfits
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    return write_scalar_efield_beamfits(tmp_path).path
+
+
+def _fits_source(path: Path, normalization: str | None) -> dict[str, Any]:
+    source: dict[str, Any] = {"kind": "fits", "path": str(path)}
+    if normalization is not None:
+        source["normalization"] = normalization
+    return source
+
+
+def _fits_beams_at(
+    mode: str,
+    path: Path,
+    normalization: str | None = EFIELD_NORMALIZATION,
+) -> dict[str, Any]:
+    """One document per authorable FITS-source position (Section 5.1.1)."""
+    if mode == "shared_fits":
+        return {"mode": "shared_fits", "beam": _fits_source(path, normalization)}
+    if mode == "per_antenna_fits":
+        return {
+            "mode": "per_antenna_fits",
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": number},
+                    "beam": _fits_source(path, normalization),
+                }
+                for number in (0, 1)
+            ],
+        }
+    if mode == "mixed":
+        return {
+            "mode": "mixed",
+            "analytic_model": deepcopy(UNIFORM_CIRCULAR),
+            "assignments": [
+                {
+                    "antenna": {"kind": "number", "number": 0},
+                    "beam": _fits_source(path, normalization),
+                },
+                {
+                    "antenna": {"kind": "number", "number": 1},
+                    "beam": {"kind": "analytic"},
+                },
+            ],
+        }
+    raise AssertionError(f"unknown beams mode {mode!r}")  # pragma: no cover
+
+
+def _resolved_fits_definitions(bundle: Any) -> list[Any]:
+    """Return every resolved FITS leaf of one resolved beams input.
+
+    ``shared_fits`` carries a single ``beam`` leaf while the two assignment
+    modes carry a tuple, so both shapes are read here rather than assuming one.
+    """
+    beams = bundle.runtime.beams
+    if beams.mode == "shared_fits":
+        return [beams.beam]
+    return [
+        assignment.beam
+        for assignment in beams.assignments
+        if getattr(assignment.beam, "kind", None) == "fits"
+    ]
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["shared_fits", "per_antenna_fits", "mixed"],
+)
+def test_the_full_efield_literal_is_accepted_in_each_authorable_place(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    """Section 5.1.1's exact three authorable positions, and nowhere else."""
+    transport = _efield_transport(tmp_path)
+
+    bundle = _resolve(tmp_path, _fits_beams_at(mode, transport))
+
+    definitions = _resolved_fits_definitions(bundle)
+    assert definitions
+    for definition in definitions:
+        assert definition.normalization == EFIELD_NORMALIZATION
+
+
+def test_the_full_efield_literal_changes_the_resolved_definition_fingerprint(
+    tmp_path: Path,
+) -> None:
+    """Section 5.1.1: "the resolved leaf's ``definition_fingerprint`` payload
+    already binds ``normalization`` ... so the two literals never share a
+    loaded handler and a ``peak`` document's every fingerprint stays
+    byte-identical"."""
+    transport = _efield_transport(tmp_path)
+
+    scalar = _resolve(
+        tmp_path,
+        _fits_beams_at("shared_fits", transport, SCALAR_NORMALIZATION),
+    )
+    efield = _resolve(
+        tmp_path,
+        _fits_beams_at("shared_fits", transport, EFIELD_NORMALIZATION),
+    )
+
+    scalar_definition = _resolved_fits_definitions(scalar)[0]
+    efield_definition = _resolved_fits_definitions(efield)[0]
+    assert scalar_definition.normalization == SCALAR_NORMALIZATION
+    assert efield_definition.normalization == EFIELD_NORMALIZATION
+    assert (
+        scalar_definition.definition_fingerprint
+        != efield_definition.definition_fingerprint
+    )
+
+
+def test_the_normalization_default_is_still_the_scalar_literal(
+    tmp_path: Path,
+) -> None:
+    """Section 5.1.1: the widened field keeps "its ``"peak"`` default"."""
+    transport = _efield_transport(tmp_path)
+
+    bundle = _resolve(tmp_path, _fits_beams_at("shared_fits", transport, None))
+
+    assert _resolved_fits_definitions(bundle)[0].normalization == SCALAR_NORMALIZATION
+
+
+@pytest.mark.parametrize(
+    "authored",
+    ["unit_peak", "uvbeam_peak_common", "UVBEAM_PEAK_COMMON_V1", "solid_angle"],
+)
+def test_an_unknown_normalization_literal_is_a_schema_literal_error(
+    tmp_path: Path,
+    authored: str,
+) -> None:
+    """Section 5.1.1: "An unknown normalization literal is a
+    ``ConfigSchemaError`` carrying Pydantic's own ``literal_error`` issue code
+    at the authored path of that FITS source's ``normalization`` field."
+
+    Pinned by code and path only: widening the accepted literal necessarily
+    rewrites Pydantic's own rendered message, and Section 5.1.1 rules those
+    rejections pinned "by code and path rather than by rendered bytes".
+    """
+    transport = _efield_transport(tmp_path)
+
+    with pytest.raises(ConfigSchemaError) as error:
+        _resolve(tmp_path, _fits_beams_at("shared_fits", transport, authored))
+
+    assert _rows(error.value) == [("beams.beam.normalization", LITERAL_ERROR)]
+
+
+@pytest.mark.parametrize(
+    ("label", "beams", "path"),
+    [
+        pytest.param(
+            "analytic_block",
+            {
+                "mode": "analytic",
+                "model": deepcopy(UNIFORM_CIRCULAR),
+                "normalization": EFIELD_NORMALIZATION,
+            },
+            "beams.normalization",
+            id="analytic_beams_block",
+        ),
+        pytest.param(
+            "analytic_model",
+            {
+                "mode": "analytic",
+                "model": {
+                    "kind": "circular_aperture",
+                    "taper": {"kind": "uniform"},
+                    "normalization": EFIELD_NORMALIZATION,
+                },
+            },
+            "beams.model.normalization",
+            id="analytic_model",
+        ),
+    ],
+)
+def test_the_literal_on_a_block_without_the_field_is_extra_forbidden(
+    tmp_path: Path,
+    label: str,
+    beams: dict[str, Any],
+    path: str,
+) -> None:
+    """Section 5.1.1: "Attaching ``normalization`` to an analytic beams block,
+    an ``AnalyticBeamChoiceConfig``, or any other block is a
+    ``ConfigSchemaError`` carrying Pydantic's own ``extra_forbidden`` issue
+    code, because no analytic model carries the field at all; Stage 3 adds no
+    analytic field and no analytic hint entry."
+    """
+    with pytest.raises(ConfigSchemaError) as error:
+        _resolve(tmp_path, deepcopy(beams))
+
+    assert (path, EXTRA_FORBIDDEN) in _rows(error.value)
+
+
+def test_the_literal_on_a_mixed_analytic_choice_is_extra_forbidden(
+    tmp_path: Path,
+) -> None:
+    """The ``AnalyticBeamChoiceConfig`` half of the same frozen rejection."""
+    transport = _efield_transport(tmp_path)
+    beams = _fits_beams_at("mixed", transport, EFIELD_NORMALIZATION)
+    beams["assignments"][1]["beam"]["normalization"] = EFIELD_NORMALIZATION
+
+    with pytest.raises(ConfigSchemaError) as error:
+        _resolve(tmp_path, beams)
+
+    assert (
+        "beams.assignments[1].beam.normalization",
+        EXTRA_FORBIDDEN,
+    ) in _rows(error.value)
+
+
+def test_stage_3_adds_no_beams_known_field_entry(tmp_path: Path) -> None:
+    """Section 5.1.1: "No other field is added anywhere in ``beams:``", and
+    "Stage 3 adds no analytic field and no analytic hint entry"."""
+    from radiosim.io.config import _KNOWN_FIELDS_BY_PARENT
+
+    assert "normalization" not in _KNOWN_FIELDS_BY_PARENT.get("beams", ())
+    assert "efield" not in _KNOWN_FIELDS_BY_PARENT.get("beams", ())
+
+
+@pytest.mark.parametrize("mode", ["shared_fits", "per_antenna_fits", "mixed"])
+def test_a_full_efield_document_with_squint_is_the_stage2_family_rejection(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    """Section 5.1.1: "The mutual exclusion with ``beams.squint`` that Section
+    4.2 declares is owned entirely by **Stage 2** and is already in force ...
+    Stage 3 freezes no second code for it and changes no byte of that check; it
+    re-witnesses it."
+
+    The document is red today only because the activation literal it must carry
+    is not yet accepted; the code, path, and message asserted here are Stage
+    2's own frozen ones, unchanged.
+    """
+    transport = _efield_transport(tmp_path)
+    beams = _fits_beams_at(mode, transport, EFIELD_NORMALIZATION)
+    beams["squint"] = {"default": _squint_record()}
+
+    with pytest.raises(UnsupportedConfigError) as error:
+        _resolve(tmp_path, beams)
+
+    squint_rows = [row for row in _rows(error.value) if row[0] == SQUINT_PATH]
+    assert squint_rows == [(SQUINT_PATH, SQUINT_UNSUPPORTED_FAMILY)]
+    issue = next(item for item in error.value.issues if item.path == SQUINT_PATH)
+    assert issue.message == _squint_unsupported_family_message(mode)
+
+
+def test_a_full_efield_document_with_aperture_physics_is_the_stage1_rejection(
+    tmp_path: Path,
+) -> None:
+    """Section 5.1.1: "``beams.aperture_physics`` and a nested Ruze diagnostic
+    remain rejected against any FITS source by Stage 1's frozen
+    ``beam.aperture_physics.unsupported_beam_family`` and
+    ``beam.ruze_power_diagnostic.unsupported_beam_family`` under Section 3.1's
+    unchanged aperture-first ordering, so a full-efield file cannot acquire a
+    second aperture physics."
+    """
+    transport = _efield_transport(tmp_path)
+    beams = _fits_beams_at("shared_fits", transport, EFIELD_NORMALIZATION)
+    beams["aperture_physics"] = _aperture_physics(blockage=_blockage(0.15))
+
+    with pytest.raises(UnsupportedConfigError) as error:
+        _resolve(tmp_path, beams)
+
+    assert _rows(error.value) == [(APERTURE_PATH, UNSUPPORTED_FAMILY_APERTURE)]
+    assert error.value.issues[0].message == _unsupported_family_message(
+        APERTURE_FEATURE, "fits"
+    )
