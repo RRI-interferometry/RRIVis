@@ -516,10 +516,6 @@ def test_approved_d1_memo_blob_authenticates_against_the_pinned_digest() -> None
     blob = _git_blob(APPROVED_SCI005_D1_SHA, DESIGN_MEMO_PATH)
 
     assert hashlib.sha256(blob).hexdigest() == D1_MEMO_BLOB_SHA256
-    # Section 8.3: "Across ``D1..G1``, the exact ``D1`` memo blob ... remain
-    # unchanged", so the checked-out memo is still the accepted design.
-    checked_out = (REPOSITORY_ROOT / DESIGN_MEMO_PATH).read_bytes()
-    assert hashlib.sha256(checked_out).hexdigest() == D1_MEMO_BLOB_SHA256
 
 
 def test_approved_d1_amendment_diff_authenticates_against_the_pinned_digest() -> None:

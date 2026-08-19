@@ -105,19 +105,66 @@ infeasibility and every seed-level constant of the new rules exactly — each
 verdict reconfirmed after a three-edit delta resolving the reviews' own
 findings, and landed with only this record sentence added.
 
-**Status:** Stage-1 numerical design accepted; succession amendment and
-ownership correction independently accepted 2026-08-14; the Ruze
-quadrature-domain correction above is pending its own two fresh exact-byte
-reviews, one physics and one computational, and the Section 3.4 red-slice
-re-cut those verdicts govern. The numerical contract is accepted at the exact
-commit above except in Sections 3.4.1 and 3.4.2, which that correction
-supersedes. This correction implements no beam physics, accepts no stage,
-and does not close the register row. `SCI-005` remains **ROADMAP**. Stage 1
-may begin `R1` only after the accepted correction (the operative `D1`) and
-the WP-7 dependency gate below, then must complete its own source, evidence,
-acceptance, and status succession. Stages 2 and 3 remain sequential,
-independently accepted slices even though WP-5 has satisfied their
-polarization-convention dependency.
+**Stage-2 design gate and bounded succession corrections — 2026-08-19.**
+This amendment is the Stage-2 design gate `D2`. It freezes the complete
+normative Stage-2 evidence envelope (Section 8.1), completes Section 4's
+strict configuration, rejection, geometry, precision, and ownership contract
+(Sections 4.1.1, 4.2.1, and 4.3), and grants the three bounded Stage-2
+writable-path additions in Section 7.3. It also lands two bounded succession
+corrections that Stage-1 closure proved necessary. First, Section 8.3's
+frozen edge `D2^ == U1` is infeasible against the actual repository history:
+after `U1` landed at `d6eb4b083d4db704cd31abcf70e22cb745291e15`, the strict
+Sphinx gate failed on the changelog heading level `U1` itself introduced, and
+the repair landed as `3e336095009e72bf4ae6064d5e97d381e063258f`, a
+single-parent commit touching only `docs/changelog.rst` — a Section 7.5
+status path — with no source, schema, test, tool, artifact, fingerprint,
+tolerance, or acceptance-byte change. History is never rewritten, so the
+exact edge is replaced by the starred edge `U1 ->* D2` that Section 8.3 now
+defines; the observed interval is exactly that one commit. Second, a
+memo-only `D2` was impossible: `tests/unit/test_sci005_stage1_dependency.py`
+asserted the *checked-out* memo bytes equal the `D1` blob, an interval-freeze
+check whose freeze interval (`D1..G1`, operationally through `U1`) is
+complete, and whose persistence would turn the standard gate red at any
+later design gate — the outcome `U1`'s own commit message already recorded
+as requiring phase-awareness before any memo append. This commit therefore
+lands, together with the memo amendment, exactly one bounded edit to that
+validator: the four lines of
+`test_approved_d1_memo_blob_authenticates_against_the_pinned_digest` that
+read and compare the checked-out memo (the two-line comment quoting Section
+8.3 and the two statements binding `checked_out`) are deleted, and no other
+byte of that file changes. The remaining assertions still authenticate the
+exact `D1` blob, diff, ancestry, and header pins from Git objects, which stay
+true forever. The `APPROVED_SCI005_D1_SHA` binding literal and every other
+dependency-validator byte remain immutable. This two-path landing is the one
+authorized exception to the memo-only design-commit form, recorded here and
+in Sections 7.1 and 8.3; it implements no beam physics, accepts no stage, and
+does not close the register row. Its exact pre-landing memo bytes
+(`sha256:5c03896c004d0e557af3c53cbf725e597567d530c3aef9f0fdca59324bd50197`),
+dependency-validator bytes
+(`sha256:e8d0255b2adb56bd11241e5ba12f655a63282caa161f70782926afe2dceb7cdc`),
+and parent-relative diff
+(`sha256:71effe56ee49336c306a0a5a27c58ffdbf0d0be0d5fa6972201ceb3066008969`)
+received separate fresh independent governance/physics and computational
+reviews on 2026-08-19 — each initial review returned exactly one major
+finding, both findings were resolved by a five-edit delta frozen into these
+bytes, and both reviewers then issued their `ACCEPT` verdicts on exactly
+these pins — and landed with only this record sentence added.
+
+**Status:** Stage 1 is accepted and closed as a stage: the operative `D1` is
+`c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted succession is
+`R1 e246c5d1c092b5321dddfd9506bb1f2d3ae12365 ->
+S1 881b1a963b4f3b250b38989335c2ee0ea2a491bd ->
+E1 bbc2b1b4d16bce296c2b6f6597c7c180a70f0f7f ->
+A1 2281f2f00576abbc98a0a047ce192ad3013aa202 ->
+U1 d6eb4b083d4db704cd31abcf70e22cb745291e15`, with the retained evidence and
+acceptance artifacts authenticated by their approved validator constants.
+The commit containing this amendment is the operative `D2` once its exact
+bytes are independently accepted per Section 7.1. Stage 2 may begin `R2`
+only after that acceptance, with `R2^ == D2`, and must complete its own
+source, evidence, acceptance, and status succession through `U2`. Stage 3
+remains a later, sequential, independently accepted slice behind its own
+`D3`. This gate implements no beam physics and accepts no stage. `SCI-005`
+remains **ROADMAP** until whole-row closure after Stage 3.
 
 ## 1. Ruling and bounded scope
 
@@ -1381,7 +1428,108 @@ does today. The apparent beam orientation is never emulated by adding a value
 to electrical `feed_rotation_deg`. Unknown mount/beam-frame metadata is
 rejected rather than assigned a generic correction.
 
-### 4.2 Factorization into the canonical chain
+#### 4.1.1 Strict document contract and typed rejections
+
+`beams.squint` is a strict frozen block with exactly two fields: `default`,
+an optional squint record, and `per_antenna`, a tuple of zero or more
+per-antenna records. A per-antenna record carries exactly `antenna` — an
+exact antenna number or name reference, following the accepted
+`beams.pointing` reference forms — plus one complete squint record's five
+fields. There is no per-antenna suppression form in v1: the resolved default
+applies to every antenna not named by a `per_antenna` record, and an array
+in which some antennas must not squint while others do is authored with no
+`default` and one record per squinting antenna. A suppression form is a
+later design, not authorized here.
+
+Every squint record's five fields are strict in the Section 3.5 sense:
+`convention` is exactly the literal `cotton_uson_exact_v1`;
+`reference_frequency_hz`, `per_feed_offset_deg_at_reference`, and
+`mechanical_feed_position_angle_deg` are exact finite Python floats that
+reject `bool` and `int` through Pydantic's own `float_type` issue code; and
+`positive_native_feed` is exactly one of the literals `x`, `y`, `r`, or `l`.
+Unknown fields, wrong kinds, and missing required fields fail as
+`ConfigSchemaError` with Pydantic's own issue codes. `beams.squint`
+participates in `SimulationOverrides` exactly as `beams.pointing` does, with
+the override field allowlist entries `beams.squint` and
+`beams.squint.default`.
+
+Document-level value and cross-field failures are `ConfigSemanticError`
+carrying exactly these frozen codes, paths, and messages, where `{value!r}`
+renders the resolved Python value and `{mode!r}` the resolved beams mode:
+
+- `beam.squint.identity_block`, path `beams.squint`, message
+  `A beams.squint block must carry a default record or at least one
+  per-antenna record.` — an explicitly present block with no `default` and
+  an empty `per_antenna` is an exact identity and is rejected;
+- `beam.squint.reference_frequency_domain`, path
+  `beams.squint.default.reference_frequency_hz` or
+  `beams.squint.per_antenna[i].reference_frequency_hz` with the zero-based
+  authored index `i`, message `squint reference_frequency_hz must be a
+  positive finite frequency in Hz; resolved {value!r}.`;
+- `beam.squint.offset_domain`, path
+  `beams.squint.default.per_feed_offset_deg_at_reference` or
+  `beams.squint.per_antenna[i].per_feed_offset_deg_at_reference`, message
+  `squint per_feed_offset_deg_at_reference must lie in the open interval
+  (0, 90); resolved {value!r}.`;
+- `beam.squint.mechanical_angle_domain`, path
+  `beams.squint.default.mechanical_feed_position_angle_deg` or
+  `beams.squint.per_antenna[i].mechanical_feed_position_angle_deg`, message
+  `squint mechanical_feed_position_angle_deg must lie in (-180, 180];
+  resolved {value!r}.` — the authored value is required in the canonical
+  interval and is never wrapped.
+
+One unsupported combination is `UnsupportedConfigError` with the frozen code
+`beam.squint.unsupported_beam_family`, path `beams.squint`, and exact message
+`Stage-2 beam squint supports only the analytic beams mode; resolved beams
+mode is {mode!r}.` Stage-2 v1 accepts `beams.squint` only when the resolved
+beams mode is `analytic`: a `shared_fits`, `per_antenna_fits`, or `mixed`
+document with a squint block is rejected at the document stage with no
+antenna-reference matching. A measured file's pattern may already contain
+the physical feed displacement, and the scalar accepted subset provides no
+metadata by which RadioSim could prove it does not; every analytic model,
+including the Stage-1 aperture-physics branch, is supported because squint
+only re-evaluates the existing scalar response at displaced directions.
+
+Stage-2 document checks run after every Stage-1 aperture and diagnostic
+check in Section 3.5's fixed order. Within `beams.squint`, the identity
+check precedes value-domain checks; value-domain checks visit the `default`
+record and then ascending `per_antenna` indices, each record's fields in the
+declared field order; the unsupported-family check runs last. This order,
+together with `ConfigIssue` sorting, fixes the first rejection recorded in
+evidence.
+
+Three rejections are owned by beam-system load rather than the document,
+because they need resolved instrument, receptor, or frequency state.
+`resolve_beam_assignments` resolves per-antenna squint records through the
+accepted default-then-override map, so a per-antenna reference that names an
+unknown antenna raises the existing typed `UnknownBeamAntennaError` and a
+repeated canonical antenna raises the existing typed
+`DuplicateBeamAssignmentError`, exactly as `beams.pointing` does today; it
+also captures each squint-carrying antenna's resolved mount literal into the
+resolved squint record. `load_beam_system` then owns two new typed
+rejections, raised before any handler evaluation:
+
+- `SquintFrequencyDomainError` — for every observation channel frequency
+  `nu` and every squint-carrying antenna, the exact binary64 argument
+  `(reference_frequency_hz / nu) * sin(radians(
+  per_feed_offset_deg_at_reference))` must lie in `[-1, 1]`; the preflight
+  rejects, never clips, and its message names the antenna, the offending
+  observation frequency, the reference frequency, and the reference offset.
+  Evaluation later computes the identical binary64 expression, so an
+  argument outside the domain at evaluation time is an internal failure.
+- `SquintReceptorBasisError` — `positive_native_feed` must belong to the
+  assigned antenna's resolved receptor basis: `x`/`y` require the `linear`
+  basis and `r`/`l` require the `circular` basis. The message names the
+  antenna, the authored label, and the antenna's resolved basis.
+  Document-stage validation does not own this check because per-antenna
+  receptor bases exist only after receptor resolution, exactly as Section
+  3.2 ruled for per-antenna diameters.
+
+Both classes are appended to `core/beam/errors.py` as
+`BeamLoadError` subclasses under Section 7.3's bounded grant. The other
+native feed of a squint record is fixed by the label pair of its basis —
+`x` pairs with `y` and `r` pairs with `l` — and receives the negative
+displacement; no second label is authored.
 
 Let the two displaced scalar voltage samples in native-feed order be
 
@@ -1416,7 +1564,142 @@ gate remains on true topocentric altitude. A full-efield file accepted by Stage
 already contain squint and provides no metadata by which RadioSim could subtract
 it safely.
 
-### 4.3 Stage-2 acceptance invariants
+#### 4.2.1 Displacement geometry, precision, and evaluation ownership
+
+The feed ray and squint direction are beam-frame position angles. With the
+resolved mount factors `(eta_p, nu_p)` of Section 4.1 — `None` resolving to
+`fixed` — the antenna's feed-ray angle at one time step is
+
+$$
+\beta_{{\rm feed},p}=\operatorname{wrap}(\beta_{\rm mechanical}
++\eta_p\psi_p+\nu_p\,\mathrm{alt}_p),
+\qquad
+\beta_{{\rm squint},p}=\operatorname{wrap}(\beta_{{\rm feed},p}+\pi/2),
+$$
+
+where `psi_p` and `alt_p` are the parallactic angle and true altitude of the
+antenna's **resolved boresight** — the beam-frame zenith mapped to the sky
+through the antenna's accepted pointing rotation, the topocentric zenith when
+no pointing offset is configured — not per-direction values. The private
+solver-owned adapter owns the boresight computation: once per antenna and
+time step it derives the boresight's apparent hour angle and declination
+with the same accepted exact inverse horizontal transform `DirectionBatch`
+uses, evaluates the accepted `parallactic_angle` formula, and supplies both
+values to the beam runtime. For `eta_p == 0` it supplies exactly `0.0` as
+the parallactic angle, which the formula multiplies away. For `eta_p != 0`
+with a boresight altitude exactly `pi/2` in binary64, the parallactic angle
+is undefined; the adapter raises `BeamAngularDomainError` with the exact
+message `Beam squint on a rotating mount is undefined at an exactly zenith
+boresight.` rather than adopting `arctan2(0, 0)`. An alt-az antenna with no
+pointing offset is exactly this case; the evidence records it as a
+limitation, and geometry fixtures for rotating mounts carry a non-zero
+pointing offset.
+
+`BeamSystem.evaluate_jones` gains exactly two keyword-only parameters,
+`boresight_parallactic_rad: float | None = None` and
+`boresight_altitude_rad: float | None = None`. When the resolved antenna
+carries squint, both must be exact finite Python floats; when it does not,
+both must be `None`, and a violation of either rule raises
+`BeamEvaluationError`. The no-squint call surface, behavior, and results are
+byte-identical to today.
+
+Displacement geometry is exact and binary64 throughout, matching the
+accepted `DirectionBatch` and pointing-rotation contract. In the beam-frame
+tangent basis at the beam-frame zenith, with
+$\hat{\mathbf u}=\cos\beta_{\rm squint}\,\hat{\mathbf N}
++\sin\beta_{\rm squint}\,\hat{\mathbf E}$, the squint rotation axis is the
+horizontal unit vector
+
+$$
+\hat{\mathbf a}_p=\sin\beta_{{\rm squint},p}\,\hat{\mathbf N}
+-\cos\beta_{{\rm squint},p}\,\hat{\mathbf E},
+$$
+
+so that rotating the beam-frame zenith by $+\delta$ about
+$\hat{\mathbf a}_p$ moves it along $+\hat{\mathbf u}$. For feed sign
+$s_f=+1$ on the `positive_native_feed` and $s_f=-1$ on its partner, and
+$\delta(\nu)$ from the exact arcsine law evaluated as the Section 4.1.1
+binary64 expression, each already pointing-transformed beam-frame direction
+unit vector $\hat{\mathbf n}$ is evaluated at the exactly rotated
+
+$$
+\hat{\mathbf n}_f=R(-s_f\,\delta(\nu);\hat{\mathbf a}_p)\,\hat{\mathbf n},
+$$
+
+by the Rodrigues rotation, then converted back to beam-frame altitude and
+azimuth with the same `arctan2` forms the accepted pointing rotation uses.
+This samples the feed's pattern rigidly displaced to
+$+s_f\,\delta(\nu)\hat{\mathbf u}$; the two evaluations are exact
+great-circle rotations, the midpoint of the two displaced centres is the
+resolved boresight, and their total separation is `2*delta`. The horizon
+gate remains on true topocentric altitude exactly as the accepted pointing
+rotation leaves it: only visible directions are rotated, and the
+evaluator's own angular-domain behavior applies to a displaced direction
+exactly as it applies to a pointing-rotated direction today.
+
+The beam runtime owns `D_b` assembly and the `E` composition. For each of
+the two feed evaluations it calls the antenna's existing scalar evaluator —
+the analytic path, including any Stage-1 aperture-physics branch — at the
+displaced directions, producing per-feed scalar samples `b_+` and `b_-` at
+the resolved result dtype. `D_b = diag(b_0, b_1)` is ordered by the
+antenna's resolved native feed order `("x","y")` or `("r","l")`, with the
+positive displacement on the feed whose label equals
+`positive_native_feed`. The runtime constructs the antenna's receptor
+matrix at the resolved beam dtype from the antenna's resolved receptor
+basis and static rotation using the accepted formulas — `C = M(basis) @
+R(chi)` with `R(chi) = [[cos chi, sin chi], [-sin chi, cos chi]]`,
+`M(linear) = [[0, 1], [1, 0]]`, and `M(circular) = (1/sqrt(2)) *
+[[1, i], [1, -i]]` — and returns the composed
+
+$$
+E=C^\dagger D_b\,C
+$$
+
+from `evaluate_jones`, with the accepted Ruze voltage factor applied to the
+composed `E` exactly where the scalar path applies it today (the factor is
+scalar and commutes). Direction geometry is binary64; `b_+`, `b_-`, `C`,
+and the composition are evaluated at the resolved beam dtype and never pass
+through a narrower width when the resolved dtype is wider than complex128.
+FITS-backed definitions never reach this path (Section 4.1.1), so the
+extended widths remain analytic-only exactly as accepted. Backend
+conversion of the finished `E` batch happens at the existing adapter
+boundary and nowhere earlier.
+
+To make this possible, `load_beam_system` gains the resolved receptor set:
+the `Simulator` passes its already-resolved `ResolvedReceptorSet` through a
+new keyword under Section 7.3's bounded `api/simulator.py` grant, and
+`load_beam_system` requires it whenever any resolved antenna carries
+squint. Receptor resolution is unchanged and remains the accepted single
+authority; the runtime reads only each squint antenna's resolved basis and
+static `feed_rotation_rad`, and the solver's own `C` term continues to come
+from the same resolved receptor set, so the `C` inside `E` and the chain's
+`C` cannot disagree.
+
+The per-antenna response identity widens exactly when squint is present:
+the `_response_key` payload gains one `"squint"` sub-object with exactly
+the keys `reference_frequency_hz`, `per_feed_offset_deg_at_reference`,
+`mechanical_feed_position_angle_deg`, `positive_native_feed`, `mount_type`,
+`receptor_basis`, and `feed_rotation_rad`. An antenna without squint
+produces a byte-identical key to today. Within one solver step the adapter
+cache is keyed on this response identity as today; across steps each
+adapter is rebuilt, so the time dependence of a rotating mount's
+`beta_feed` never crosses a cache boundary.
+
+The resolved squint record is one frozen dataclass in `core/beam/models.py`
+with exactly the fields `convention:
+Literal["cotton_uson_exact_v1"]`, `reference_frequency_hz: float`,
+`per_feed_offset_deg_at_reference: float`,
+`mechanical_feed_position_angle_deg: float`, `positive_native_feed:
+Literal["x", "y", "r", "l"]`, and `mount_type` holding one of the five
+accepted mount literals. It enters `_assignment_fingerprint` and the
+handler-independent scientific fingerprint only when present, through one
+payload function whose exact key set is the six field values above plus
+the convention literals `"direction_convention":
+"feed_ray_plus_half_pi_north_through_east_v1"`, `"frame_convention":
+"pointing_then_squint_great_circle_v1"`, and `"factorization_convention":
+"receptor_conjugated_native_diagonal_v1"`. Squint is per-antenna state like
+pointing and surface error: it never enters the handler preload key, and
+two antennas sharing a handler may carry different squint records.
 
 Acceptance requires:
 
@@ -1430,8 +1713,25 @@ Acceptance requires:
 - the first-order Stokes-V leakage sign for a declared R/L assignment, with the
   sign reversed when the assignment reverses;
 - scalar disabled/default byte identity;
-- point and HEALPix paths and NumPy/JAX/Dask parity; and
-- fingerprints changed only for squint-enabled fixtures.
+- point and HEALPix paths and NumPy/JAX/Dask parity;
+- fingerprints changed only for squint-enabled fixtures;
+- every Section 4.1.1 document rejection with its exact typed exception,
+  issue code, path, and message, and every load and evaluation rejection —
+  unknown and duplicate per-antenna references, the arcsine frequency
+  preflight, the receptor-basis mismatch, and the exactly-zenith rotating
+  boresight — with its exact typed exception;
+- the mount field-rotation formula on every one of the five accepted mount
+  literals, including the opposite-sign control of Section 4.1;
+- the widened per-antenna response identity: two antennas sharing one
+  handler with different squint or receptor state never share a composed
+  `E`, an antenna without squint produces today's byte-identical key, and
+  the no-squint `evaluate_jones` call surface and results are
+  byte-identical;
+- one extended-width `complex256` factorization row per Section 8.1's
+  Stage-2 envelope, composed and independently rederived without passing
+  through `complex128`; and
+- the Ruze voltage factor applied once to the composed `E`, with squint
+  composing correctly with the Stage-1 aperture-physics branch.
 
 Stage 2 begins only after Stage 1 is accepted. WP-5's accepted east-X semantics
 are a prerequisite, not Stage-2 acceptance evidence.
@@ -1683,13 +1983,17 @@ correction before it is edited.
 - `PostTier8RemediationPlan.md` (WP-8 section and ledger dependency wording)
 
 `D1` is the independently accepted commit containing this amendment. `D2`
-directly parents `U1` and freezes the complete normative Stage-2 evidence
-envelope before `R2`; `D3` directly parents `U2` and does the same for Stage 3
-before `R3`.
+follows `U1` through Section 8.3's starred `U1 ->* D2` edge and freezes the
+complete normative Stage-2 evidence envelope before `R2`; `D3` directly
+parents `U2` and does the same for Stage 3 before `R3`.
 Those later design gates may write only the paths above, change no production,
 red oracle, retained artifact, or prior acceptance text, and require their own
-exact-byte independent design reviews. Omitting an applicable `D2` or `D3`, or
-combining it with red tests, invalidates the following stage.
+exact-byte independent design reviews, with one recorded exception: `D2`
+additionally lands the bounded four-line deletion in
+`tests/unit/test_sci005_stage1_dependency.py` that its header record and
+Section 8.3 authorize, and changes no other byte of that file. Omitting an
+applicable `D2` or `D3`, or combining it with red tests, invalidates the
+following stage.
 
 Stage 1 has one intervening dependency-gate tip `G1`. `D1` must be an ancestor
 of globally clean `G1`, and the accepted WP-7 CPU acceptance commit must also
@@ -1728,7 +2032,10 @@ creates `tests/unit/test_sci005_stage1_dependency.py` with exactly one design
 binding assignment,
 `APPROVED_SCI005_D1_SHA = "<40hex-D1>"`. Its value must name the accepted
 ancestor whose memo blob is this amendment; no later stage may change that
-literal or any dependency-validator byte. Stage-1 evidence and acceptance
+literal, and no later stage may change any other dependency-validator byte
+beyond the one bounded four-line deletion the accepted `D2` header records —
+the completed `D1..G1` interval-freeze assertion on checked-out memo bytes,
+removed with no other byte change. Stage-1 evidence and acceptance
 derive `design_sha` only from this binding, never by choosing a matching commit
 from history.
 
@@ -1809,7 +2116,16 @@ authenticates it through Section 8.2.
 - `src/radiosim/core/beam/models.py`
 - `src/radiosim/core/beam/resolution.py`
 - `src/radiosim/core/beam/runtime.py`
+- `src/radiosim/core/beam/errors.py` (append-only: exactly two new classes
+  `SquintFrequencyDomainError(BeamLoadError)` and
+  `SquintReceptorBasisError(BeamLoadError)`, each with docstring and its
+  `__all__` entry; no existing byte changes)
+- `src/radiosim/core/beam/__init__.py` (append-only: the two new error
+  exports alone)
 - `src/radiosim/core/visibility.py`
+- `src/radiosim/api/simulator.py` (exactly the `load_beam_system` call site:
+  passing the already-resolved receptor set through the Section 4.2.1
+  keyword; no other statement changes)
 - `tests/unit/test_io/test_sci005_beam_config.py`
 - `tests/unit/test_core/test_sci005_beam_squint.py` (new)
 - `tests/unit/test_core/test_beam_runtime.py`
@@ -1987,10 +2303,11 @@ fingerprint_diff, commands, artifacts, limitations, claims_not_licensed
 `schema_version` is respectively `radiosim.sci005.stage1.v1`,
 `radiosim.sci005.stage2.v1`, or `radiosim.sci005.stage3.v1`. Missing and unknown
 fields fail validation. The bounded correction freezes the complete Stage-1
-envelope below. Stages 2 and 3 retain their accepted common envelope, but their
-stage-specific extensions are deliberately not frozen here; mandatory `D2` and
-`D3` independently freeze their exact normative rows, keys, types, and
-cross-field predicates before their red slices. The corresponding `S2` or `S3`
+envelope below, and the accepted `D2` freezes the complete Stage-2 envelope
+below it. Stage 3 retains its accepted common envelope, but its
+stage-specific extensions are deliberately not frozen here; mandatory
+`D3` independently freezes its exact normative rows, keys, types, and
+cross-field predicates before its red slice. The corresponding `S2` or `S3`
 then checks in the literal JSON Schema transcription before its artifact
 successor.
 
@@ -2240,6 +2557,189 @@ exact result-dtype balance from Section 3.4. Unknown or missing projection keys,
 nulls, a backend field, a `converged` boolean, clipping metadata, FFT metadata,
 or any direction-sized complex value fail authentication.
 
+#### Stage-2 evidence envelope
+
+Stage 2 appends, in order, the top-level arrays `squint_frequency_laws`,
+`squint_geometries`, `native_feed_factorizations`, `stokes_v_leakages`, and
+`squint_setup_rejections` to the common field sequence. Its exact top-level
+scalar contract is the Stage-1 contract with these substitutions:
+`schema_version` is `radiosim.sci005.stage2.v1`, `stage` is integer `2`, and
+`source_sha` names the clean checked-out Stage-2 implementation candidate
+`S2`. Every array field is non-empty except that `limitations` may be empty.
+The official `E2` artifact is generated on an available NumPy platform
+meeting the Section 8.1 extended-width predicate, because the envelope
+requires one `complex256` factorization row below. `S2` checks in
+`docs/development/sci005_stage2_evidence.schema.json` as the literal JSON
+Schema transcription of this envelope, authenticated by an `artifacts` row
+with role `schema`; the prose here wins if the red slice exposes a
+transcription difference. `S2` extends `tests/unit/test_sci005_evidence.py`
+with the Stage-2 validation and synthetic-document tests while changing no
+Stage-1 validation logic, constant, or synthetic fixture.
+
+Stage 2's `scientific_conventions` has exactly:
+
+```text
+squint_frequency_law: cotton_uson_exact_v1
+squint_direction: feed_ray_plus_half_pi_north_through_east_v1
+squint_beam_frame: pointing_then_squint_great_circle_v1
+squint_factorization: receptor_conjugated_native_diagonal_v1
+```
+
+The common rows specialize for Stage 2 as follows. `analytic_invariants`
+requires no extended-width case identifiers — the Stage-1 sentence naming
+`extended_precision_unmodified_profile` and
+`extended_precision_mask_plus_zernike` is scoped to Stage 1, and Stage 2's
+one required extended row lives in `native_feed_factorizations` below.
+`solver_cases.effect` is one of exactly `squint_point` or `squint_healpix`;
+each appears at least once, `diagnostic_sha256` is null on every row,
+`visibility_change_expected` is true, and
+`visibility_changed_element_count` is positive. `backend_parity` retains
+the common all-three-backends rule with the `float64`/`complex128` pair for
+at least one squint-enabled case. `output_cases` contains at least one
+`in_memory` row and one `hdf5` row for a squint-enabled workload.
+`rejection_probes` contains each of the five frozen Section 4.1.1 codes —
+`beam.squint.identity_block`, `beam.squint.reference_frequency_domain`,
+`beam.squint.offset_domain`, `beam.squint.mechanical_angle_domain`, and
+`beam.squint.unsupported_beam_family` — at least once, each with its exact
+frozen path and message. `fingerprint_diff` keeps the common
+enabled-plus-disabled-control rule. `claims_not_licensed` must contain the
+exact members `SCI-005 Stage-2 acceptance`, `SCI-005 Stage 3`,
+`SCI-005 whole-row closure`, and
+`a full cross-polar or measured-efield beam response`; for Stage 2 this
+list supersedes the Stage-1-scoped member rule in the common
+`commands`/`artifacts` paragraph above, which is scoped to Stage 1.
+
+Stage-1 closure also exposed one generator defect this gate records and
+Stage 2 must correct inside its already-writable
+`tools/sci005_stage_evidence.py`: the shipped `resolve_design_sha` for
+stages other than 1 resolves `HEAD^^{commit}` — git's peel form of
+`HEAD^`, not the grandparent — and would therefore record
+`design_sha == red_test_sha` for Stage 2. `S2` corrects it to resolve the
+exact grandparent of clean `HEAD == S2`, honoring the Section 8.1 rule
+that `Di` is the direct parent of `Ri`, and the Stage-2 validation in
+`tests/unit/test_sci005_evidence.py` independently authenticates
+`red_test_sha^ == design_sha`, `source_sha^ == red_test_sha`, and
+`design_sha != red_test_sha` from Git objects, so this defect class
+cannot pass validation again.
+
+Each `squint_frequency_laws` row has exactly
+`{case_id, reference_frequency_hz, per_feed_offset_deg_at_reference,
+samples, small_angle_control_frequency_hz, small_angle_abs_separation,
+max_abs_residual, tolerance, test_node_id, passed}`. `case_id` and
+`test_node_id` are strings; both frequencies are positive numbers; the
+offset is a number in the open interval `(0, 90)`; the two residual fields
+are numbers; `tolerance` is a positive number; and `passed` is boolean.
+`samples` is an array of at least three exact objects
+`{frequency_hz, expected_offset_rad, observed_offset_rad,
+small_angle_offset_rad}`, strictly increasing in positive `frequency_hz`,
+with every offset a number in the open interval `(0, pi/2)`. Cross-field
+validation recomputes `expected_offset_rad` as the binary64
+`asin((reference_frequency_hz / frequency_hz) *
+sin(radians(per_feed_offset_deg_at_reference)))` and
+`small_angle_offset_rad` as the binary64
+`radians(per_feed_offset_deg_at_reference) * reference_frequency_hz /
+frequency_hz`, requiring each recorded value to agree within an absolute
+difference of `1e-15`; recomputes `max_abs_residual` as the largest
+`abs(observed_offset_rad - expected_offset_rad)` over the samples,
+requiring the recorded value to equal the recomputation in binary64 and to
+satisfy `max_abs_residual <= tolerance`;
+requires `small_angle_control_frequency_hz` to equal one sample's
+`frequency_hz` and differ from `reference_frequency_hz`; requires
+`small_angle_abs_separation` to equal that sample's
+`abs(small_angle_offset_rad - expected_offset_rad)` in binary64 and to be
+at least `8 * tolerance`. Rows are sorted by unique `case_id`.
+
+Each `squint_geometries` row has exactly
+`{case_id, mount_type, mechanical_feed_position_angle_deg,
+positive_native_feed, receptor_basis, parallactic_angle_rad,
+boresight_altitude_rad, frequency_hz, resolved_offset_rad, probes,
+test_node_id, passed}`. `mount_type` is one of the five Section 4.1 mount
+literals; the mechanical angle is a number in `(-180, 180]`;
+`positive_native_feed` is one of `x`, `y`, `r`, `l` and `receptor_basis`
+one of `linear`, `circular`, with the label belonging to the basis;
+`parallactic_angle_rad` is a signed finite number;
+`boresight_altitude_rad` is a number; `frequency_hz` is a positive number;
+`resolved_offset_rad` is a number in the open interval `(0, pi/2)`; and
+`probes` is a non-empty array of exact objects
+`{kind, observed, bound, relation, passed}` whose `kind` values are unique
+within the row. `kind` is one of exactly:
+
+```text
+orthogonality_dot_abs, handedness_plus_half_pi_residual_rad,
+midpoint_center_residual_rad, total_separation_residual_rad,
+mount_rotation_residual_rad, opposite_mount_sign_min_abs_delta_rad,
+mechanical_rotation_residual_rad, feed_sign_reversal_center_residual_rad
+```
+
+`observed` and `bound` are numbers; `relation` is `le` for every kind
+except `opposite_mount_sign_min_abs_delta_rad`, whose relation is `ge`; a
+probe's `passed` is boolean and equals `observed <= bound` for `le` and
+`observed >= bound` for `ge`. Across the whole array every one of the eight
+kinds appears at least once, at least one row has `mount_type` `alt-az`,
+and at least one row has `mount_type` `fixed`. Rows are sorted by unique
+`case_id`.
+
+Each `native_feed_factorizations` row has exactly
+`{case_id, receptor_basis, feed_rotation_deg, parallactic_angle_rad,
+positive_native_feed, b_plus, b_minus, expected, observed,
+factorization_max_abs_residual, chain_order_max_abs_residual,
+order_control_max_abs_difference, atol, test_node_id,
+passed}`. `receptor_basis` and `positive_native_feed` follow the geometry
+row rules; `feed_rotation_deg` and `parallactic_angle_rad` are signed
+finite numbers; `b_plus` and `b_minus` are exact objects
+`{real, imag}` of signed finite numbers and differ as complex pairs;
+`expected` and `observed` are `numeric_projection` values with identical
+dtype and shape, dtype `complex128` or `complex256` and shape `[2, 2]` or
+`[S, 2, 2]` with `S >= 1`; the three residual fields are numbers; and
+`atol` is a positive number. Here
+`expected` projects an independently composed `C^dagger diag(b) C` sandwich
+and `observed` projects the production composition;
+`factorization_max_abs_residual` is the largest entrywise absolute
+difference between `observed` and `expected`;
+`chain_order_max_abs_residual` is the largest
+entrywise absolute difference between the production `C @ E @ P` and the
+physical `D_b @ C @ P`; and `order_control_max_abs_difference` is the
+largest entrywise absolute difference between `C @ E @ P` and
+`C @ P @ E`. Cross-field validation requires
+`factorization_max_abs_residual <= atol`,
+`chain_order_max_abs_residual <= atol`,
+and `order_control_max_abs_difference >= max(1e-3, 1024 * atol)`. The
+array contains at least one `circular` row, at least one `linear` row with
+non-zero `feed_rotation_deg`, and exactly one row with `case_id`
+`extended_precision_native_feed_factorization` whose projections are
+`complex256`; that row's production composition and independent oracle
+never pass through `complex128`, and narrowing either invalidates the row.
+Rows are sorted by unique `case_id`.
+
+Each `stokes_v_leakages` row has exactly
+`{case_id, positive_native_feed, reversed_case_id, frequency_hz,
+probe_altitude_rad, probe_azimuth_rad, observed_v_over_i, expected_sign,
+observed_sign, min_abs_v_over_i, test_node_id, passed}`.
+`positive_native_feed` is `r` or `l`; `reversed_case_id` is a string naming
+another row; `frequency_hz` is a positive number; the probe coordinates are
+signed finite numbers naming a direction on the positive-squint side of the
+boresight; `observed_v_over_i` is a signed finite number; `expected_sign`
+and `observed_sign` are the exact signed integers `-1` or `1`; and
+`min_abs_v_over_i` is a positive number. Cross-field validation requires
+`expected_sign` to be `1` exactly when `positive_native_feed` is `r`;
+`observed_sign == expected_sign`; the sign of `observed_v_over_i` to equal
+`observed_sign`; `abs(observed_v_over_i) >= min_abs_v_over_i`; and the row
+named by `reversed_case_id` to exist, name this row reciprocally, and carry
+the opposite `positive_native_feed` and the opposite `observed_sign`. Rows
+are sorted by unique `case_id`.
+
+Each `squint_setup_rejections` row has exactly
+`{case_id, case_kind, exception_type, exact_message, test_node_id,
+passed}`, all strings except the boolean, with `case_kind` one of exactly
+`unknown_antenna`, `duplicate_antenna`, `frequency_domain`,
+`receptor_basis`, or `boresight_degenerate`. Every kind appears at least
+once across the array. `exception_type` is frozen per kind:
+`UnknownBeamAntennaError`, `DuplicateBeamAssignmentError`,
+`SquintFrequencyDomainError`, `SquintReceptorBasisError`, and
+`BeamAngularDomainError` respectively, and a `boresight_degenerate` row's
+`exact_message` equals the Section 4.2.1 frozen literal. Rows are sorted by
+unique `case_id`.
+
 #### Evidence-generation transaction
 
 The exact evidence invocation is:
@@ -2260,8 +2760,9 @@ claims_not_licensed
 ```
 
 Stage 1 appends exactly `pupil_profiles`, `support_masks`, and
-`ruze_power_diagnostics`; `D2` and `D3` freeze their stage-specific input
-extensions with their evidence rows. Every supplied value uses the
+`ruze_power_diagnostics`; Stage 2 appends exactly the five arrays the
+Stage-2 envelope above freezes, in that order; `D3` freezes the Stage-3
+input extensions with its evidence rows. Every supplied value uses the
 corresponding evidence shape above. Missing/unknown/duplicate keys, a
 non-regular or symlink input, a non-finite value, an incomplete row set, a false
 row, or a nonzero command fails before a repository write.
@@ -2527,23 +3028,48 @@ Commit succession is mandatory:
 
 The evidence file cannot truthfully contain its own future Git SHA before it is
 committed. `evidence_sha` is JSON null in the file. The exact direct-parent
-chain is `D1 ->* G1 -> R1 -> S1 -> E1 -> A1 -> U1 -> D2 -> R2 -> S2 -> E2
--> A2 -> U2 -> D3 -> R3 -> S3 -> E3 -> A3 -> U3 -> C`. The starred edge is
-ancestor reachability through separately authorized, independently accepted
+chain is `D1 ->* G1 -> R1 -> S1 -> E1 -> A1 -> U1 ->* D2 -> R2 -> S2 -> E2
+-> A2 -> U2 -> D3 -> R3 -> S3 -> E3 -> A3 -> U3 -> C`. The first starred edge
+is ancestor reachability through separately authorized, independently accepted
 programme commits, including the WP-7 dependency/interface succession; every
 unstarred arrow is the sole direct-parent edge and no named commit is a merge.
 Across `D1..G1`, the exact `D1` memo blob, the `Fix.md` SCI-005 row, the WP-8
 subsection/ledger cells, and the Stage-1 scope rows remain unchanged. Every
 Section 7.2 path marked `new` or `successor only` remains absent; independently
 accepted programme commits may otherwise change shared paths and those bytes
-become the `G1` red baseline. Thus `R1^ == G1`, `Si^ == Ri`, `Ei^ == Si`,
+become the `G1` red baseline.
+
+The second starred edge, `U1 ->* D2`, is ancestor reachability from `U1` to
+`D2` through zero or more separately authorized status-prose commits. Every
+commit in `U1..D2` other than `D2` itself is a single-parent non-merge whose
+parent-relative diff touches only Section 7.5 status paths and contains no
+source, schema, test, tool, artifact, fingerprint, tolerance, or
+historical-acceptance-byte change; across that interval every Section 7.3
+path marked `new` or `successor only` remains absent, and the retained
+Stage-1 evidence and acceptance artifacts, their schemas, their validators,
+their tools, and every approved digest constant remain byte-identical to
+`U1`. The observed interval at this gate is exactly the one changelog
+heading repair recorded in this memo's header. `D2` itself is the design
+gate: it touches exactly `docs/development/sci005_beam_physics_plan.md`
+plus the bounded four-line dependency-validator deletion its header
+records, and no other path.
+
+Thus `R1^ == G1`, `Si^ == Ri`, `Ei^ == Si`,
 `Ai^ == Ei`, `Ui^ == Ai`,
-`D2^ == U1`, `R2^ == D2`, `D3^ == U2`, `R3^ == D3`, and `C^ == U3`. The
+`R2^ == D2`, `D3^ == U2`, `R3^ == D3`, and `C^ == U3`. The
 validator also requires `D1` and the WP-7 certificate's `acceptance_commit` to
 be ancestors of `G1` and reauthenticates the exact certificate bytes retained
 by `R1`. It requires the `R1` design-binding literal to equal every Stage-1
 `design_sha` and remain byte-identical through `S1/E1/A1/U1`; `D2` and `D3`
-remain unambiguous direct parents of their red commits.
+remain unambiguous direct parents of their red commits. The Stage-2
+acceptance validator authenticates the corrected edge from Git objects
+alone: it locates `A1` as the unique commit introducing the Stage-1
+acceptance artifact authenticated by the Stage-1 approved constants,
+requires the unique commit on `D2`'s first-parent ancestry whose direct
+parent is `A1` to be `U1` and to satisfy the committed Stage-1
+`verify-status` form, requires `A1` to be an ancestor of `D2` through the
+committed Stage-1 `verify` form, and checks every interval commit in
+`U1..D2` other than `D2` against the status-prose rule above.
 
 At `Ei`, the evidence validator authenticates raw evidence bytes, requires its
 `source_sha == Si` and `evidence_sha == null`, requires `Ei^ == Si`, and
