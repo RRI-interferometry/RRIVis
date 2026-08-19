@@ -511,6 +511,122 @@ scope-sentence finding; all three were resolved by one combined delta frozen
 into these bytes, and both reviewers then issued their `ACCEPT` verdicts on
 exactly these pins — and landed with only this record sentence added.
 
+**Bounded Stage-3 response-identity and oracle-domain correction —
+2026-08-19.** Stage-3 implementation against the re-cut red slice
+(`ea06bc649ae9987253c8002150e21b03a842cb45`) stopped on six reported
+findings. Independent re-reading confirms each, and the central one is a
+defect in this memo's own text rather than in the slice: a frozen
+justification that describes an unconstructible scenario, which the re-cut
+faithfully encoded as two mutually contradictory red tests. This memo-only
+correction resolves the three that are law and names the three that are
+authoring slips, so the second governed re-cut has no ambiguity left to
+resolve by guesswork.
+
+First, and this gate's own defect: Section 5.2.1 justified keeping the
+receptor half inside the efield `_response_key` by asserting that
+`E = C^\dagger J_{\rm native}` "differs between two antennas that share one
+handler and one file but not one receptor". That scenario cannot be
+constructed under this memo's own Section 5.1.1 item 6, which requires the
+file's two `feed_angle` values to equal **every** assigned antenna's
+`feed_angle_rad` within `1e-12` modulo `2*pi`. Those angles are
+`(pi/2 + chi, chi)` for a linear receptor and `(chi, chi)` for a circular
+one, so a single accepted file pins both the basis — the two patterns can
+never coincide, since equality would need `pi/2 == 0` — and the static
+rotation `chi`. Two antennas sharing one accepted file therefore have
+identical `C` and identical composed `E` necessarily. The re-cut authored
+`test_the_response_key_separates_two_receptors_sharing_one_efield_file` from
+that sentence and it contradicts its own sibling
+`test_a_file_whose_feed_angles_match_one_antenna_and_not_another_is_rejected`,
+which encodes item 6 correctly: byte-identical documents, opposite required
+outcomes. The correction rewrites the justification truthfully and freezes
+the reachable witnesses in its place. Item 6 is unchanged and is the
+stronger guarantee; the receptor half stays in the key as construction-level
+identity hygiene mirroring the squint precedent, not because a
+same-file receptor difference can occur.
+
+Second, an oracle-domain ruling the memo never stated. Three committed
+factorization and conversion oracle tests compare production output to
+analytic oracles at **off-grid** probe directions — zenith angles
+`0.12, 0.35, 0.60, 0.95` against a fixture grid of
+`linspace(0, pi/2, 5)` — where the accepted `az_za_simple` bilinear
+interpolation error of order `7e-2` to `9e-2` swamps the `1e-10` oracle
+bound the tests assert. The physics contract is exactly right and the
+measurements prove it: at every stored-grid direction the production
+`E = C^dagger J_native` matches the independent oracle to `3.3e-16` and the
+frozen `T(phi)` mapping to `0.0`. The probes were mis-authored, not the law.
+The correction therefore rules that conversion, factorization, and oracle
+comparisons at the frozen tolerances are evaluated at stored-grid
+directions, where the accepted interpolation is exact, and that off-grid
+behaviour belongs to the accepted interpolation contract rather than to the
+Stage-3 conversion law.
+
+Third, an identity of exactly the class the Stage-2 circular-commutation
+correction repaired. Two committed red tests assert that `H` reordering is
+observable for parametrizations whose receptor basis equals the output
+basis. There `H` is identically `I2`: `basis_transform_matrix` returns the
+identity whenever `_NATIVE_OUTPUT_BASIS[receptor.basis] == output_basis`,
+which is exactly `linear -> linear_xy` and `circular -> circular_rl`. The
+assertion is impossible, not merely hard. The correction records the
+identity and restricts any `H`-order observability control to cross-basis
+parametrizations. No memo sentence overstated this — Section 5.2's "`H`
+alone converts native receptor voltages into the selected output basis" is
+an ownership statement and Section 5.6's bullet asks for an output-basis
+conversion *control*, which a same-basis row still satisfies as a residual —
+so the ruling is added rather than a sentence repaired, and Section 5.6's
+bullet gains the scoping clause that keeps the two readings apart.
+
+Fourth through sixth are red-slice authoring slips that change no law and
+are named here only because they belong to the reopening. A mixed
+linear/circular receptor override authored with `output_basis: "auto"` dies
+in `resolve_receptors` with `AmbiguousOutputBasisError` before any beam code
+runs, and needs an explicit `output_basis`. One test calls
+`write_scalar_efield_beamfits` on a directory it never creates. Two tests
+read `.assignments[0].definition` from a `ResolvedSharedFITSBeamsInput`,
+which exposes `.beam` and has no `.assignments`, while a sibling module
+accesses it correctly. The last needs no memo change and none is made: this
+memo names `beams.assignments[i].beam` only for `per_antenna_fits` and
+`mixed`, and `beams.beam` for `shared_fits`, so it asserts no
+`.assignments` path on a shared input.
+
+The edits are confined to Section 5.2.1's response-identity paragraph and
+two added rulings, Section 5.6's output-basis bullet, Section 8.3's interval
+enumeration, and the Status block. No tolerance is widened, none is
+invented, no writable path is added, and no error class is added. The
+`receptor_factorizations` and `basis_conversions` envelope contracts are
+untouched: their retained rows never depended on the unconstructible
+scenario, and their residual predicates are already satisfied at stored-grid
+directions.
+
+This correction reopens the re-cut red slice for a second governed re-cut
+whose `R3` will directly parent it. Enumerated against the committed slice:
+`test_the_response_key_separates_two_receptors_sharing_one_efield_file` is
+**deleted or rewritten** onto the frozen witnesses below, because its
+premise is unconstructible; the three off-grid oracle tests are **rewritten**
+to probe stored-grid directions, keeping their fixtures, tolerances, and
+assertions otherwise intact; the two `H`-order tests are
+**parametrization-restricted** to cross-basis rows, keeping their bodies;
+and the `output_basis: "auto"`, missing-`mkdir`, and
+`.assignments`-versus-`.beam` defects are **pure authoring fixes** with no
+assertion change. Everything else in the slice — every accepted fixture,
+every rejection probe and its frozen type, and the whole factorization
+contract at stored-grid directions — stands unchanged, and the measured
+`3.3e-16` and `0.0` agreements above are evidence that it does. The commit
+containing this correction supersedes
+`9956e77477b0597129e71b38a183c8dcd3cb761e` as the operative `D3` once its
+exact bytes are independently accepted. It implements no beam physics,
+accepts no stage, and does not close the register row. Its exact pre-landing
+memo bytes
+(`sha256:a975d9e09ab697dc3c575e512f68202077078318a86e95cb4d590dbdf9650338`)
+and parent-relative diff
+(`sha256:6d61ae275ecbbbb1df395e396c8b5f467c39a8a3b41154ec25b2d505955193f7`)
+received separate fresh independent governance/physics and computational
+`ACCEPT` verdicts on 2026-08-19 — the governance review re-derived the
+item-6 receptor pinning and the `H` identity and returned no findings, and
+the computational review reproduced the contradictory committed test pair,
+the on-grid/off-grid residual separation, all four interval touch sets, and
+every authoring-slip claim, returning one non-blocking narrative-range note
+— and landed with only this record sentence added.
+
 **Status:** Stage 1 and Stage 2 are both accepted and closed as stages. The
 operative `D1` is `c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted
 Stage-1 succession is
@@ -530,7 +646,7 @@ U2 f275e7538a19f713b99e07563a1c5a2a45e83a3d`. Both stages' retained evidence
 and acceptance artifacts are authenticated by their approved validator
 constants. The commit containing this amendment is the operative `D3` once
 its exact bytes are independently accepted per Section 7.1; it reaches `U2`
-through Section 8.3's starred edge `U2 ->* D3`, whose two interval commits
+through Section 8.3's starred edge `U2 ->* D3`, whose four interval commits
 this memo's header enumerates by SHA. Stage 3
 may begin `R3` only after that acceptance, with `R3^ == D3`, and must
 complete its own source, evidence, acceptance, and status succession through
@@ -2655,6 +2771,39 @@ tolerance the accepted code already fixes and already retains in
 None of these may be authored in YAML, and none of the existing point,
 HEALPix, backend, or output tolerances is widened.
 
+Those tolerances fix an agreement, so the memo must also fix where the
+agreement is required to hold. **Every conversion, factorization, and oracle
+comparison held to a frozen Stage-3 tolerance is evaluated at stored-grid
+directions** — directions that lie exactly on the file's own `axis1_array`
+and `axis2_array` nodes — because that is where the accepted `az_za_simple`
+bilinear interpolation is exact and where the Stage-3 conversion law is
+therefore the only thing under test. Off-grid behaviour is owned by the
+accepted interpolation contract, not by this stage: at an interior probe the
+bilinear error of a coarsely sampled fixture is of order `1e-1`, which would
+swamp a `1e-10` oracle bound and would measure the interpolator rather than
+the conversion. A comparison authored off-grid is a mis-authored probe, not
+evidence of a defective law; a test that needs off-grid behaviour asserts
+against the accepted interpolation contract and its tolerances instead. This
+ruling constrains only where the frozen tolerances are asserted. It does not
+narrow the physics: the conversion, the factorization, and the horizon and
+zenith rules apply at every visible direction exactly as written, and the
+solver continues to evaluate arbitrary directions.
+
+One further identity is recorded here so that no control is authored against
+it, in the same spirit as Section 4.2's circular-receptor commutation
+identity. `H` is exactly `I2` whenever an antenna's native receptor basis is
+the output basis: `basis_transform_matrix` returns the identity precisely
+when `_NATIVE_OUTPUT_BASIS[receptor.basis] == output_basis`, which is
+`linear -> linear_xy` and `circular -> circular_rl`. An assertion that
+reordering `H` against the rest of the chain is observable is therefore
+impossible on a same-basis parametrization, not merely delicate. Any
+`H`-order observability control must use a **cross-basis** parametrization —
+a linear receptor reported in `circular_rl`, or a circular receptor reported
+in `linear_xy` — and the exact vanishing on a same-basis row is itself a
+legitimate retained witness of the identity. Same-basis rows remain fully
+valid for the output-basis conversion *residual* the envelope requires,
+which they satisfy trivially and correctly.
+
 Two continuity predicates are frozen against the file grid itself, evaluated
 at every intrinsic frequency before any frequency interpolation. **Zenith
 limit:** `axis2_array` begins at exactly zero, so the entire first
@@ -2718,12 +2867,34 @@ The per-antenna response identity widens exactly when the full-efield subset
 is present, mirroring Section 4.2.1's squint precedent. `_response_key`'s
 payload gains one `"efield"` sub-object with exactly the four keys
 `normalization`, `accepted_subset_version`, `receptor_basis`, and
-`feed_rotation_rad`. The receptor half is part of the identity because
-`E = C^dagger J_native` differs between two antennas that share one handler
-and one file but not one receptor; the file's own content identity is already
+`feed_rotation_rad`. The file's own content identity is already
 inside `handler_id`, which embeds the handler scientific fingerprint, so it is
-not repeated. An antenna with no efield definition contributes no key at all
-and produces a byte-identical response key to today. Within one solver step
+not repeated.
+
+The receptor half is present as construction-level identity hygiene, mirroring
+Section 4.2.1's squint precedent, and **not** because two antennas sharing one
+accepted file can differ in receptor. They cannot: Section 5.1.1 item 6
+requires the file's two `feed_angle` values to equal every assigned antenna's
+`feed_angle_rad` within `1e-12` modulo `2*pi`, and those angles are
+`(pi/2 + chi, chi)` for a linear receptor and `(chi, chi)` for a circular one.
+A single accepted file therefore pins the static rotation `chi`, and it pins
+the basis too, because the two patterns can never coincide — equality would
+require `pi/2 == 0`. Two antennas assigned one accepted file consequently have
+identical `C` and identical composed `E` by construction. Item 6 is the
+stronger guarantee and is unchanged; the key carries the receptor half so that
+the composed response can never be shared across a receptor difference that a
+future widening of item 6 might admit, and so that the efield key is derived
+from the same fields the composition actually reads.
+
+The retained witnesses are therefore exactly these three, all reachable:
+the efield response key differs from the bare `handler_id` for an antenna that
+carries a full-efield definition; an antenna with no efield definition
+contributes no key at all and produces a byte-identical response key to today;
+and two antennas whose composed `E` legitimately differs — which requires two
+**different** files, or two per-antenna definitions, each of whose metadata
+matches its own antenna's receptor under item 6 — receive different keys. A
+witness built on one shared file and two differing receptors is unconstructible
+and must not be authored. Within one solver step
 the private adapter cache is keyed on this response identity as today, and the
 HEALPix cache is that same identity — so no matrix is ever reused across
 differing receptors, squint records, normalization literals, or full-efield
@@ -3029,7 +3200,10 @@ Acceptance requires:
 - full-stored-grid (not visible-only) unit peak at every intrinsic frequency;
 - crossed-ideal-dipole and quadrupolar analytic oracles;
 - Ludwig-3 power preservation, zenith limit, wrap continuity, and sign controls;
-- exact `C E = J_native` and an output-basis conversion control;
+- exact `C E = J_native` and an output-basis conversion control, the latter
+  evaluated as a residual on same-basis parametrizations and as an
+  observability control only on cross-basis ones, per Section 5.2.1's `H`
+  identity;
 - full Jones order tests with non-commuting `C`, `E`, and `P`;
 - point and HEALPix coverage and NumPy/JAX/Dask parity;
 - in-memory, summary JSON, HDF5, UVFITS, and MS behavior above;
@@ -4648,29 +4822,41 @@ committed Stage-1 `verify` form, and checks every interval commit in
 The third starred edge, `U2 ->* D3`, is ancestor reachability from `U2` to
 the operative `D3` through commits this memo's header enumerates
 exhaustively by SHA, under exactly the header-recorded three-kind machinery
-the second starred edge already defines. The bounded Stage-3 basis-vector and
-provenance correction made this edge necessary: the gate that first landed
-Stage-3's design satisfied the exact unstarred edge `D3^ == U2`, but its
-supersession by a header-recorded correction, and the red slice it reopened,
-now sit between `U2` and the operative `D3`. History is never rewritten, so
+the second starred edge already defines. The bounded Stage-3 corrections made
+this edge necessary: the gate that first landed
+Stage-3's design satisfied the exact unstarred edge `D3^ == U2`, but each
+header-recorded correction that superseded it, and each red slice those
+corrections reopened, now sit between `U2` and the operative `D3`. History is
+never rewritten, so
 the exact edge is replaced by the starred one rather than repaired. Every
 commit in `U2..D3` other than `D3` itself is a single-parent non-merge of one
 of the same three header-recorded kinds — status-prose, superseded design,
 superseded red slice — each touching exactly the paths its kind allows, and
 the validator requires every interval commit to be named by a header record
-with its kind. The observed interval at this correction is exactly two
-commits: the superseded Stage-3 design gate
-(`2adc2acca8606b3a9774e14f28725a5687c0ecc8`), which touches exactly
-`docs/development/sci005_beam_physics_plan.md`; and the superseded first
+with its kind. The observed interval at this correction is exactly four
+commits, in ancestry order. The superseded original Stage-3 design gate
+(`2adc2acca8606b3a9774e14f28725a5687c0ecc8`) touches exactly
+`docs/development/sci005_beam_physics_plan.md`. The superseded first
 Stage-3 red slice (`139a8e411da1f50be29cee94ee351009437e10bc`), reopened by
-this correction for a governed re-cut, which touches exactly the Section
+the basis-vector and provenance correction, touches exactly the Section
 7.4 test paths `tests/fixtures/beamfits.py`,
 `tests/integration/test_sci005_beam_physics.py`,
 `tests/unit/test_core/test_beam_pyuvdata_contract.py`,
 `tests/unit/test_core/test_sci005_full_efield.py`,
 `tests/unit/test_io/test_sci005_beam_config.py`, and
-`tests/unit/test_jones/test_chain_order.py` — six paths, all Section 7.4 test
-paths, with no production, tool, schema, or documentation byte. Across the
+`tests/unit/test_jones/test_chain_order.py` — six paths. The superseded
+basis-vector and provenance correction
+(`9956e77477b0597129e71b38a183c8dcd3cb761e`) is itself a superseded design
+commit and touches exactly
+`docs/development/sci005_beam_physics_plan.md`. The superseded re-cut
+Stage-3 red slice (`ea06bc649ae9987253c8002150e21b03a842cb45`), reopened by
+the response-identity and oracle-domain correction for a second governed
+re-cut, touches exactly the Section 7.4 test paths
+`tests/fixtures/beamfits.py`,
+`tests/unit/test_core/test_beam_pyuvdata_contract.py`, and
+`tests/unit/test_core/test_sci005_full_efield.py` — three paths. All four
+carry no production, tool, schema, or documentation byte beyond the two
+design commits' memo edits. Across the
 interval every Section 7.4 path marked `new` or `successor only` remains
 absent, except that the header-recorded superseded red slice may introduce the
 `new`-marked test paths its re-cut supersedes; and the retained Stage-1 and
