@@ -743,3 +743,139 @@ def test_summary_performance_block_reports_both_component_timings(tmp_path):
     )
     # Nondeterministic timings stay out of both fingerprints (Section 9.4).
     assert "solver_point_seconds" not in json.dumps(payload["result"])
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the summary-JSON half of the frozen output matrix
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.4 freezes the
+# ``summary_json`` equivalence predicate: "The bounded ``beam`` block reports
+# the full-efield mode, the convention-version literals, the file content
+# digest, and bounded diagnostic extrema, and embeds no direction-sized matrix.
+# The retained witness is a two-fixture control: the same workload evaluated at
+# two different direction counts must produce beam blocks with the identical key
+# set and identical serialized length, so a direction-sized value cannot have
+# leaked in."
+#
+# Section 7.5 makes ``io/summary_json.py`` unwritable at Stage 3: the accepted
+# writer already emits the generic beam snapshot, so this observes it.
+
+_STAGE3_SUMMARY_BASES = {"linear": "linear_xy", "circular": "circular_rl"}
+
+
+def _summary_payload(result, path):
+    writer = importlib.import_module(
+        "radiosim.io.summary_json"
+    ).write_result_summary_json
+    target = writer(result, path, overwrite=False)
+    return json.loads(target.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("authored_basis", sorted(_STAGE3_SUMMARY_BASES))
+def test_the_summary_beam_block_reports_the_full_efield_identity(
+    tmp_path,
+    authored_basis: str,
+) -> None:
+    """Section 5.4's ``summary_json`` predicate, on both output bases.
+
+    ``efield_summary_json_linear_xy`` and ``efield_summary_json_circular_rl``.
+    """
+    from tests.fixtures.beamfits import (
+        FULL_EFIELD_BASIS_CONVERSION_CONVENTION,
+        FULL_EFIELD_FACTORIZATION_CONVENTION,
+        FULL_EFIELD_NORMALIZATION,
+        FULL_EFIELD_SUBSET_VERSION,
+        run_full_efield_workload,
+    )
+
+    workload = run_full_efield_workload(tmp_path, output_basis=authored_basis)
+    payload = _summary_payload(workload.result, tmp_path / "efield")
+
+    assert payload["correlation"]["basis"] == _STAGE3_SUMMARY_BASES[authored_basis]
+    beam = payload["beam"]
+    handlers = beam["handlers"]
+    assert len(handlers) == 1
+    provenance = handlers[0]["file"]
+
+    assert (
+        beam["resolved"]["assignments"][0]["definition"]["normalization"]
+        == FULL_EFIELD_NORMALIZATION
+    )
+    assert provenance["sha256"] == workload.beam_sha256
+    assert provenance["accepted_subset_version"] == FULL_EFIELD_SUBSET_VERSION
+    assert provenance["radiosim_normalization"] == FULL_EFIELD_NORMALIZATION
+    assert (
+        provenance["basis_vector_convention"] == FULL_EFIELD_BASIS_CONVERSION_CONVENTION
+    )
+    assert (
+        provenance["factorization_convention"] == FULL_EFIELD_FACTORIZATION_CONVENTION
+    )
+    peaks = provenance["stored_grid_peak_by_frequency"]
+    assert peaks and all(len(pair) == 2 for pair in peaks)
+    assert max(peak for _frequency, peak in peaks) <= 1.0 + 1e-12
+
+
+def test_the_summary_beam_block_is_bounded_independently_of_direction_count(
+    tmp_path,
+) -> None:
+    """Section 5.4's retained two-fixture control.
+
+    Both runs share one transport, one output directory and one authored beams
+    block, so the only input that moves is the number of sky directions the
+    solver evaluates the beam at.  A direction-sized value that leaked into the
+    bounded block would change the serialized length.
+    """
+    from tests.fixtures.beamfits import run_full_efield_workload, write_efield_beamfits
+
+    written = write_efield_beamfits(tmp_path / "transport")
+    few = run_full_efield_workload(
+        tmp_path,
+        beam_path=written.path,
+        beam_sha256=written.sha256,
+        source_count=2,
+    )
+    many = run_full_efield_workload(
+        tmp_path,
+        beam_path=written.path,
+        beam_sha256=written.sha256,
+        source_count=5,
+    )
+
+    assert few.result.visibilities.shape == many.result.visibilities.shape
+    assert few.result.scientific_sha256 != many.result.scientific_sha256
+
+    few_beam = _summary_payload(few.result, tmp_path / "few")["beam"]
+    many_beam = _summary_payload(many.result, tmp_path / "many")["beam"]
+
+    assert sorted(few_beam) == sorted(many_beam)
+    few_text = json.dumps(few_beam, sort_keys=True)
+    many_text = json.dumps(many_beam, sort_keys=True)
+    assert len(few_text) == len(many_text)
+    assert few_text == many_text
+
+
+def test_a_scalar_peak_summary_beam_block_omits_every_full_efield_field(
+    tmp_path,
+) -> None:
+    """The disabled control: the accepted ``peak`` subset's block is unmoved."""
+    from tests.fixtures.beamfits import run_scalar_beamfits_workload
+
+    workload = run_scalar_beamfits_workload(tmp_path)
+    payload = _summary_payload(workload.result, tmp_path / "scalar")
+
+    provenance = payload["beam"]["handlers"][0]["file"]
+    assert (
+        payload["beam"]["resolved"]["assignments"][0]["definition"]["normalization"]
+        == "peak"
+    )
+    for name in (
+        "accepted_subset_version",
+        "radiosim_normalization",
+        "resolved_feed_array",
+        "derived_x_orientation_verdict",
+        "basis_vector_convention",
+        "factorization_convention",
+        "stored_grid_peak_by_frequency",
+    ):
+        assert name not in provenance

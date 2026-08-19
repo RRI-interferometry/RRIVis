@@ -1,0 +1,1727 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://radiosim.invalid/schema/sci005_stage3_evidence.schema.json",
+  "title": "SCI-005 Stage-3 retained evidence record",
+  "description": "Literal transcription of docs/development/sci005_beam_physics_plan.md Section 8.1's Stage-3 evidence envelope. Cross-field, ordering, recomputation, and digest predicates that JSON Schema cannot express are mandatory validator checks in tests/unit/test_sci005_evidence.py. The memo's prose wins if the red slice exposes a transcription difference.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "stage",
+    "status",
+    "generated_at_utc",
+    "design_sha",
+    "red_test_sha",
+    "source_sha",
+    "evidence_sha",
+    "working_tree_clean",
+    "radiosim_version",
+    "python_version",
+    "platform",
+    "machine",
+    "pixi_environment",
+    "pixi_lock_sha256",
+    "scientific_conventions",
+    "config_cases",
+    "analytic_invariants",
+    "rejection_probes",
+    "backend_parity",
+    "solver_cases",
+    "output_cases",
+    "fingerprint_diff",
+    "commands",
+    "artifacts",
+    "limitations",
+    "claims_not_licensed",
+    "efield_file_contracts",
+    "basis_conversions",
+    "receptor_factorizations",
+    "ixr_diagnostics",
+    "crossvalidation_comparisons"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "radiosim.sci005.stage3.v1"
+    },
+    "stage": {
+      "const": 3
+    },
+    "status": {
+      "const": "candidate"
+    },
+    "generated_at_utc": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "design_sha": {
+      "$ref": "#/$defs/git_sha"
+    },
+    "red_test_sha": {
+      "$ref": "#/$defs/git_sha"
+    },
+    "source_sha": {
+      "$ref": "#/$defs/git_sha"
+    },
+    "evidence_sha": {
+      "type": "null"
+    },
+    "working_tree_clean": {
+      "const": true
+    },
+    "radiosim_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "python_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1
+    },
+    "machine": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pixi_environment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pixi_lock_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "scientific_conventions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "efield_normalization": {
+          "const": "uvbeam_peak_common_v1"
+        },
+        "efield_basis_conversion": {
+          "const": "ludwig3_az_za_to_north_east_v1"
+        },
+        "efield_zenith_limit": {
+          "const": "north_east_tangent_limit_v1"
+        },
+        "efield_factorization": {
+          "const": "receptor_conjugated_native_efield_v1"
+        }
+      },
+      "required": [
+        "efield_normalization",
+        "efield_basis_conversion",
+        "efield_zenith_limit",
+        "efield_factorization"
+      ]
+    },
+    "config_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/config_case"
+      }
+    },
+    "analytic_invariants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/analytic_invariant"
+      }
+    },
+    "rejection_probes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/rejection_probe"
+      }
+    },
+    "backend_parity": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/backend_parity"
+      }
+    },
+    "solver_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/solver_case"
+      }
+    },
+    "output_cases": {
+      "type": "array",
+      "minItems": 10,
+      "items": {
+        "$ref": "#/$defs/output_case"
+      }
+    },
+    "fingerprint_diff": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/fingerprint_row"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/command_row"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact_row"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "claims_not_licensed": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "efield_file_contracts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/efield_file_contract"
+      }
+    },
+    "basis_conversions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/basis_conversion"
+      }
+    },
+    "receptor_factorizations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/receptor_factorization"
+      }
+    },
+    "ixr_diagnostics": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/ixr_diagnostic"
+      }
+    },
+    "crossvalidation_comparisons": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/crossvalidation_comparison"
+      }
+    }
+  },
+  "$defs": {
+    "git_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "canonical_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(^|/)\\.\\.?(/|$))(?!.*//)(?!.*/$).+$"
+    },
+    "numeric_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "float32",
+            "float64",
+            "float128",
+            "complex64",
+            "complex128"
+          ]
+        },
+        "shape": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "c_order_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "minimum_abs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_abs": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dtype",
+        "shape",
+        "c_order_sha256",
+        "minimum_abs",
+        "maximum_abs"
+      ]
+    },
+    "probe_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "const": "float64"
+        },
+        "shape": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "c_order_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "dtype",
+        "shape",
+        "c_order_sha256",
+        "minimum",
+        "maximum"
+      ]
+    },
+    "conversion_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "const": "complex128"
+        },
+        "shape": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "const": 2
+            },
+            {
+              "const": 2
+            }
+          ]
+        },
+        "c_order_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "minimum_abs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_abs": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dtype",
+        "shape",
+        "c_order_sha256",
+        "minimum_abs",
+        "maximum_abs"
+      ]
+    },
+    "jones_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "const": "complex128"
+        },
+        "shape": {
+          "oneOf": [
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "const": 2
+                },
+                {
+                  "const": 2
+                }
+              ]
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "const": 2
+                },
+                {
+                  "const": 2
+                }
+              ]
+            }
+          ]
+        },
+        "c_order_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "minimum_abs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_abs": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dtype",
+        "shape",
+        "c_order_sha256",
+        "minimum_abs",
+        "maximum_abs"
+      ]
+    },
+    "complex_pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "real": {
+          "type": "number"
+        },
+        "imag": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "real",
+        "imag"
+      ]
+    },
+    "two_by_two_matrix": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+          "$ref": "#/$defs/complex_pair"
+        }
+      }
+    },
+    "command_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "cwd": {
+          "const": "."
+        },
+        "pixi_environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started_at_utc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exit_code": {
+          "const": 0
+        },
+        "stdout_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stderr_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "argv",
+        "cwd",
+        "pixi_environment",
+        "started_at_utc",
+        "duration_seconds",
+        "exit_code",
+        "stdout_sha256",
+        "stderr_sha256"
+      ]
+    },
+    "artifact_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*\\\\)(?!.*(^|/)\\.\\.?(/|$))(?!.*//)(?!.*/$).+$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "schema",
+            "command_log",
+            "output",
+            "fingerprint",
+            "auxiliary"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "media_type",
+        "role"
+      ]
+    },
+    "config_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_outcome": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "observed_outcome": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "resolved_scientific_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exception_type": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "issue_code": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exact_message": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "test_node_id",
+        "input_sha256",
+        "expected_outcome",
+        "observed_outcome",
+        "resolved_scientific_sha256",
+        "exception_type",
+        "issue_code",
+        "exact_message",
+        "passed"
+      ]
+    },
+    "analytic_invariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "invariant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend": {
+          "enum": [
+            "numpy",
+            "jax",
+            "dask",
+            "independent_oracle"
+          ]
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected": {
+          "$ref": "#/$defs/numeric_projection"
+        },
+        "observed": {
+          "$ref": "#/$defs/numeric_projection"
+        },
+        "max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_rel_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rtol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "invariant_id",
+        "backend",
+        "test_node_id",
+        "input_manifest_sha256",
+        "expected",
+        "observed",
+        "max_abs_residual",
+        "max_rel_residual",
+        "atol",
+        "rtol",
+        "passed"
+      ]
+    },
+    "rejection_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exception_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exact_message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "config_path",
+        "exception_type",
+        "issue_code",
+        "exact_message",
+        "test_node_id",
+        "input_sha256",
+        "passed"
+      ]
+    },
+    "backend_parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend": {
+          "enum": [
+            "numpy",
+            "jax",
+            "dask"
+          ]
+        },
+        "actual_device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "real_dtype": {
+          "enum": [
+            "float32",
+            "float64"
+          ]
+        },
+        "complex_dtype": {
+          "enum": [
+            "complex64",
+            "complex128"
+          ]
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "reference_result_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_result_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "max_abs_difference": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_rel_difference": {
+          "type": "number",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rtol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "backend",
+        "actual_device",
+        "real_dtype",
+        "complex_dtype",
+        "input_sha256",
+        "reference_result_sha256",
+        "observed_result_sha256",
+        "max_abs_difference",
+        "max_rel_difference",
+        "atol",
+        "rtol",
+        "passed"
+      ]
+    },
+    "solver_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "enum": [
+            "efield_point",
+            "efield_healpix"
+          ]
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "jones_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "visibility_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "diagnostic_sha256": {
+          "type": "null"
+        },
+        "jones_call_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visibility_changed_element_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "visibility_change_expected": {
+          "const": true
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "effect",
+        "test_node_id",
+        "input_sha256",
+        "jones_sha256",
+        "visibility_sha256",
+        "diagnostic_sha256",
+        "jones_call_count",
+        "visibility_changed_element_count",
+        "visibility_change_expected",
+        "passed"
+      ]
+    },
+    "output_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "enum": [
+            "in_memory",
+            "summary_json",
+            "hdf5",
+            "uvfits",
+            "measurement_set",
+            "reader_projection"
+          ]
+        },
+        "writer_test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reader_test_node_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "artifact_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "in_memory_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_projection_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "roundtrip_max_abs_difference": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "format",
+        "writer_test_node_id",
+        "reader_test_node_id",
+        "artifact_sha256",
+        "in_memory_sha256",
+        "observed_projection_sha256",
+        "roundtrip_max_abs_difference",
+        "tolerance",
+        "passed"
+      ]
+    },
+    "fingerprint_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workload": {
+          "type": "string",
+          "minLength": 1
+        },
+        "old_scientific_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "new_scientific_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "old_raw_cube_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "new_raw_cube_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "changed_element_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "change_expected": {
+          "type": "boolean"
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "environment",
+        "workload",
+        "old_scientific_sha256",
+        "new_scientific_sha256",
+        "old_raw_cube_sha256",
+        "new_raw_cube_sha256",
+        "changed_element_count",
+        "maximum_delta",
+        "change_expected",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "common_peak_sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "observed_peak": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "frequency_hz",
+        "observed_peak"
+      ]
+    },
+    "efield_file_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "probe_kind": {
+          "enum": [
+            "accepted_linear_pair",
+            "accepted_circular_pair",
+            "power_beam",
+            "phased_array_antenna",
+            "healpix_pixels",
+            "vector_dimension",
+            "feed_pair",
+            "feed_pair_receptor_mismatch",
+            "feed_angle",
+            "derived_orientation",
+            "mount",
+            "grid_coverage",
+            "zenith_single_valued",
+            "wrap_continuity",
+            "basis_vector_not_identity",
+            "basis_vector_complex",
+            "basis_vector_non_finite",
+            "data_dtype",
+            "data_non_finite",
+            "data_normalization",
+            "bandpass",
+            "visible_only_peak",
+            "extended_precision"
+          ]
+        },
+        "outcome": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "beam_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "antenna_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "pixel_coordinate_system": {
+          "type": "string",
+          "minLength": 1
+        },
+        "feed_array": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "feed_angle_rad": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number"
+          }
+        },
+        "derived_x_orientation": {
+          "anyOf": [
+            {
+              "enum": [
+                "east",
+                "north"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mount_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data_normalization": {
+          "type": "string",
+          "minLength": 1
+        },
+        "basis_vector_dtype": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stored_basis_is_identity": {
+          "type": "boolean"
+        },
+        "native_data_dtype": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receptor_basis": {
+          "enum": [
+            "linear",
+            "circular"
+          ]
+        },
+        "receptor_feed_rotation_rad": {
+          "type": "number",
+          "exclusiveMinimum": -3.141592653589793,
+          "maximum": 3.141592653589793
+        },
+        "common_peak_by_frequency": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/common_peak_sample"
+          }
+        },
+        "normalization_tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "exception_type": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exact_message": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "probe_kind",
+        "outcome",
+        "beam_type",
+        "antenna_type",
+        "pixel_coordinate_system",
+        "feed_array",
+        "feed_angle_rad",
+        "derived_x_orientation",
+        "mount_type",
+        "data_normalization",
+        "basis_vector_dtype",
+        "stored_basis_is_identity",
+        "native_data_dtype",
+        "receptor_basis",
+        "receptor_feed_rotation_rad",
+        "common_peak_by_frequency",
+        "normalization_tolerance",
+        "exception_type",
+        "exact_message",
+        "test_node_id",
+        "input_sha256",
+        "passed"
+      ]
+    },
+    "basis_conversion": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "oracle_kind": {
+          "enum": [
+            "crossed_ideal_dipole",
+            "quadrupolar",
+            "ludwig3_rotation",
+            "scalar_subset_control"
+          ]
+        },
+        "receptor_basis": {
+          "enum": [
+            "linear",
+            "circular"
+          ]
+        },
+        "frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "probe_azimuth_rad": {
+          "$ref": "#/$defs/probe_projection"
+        },
+        "probe_zenith_angle_rad": {
+          "$ref": "#/$defs/probe_projection"
+        },
+        "expected": {
+          "$ref": "#/$defs/conversion_projection"
+        },
+        "observed": {
+          "$ref": "#/$defs/conversion_projection"
+        },
+        "max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "power_preservation_max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "orthogonality_max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "wrap_continuity_max_abs_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "wrap_continuity_bound": {
+          "type": "number",
+          "minimum": 0
+        },
+        "zenith_limit_max_abs_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "rtol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "oracle_kind",
+        "receptor_basis",
+        "frequency_hz",
+        "probe_azimuth_rad",
+        "probe_zenith_angle_rad",
+        "expected",
+        "observed",
+        "max_abs_residual",
+        "power_preservation_max_abs_residual",
+        "orthogonality_max_abs_residual",
+        "wrap_continuity_max_abs_delta",
+        "wrap_continuity_bound",
+        "zenith_limit_max_abs_delta",
+        "atol",
+        "rtol",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "receptor_factorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receptor_basis": {
+          "enum": [
+            "linear",
+            "circular"
+          ]
+        },
+        "feed_rotation_deg": {
+          "type": "number"
+        },
+        "output_basis": {
+          "enum": [
+            "linear_xy",
+            "circular_rl"
+          ]
+        },
+        "parallactic_angle_rad": {
+          "type": "number"
+        },
+        "frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "e_matrix": {
+          "$ref": "#/$defs/two_by_two_matrix"
+        },
+        "noncommuting_component": {
+          "type": "number",
+          "minimum": 0
+        },
+        "j_native": {
+          "$ref": "#/$defs/jones_projection"
+        },
+        "composed_e": {
+          "$ref": "#/$defs/jones_projection"
+        },
+        "factorization_max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "chain_order_max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "order_control_max_abs_difference": {
+          "type": "number",
+          "minimum": 0
+        },
+        "output_basis_max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "receptor_basis",
+        "feed_rotation_deg",
+        "output_basis",
+        "parallactic_angle_rad",
+        "frequency_hz",
+        "e_matrix",
+        "noncommuting_component",
+        "j_native",
+        "composed_e",
+        "factorization_max_abs_residual",
+        "chain_order_max_abs_residual",
+        "order_control_max_abs_difference",
+        "output_basis_max_abs_residual",
+        "atol",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "ixr_diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "nonsingular",
+            "unitary_scaled",
+            "singular"
+          ]
+        },
+        "receptor_basis": {
+          "enum": [
+            "linear",
+            "circular"
+          ]
+        },
+        "frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "probe_altitude_rad": {
+          "type": "number"
+        },
+        "probe_azimuth_rad": {
+          "type": "number"
+        },
+        "j_matrix": {
+          "$ref": "#/$defs/two_by_two_matrix"
+        },
+        "sigma_max": {
+          "type": "number",
+          "minimum": 0
+        },
+        "sigma_min": {
+          "type": "number",
+          "minimum": 0
+        },
+        "condition_number": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ixr_linear": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ixr_db": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "leakage_magnitude": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "state",
+        "receptor_basis",
+        "frequency_hz",
+        "probe_altitude_rad",
+        "probe_azimuth_rad",
+        "j_matrix",
+        "sigma_max",
+        "sigma_min",
+        "condition_number",
+        "ixr_linear",
+        "ixr_db",
+        "leakage_magnitude",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "input_hash": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "name",
+        "sha256"
+      ]
+    },
+    "convention_mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "radiosim_convention": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reference_convention": {
+          "type": "string",
+          "minLength": 1
+        },
+        "equivalent": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "radiosim_convention",
+        "reference_convention",
+        "equivalent"
+      ]
+    },
+    "correlation_residual": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "correlation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_rel_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "reference_max_abs": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "correlation",
+        "max_abs_residual",
+        "max_rel_residual",
+        "reference_max_abs"
+      ]
+    },
+    "crossvalidation_comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "artifact_path": {
+          "$ref": "#/$defs/canonical_path"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "artifact_generated_at_utc": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "reference_package": {
+          "const": "pyuvsim"
+        },
+        "reference_version": {
+          "const": "1.4.0"
+        },
+        "pyuvdata_version": {
+          "const": "3.2.1"
+        },
+        "pyradiosky_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "astropy_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "radiosim_source_sha": {
+          "$ref": "#/$defs/git_sha"
+        },
+        "input_hashes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/input_hash"
+          }
+        },
+        "convention_mappings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/convention_mapping"
+          }
+        },
+        "correlation_residuals": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/correlation_residual"
+          }
+        },
+        "output_basis": {
+          "enum": [
+            "linear_xy",
+            "circular_rl"
+          ]
+        },
+        "gating": {
+          "const": false
+        },
+        "open_disagreements": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "artifact_path",
+        "artifact_sha256",
+        "artifact_generated_at_utc",
+        "reference_package",
+        "reference_version",
+        "pyuvdata_version",
+        "pyradiosky_version",
+        "astropy_version",
+        "radiosim_source_sha",
+        "input_hashes",
+        "convention_mappings",
+        "correlation_residuals",
+        "output_basis",
+        "gating",
+        "open_disagreements",
+        "test_node_id",
+        "passed"
+      ]
+    }
+  }
+}

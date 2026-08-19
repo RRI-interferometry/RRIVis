@@ -1181,3 +1181,176 @@ def test_pointing_and_ruze_are_backend_parity_clean(tmp_path, backend_name):
         assert np.array_equal(reference_cube, compared_cube)
     else:
         np.testing.assert_allclose(compared_cube, reference_cube, rtol=1e-12, atol=0.0)
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the full efield response through both solvers
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.5: "Point and
+# HEALPix solvers consume the same complete ``_ResolvedBeamJones`` batch. The
+# HEALPix cache remains keyed on the full response identity; it cannot reuse a
+# matrix across differing receptors, squint parameters, normalization factors,
+# or full-efield files."
+#
+# Section 5.1.1 item 6 pins an accepted file's feed metadata against the
+# receptor of *every* antenna it is assigned to, so "two antennas with different
+# receptors sharing one file" is unconstructible; the reachable witness that the
+# identity is not collapsed is two per-antenna full-efield transports, each
+# matching its own antenna's receptor.
+
+
+def _full_efield_beam(tmp_path: Path, *, filename: str):
+    """Write one accepted full-efield transport below ``tmp_path``."""
+    from tests.fixtures.beamfits import (
+        EfieldScienceVariant,
+        write_efield_beamfits,
+    )
+
+    return write_efield_beamfits(
+        tmp_path,
+        science=EfieldScienceVariant.QUADRUPOLAR,
+        filename=filename,
+    )
+
+
+@pytest.mark.parametrize(
+    ("stokes_q", "stokes_u", "stokes_v"),
+    [(0.0, 0.0, 0.0), (0.3, 0.2, -0.1)],
+)
+def test_point_and_healpix_consume_the_same_full_efield_jones_batch(
+    tmp_path,
+    monkeypatch,
+    stokes_q: float,
+    stokes_u: float,
+    stokes_v: float,
+):
+    """Section 5.5's first sentence, measured on a generally full ``E``.
+
+    The accepted scalar family's parity case above additionally asserts equal
+    diagonals and zero off-diagonals; here the composed ``E`` is generally full,
+    so the assertion is the parity itself plus the non-scalar structure that
+    makes the parity worth measuring.
+    """
+    from radiosim.core.polarization_basis import PYUVDATA_FEEDS
+
+    written = _full_efield_beam(tmp_path, filename="efield-parity.beamfits")
+    beams = {
+        "mode": "shared_fits",
+        "beam": {
+            "kind": "fits",
+            "path": written.path.name,
+            "normalization": "uvbeam_peak_common_v1",
+        },
+    }
+    simulator, original_view, beam_system = _solver_components(tmp_path, beams)
+    view = _zero_baseline(original_view)
+    monkeypatch.setattr(point_visibility, "SkyCoord", _FixedAltAzSkyCoord)
+    monkeypatch.setattr(healpix_visibility, "rayleigh_jeans_factor", lambda *_: 1.0)
+
+    matrix = beam_system.evaluate_jones(
+        AntennaId(view.antenna_numbers[0], view.antenna_names[0]),
+        altitude_rad=np.array([ALTITUDE_RAD], dtype=np.float64),
+        azimuth_rad=np.array([AZIMUTH_RAD], dtype=np.float64),
+        frequency_hz=FREQUENCY_HZ,
+        time_mjd=float(OBSTIME.mjd),
+    )[0]
+    assert PYUVDATA_FEEDS[simulator.receptors.output_basis] == ("x", "y")
+    assert abs(matrix[0, 1]) > 0.0 or abs(matrix[1, 0]) > 0.0
+
+    point = calculate_visibility(
+        instrument=view,
+        beam_system=beam_system,
+        source_arrays=_source_arrays(
+            stokes_i=2.0,
+            stokes_q=stokes_q,
+            stokes_u=stokes_u,
+            stokes_v=stokes_v,
+        ),
+        location=LOCATION,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
+        backend=get_backend("numpy"),
+        receptors=simulator.receptors,
+    )[0, 0, 0]
+    healpix = calculate_visibility_healpix(
+        sky_model=_healpix_sky(
+            stokes_i=2.0,
+            stokes_q=stokes_q,
+            stokes_u=stokes_u,
+            stokes_v=stokes_v,
+            polarized=True,
+        ),
+        instrument=view,
+        beam_system=beam_system,
+        location=LOCATION,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
+        include_polarization=True,
+        backend=get_backend("numpy"),
+        receptors=simulator.receptors,
+    )[0, 0, 0]
+
+    np.testing.assert_allclose(point, healpix, rtol=1e-12, atol=1e-12)
+
+
+def test_the_healpix_cache_never_reuses_one_matrix_across_two_efield_files(
+    tmp_path,
+    monkeypatch,
+):
+    """Section 5.5: the HEALPix cache stays keyed on the full response identity.
+
+    Two accepted transports carrying the *same* science are assigned one per
+    antenna. Their bytes differ (BeamFITS records its own creation history), so
+    the two handlers are scientifically distinct and the cache must evaluate
+    both rather than serving one matrix twice.
+    """
+    first = _full_efield_beam(tmp_path, filename="efield-first.beamfits")
+    second = _full_efield_beam(tmp_path, filename="efield-second.beamfits")
+    assert first.sha256 != second.sha256
+    beams = {
+        "mode": "per_antenna_fits",
+        "assignments": [
+            {
+                "antenna": {"kind": "number", "number": 0},
+                "beam": {
+                    "kind": "fits",
+                    "path": first.path.name,
+                    "normalization": "uvbeam_peak_common_v1",
+                },
+            },
+            {
+                "antenna": {"kind": "number", "number": 1},
+                "beam": {
+                    "kind": "fits",
+                    "path": second.path.name,
+                    "normalization": "uvbeam_peak_common_v1",
+                },
+            },
+        ],
+    }
+    simulator, view, beam_system = _solver_components(tmp_path, beams)
+    calls: list[AntennaId] = []
+    original_evaluate = BeamSystem.evaluate_jones
+
+    def counted_evaluate(self, antenna_id, **kwargs):
+        calls.append(antenna_id)
+        return original_evaluate(self, antenna_id, **kwargs)
+
+    monkeypatch.setattr(BeamSystem, "evaluate_jones", counted_evaluate)
+
+    calculate_visibility_healpix(
+        sky_model=_healpix_sky(stokes_i=1.0, polarized=True),
+        instrument=view,
+        beam_system=beam_system,
+        location=LOCATION,
+        time_grid=TIME_GRID,
+        frequencies=FREQUENCIES,
+        include_polarization=True,
+        backend=get_backend("numpy"),
+        receptors=simulator.receptors,
+    )
+
+    assert len(beam_system.state.handlers) == 2
+    assert len(calls) == 2
+    assert {antenna.number for antenna in calls} == {0, 1}

@@ -297,6 +297,107 @@ def test_point_path_parity_with_beam_squint(
 
 
 # ---------------------------------------------------------------------------
+# The SCI-005 Stage-3 case: a full efield BeamFITS file composes E = C^dagger J
+# ---------------------------------------------------------------------------
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.5: "Point and
+# HEALPix solvers consume the same complete ``_ResolvedBeamJones`` batch ...
+# NumPy and Dask must be byte-identical, and JAX must agree at the existing
+# float64 tolerance after the host matrix is transferred."  Section 8.1 requires
+# the common all-three-backends rule "with the ``float64``/``complex128`` pair
+# for at least one full-efield case"; the harness above already runs NumPy as
+# the reference on every call, and the standard-precision fixture resolves to
+# exactly that dtype pair.
+#
+# The quadrupolar science is the fixture family's generally full one, so the
+# composed ``E`` has non-zero off-diagonals at the workload directions and the
+# parity case measures the Stage-3 composition rather than the array plumbing
+# every scalar case already covers.  No tolerance is widened.
+
+
+def _efield_beams_block(tmp_path) -> dict[str, Any]:
+    """Write one accepted full-efield transport and name it in a beams block."""
+    from tests.fixtures.beamfits import (
+        EfieldScienceVariant,
+        write_efield_beamfits,
+    )
+
+    written = write_efield_beamfits(
+        tmp_path / "efield-parity",
+        science=EfieldScienceVariant.QUADRUPOLAR,
+    )
+    return {
+        "mode": "shared_fits",
+        "beam": {
+            "kind": "fits",
+            "path": str(written.path),
+            "normalization": "uvbeam_peak_common_v1",
+        },
+    }
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+def test_point_path_parity_with_a_full_efield_beam(
+    tmp_path,
+    backend_name: str,
+) -> None:
+    """SCI-005 Stage 3: the composed ``E = C^dagger J_native`` on the point path."""
+    instrument, beam_system, receptors = _solver_components(
+        tmp_path,
+        beams=_efield_beams_block(tmp_path),
+    )
+    sources = _workload_point_sources(polarized=True, gaussian=False)
+
+    def build(backend):
+        return calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=sources,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=_WORKLOAD_FREQS,
+            backend=backend,
+            receptors=receptors,
+        )
+
+    reference = np.asarray(get_backend("numpy").to_numpy(build(get_backend("numpy"))))
+    # A diagonal ``E`` would make this case indistinguishable from the accepted
+    # scalar ones, so the non-scalar structure is asserted rather than assumed.
+    assert float(np.max(np.abs(reference[..., 0, 1]))) > 0.0
+    assert float(np.max(np.abs(reference[..., 1, 0]))) > 0.0
+
+    assert_backend_parity(build, backend_name=backend_name)
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+def test_healpix_path_parity_with_a_full_efield_beam(
+    tmp_path,
+    backend_name: str,
+) -> None:
+    """The diffuse path consuming the same complete Stage-3 batch."""
+    instrument, beam_system, receptors = _solver_components(
+        tmp_path,
+        beams=_efield_beams_block(tmp_path),
+    )
+    sky = _workload_healpix_model(polarized=True)
+
+    def build(backend):
+        return calculate_visibility_healpix(
+            sky,
+            instrument=instrument,
+            beam_system=beam_system,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=_WORKLOAD_FREQS,
+            backend=backend,
+            receptors=receptors,
+            include_polarization=True,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)
+
+
+# ---------------------------------------------------------------------------
 # The 7D and 7E cases: one per implemented term, at a large parameter value
 # ---------------------------------------------------------------------------
 #

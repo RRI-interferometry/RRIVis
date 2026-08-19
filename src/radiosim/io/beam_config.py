@@ -256,11 +256,20 @@ AnalyticBeamModelConfig = Annotated[
 
 
 class FITSBeamSourceConfig(_BeamInputModel):
-    """One unresolved local BeamFITS source and fixed load options."""
+    """One unresolved local BeamFITS source and fixed load options.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 5.1.1 selects the
+    Stage-3 full-efield accepted subset with exactly one authored literal on
+    this block.  ``uvbeam_peak_common_v1`` names an accepted *subset* of the
+    committed bytes, not a normalizing operation: RadioSim renormalizes nothing
+    under either literal, and the two are different accepted interpretations of
+    the same ``beam_type == "efield"`` file rather than a strict widening of one
+    another.
+    """
 
     kind: Literal["fits"] = "fits"
     path: Path
-    normalization: Literal["peak"] = "peak"
+    normalization: Literal["peak", "uvbeam_peak_common_v1"] = "peak"
     angular_interpolation: Literal["bilinear"] = "bilinear"
     frequency_interpolation: Literal["cubic", "linear"] = "cubic"
 

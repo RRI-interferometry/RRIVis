@@ -597,6 +597,65 @@ When a squint block *is* authored, three surfaces widen:
 rejected. No migration is needed for a document that does not author
 `beams.squint`.
 
+### New: `beams.beam.normalization: uvbeam_peak_common_v1`
+
+A BeamFITS source's `normalization` field accepted exactly one value, `peak`.
+It now accepts a second, `uvbeam_peak_common_v1` (SCI-005 Stage 3), and that
+one field is the whole activation surface for the full-efield subset.
+
+```yaml
+beams:
+  mode: shared_fits
+  beam:
+    kind: fits
+    path: beams/shared.beamfits
+    normalization: uvbeam_peak_common_v1   # was: peak (still the default)
+```
+
+**Nothing changes for a document that keeps `peak`.** The default is unchanged,
+and an existing `peak` run has the same resolved configuration, the same beam
+fingerprints, the same `scientific_sha256`, the same HDF5 `provenance/beam_json`
+bytes, and the same result cube as before.
+
+When the new literal *is* authored, three things widen:
+
+- **`E` is a generally full 2x2 matrix**, not a scalar on the diagonal. The
+  file's complete complex `data_array` is converted per direction into
+  RadioSim's Ludwig-3 tangent pair to give `J_native`, and the beam runtime
+  composes `E = C^dagger J_native` from the antenna's own resolved receptor
+  matrix, so `C E == J_native` exactly. The chain order stays
+  `H G B Rc Kd X D C E P T Z`; only what `E` contains changes. Both cross-hand
+  correlation products become non-zero, in both output bases. See the beam
+  guide's full-efield section and the Jones-matrix guide's chain-order
+  discussion.
+- **The two literals are two accepted subsets of the same file, not a
+  widening.** RadioSim renormalizes nothing under either. A file the scalar
+  subset accepts is generally rejected by the full-efield subset, and the
+  reverse; in particular the full-efield subset requires the stored
+  `basis_vector_array` to be exactly the native identity, requires a
+  full-stored-grid unit peak at every intrinsic frequency (a visible-row-only
+  peak is rejected), requires a single-valued zenith row, and requires the
+  file's feed pair, feed angles and derived x-orientation to agree with *every*
+  antenna it is assigned to under the `receptors` section.
+- **`BeamFileProvenance` gained seven optional fields**, appended after
+  `normalization_absolute_tolerance` in declaration order:
+  `accepted_subset_version`, `radiosim_normalization`, `resolved_feed_array`,
+  `derived_x_orientation_verdict`, `basis_vector_convention`,
+  `factorization_convention`, and `stored_grid_peak_by_frequency`. Each is
+  declared `<type> | None = None` and is left `None` on the `peak` path, where
+  it is omitted from both the beam snapshot and the canonical fingerprint
+  payload — which is what keeps a `peak` document's bytes unmoved. Existing
+  keyword construction of `BeamFileProvenance` stays valid. One existing field
+  became nullable: `x_orientation` is now `str | None`, because pyuvdata
+  legitimately derives no orientation for a rotated linear receptor or for a
+  circular receptor whose static rotation is neither 0 nor pi/2. The scalar
+  path still records exactly `"east"`.
+
+`beams.squint` and `beams.aperture_physics` are accepted only on the `analytic`
+beams mode, so neither can be combined with either BeamFITS subset. No
+migration is needed for a document that does not author
+`uvbeam_peak_common_v1`.
+
 ### Moved: `beam/TODO.md` became a scope document
 
 `src/radiosim/core/jones/beam/TODO.md` no longer exists. It was an in-source

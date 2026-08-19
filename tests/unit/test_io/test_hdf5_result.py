@@ -2776,3 +2776,101 @@ def test_an_oversized_solver_group_is_rejected_from_metadata_alone(
     with pytest.raises(UnsafeResultInputError, match="max_single_string_bytes"):
         load_result_hdf5(output)
     assert not any(name.startswith("/data/") for name in reads)
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the HDF5 half of the frozen output matrix
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.4 freezes the
+# ``hdf5`` equivalence predicate: "The reader reconstructs scientific equality
+# exactly: ``provenance/beam_json`` round-trips the complete beam snapshot, the
+# reconstructed ``scientific_sha256`` equals the written one, and the
+# reconstructed visibility cube differs from the in-memory cube by exactly zero.
+# A schema bump is required only if the reader's fixed field set changes, and
+# must never be performed to rename scalar wording."
+#
+# Section 7.5 makes ``io/hdf5.py`` unwritable at Stage 3.  The seven appended
+# provenance fields ride inside the existing generic ``beam_json`` payload, so
+# no dataset, group, or schema version moves and none of these assertions asks
+# one to.
+
+_STAGE3_HDF5_BASES = {"linear": "linear_xy", "circular": "circular_rl"}
+
+
+def _beam_json_payload(path: Path) -> dict[str, object]:
+    with h5py.File(path, "r") as handle:
+        raw = handle["provenance/beam_json"][()]
+    text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+    payload = json.loads(text)
+    assert isinstance(payload, dict)
+    return payload
+
+
+@pytest.mark.parametrize("authored_basis", sorted(_STAGE3_HDF5_BASES))
+def test_hdf5_round_trips_a_full_efield_run_with_exact_scientific_equality(
+    tmp_path: Path,
+    authored_basis: str,
+) -> None:
+    """Section 5.4's ``hdf5`` predicate, on both output bases.
+
+    ``efield_hdf5_linear_xy`` and ``efield_hdf5_circular_rl``.
+    """
+    from tests.fixtures.beamfits import (
+        FULL_EFIELD_NORMALIZATION,
+        FULL_EFIELD_SUBSET_VERSION,
+        run_full_efield_workload,
+    )
+
+    workload = run_full_efield_workload(tmp_path, output_basis=authored_basis)
+    result = workload.result
+    output = write_result_hdf5(result, tmp_path / f"efield-{authored_basis}.h5")
+    loaded = load_result_hdf5(output)
+
+    assert loaded.scientific_sha256 == result.scientific_sha256
+    assert loaded.provenance_sha256 == result.provenance_sha256
+    assert loaded.correlations == result.correlations
+    difference = np.asarray(loaded.visibilities) - np.asarray(result.visibilities)
+    assert float(np.max(np.abs(difference))) == 0.0
+    np.testing.assert_array_equal(loaded.visibilities, result.visibilities)
+
+    written_beam = _beam_json_payload(output)
+    expected_beam = json.loads(json.dumps(result.beam_state.to_snapshot()))
+    assert written_beam == expected_beam
+
+    provenance = written_beam["handlers"][0]["file"]
+    assert provenance["sha256"] == workload.beam_sha256
+    assert provenance["accepted_subset_version"] == FULL_EFIELD_SUBSET_VERSION
+    assert provenance["radiosim_normalization"] == FULL_EFIELD_NORMALIZATION
+    assert provenance["stored_grid_peak_by_frequency"]
+
+    with h5py.File(output, "r") as handle:
+        assert handle.attrs["schema_version"] == np.bytes_(b"4.0.0")
+        names: list[str] = []
+        handle.visit(names.append)
+    assert set(names) == DATASETS | GROUPS
+
+
+def test_a_scalar_peak_hdf5_run_keeps_the_pre_stage3_beam_payload(
+    tmp_path: Path,
+) -> None:
+    """The disabled control: the accepted ``peak`` payload carries no new key."""
+    from tests.fixtures.beamfits import run_scalar_beamfits_workload
+
+    workload = run_scalar_beamfits_workload(tmp_path)
+    output = write_result_hdf5(workload.result, tmp_path / "scalar.h5")
+    loaded = load_result_hdf5(output)
+
+    assert loaded.scientific_sha256 == workload.result.scientific_sha256
+    np.testing.assert_array_equal(loaded.visibilities, workload.result.visibilities)
+    provenance = _beam_json_payload(output)["handlers"][0]["file"]
+    for name in (
+        "accepted_subset_version",
+        "radiosim_normalization",
+        "resolved_feed_array",
+        "derived_x_orientation_verdict",
+        "basis_vector_convention",
+        "factorization_convention",
+        "stored_grid_peak_by_frequency",
+    ):
+        assert name not in provenance

@@ -5,7 +5,8 @@ RadioSim exposes a Jones-term framework in which every exported term carries
 real physics and says so. The high-level ``Simulator`` always applies geometric
 phase (K, a separate per-baseline function), the private solver-owned E-Jones
 primary beam — a scalar complex voltage on the diagonal, except when SCI-005
-Stage-2 beam squint is configured, where it is generally full — and the
+Stage-2 beam squint is configured or a BeamFITS source authors the Stage-3
+full-efield literal, where it is generally full — and the
 exported receptor configuration (C) and output basis transform (H). Nine
 further exported Jones terms —
 gain (G), bandpass (B), cable reflection (Rc), instrumental delay (Kd),
@@ -63,22 +64,35 @@ use the strict tagged configuration, for example:
 
 ``analytic``, ``shared_fits``, ``per_antenna_fits``, and ``mixed`` all resolve
 to one canonical per-antenna ``BeamSystem``. The point-source, HEALPix, and
-observability paths use the same evaluator. Within the accepted FITS subset,
-the accepted scalar E-Jones response is a complex voltage on the diagonal of
-a 2x2
+observability paths use the same evaluator. Within the accepted scalar FITS
+subset — a ``kind: fits`` source whose ``normalization`` is the default
+``peak`` — the accepted scalar E-Jones response is a complex voltage on the
+diagonal of a 2x2
 matrix. It does not claim arbitrary cross-polarization or receptor coupling.
 
-SCI-005 Stage 2's ``beams.squint`` (:ref:`stage2-beam-squint`) is the one
-exception, and it is accepted only on the ``analytic`` mode: the two native
-feeds sample the same scalar pattern at oppositely displaced directions, and
-the beam runtime composes the resulting :math:`E = C^\dagger D_b\,C` from
-those samples and the antenna's own resolved receptor matrix. An antenna
-without squint keeps today's byte-identical scalar response.
+There are exactly two exceptions, and both compose ``E`` from the antenna's
+**own resolved receptor matrix** rather than from anything the beam declares
+for itself:
 
-The high-level API does not accept a caller-supplied Jones chain. General
-polarized BeamFITS remains outside the accepted scalar subset; a circular
+* SCI-005 Stage 2's ``beams.squint`` (:ref:`stage2-beam-squint`), accepted
+  only on the ``analytic`` mode: the two native feeds sample the same scalar
+  pattern at oppositely displaced directions, and the beam runtime composes
+  :math:`E = C^\dagger D_b\,C` from those samples.
+* SCI-005 Stage 3's ``normalization: uvbeam_peak_common_v1``
+  (:ref:`stage3-full-efield`), accepted only on a ``kind: fits`` source: the
+  file's complete complex ``data_array`` is converted per direction into
+  RadioSim's Ludwig-3 tangent pair, giving the full matrix
+  :math:`J_{\rm native}` that maps the incident tangent field to the file's
+  native feed voltages, and the runtime composes
+  :math:`E = C^\dagger J_{\rm native}` so that :math:`C\,E = J_{\rm native}`
+  holds exactly against the chain's own ``C``.
+
+An antenna with neither keeps today's byte-identical scalar response.
+
+The high-level API does not accept a caller-supplied Jones chain. A circular
 receptor basis is expressed by the receptor terms below rather than by the beam
-evaluator.
+evaluator, and a full-efield file's own feed pair is required to agree with
+every antenna it is assigned to rather than overriding the receptor model.
 
 Polarization conventions
 ------------------------
@@ -290,17 +304,22 @@ What in that order is physical, and what is convention
   :math:`\sin(\alpha_p) \ne 0`. The executable oracle
   therefore distinguishes the orders for both linear and circular receptors.
   See :doc:`../migration_guide`.
-* **Physical, and tested when beam squint is enabled.** The relative order of
-  ``E`` and ``P``. For every beam declaration except SCI-005 Stage-2
-  ``beams.squint``, ``E`` is a scalar complex voltage on the diagonal, so it
+* **Physical, and tested whenever ``E`` is non-scalar.** The relative order of
+  ``E`` and ``P``. For a beam declaration that authors neither SCI-005 Stage-2
+  ``beams.squint`` nor Stage-3 ``normalization: uvbeam_peak_common_v1``, ``E``
+  is a scalar complex voltage on the diagonal, so it
   commutes with everything and ``C E P`` and ``C P E`` remain numerically
-  identical — the order was fixed at ``C E P`` in anticipation of a future
-  non-scalar ``E``. Beam squint is that non-scalar ``E``: the chain order does
+  identical — the order was fixed at ``C E P`` in anticipation of a
+  non-scalar ``E``. Both of those declarations are that non-scalar ``E``: the
+  chain order does
   not change, but it is no longer a convention with nothing to test. On a
   rotated **linear** receptor, ``C E P`` (physically correct, because a field
   rotation acts on the incoming field before the receptor and the beam see
   it — the same reasoning as the ``P``/``C`` bullet above) and ``C P E``
-  differ, and this is an executable order-matters oracle. On *any* **circular**
+  differ, and this is an executable order-matters oracle.
+
+  The two cases differ in what a *circular* receptor does to that oracle. For
+  squint, on *any* **circular**
   receptor the composed
   :math:`E = C^\dagger \operatorname{diag}(b_0, b_1)\, C` reduces to
   :math:`\frac{b_0+b_1}{2}I_2 - \frac{b_0-b_1}{2}\sigma_y`,
@@ -309,6 +328,14 @@ What in that order is physical, and what is convention
   circular-receptor order control is therefore identically zero by this exact
   algebraic identity, not because the physical effect is absent — squint still
   leaves :math:`|E_{01}| = |b_0 - b_1|/2 > 0`. See :ref:`stage2-beam-squint`.
+  That vanishing followed from :math:`D_b` being diagonal, which a general
+  :math:`J_{\rm native}` is not, so the full-efield ``E`` of
+  :ref:`stage3-full-efield` makes the order observable on **both** receptor
+  bases: writing
+  :math:`E = a I_2 + b\sigma_x + c\sigma_y + d\sigma_z`, the exact condition
+  for :math:`E` to commute with every real rotation is :math:`b = d = 0`, and
+  :math:`E_{00} - E_{11} = 2d` with :math:`E_{01} + E_{10} = 2b` measures it
+  directly.
 
 The two terms outside the chain
 -------------------------------

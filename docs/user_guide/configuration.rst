@@ -283,7 +283,8 @@ tagged shapes and all five analytic model variants. Schema validation and path
 resolution accept all four modes, and ``Simulator.setup`` resolves and loads
 all four through one canonical ``BeamSystem``. Path validation alone does not
 read FITS content; setup performs canonical antenna assignment, validates the
-accepted scalar FITS subset, and loads every required handler atomically.
+accepted FITS subset named by the source's ``normalization`` literal, and loads
+every required handler atomically.
 Point-source, HEALPix, observability, sampling-advice, and result-provenance
 paths consume the same loaded state. FITS failures never fall back to analytic
 evaluation.
@@ -482,6 +483,76 @@ Rejections follow the same discipline as ``aperture_physics``:
 
 An absent ``beams.squint`` block changes nothing at all — the same resolved
 configuration, fingerprints, result bytes and logs as before.
+
+Full-efield BeamFITS
+--------------------
+
+A BeamFITS source selects one of **two accepted subsets of the same file**
+through the one field ``beams.beam.normalization``, and through nothing else:
+
+.. code-block:: yaml
+
+   beams:
+     mode: shared_fits
+     beam:
+       kind: fits
+       path: beams/shared.beamfits
+       normalization: uvbeam_peak_common_v1   # or the default: peak
+
+``peak`` is the accepted scalar subset that has always been there: the file's
+response is read as one complex voltage on the diagonal of ``E``.
+``uvbeam_peak_common_v1`` is the full-efield subset: the file's complete
+complex ``data_array`` is converted per direction into RadioSim's Ludwig-3
+tangent pair and factorized against the antenna's own resolved receptor, so
+``E`` is a generally full 2x2 matrix. :doc:`beam_models` gives the conversion,
+the factorization, and the cross-polar diagnostic.
+
+The literal names an accepted *interpretation* of the committed bytes, not a
+normalizing operation. RadioSim renormalizes nothing under either value, and
+the two are different readings of the same ``beam_type: efield`` file rather
+than a strict widening of one another: a file the scalar subset accepts is
+generally **rejected** by the full-efield subset, and the reverse.
+
+The full-efield subset requires all of the following of the file, and rejects
+anything else with the existing typed ``UnsupportedBeamTypeError``,
+``UnsupportedBeamFeedError``, ``UnsupportedBeamBasisError``,
+``UnsupportedBeamCoordinateError``, ``UnsupportedBeamPrecisionError``,
+``BeamAngularDomainError``, ``NonFiniteBeamResponseError`` or
+``BeamNormalizationError`` family:
+
+- ``beam_type: efield`` on a ``simple`` antenna in ``az_za`` pixel
+  coordinates, on a fixed mount — power beams, phased-array antennas and
+  HEALPix-pixel files are rejected;
+- a two-element vector axis whose stored ``basis_vector_array`` is **exactly**
+  the native identity, at either real floating width, and finite;
+- native complex data of exactly ``complex64`` or ``complex128``, finite
+  everywhere; a resolved ``float128`` beam precision keeps its existing
+  ``UnsupportedBeamPrecisionError``;
+- a feed pair of exactly ``("x", "y")`` or ``("r", "l")`` whose feed angles,
+  derived x-orientation and basis agree with **every** antenna the file is
+  assigned to, as resolved by the ``receptors`` section — a file whose
+  metadata matches one antenna and not another is rejected, not silently
+  reused;
+- unit bandpass, ``data_normalization: peak``, and a full-visible-hemisphere
+  grid whose zenith row is single valued and whose azimuth wraps
+  continuously; and
+- a **full-stored-grid** unit peak at every intrinsic frequency: below-horizon
+  rows, when stored, participate in that maximum, so a file that is unit-peak
+  only over the visible rows is rejected.
+
+``beams.squint`` and ``beams.aperture_physics`` are both accepted only on the
+``analytic`` beams mode, so neither can be combined with either BeamFITS
+subset; a document that authors one alongside a FITS source is rejected with
+``UnsupportedConfigError`` before any antenna-reference matching. The
+``normalization`` literal is authorable **only** on a ``kind: fits`` source
+block — writing it on an analytic model, on ``beams.aperture_physics``, or on
+``beams.squint`` is Pydantic's own ``extra_forbidden``, and an unrecognized
+value is Pydantic's own ``literal_error``.
+
+Nothing else in the document changes, and the accepted ``peak`` path is
+untouched: a run that does not author ``uvbeam_peak_common_v1`` has the same
+resolved configuration, the same beam fingerprints, the same
+``scientific_sha256``, and the same result bytes as before.
 
 Jones-term declarations
 -----------------------

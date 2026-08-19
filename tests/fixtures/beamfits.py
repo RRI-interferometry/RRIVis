@@ -1202,3 +1202,185 @@ class CountingBeamFITSLoader:
         result = beam.read_beamfits(requested)
         assert result is None
         return beam
+
+
+# ==============================================================================
+# SCI-005 Stage-3 output-format workloads
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.4 requires "a
+# non-scalar efield round-trip/equivalence case in both linear and circular
+# output bases" from every writer, and rules that "both bases are exercised on
+# the same underlying efield fixture so that the pair isolates ``H`` and nothing
+# else".  The five writer test modules therefore share one runner rather than
+# each growing a private copy of it, so that a row of the retained ten-row
+# ``output_cases`` matrix differs from its partner in exactly one authored
+# value.
+#
+# Section 7.5 keeps every production output module unwritable at Stage 3, so
+# these helpers exist to *observe* what the accepted writers already emit.
+
+#: Section 5.1.1's one authored ``normalization`` literal for the subset.
+FULL_EFIELD_NORMALIZATION = "uvbeam_peak_common_v1"
+
+#: The accepted-subset version literal that subset records in provenance.
+FULL_EFIELD_SUBSET_VERSION = "sci005-stage3-full-efield-v1"
+
+#: The three derived convention literals Section 8.1 freezes beside it.
+FULL_EFIELD_BASIS_CONVERSION_CONVENTION = "ludwig3_az_za_to_north_east_v1"
+FULL_EFIELD_FACTORIZATION_CONVENTION = "receptor_conjugated_native_efield_v1"
+
+
+def fits_beams_block(path: Path, *, normalization: str) -> dict[str, Any]:
+    """Return one ``shared_fits`` beams block naming this transport."""
+    return {
+        "mode": "shared_fits",
+        "beam": {
+            "kind": "fits",
+            "path": str(path),
+            "normalization": normalization,
+        },
+    }
+
+
+def receptors_section(
+    *,
+    basis: str = "linear",
+    feed_rotation_deg: float = 0.0,
+    output_basis: str = "auto",
+) -> dict[str, Any]:
+    """Return one strict ``receptors:`` section in the accepted spelling."""
+    return {
+        "default": {"basis": basis, "feed_rotation_deg": feed_rotation_deg},
+        "output_basis": output_basis,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class BeamFITSWorkload:
+    """One completed BeamFITS run and the transport it consumed."""
+
+    simulator: Any
+    result: Any
+    beam_path: Path
+    beam_sha256: str
+    output_basis: str
+
+
+def _run_beamfits_workload(
+    directory: Path,
+    *,
+    beam_path: Path,
+    beam_sha256: str,
+    normalization: str,
+    output_basis: str,
+    receptor_basis: str,
+    feed_rotation_deg: float,
+    source_count: int,
+) -> BeamFITSWorkload:
+    """Run one tiny BeamFITS workload through the public entry point."""
+    from radiosim.api.simulator import Simulator
+    from tests.fixtures.configs import valid_config_mapping
+
+    root = Path(directory)
+    root.mkdir(parents=True, exist_ok=True)
+    mapping = valid_config_mapping(
+        root,
+        beams=fits_beams_block(beam_path, normalization=normalization),
+        receptors=receptors_section(
+            basis=receptor_basis,
+            feed_rotation_deg=feed_rotation_deg,
+            output_basis=output_basis,
+        ),
+        sky_sources=[
+            {
+                "kind": "test_sources",
+                "representation": "point_sources",
+                "num_sources": source_count,
+                "distribution": "uniform",
+                "seed": 1,
+            }
+        ],
+    )
+    simulator = Simulator.from_mapping(mapping, base_dir=root)
+    result = simulator.run(progress=False)
+    return BeamFITSWorkload(
+        simulator=simulator,
+        result=result,
+        beam_path=beam_path,
+        beam_sha256=beam_sha256,
+        output_basis=simulator.receptors.output_basis,
+    )
+
+
+def run_full_efield_workload(
+    directory: Path,
+    *,
+    output_basis: str = "linear",
+    science: EfieldScienceVariant = EfieldScienceVariant.QUADRUPOLAR,
+    receptor_basis: str = "linear",
+    feed_rotation_deg: float = 0.0,
+    source_count: int = 2,
+    beam_path: Path | None = None,
+    beam_sha256: str | None = None,
+) -> BeamFITSWorkload:
+    """Run one full-efield workload and return the result and its transport.
+
+    ``output_basis`` is the authored ``receptors.output_basis`` value, the one
+    field the ten-row ``output_cases`` matrix varies between a writer's two
+    rows.  Passing ``beam_path``/``beam_sha256`` reuses an already written
+    transport, which is what keeps a linear/circular pair on one fixture.
+    """
+    root = Path(directory)
+    root.mkdir(parents=True, exist_ok=True)
+    if beam_path is None:
+        written = write_efield_beamfits(root / "efield-transport", science=science)
+        beam_path, beam_sha256 = written.path, written.sha256
+    if beam_sha256 is None:
+        raise ValueError("beam_sha256 is required whenever beam_path is supplied")
+    return _run_beamfits_workload(
+        root / f"run-{output_basis}-{source_count}",
+        beam_path=beam_path,
+        beam_sha256=beam_sha256,
+        normalization=FULL_EFIELD_NORMALIZATION,
+        output_basis=output_basis,
+        receptor_basis=receptor_basis,
+        feed_rotation_deg=feed_rotation_deg,
+        source_count=source_count,
+    )
+
+
+def run_scalar_beamfits_workload(
+    directory: Path,
+    *,
+    output_basis: str = "linear",
+    source_count: int = 2,
+) -> BeamFITSWorkload:
+    """Run the accepted scalar ``peak`` workload Stage 3 must not move."""
+    root = Path(directory)
+    root.mkdir(parents=True, exist_ok=True)
+    written = write_scalar_efield_beamfits(root / "scalar-transport")
+    return _run_beamfits_workload(
+        root / f"scalar-{output_basis}",
+        beam_path=written.path,
+        beam_sha256=written.sha256,
+        normalization="peak",
+        output_basis=output_basis,
+        receptor_basis="linear",
+        feed_rotation_deg=0.0,
+        source_count=source_count,
+    )
+
+
+def efield_file_provenance(result: Any) -> dict[str, Any]:
+    """Return the single beam handler's file provenance from one result.
+
+    Section 5.4's in-memory predicate is a statement about the beam snapshot the
+    accepted generic writer already produces, so every output test reads it
+    through this one accessor rather than re-deriving the snapshot shape.
+    """
+    snapshot = result.beam_state.to_snapshot()
+    handlers = snapshot["handlers"]
+    if len(handlers) != 1:
+        raise AssertionError("this fixture family assigns exactly one handler")
+    return dict(handlers[0]["file"])

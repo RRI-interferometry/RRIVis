@@ -1289,3 +1289,141 @@ def test_the_receptor_snapshot_schema_version_matches_the_receptor_module():
         result_module._RECEPTOR_SCHEMA_VERSION
         == receptor_module._RECEPTOR_SCHEMA_VERSION
     )
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the in-memory half of the frozen output matrix
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.4 freezes the
+# ``in_memory`` equivalence predicate at test level: "The result carries all
+# four correlation products in the single declared ``receptors.output_basis``,
+# its correlation labels are exactly those ``core/polarization_basis.py`` gives
+# that basis, and both cross-hand products are non-zero somewhere in the cube --
+# the last being the whole point of a non-scalar ``E``."  Its first bullet adds
+# the snapshot half: "Its beam snapshot records file content hash, feed and
+# vector basis, normalization convention/factors, and the resolved transform."
+#
+# Section 7.5 makes ``core/result.py`` unwritable at Stage 3, so both halves are
+# statements about what the accepted generic snapshot already carries.
+
+_STAGE3_OUTPUT_BASES = {"linear": "linear_xy", "circular": "circular_rl"}
+
+
+@pytest.mark.parametrize("authored_basis", sorted(_STAGE3_OUTPUT_BASES))
+def test_a_full_efield_result_carries_four_products_in_the_declared_basis(
+    tmp_path,
+    authored_basis: str,
+) -> None:
+    """Section 5.4's ``in_memory`` predicate, on both output bases.
+
+    ``efield_in_memory_linear_xy`` and ``efield_in_memory_circular_rl``. Both
+    rows run the same underlying efield transport and differ in exactly one
+    authored value, so the pair isolates ``H`` and nothing else.
+    """
+    from tests.fixtures.beamfits import run_full_efield_workload
+
+    workload = run_full_efield_workload(tmp_path, output_basis=authored_basis)
+    result = workload.result
+    expected_basis = _STAGE3_OUTPUT_BASES[authored_basis]
+
+    assert workload.simulator.receptors.output_basis == expected_basis
+    assert result.polarization_basis == expected_basis
+    assert result.correlations == CORRELATION_LABELS[expected_basis]
+    assert result.visibilities.shape[-1] == 4
+    assert bool(np.all(np.isfinite(result.visibilities)))
+
+    parallel = parallel_hand_indices(CORRELATION_LABELS[expected_basis])
+    cross = tuple(index for index in range(4) if index not in parallel)
+    assert len(cross) == 2
+    for index in cross:
+        assert float(np.max(np.abs(result.visibilities[..., index]))) > 0.0
+
+
+@pytest.mark.parametrize("authored_basis", sorted(_STAGE3_OUTPUT_BASES))
+def test_a_full_efield_beam_snapshot_records_the_frozen_scientific_identity(
+    tmp_path,
+    authored_basis: str,
+) -> None:
+    """Section 5.4's first bullet, field by field.
+
+    The recorded content hash is the digest of the committed bytes; the feed and
+    vector basis are the resolved feed pair and the Ludwig-3 basis-conversion
+    literal; the normalization convention is the authored
+    ``uvbeam_peak_common_v1`` literal and its factors are the full-stored-grid
+    per-frequency maxima of Section 5.1.1 item 12; and the resolved transform is
+    the receptor-conjugated factorization literal.  The declared output basis
+    does not move any of them, which is what makes the pair a control on ``H``.
+    """
+    from tests.fixtures.beamfits import (
+        FULL_EFIELD_BASIS_CONVERSION_CONVENTION,
+        FULL_EFIELD_FACTORIZATION_CONVENTION,
+        FULL_EFIELD_NORMALIZATION,
+        FULL_EFIELD_SUBSET_VERSION,
+        efield_file_provenance,
+        run_full_efield_workload,
+    )
+
+    workload = run_full_efield_workload(tmp_path, output_basis=authored_basis)
+    provenance = efield_file_provenance(workload.result)
+
+    assert provenance["sha256"] == workload.beam_sha256
+    assert provenance["beam_type"] == "efield"
+    assert provenance["accepted_subset_version"] == FULL_EFIELD_SUBSET_VERSION
+    assert provenance["radiosim_normalization"] == FULL_EFIELD_NORMALIZATION
+    assert tuple(provenance["resolved_feed_array"]) == ("x", "y")
+    assert provenance["derived_x_orientation_verdict"] == "east"
+    assert (
+        provenance["basis_vector_convention"] == FULL_EFIELD_BASIS_CONVERSION_CONVENTION
+    )
+    assert (
+        provenance["factorization_convention"] == FULL_EFIELD_FACTORIZATION_CONVENTION
+    )
+
+    peaks = [tuple(pair) for pair in provenance["stored_grid_peak_by_frequency"]]
+    assert peaks
+    frequencies = [frequency for frequency, _peak in peaks]
+    assert frequencies == sorted(set(frequencies))
+    assert all(frequency > 0.0 for frequency in frequencies)
+    for _frequency, peak in peaks:
+        assert abs(peak - 1.0) <= provenance["normalization_absolute_tolerance"]
+
+
+def test_a_scalar_peak_result_carries_none_of_the_full_efield_snapshot_fields(
+    tmp_path,
+) -> None:
+    """The disabled control of the same evidence (Sections 2 and 8.1).
+
+    "No absent or disabled beam block changes the resolved configuration,
+    assignment/state/scientific fingerprints, result bytes, logs, or output."
+    The accepted scalar ``peak`` subset therefore reports zero cross-hands and a
+    provenance record from which all seven appended fields are absent, so its
+    snapshot and scientific digest cannot have moved.
+    """
+    from tests.fixtures.beamfits import (
+        efield_file_provenance,
+        run_scalar_beamfits_workload,
+    )
+
+    workload = run_scalar_beamfits_workload(tmp_path)
+    provenance = efield_file_provenance(workload.result)
+
+    for name in (
+        "accepted_subset_version",
+        "radiosim_normalization",
+        "resolved_feed_array",
+        "derived_x_orientation_verdict",
+        "basis_vector_convention",
+        "factorization_convention",
+        "stored_grid_peak_by_frequency",
+    ):
+        assert name not in provenance
+
+    visibilities = workload.result.visibilities
+    parallel = parallel_hand_indices(workload.result.correlations)
+    for index in range(4):
+        if index in parallel:
+            continue
+        np.testing.assert_array_equal(
+            visibilities[..., index], np.zeros_like(visibilities[..., index])
+        )

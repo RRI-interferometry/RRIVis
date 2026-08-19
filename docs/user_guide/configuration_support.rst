@@ -173,15 +173,15 @@ Beam support by stage
    * - ``shared_fits``
      - Supported
      - Supported
-     - Supported within the accepted scalar subset
+     - Supported within the accepted scalar or full-efield subset
    * - ``per_antenna_fits``
      - Supported
      - Supported
-     - Supported within the accepted scalar subset
+     - Supported within the accepted scalar or full-efield subset
    * - ``mixed``
      - Supported
      - Supported
-     - Supported within the accepted scalar subset
+     - Supported within the accepted scalar or full-efield subset
    * - ``beams.aperture_physics``
      - Supported
      - Not applicable
@@ -202,8 +202,7 @@ compact aperture-plane profile: ``circular_aperture`` with a ``uniform``,
 ``parabolic`` or ``parabolic_squared`` taper, and ``analytical_illumination``
 with a ``parabolic`` or ``parabolic_squared`` taper profile. Gaussian, cosine
 and numerical illuminations, the rectangular and elliptical families, and every
-BeamFITS source are rejected with ``UnsupportedConfigError``. Full
-cross-polarization remains unimplemented.
+BeamFITS source are rejected with ``UnsupportedConfigError``.
 
 ``beams.squint`` (SCI-005 Stage 2) samples the analytic beam at two oppositely
 displaced native-feed directions and composes them into a generally full ``E``
@@ -214,6 +213,20 @@ squint block is rejected with ``UnsupportedConfigError`` before any
 antenna-reference matching, because a measured BeamFITS pattern may already
 contain the physical feed displacement and the accepted scalar subset carries
 no metadata by which RadioSim could prove it does not.
+
+``beams.beam.normalization`` (SCI-005 Stage 3) selects which accepted subset of
+a BeamFITS file is read. The default ``peak`` is the accepted scalar subset,
+whose evaluated response is one complex voltage on the diagonal of ``E``.
+``uvbeam_peak_common_v1`` is the accepted full-efield subset: the file's
+complete complex ``data_array`` is converted per direction into RadioSim's
+Ludwig-3 tangent pair and factorized against the antenna's own resolved
+receptor, so ``E`` is a generally full 2x2 matrix; see
+:ref:`stage3-full-efield`. The literal names an accepted interpretation of the
+committed bytes rather than a normalizing operation, and the two subsets are
+different readings of the same ``beam_type: efield`` file rather than a strict
+widening of one another. A phased-array antenna response, a station or
+array-factor model, mutual coupling between elements, and near-field or
+Fresnel-regime behaviour all remain unimplemented.
 
 The nested ``error_beam_diagnostic`` declaration is validated, resolved and
 fingerprinted, and it is deliberately *not* a Jones voltage: it can never change
@@ -229,9 +242,9 @@ behaviour.
 
 FITS path validation checks and records sources but does not read BeamFITS
 content. ``Simulator.setup`` resolves canonical antenna references, loads and
-validates the accepted scalar subset, and publishes state atomically. This does
-not imply arbitrary full-polarization BeamFITS, GPU interpolation, automatic
-NSIDE mutation, or resampling support.
+validates the accepted subset named by the source's ``normalization`` literal,
+and publishes state atomically. This does not imply arbitrary BeamFITS variants,
+GPU interpolation, automatic NSIDE mutation, or resampling support.
 
 NumPy is the deterministic backend default. Selecting ``jax``, ``dask``, or
 ``auto`` does not establish accelerator coverage for the high-level workflow;

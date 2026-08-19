@@ -938,3 +938,140 @@ def test_measurement_set_history_names_every_solved_component(
     record = projection_record_from_history("\n".join(loaded.history))[0]
     assert record["solver"]["components"] == ["point", "healpix"]
     assert record["solver"]["component_element_counts"] == [3, 3072]
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the Measurement Set half of the frozen output matrix
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.4 gives ``uvfits``
+# and ``measurement_set`` one shared predicate: both "serialize the four
+# already-corrupted correlation products in the result's declared output basis",
+# every per-correlation round-trip difference lies within "that writer's
+# **existing accepted** output tolerance, which is not widened", the antenna
+# feed metadata "equals the resolved ``ResolvedReceptorSet`` values rather than
+# any file row label", and "the existing HISTORY provenance carries
+# ``source_scientific_sha256``".  "Neither format is claimed to preserve a
+# reusable efield beam model, and no invented standard table is added."
+#
+# The tolerance below is this module's own accepted round-trip pair; the writer
+# stores ``complex64`` for every input dtype, which is why it is the looser of
+# the two format tolerances.  Section 7.5 makes ``io/measurement_set.py``
+# unwritable at Stage 3.
+
+_STAGE3_MS_RTOL = 5e-6
+_STAGE3_MS_ATOL = 1e-7
+
+_STAGE3_MS_EXPECTATION = {
+    "linear": (
+        "linear_xy",
+        ("XX", "XY", "YX", "YY"),
+        ["X", "Y"],
+        [9, 10, 11, 12],
+        math.pi / 2.0,
+    ),
+    "circular": (
+        "circular_rl",
+        ("RR", "RL", "LR", "LL"),
+        ["R", "L"],
+        [5, 6, 7, 8],
+        0.0,
+    ),
+}
+
+
+@pytest.mark.parametrize("authored_basis", sorted(_STAGE3_MS_EXPECTATION))
+def test_measurement_set_serializes_a_full_efield_run_in_the_declared_basis(
+    tmp_path: Path,
+    authored_basis: str,
+) -> None:
+    """Section 5.4's ``measurement_set`` predicate, on both output bases.
+
+    ``efield_measurement_set_linear_xy`` and
+    ``efield_measurement_set_circular_rl``.  The beam transport labels its own
+    feed rows ``('x', 'y')`` in both, so the circular row is the one that proves
+    the FEED subtable is written from the resolved receptor set's single
+    declared output basis and never from the file.
+    """
+    from tests.fixtures.beamfits import run_full_efield_workload
+
+    (
+        basis,
+        labels,
+        feed_letters,
+        corr_type,
+        receptor_angle,
+    ) = _STAGE3_MS_EXPECTATION[authored_basis]
+    workload = run_full_efield_workload(tmp_path, output_basis=authored_basis)
+    result = workload.result
+    assert result.correlations == labels
+    assert result.polarization_basis == basis
+
+    target = tmp_path / f"efield-{authored_basis}.ms"
+    _write_checked(result, target)
+    loaded = read_measurement_set(target)
+    expected = project_simulation_result(result, format="ms").data
+
+    assert loaded.correlations == labels
+    assert loaded.visibilities.shape[-1] == 4
+    for index, label in enumerate(labels):
+        np.testing.assert_allclose(
+            loaded.visibilities[..., index],
+            expected.visibilities[..., index],
+            rtol=_STAGE3_MS_RTOL,
+            atol=_STAGE3_MS_ATOL,
+            err_msg=f"correlation {label}",
+        )
+
+    feed_rows = max(antenna.id.number for antenna in result.instrument.antennas) + 1
+    with table(str(target / "POLARIZATION"), ack=False) as handle:
+        assert handle.getcol("NUM_CORR").tolist() == [4]
+        assert handle.getcol("CORR_TYPE").tolist() == [corr_type]
+    with table(str(target / "FEED"), ack=False) as handle:
+        polarization_type = handle.getcol("POLARIZATION_TYPE")
+        assert polarization_type["array"] == feed_letters * feed_rows
+        selected = [antenna.id.number for antenna in result.instrument.antennas]
+        np.testing.assert_allclose(
+            np.asarray(handle.getcol("RECEPTOR_ANGLE"))[selected],
+            np.tile([receptor_angle, 0.0], (len(selected), 1)),
+            rtol=0.0,
+            atol=1e-9,
+        )
+    if basis == "circular_rl":
+        assert [letter.lower() for letter in feed_letters] != ["x", "y"]
+
+    assert loaded.source_scientific_sha256 == result.scientific_sha256
+    record_lines = [
+        item for item in loaded.history if item.startswith(PROJECTION_HISTORY_PREFIX)
+    ]
+    assert len(record_lines) == 1
+    record = json.loads(record_lines[0][len(PROJECTION_HISTORY_PREFIX) :])
+    assert record["source_scientific_sha256"] == result.scientific_sha256
+    assert record["polarization_basis"] == basis
+    # No invented standard table is added for the efield beam model.
+    assert not (target / "BEAM").exists()
+
+
+def test_a_scalar_peak_measurement_set_keeps_its_zero_cross_hands(
+    tmp_path: Path,
+) -> None:
+    """The disabled half of the same evidence.
+
+    Section 5.1.1 "changes no byte of the accepted ``peak`` path": the scalar
+    ``E = e I2`` still produces exactly zero in both cross-hand products, which
+    is precisely the property the full-efield subset above breaks.
+    """
+    from tests.fixtures.beamfits import run_scalar_beamfits_workload
+
+    workload = run_scalar_beamfits_workload(tmp_path)
+    target = tmp_path / "scalar.ms"
+    _write_checked(workload.result, target)
+    loaded = read_measurement_set(target)
+
+    assert loaded.correlations == ("XX", "XY", "YX", "YY")
+    for index in (1, 2):
+        np.testing.assert_array_equal(
+            loaded.visibilities[..., index],
+            np.zeros_like(loaded.visibilities[..., index]),
+        )
+    assert loaded.source_scientific_sha256 == workload.result.scientific_sha256

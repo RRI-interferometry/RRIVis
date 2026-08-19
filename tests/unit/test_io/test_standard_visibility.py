@@ -955,3 +955,58 @@ def test_projection_history_names_every_solved_component(
         len(projected.uvdata.history.encode("utf-8"))
         <= standard_visibility_module._PROJECTION_HISTORY_LIMIT
     )
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the shared reader-projection contract for a full efield run
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.4's reader bullet:
+# "UVFITS/MS reconstruct representable visibilities, feed metadata, correlation
+# labels, and source scientific identity under their existing projection
+# contracts."  Section 5.4's ten-row minimum stands "beside whatever
+# ``reader_projection`` rows the readers' own contracts require", and this is
+# the one seam both formats pass through.
+#
+# Section 7.5 makes ``io/standard_visibility.py`` unwritable at Stage 3: the
+# projection already carries all four correlation products in the declared
+# output basis, so this measures what it emits for a non-scalar ``E``.
+
+_STAGE3_PROJECTION_BASES = {
+    "linear": ("linear_xy", ("XX", "XY", "YX", "YY"), ("x", "y")),
+    "circular": ("circular_rl", ("RR", "RL", "LR", "LL"), ("r", "l")),
+}
+
+
+@pytest.mark.parametrize("format_name", ["uvfits", "ms"])
+@pytest.mark.parametrize("authored_basis", sorted(_STAGE3_PROJECTION_BASES))
+def test_the_projection_carries_a_full_efield_run_in_the_declared_basis(
+    tmp_path: Path,
+    authored_basis: str,
+    format_name: str,
+) -> None:
+    """One shared ``reader_projection`` witness for both export formats."""
+    from tests.fixtures.beamfits import run_full_efield_workload
+
+    basis, labels, feeds = _STAGE3_PROJECTION_BASES[authored_basis]
+    workload = run_full_efield_workload(tmp_path, output_basis=authored_basis)
+    result = workload.result
+    projected = project_simulation_result(result, format=format_name)
+
+    assert projected.data.format == format_name
+    assert projected.data.correlations == labels
+    assert projected.data.visibilities.shape[-1] == 4
+    for index in (1, 2):
+        assert float(np.max(np.abs(projected.data.visibilities[..., index]))) > 0.0
+
+    observed = {
+        str(feed).lower()
+        for feed in np.asarray(projected.uvdata.telescope.feed_array).reshape(-1)
+    }
+    assert observed == set(feeds)
+    require_feed_polarization_coupling(projected.uvdata, basis)
+
+    record, _lines = projection_record_from_history(projected.uvdata.history)
+    assert record["polarization_basis"] == basis
+    assert record["source_scientific_sha256"] == result.scientific_sha256
+    assert record["receptor_sha256"] == result.receptors.provenance.receptor_sha256

@@ -700,3 +700,119 @@ def test_uvfits_history_names_every_solved_component(tmp_path: Path) -> None:
     record, _lines = projection_record_from_history(joined)
     assert record["solver"]["components"] == ["point", "healpix"]
     assert record["solver"]["component_element_counts"] == [3, 3072]
+
+
+# ==============================================================================
+# SCI-005 Stage 3: the UVFITS half of the frozen output matrix
+# ==============================================================================
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 5.4 freezes one
+# predicate for ``uvfits`` and ``measurement_set`` together: "Both serialize the
+# four already-corrupted correlation products in the result's declared output
+# basis. The predicate is that every per-correlation round-trip difference lies
+# within that writer's **existing accepted** output tolerance, which is not
+# widened; that the antenna feed metadata equals the resolved
+# ``ResolvedReceptorSet`` values rather than any file row label; and that the
+# existing HISTORY provenance carries ``source_scientific_sha256``. Neither
+# format is claimed to preserve a reusable efield beam model, and no invented
+# standard table is added."
+#
+# The tolerance below is the one this module's own accepted ``complex128``
+# round-trip case already uses; Section 7.5 makes ``io/uvfits.py`` unwritable at
+# Stage 3, so nothing here asks the writer to change.
+
+_STAGE3_UVFITS_TOLERANCE = 5e-13
+
+_STAGE3_UVFITS_EXPECTATION = {
+    "linear": ("linear_xy", ("XX", "XY", "YX", "YY"), ["x", "y"], (np.pi / 2.0, 0.0)),
+    "circular": ("circular_rl", ("RR", "RL", "LR", "LL"), ["r", "l"], (0.0, 0.0)),
+}
+
+
+@pytest.mark.parametrize("authored_basis", sorted(_STAGE3_UVFITS_EXPECTATION))
+def test_uvfits_serializes_a_full_efield_run_in_the_declared_basis(
+    tmp_path: Path,
+    authored_basis: str,
+) -> None:
+    """Section 5.4's ``uvfits`` predicate, on both output bases.
+
+    ``efield_uvfits_linear_xy`` and ``efield_uvfits_circular_rl``.  The beam
+    file's own feed row label is ``('x', 'y')`` in both rows, so the circular
+    row is the one that proves the feed metadata is taken from the resolved
+    receptor set's single declared output basis and never from the file.
+    """
+    from tests.fixtures.beamfits import run_full_efield_workload
+
+    basis, labels, feeds, feed_angles = _STAGE3_UVFITS_EXPECTATION[authored_basis]
+    workload = run_full_efield_workload(tmp_path, output_basis=authored_basis)
+    result = workload.result
+    assert result.correlations == labels
+    assert result.polarization_basis == basis
+
+    target = tmp_path / f"efield-{authored_basis}.uvfits"
+    assert write_uvfits(result, target) == target.absolute()
+    loaded = read_uvfits(target)
+    expected = project_simulation_result(result, format="uvfits").data
+
+    assert loaded.correlations == labels
+    assert loaded.visibilities.shape[-1] == 4
+    for index, label in enumerate(labels):
+        np.testing.assert_allclose(
+            loaded.visibilities[..., index],
+            expected.visibilities[..., index],
+            rtol=_STAGE3_UVFITS_TOLERANCE,
+            atol=_STAGE3_UVFITS_TOLERANCE,
+            err_msg=f"correlation {label}",
+        )
+
+    raw = UVData()
+    raw.read_uvfits(str(target))
+    observed_feeds = np.asarray(raw.telescope.feed_array).tolist()
+    assert observed_feeds == [feeds for _ in observed_feeds]
+    np.testing.assert_allclose(
+        np.asarray(raw.telescope.feed_angle, dtype=np.float64),
+        np.tile(np.asarray(feed_angles, dtype=np.float64), (len(observed_feeds), 1)),
+        rtol=0.0,
+        atol=1e-6,
+    )
+    # The transport the beam came from labels its own rows ``('x', 'y')``; the
+    # circular row proves the writer did not read that label.
+    if basis == "circular_rl":
+        assert feeds != ["x", "y"]
+
+    assert loaded.source_scientific_sha256 == result.scientific_sha256
+    record, _lines = projection_record_from_history("\n".join(loaded.history))
+    assert record["source_scientific_sha256"] == result.scientific_sha256
+    assert record["polarization_basis"] == basis
+    assert record["receptor_sha256"] == result.receptors.provenance.receptor_sha256
+    # No invented standard table is added for the efield beam model: the file
+    # carries exactly the HDUs an accepted scalar run already produces.
+    with fits.open(target, mode="readonly", memmap=True) as handle:
+        assert {hdu.name for hdu in handle if hdu.name} == {
+            "PRIMARY",
+            "AIPS AN",
+            "AIPS SU",
+        }
+
+
+def test_a_scalar_peak_uvfits_run_keeps_its_zero_cross_hands(tmp_path: Path) -> None:
+    """The disabled half of the same evidence.
+
+    Section 5.1.1 "changes no byte of the accepted ``peak`` path": the scalar
+    ``E = e I2`` still writes exactly zero in both cross-hand products, which is
+    precisely the property the full-efield subset above breaks.
+    """
+    from tests.fixtures.beamfits import run_scalar_beamfits_workload
+
+    workload = run_scalar_beamfits_workload(tmp_path)
+    target = tmp_path / "scalar.uvfits"
+    assert write_uvfits(workload.result, target) == target.absolute()
+    loaded = read_uvfits(target)
+
+    assert loaded.correlations == ("XX", "XY", "YX", "YY")
+    for index in (1, 2):
+        np.testing.assert_array_equal(
+            loaded.visibilities[..., index],
+            np.zeros_like(loaded.visibilities[..., index]),
+        )
+    assert loaded.source_scientific_sha256 == workload.result.scientific_sha256

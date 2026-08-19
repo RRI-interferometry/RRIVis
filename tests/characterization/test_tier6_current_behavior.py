@@ -1249,6 +1249,53 @@ def _run_squint_workload(tmp_path: Path):
     )
 
 
+def _run_full_efield_workload(tmp_path: Path):
+    """SCI-005 Stage-3 row: two antennas, one full-efield BeamFITS transport.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 5.6 requires
+    "scalar/default fingerprints unchanged while full-efield fixtures receive
+    new pins through the normal multi-environment characterization process", so
+    this is a *new* workload key and no existing key's runner is touched.
+
+    The quadrupolar fixture science is the generally full one, so the composed
+    ``E = C^dagger J_native`` has non-zero off-diagonals at the workload
+    directions and the digest fingerprints Stage-3 physics rather than the
+    scalar path.  The transport itself is deterministic offline bytes written
+    into the test's own temporary directory; the pinned digest is of the
+    visibility cube, which no path or file timestamp enters.
+    """
+    from tests.fixtures.beamfits import (
+        EfieldScienceVariant,
+        write_efield_beamfits,
+    )
+
+    written = write_efield_beamfits(
+        tmp_path / "efield-transport",
+        science=EfieldScienceVariant.QUADRUPOLAR,
+    )
+    instrument, beam_system, receptors = _solver_components(
+        tmp_path,
+        beams={
+            "mode": "shared_fits",
+            "beam": {
+                "kind": "fits",
+                "path": str(written.path),
+                "normalization": "uvbeam_peak_common_v1",
+            },
+        },
+    )
+    return calculate_visibility(
+        instrument=instrument,
+        beam_system=beam_system,
+        source_arrays=_workload_point_sources(polarized=True, gaussian=False),
+        location=WORKLOAD_LOCATION,
+        time_grid=WORKLOAD_TIME_GRID,
+        frequencies=_WORKLOAD_FREQS,
+        backend=get_backend("numpy"),
+        receptors=receptors,
+    )
+
+
 def _run_healpix_workload(tmp_path: Path, *, polarized: bool):
     instrument, beam_system, receptors = _solver_components(tmp_path)
     return calculate_visibility_healpix(
@@ -2670,12 +2717,16 @@ _WORKLOAD_RUNNERS: dict[str, Any] = {
     # SCI-005 Stage 2, Section 4.2: native-feed beam squint on a rotated linear
     # receptor, so the composed E is generally full.
     "point_squint_rotated_linear_receptor": _run_squint_workload,
+    # SCI-005 Stage 3, Section 5.2: the full efield BeamFITS subset, whose
+    # E = C^dagger J_native is generally full at every direction.
+    "point_full_efield_quadrupolar": _run_full_efield_workload,
 }
 
 _WORKLOAD_SHAPES: dict[str, tuple[int, ...]] = {
     "healpix_polarized": (2, 3, 2, 2, 2),
     "healpix_scalar": (2, 3, 2, 2, 2),
     "heterogeneous_receptor_bases": (2, 3, 2, 2, 2),
+    "point_full_efield_quadrupolar": (2, 3, 2, 2, 2),
     "point_gaussian_morphology": (2, 3, 2, 2, 2),
     "point_polarized_2times": (2, 3, 2, 2, 2),
     "point_squint_rotated_linear_receptor": (2, 3, 2, 2, 2),
@@ -2764,6 +2815,14 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "osx-arm64-py312": (
             "4d32287a17fe6a8bfa68d91bf4ab201b1bce59b2b7df2f260a00ad7e44f11a16",
+        ),
+    },
+    # SCI-005 Stage 3, Section 5.2: harvested only for the environment(s) this
+    # slice's acceptance actually ran on, exactly like the Stage-2 row below;
+    # a later environment class is added deliberately.
+    "point_full_efield_quadrupolar": {
+        "osx-arm64-py311": (
+            "438bad6ce4b8169a687727e67649cf3f4d3443bf49cdb74cb94122b2ca081082",
         ),
     },
     "point_gaussian_morphology": {

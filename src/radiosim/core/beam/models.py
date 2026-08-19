@@ -471,7 +471,7 @@ class ResolvedAnalyticBeamDefinition(_ResolvedValue):
 class ResolvedFITSBeamDefinition(_ResolvedValue):
     kind: Literal["fits"]
     path: Path
-    normalization: Literal["peak"]
+    normalization: Literal["peak", "uvbeam_peak_common_v1"]
     angular_interpolation: Literal["bilinear"]
     frequency_interpolation: Literal["cubic", "linear"]
     path_provenance_key: str
@@ -480,7 +480,13 @@ class ResolvedFITSBeamDefinition(_ResolvedValue):
     def __post_init__(self) -> None:
         _require_literal(self.kind, "fits", "kind")
         _require_absolute_path(self.path, "path")
-        _require_literal(self.normalization, "peak", "normalization")
+        # SCI-005 Stage 3 (Section 5.1.1): the second literal selects the
+        # full-efield accepted subset of the same file, and nothing else.
+        if type(self.normalization) is not str or self.normalization not in {
+            "peak",
+            "uvbeam_peak_common_v1",
+        }:
+            raise ValueError("normalization must be 'peak' or 'uvbeam_peak_common_v1'")
         _require_literal(
             self.angular_interpolation, "bilinear", "angular_interpolation"
         )
@@ -1255,7 +1261,16 @@ def _copy_integer_tuple(value: Any, field_name: str) -> tuple[int, ...]:
 
 @dataclass(frozen=True, slots=True)
 class BeamFileProvenance(_ResolvedValue):
-    """Detached immutable provenance for one validated BeamFITS transport."""
+    """Detached immutable provenance for one validated BeamFITS transport.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 5.2.1 appends the
+    last seven fields for the Stage-3 full-efield accepted subset.  Every one is
+    annotated ``<type> | None = None`` and left ``None`` on the accepted scalar
+    ``peak`` path, which is what keeps :func:`_optional_block_fields` omitting
+    them from both ``to_snapshot`` and the canonical fingerprint payload: a
+    ``peak`` document's beam snapshot, scientific digest, HDF5
+    ``provenance/beam_json``, and result bytes stay byte-identical.
+    """
 
     resolved_path: Path
     size_bytes: int
@@ -1267,7 +1282,7 @@ class BeamFileProvenance(_ResolvedValue):
     mount_type: str
     data_normalization: str
     feed_array: tuple[str, ...]
-    x_orientation: str
+    x_orientation: str | None
     data_shape: tuple[int, ...]
     native_dtype: str
     frequency_min_hz: float
@@ -1280,6 +1295,13 @@ class BeamFileProvenance(_ResolvedValue):
     scalar_absolute_tolerance: float
     scalar_relative_tolerance: float
     normalization_absolute_tolerance: float
+    accepted_subset_version: str | None = None
+    radiosim_normalization: str | None = None
+    resolved_feed_array: tuple[str, str] | None = None
+    derived_x_orientation_verdict: str | None = None
+    basis_vector_convention: str | None = None
+    factorization_convention: str | None = None
+    stored_grid_peak_by_frequency: tuple[tuple[float, float], ...] | None = None
 
     def __post_init__(self) -> None:
         _require_absolute_path(self.resolved_path, "resolved_path")
@@ -1292,10 +1314,17 @@ class BeamFileProvenance(_ResolvedValue):
             "pixel_coordinate_system",
             "mount_type",
             "data_normalization",
-            "x_orientation",
             "native_dtype",
         ):
             _ = _require_normalized_string(getattr(self, field_name), field_name)
+        # ``get_x_orientation_from_feeds`` legitimately returns ``None`` for a
+        # rotated linear receptor and for a circular receptor whose static
+        # rotation is neither 0 nor pi/2 (Section 5.1.1 item 7), so the legacy
+        # field is nullable while the scalar path still stores exactly "east".
+        if self.x_orientation is not None:
+            _ = _require_normalized_string(self.x_orientation, "x_orientation")
+            if self.x_orientation not in {"east", "north"}:
+                raise ValueError("x_orientation must be 'east', 'north', or None")
 
         if self.pyuvdata_version != "3.2.1":
             raise ValueError("pyuvdata_version must be the pinned '3.2.1' contract")
@@ -1305,15 +1334,14 @@ class BeamFileProvenance(_ResolvedValue):
             "pixel_coordinate_system": "az_za",
             "mount_type": "fixed",
             "data_normalization": "peak",
-            "x_orientation": "east",
         }
         for field_name, expected in expected_metadata.items():
             if getattr(self, field_name) != expected:
                 raise ValueError(f"{field_name} must be {expected!r}")
 
         feed_array = _copy_string_tuple(self.feed_array, "feed_array")
-        if feed_array != ("x", "y"):
-            raise ValueError("feed_array must be exactly ('x', 'y')")
+        if feed_array not in {("x", "y"), ("r", "l")}:
+            raise ValueError("feed_array must be exactly ('x', 'y') or ('r', 'l')")
         data_shape = _copy_integer_tuple(self.data_shape, "data_shape")
         if len(data_shape) != 5 or data_shape[:2] != (2, 2):
             raise ValueError("data_shape must be exactly (2, 2, Nfreq, Nza, Naz)")
@@ -1347,8 +1375,97 @@ class BeamFileProvenance(_ResolvedValue):
         if self.basis_tolerance != 1e-12:
             raise ValueError("basis_tolerance must be exactly 1e-12")
 
+        peaks = self._validated_stage3_fields()
+
         object.__setattr__(self, "feed_array", feed_array)
         object.__setattr__(self, "data_shape", data_shape)
+        if peaks is not None:
+            object.__setattr__(self, "stored_grid_peak_by_frequency", peaks)
+
+    def _validated_stage3_fields(self) -> tuple[tuple[float, float], ...] | None:
+        """Validate Section 5.2.1's appended full-efield record, all or none."""
+        stage3 = (
+            "accepted_subset_version",
+            "radiosim_normalization",
+            "resolved_feed_array",
+            "derived_x_orientation_verdict",
+            "basis_vector_convention",
+            "factorization_convention",
+            "stored_grid_peak_by_frequency",
+        )
+        present = tuple(name for name in stage3 if getattr(self, name) is not None)
+        if not present:
+            return None
+        if len(present) != len(stage3):
+            raise ValueError(
+                "the full-efield provenance fields are all present or all None"
+            )
+        _require_literal(
+            self.accepted_subset_version,
+            "sci005-stage3-full-efield-v1",
+            "accepted_subset_version",
+        )
+        _require_literal(
+            self.radiosim_normalization,
+            "uvbeam_peak_common_v1",
+            "radiosim_normalization",
+        )
+        resolved_feeds = _copy_string_tuple(
+            self.resolved_feed_array,
+            "resolved_feed_array",
+        )
+        if resolved_feeds not in {("x", "y"), ("r", "l")}:
+            raise ValueError(
+                "resolved_feed_array must be exactly ('x', 'y') or ('r', 'l')"
+            )
+        verdict = _require_normalized_string(
+            self.derived_x_orientation_verdict,
+            "derived_x_orientation_verdict",
+        )
+        if verdict not in {"east", "north", "none"}:
+            raise ValueError(
+                "derived_x_orientation_verdict must be 'east', 'north', or 'none'"
+            )
+        _require_literal(
+            self.basis_vector_convention,
+            "ludwig3_az_za_to_north_east_v1",
+            "basis_vector_convention",
+        )
+        _require_literal(
+            self.factorization_convention,
+            "receptor_conjugated_native_efield_v1",
+            "factorization_convention",
+        )
+        values = self.stored_grid_peak_by_frequency
+        if type(values) is not tuple or not values:
+            raise ValueError(
+                "stored_grid_peak_by_frequency must be a nonempty exact tuple"
+            )
+        copied: list[tuple[float, float]] = []
+        previous: float | None = None
+        for index, pair in enumerate(cast(tuple[Any, ...], values)):
+            if type(pair) is not tuple or len(cast(tuple[Any, ...], pair)) != 2:
+                raise TypeError(
+                    "stored_grid_peak_by_frequency items must be exact pairs"
+                )
+            frequency_hz, observed_peak = cast(tuple[Any, Any], pair)
+            _require_float(
+                frequency_hz,
+                f"stored_grid_peak_by_frequency[{index}][0]",
+                positive=True,
+            )
+            _require_float(
+                observed_peak,
+                f"stored_grid_peak_by_frequency[{index}][1]",
+                positive=True,
+            )
+            if previous is not None and frequency_hz <= previous:
+                raise ValueError(
+                    "stored_grid_peak_by_frequency must be strictly increasing"
+                )
+            previous = cast(float, frequency_hz)
+            copied.append((cast(float, frequency_hz), cast(float, observed_peak)))
+        return tuple(copied)
 
 
 @dataclass(frozen=True, slots=True)

@@ -39,8 +39,15 @@ from radiosim.core.beam.models import (
 )
 from radiosim.core.beam.runtime import (
     _FREQUENCY_MATCH_TOLERANCE_HZ,  # pyright: ignore[reportPrivateUsage]
+    _FULL_EFIELD_NORMALIZATION,  # pyright: ignore[reportPrivateUsage]
+    _FULL_EFIELD_SUBSET_VERSION,  # pyright: ignore[reportPrivateUsage]
+    _converted_native_jones,  # pyright: ignore[reportPrivateUsage]
+    _EfieldReceptorExpectation,  # pyright: ignore[reportPrivateUsage]
     _preflight_frequency,  # pyright: ignore[reportPrivateUsage]
     _ProductionUVBeamLoader,  # pyright: ignore[reportPrivateUsage]
+    _radiosim_azimuth_rad,  # pyright: ignore[reportPrivateUsage]
+    _tangent_conversion,  # pyright: ignore[reportPrivateUsage]
+    _UVBeamEfieldEvaluator,  # pyright: ignore[reportPrivateUsage]
     _UVBeamLike,  # pyright: ignore[reportPrivateUsage]
     _UVBeamLoaderProtocol,  # pyright: ignore[reportPrivateUsage]
     _UVBeamScalarEvaluator,  # pyright: ignore[reportPrivateUsage]
@@ -55,12 +62,35 @@ _AZIMUTH_CLOSURE_TOLERANCE_RAD = 1e-10
 _HORIZON_COVERAGE_TOLERANCE_RAD = 1e-10
 _STAT_FIELDS = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
 
+#: SCI-005 Stage-3 convention literals (Sections 5.2.1 and 8.1).
+_BASIS_VECTOR_CONVENTION = "ludwig3_az_za_to_north_east_v1"
+_FACTORIZATION_CONVENTION = "receptor_conjugated_native_efield_v1"
+_ZENITH_LIMIT_CONVENTION = "north_east_tangent_limit_v1"
+
+#: Section 5.1.1 item 5's two accepted ordered native feed pairs.
+_ACCEPTED_FEED_PAIRS = (("x", "y"), ("r", "l"))
+
+#: pyuvdata 3.2.1's nine mount literals; only ``fixed`` declares that the
+#: stored ``az_za`` pattern is intrinsic to the antenna beam frame (item 8).
+_ACCEPTED_MOUNT_TYPE = "fixed"
+
 
 @dataclass(frozen=True, slots=True)
 class _Snapshot:
     path: Path
     source_stat: tuple[int, int, int, int, int]
     sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ValidatedEfieldFacts:
+    """The Stage-3 facts Section 5.2.1 retains beside the shared ones."""
+
+    feed_array: tuple[str, str]
+    feed_angle_rad: tuple[float, float]
+    x_orientation: str | None
+    derived_x_orientation_verdict: str
+    stored_grid_peak_by_frequency: tuple[tuple[float, float], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +107,7 @@ class _ValidatedBeam:
     scalar_absolute_tolerance: float
     scalar_relative_tolerance: float
     normalization_absolute_tolerance: float
+    efield: _ValidatedEfieldFacts | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +115,21 @@ class _LoadedFITSHandler:
     """Private publication pair for one standalone loaded definition."""
 
     state: LoadedBeamHandlerState
-    evaluator: _UVBeamScalarEvaluator
+    evaluator: _UVBeamScalarEvaluator | _UVBeamEfieldEvaluator
+
+
+def _accepted_subset_version(definition: ResolvedFITSBeamDefinition) -> str:
+    """Return the internal accepted-subset version literal for one definition.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 5.1.1: it is
+    exactly ``tier3-scalar-v1`` for ``peak`` and exactly
+    ``sci005-stage3-full-efield-v1`` for ``uvbeam_peak_common_v1``, and it
+    enters the handler pre-load key and the handler scientific fingerprint
+    exactly where the scalar literal does today.
+    """
+    if definition.normalization == _FULL_EFIELD_NORMALIZATION:
+        return _FULL_EFIELD_SUBSET_VERSION
+    return _ACCEPTED_SUBSET_VERSION
 
 
 def _fits_preload_key(  # pyright: ignore[reportUnusedFunction]
@@ -100,7 +145,7 @@ def _fits_preload_key(  # pyright: ignore[reportUnusedFunction]
         definition.angular_interpolation,
         definition.frequency_interpolation,
         _FREQUENCY_MATCH_TOLERANCE_HZ,
-        _ACCEPTED_SUBSET_VERSION,
+        _accepted_subset_version(definition),
     )
 
 
@@ -402,6 +447,27 @@ def _classify_dependency_check_failure(beam: Any, path: Path) -> None:
                     f"BeamFITS {path}: {name} contains NaN or Inf; regenerate "
                     "finite BeamFITS science and metadata."
                 )
+    # Section 5.2.1's one sanctioned classifier extension: pyuvdata's own
+    # ``check()`` refuses a complex ``basis_vector_array`` with an untyped
+    # ``ValueError`` reading "UVParameter _basis_vector_array is not the
+    # appropriate type", which would otherwise surface as ``BeamFileReadError``
+    # and leave the frozen ``UnsupportedBeamBasisError`` unreachable.  It runs
+    # after the finiteness sweep, which is the frozen precedence.
+    try:
+        basis_value = getattr(beam, "basis_vector_array", None)
+    except (AttributeError, TypeError):
+        basis_value = None
+    if basis_value is not None:
+        try:
+            basis_kind = np.asarray(basis_value).dtype.kind
+        except (TypeError, ValueError, OverflowError):
+            basis_kind = "f"
+        if basis_kind != "f":
+            raise UnsupportedBeamBasisError(
+                f"BeamFITS {path}: basis_vector_array has dtype kind "
+                f"{basis_kind!r}; pyuvdata declares this parameter real valued, "
+                "so RadioSim requires a real floating stored array."
+            )
     for name, label in (
         ("axis1_array", "azimuth axis"),
         ("axis2_array", "zenith-angle axis"),
@@ -414,7 +480,8 @@ def _classify_dependency_check_failure(beam: Any, path: Path) -> None:
             _ = _regular_step(value, name=label, path=path)
 
 
-def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
+def _run_dependency_check(beam: Any, path: Path) -> None:
+    """Run Section 5.1.1 item 1's pinned dependency structure check."""
     try:
         check = _require_attr(beam, "check", path)
         check_result = check(check_extra=True, run_check_acceptability=True)
@@ -431,6 +498,9 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
             "regenerate a valid pyuvdata 3.2.1 BeamFITS file."
         ) from exc
 
+
+def _validate_beam_family(beam: Any, path: Path) -> None:
+    """Run items 2 and 3: beam type, antenna type, and pixel coordinates."""
     beam_type = _require_attr(beam, "beam_type", path)
     antenna_type = _require_attr(beam, "antenna_type", path)
     if type(beam_type) is not str:
@@ -469,6 +539,67 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
             f"BeamFITS {path}: pixel_coordinate_system={coordinate_system!r} is "
             "unsupported; Tier 3 requires a regular full-horizon 'az_za' grid."
         )
+
+
+def _validate_axes(
+    beam: Any,
+    path: Path,
+) -> tuple[np.ndarray, np.ndarray, float, np.ndarray, float]:
+    """Run item 9: the frequency axis and the regular closed ``az_za`` grid."""
+    frequencies = _validate_frequency_axis(
+        _require_attr(beam, "freq_array", path), path
+    )
+    azimuth, azimuth_step = _regular_step(
+        _require_attr(beam, "axis1_array", path),
+        name="azimuth axis",
+        path=path,
+    )
+    zenith_angle, zenith_step = _regular_step(
+        _require_attr(beam, "axis2_array", path),
+        name="zenith-angle axis",
+        path=path,
+    )
+    if abs(float(azimuth[0])) > _GRID_TOLERANCE_RAD:
+        raise UnsupportedBeamCoordinateError(
+            f"BeamFITS {path}: azimuth axis starts at {azimuth[0]!r}, not zero; "
+            "regenerate an endpoint-excluded zero-origin regular grid."
+        )
+    closure = float(azimuth[-1] + azimuth_step)
+    if abs(closure - 2.0 * np.pi) > _AZIMUTH_CLOSURE_TOLERANCE_RAD:
+        raise UnsupportedBeamCoordinateError(
+            f"BeamFITS {path}: azimuth closure is {closure!r} radians; last + step "
+            "must close 2*pi within 1e-10 radians."
+        )
+    if abs(float(zenith_angle[0])) > _GRID_TOLERANCE_RAD:
+        raise UnsupportedBeamCoordinateError(
+            f"BeamFITS {path}: zenith-angle axis starts at "
+            f"{zenith_angle[0]!r}, not zero."
+        )
+    if zenith_angle[-1] < np.pi / 2.0 - _HORIZON_COVERAGE_TOLERANCE_RAD:
+        raise BeamAngularDomainError(
+            f"BeamFITS {path}: zenith-angle maximum {zenith_angle[-1]!r} does not "
+            "reach the horizon; provide complete visible-hemisphere coverage."
+        )
+    return frequencies, azimuth, azimuth_step, zenith_angle, zenith_step
+
+
+def _dtype_tolerances(native_dtype: np.dtype[Any]) -> tuple[float, float, float]:
+    """Return the accepted dtype-derived ``(atol, rtol, normalization atol)``."""
+    epsilon = (
+        float(np.finfo(np.float32).eps)
+        if native_dtype == np.dtype(np.complex64)
+        else float(np.finfo(np.float64).eps)
+    )
+    return (
+        max(1e-12, 32.0 * epsilon),
+        max(1e-10, 32.0 * epsilon),
+        max(1e-12, 32.0 * epsilon),
+    )
+
+
+def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
+    _run_dependency_check(beam, path)
+    _validate_beam_family(beam, path)
 
     feed_value = _require_attr(beam, "feed_array", path)
     try:
@@ -567,40 +698,10 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
             "finite identity-basis metadata."
         )
 
-    frequencies = _validate_frequency_axis(
-        _require_attr(beam, "freq_array", path), path
+    frequencies, azimuth, azimuth_step, zenith_angle, zenith_step = _validate_axes(
+        beam,
+        path,
     )
-    azimuth, azimuth_step = _regular_step(
-        _require_attr(beam, "axis1_array", path),
-        name="azimuth axis",
-        path=path,
-    )
-    zenith_angle, zenith_step = _regular_step(
-        _require_attr(beam, "axis2_array", path),
-        name="zenith-angle axis",
-        path=path,
-    )
-    if abs(float(azimuth[0])) > _GRID_TOLERANCE_RAD:
-        raise UnsupportedBeamCoordinateError(
-            f"BeamFITS {path}: azimuth axis starts at {azimuth[0]!r}, not zero; "
-            "regenerate an endpoint-excluded zero-origin regular grid."
-        )
-    closure = float(azimuth[-1] + azimuth_step)
-    if abs(closure - 2.0 * np.pi) > _AZIMUTH_CLOSURE_TOLERANCE_RAD:
-        raise UnsupportedBeamCoordinateError(
-            f"BeamFITS {path}: azimuth closure is {closure!r} radians; last + step "
-            "must close 2*pi within 1e-10 radians."
-        )
-    if abs(float(zenith_angle[0])) > _GRID_TOLERANCE_RAD:
-        raise UnsupportedBeamCoordinateError(
-            f"BeamFITS {path}: zenith-angle axis starts at "
-            f"{zenith_angle[0]!r}, not zero."
-        )
-    if zenith_angle[-1] < np.pi / 2.0 - _HORIZON_COVERAGE_TOLERANCE_RAD:
-        raise BeamAngularDomainError(
-            f"BeamFITS {path}: zenith-angle maximum {zenith_angle[-1]!r} does not "
-            "reach the horizon; provide complete visible-hemisphere coverage."
-        )
 
     expected_basis_shape = (2, 2, zenith_angle.size, azimuth.size)
     if basis.shape != expected_basis_shape:
@@ -659,14 +760,7 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
             f"BeamFITS {path}: native E-field data contains NaN or Inf."
         )
 
-    epsilon = (
-        float(np.finfo(np.float32).eps)
-        if native_dtype == np.dtype(np.complex64)
-        else float(np.finfo(np.float64).eps)
-    )
-    scalar_atol = max(1e-12, 32.0 * epsilon)
-    scalar_rtol = max(1e-10, 32.0 * epsilon)
-    normalization_atol = max(1e-12, 32.0 * epsilon)
+    scalar_atol, scalar_rtol, normalization_atol = _dtype_tolerances(native_dtype)
     canonical_data = np.array(data_array, dtype=np.complex128, copy=True, order="C")
     canonical_basis = np.array(basis, dtype=np.float64, copy=True, order="C")
     jones = np.einsum(
@@ -769,11 +863,511 @@ def _validate_beam(beam: Any, path: Path) -> _ValidatedBeam:
     )
 
 
+def _derive_x_orientation(
+    feed_array: tuple[str, str],
+    feed_angle_rad: tuple[float, float],
+    path: Path,
+) -> str | None:
+    """Return pyuvdata 3.2.1's ``get_x_orientation_from_feeds`` verdict exactly.
+
+    Section 5.1.1 item 7 requires the *exact* verdict implied by one feed pair
+    and its angles, so the dependency's own helper is called with its default
+    exact tolerances rather than with a UVParameter's ``isclose`` window.  It is
+    consistency metadata and is never applied as a second rotation. ``None`` is
+    a legal, common result: it is what the function returns for a rotated linear
+    receptor and for a circular receptor whose static rotation is neither ``0``
+    nor ``pi/2``.
+    """
+    try:
+        module = importlib.import_module("pyuvdata.utils.pol")
+        derive = module.get_x_orientation_from_feeds
+    except Exception as exc:
+        raise BeamDependencyError(
+            f"BeamFITS {path}: the pinned pyuvdata 3.2.1 dependency does not "
+            "expose utils.pol.get_x_orientation_from_feeds."
+        ) from exc
+    verdict = derive(
+        feed_array=np.array(list(feed_array)),
+        feed_angle=np.array(list(feed_angle_rad), dtype=np.float64),
+    )
+    if verdict is not None and verdict not in {"east", "north"}:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: pyuvdata derived x_orientation {verdict!r} from "
+            f"feed_array={feed_array!r} and feed_angle={feed_angle_rad!r}; the "
+            "pinned contract returns exactly 'east', 'north', or None."
+        )
+    return cast("str | None", verdict)
+
+
+def _validate_efield_receptor_agreement(
+    *,
+    path: Path,
+    feeds: tuple[str, str],
+    feed_angle: tuple[float, float],
+    receptors: tuple[_EfieldReceptorExpectation, ...],
+) -> str:
+    """Run items 5b, 6, and 7 against every antenna the file is assigned to."""
+    file_verdict = _derive_x_orientation(feeds, feed_angle, path)
+    for expectation in receptors:
+        antenna = expectation.antenna_id
+        if expectation.feed_array != feeds:
+            raise UnsupportedBeamFeedError(
+                f"BeamFITS {path}: feed_array={feeds!r} does not equal the "
+                f"resolved receptor feed pair {expectation.feed_array!r} of "
+                f"canonical antenna number={antenna.number}, "
+                f"name={antenna.name!r}; the accepted full-efield subset "
+                "requires the file row labels to be exactly that antenna's own."
+            )
+        expected_angles = expectation.feed_angle_rad
+        difference = np.abs(
+            np.remainder(
+                np.asarray(feed_angle, dtype=np.float64)
+                - np.asarray(expected_angles, dtype=np.float64)
+                + np.pi,
+                2.0 * np.pi,
+            )
+            - np.pi
+        )
+        if float(np.max(difference)) > _FEED_ANGLE_TOLERANCE_RAD:
+            raise UnsupportedBeamFeedError(
+                f"BeamFITS {path}: feed_angle={feed_angle!r} does not equal the "
+                f"resolved receptor feed angles {expected_angles!r} of canonical "
+                f"antenna number={antenna.number}, name={antenna.name!r} modulo "
+                f"2*pi within {_FEED_ANGLE_TOLERANCE_RAD!r} radians; the "
+                f"{expectation.basis!r} receptor with feed_rotation_rad="
+                f"{expectation.feed_rotation_rad!r} implies those angles."
+            )
+        receptor_verdict = _derive_x_orientation(
+            expectation.feed_array,
+            expected_angles,
+            path,
+        )
+        if receptor_verdict != file_verdict:
+            raise UnsupportedBeamFeedError(
+                f"BeamFITS {path}: the derived x_orientation of the file's own "
+                f"feed_array={feeds!r} and feed_angle={feed_angle!r} is "
+                f"{file_verdict!r}, but canonical antenna "
+                f"number={antenna.number}, name={antenna.name!r} implies "
+                f"{receptor_verdict!r}; it is consistency metadata and is never "
+                "applied as a second rotation."
+            )
+    return "none" if file_verdict is None else file_verdict
+
+
+def _validate_stored_basis(
+    beam: Any,
+    path: Path,
+    *,
+    expected_shape: tuple[int, ...],
+) -> None:
+    """Run item 10's stored-basis contract in its frozen precedence.
+
+    ``UVBeam._prepare_basis_vector_array`` raises a bare untyped
+    ``NotImplementedError`` whenever any stored off-diagonal entry is strictly
+    positive, and in every other case discards the stored array and rebuilds the
+    exact native identity per interpolation point.  A stored non-identity basis
+    therefore either crashes evaluation outside every typed rejection or is
+    silently replaced by a different basis than the file declares, so rejecting
+    it at load is the only outcome that is both typed and truthful.
+    """
+    stored = _require_attr(beam, "basis_vector_array", path)
+    if stored is None:
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: basis_vector_array is absent; the accepted "
+            "full-efield subset requires the stored native identity basis."
+        )
+    try:
+        basis = np.asarray(stored)
+        finite = bool(np.all(np.isfinite(basis)))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: basis_vector_array must be a finite real floating array."
+        ) from exc
+    if not finite:
+        raise NonFiniteBeamResponseError(
+            f"BeamFITS {path}: basis_vector_array contains NaN or Inf; "
+            "regenerate finite native-identity basis metadata."
+        )
+    # Judged by kind and width, never by a byte-order-qualified comparison:
+    # BeamFITS round-trips this array as big-endian '>f8' or '>f4', and both
+    # stored widths are accepted because 1.0 and 0.0 are exactly representable
+    # and round-trip bit-exactly in each.
+    if basis.dtype.kind != "f" or basis.dtype.itemsize not in {4, 8}:
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: basis_vector_array dtype {basis.dtype.name!r} is "
+            "unsupported; pyuvdata declares this parameter real valued, so the "
+            "accepted subset requires stored float32 or float64 entries."
+        )
+    if basis.shape != expected_shape:
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: basis_vector_array shape {basis.shape!r} is "
+            f"unsupported; expected {expected_shape!r}."
+        )
+    identity = np.zeros(expected_shape, dtype=basis.dtype)
+    identity[0, 0] = 1.0
+    identity[1, 1] = 1.0
+    if not np.array_equal(basis, identity):
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: basis_vector_array is not exactly the native "
+            "identity at every stored grid point; entries [0, 0] and [1, 1] must "
+            "be exactly 1.0 and entries [0, 1] and [1, 0] exactly 0.0, because "
+            "pyuvdata either refuses or silently discards any other stored basis."
+        )
+
+
+def _validate_converted_continuity(
+    *,
+    path: Path,
+    canonical_data: np.ndarray,
+    azimuth_rad: np.ndarray,
+    frequencies_hz: np.ndarray,
+    scalar_atol: float,
+    scalar_rtol: float,
+) -> None:
+    """Run Section 5.2.1's two frozen file-grid continuity predicates.
+
+    Both are evaluated on the converted matrices at every intrinsic frequency,
+    before any frequency interpolation.
+    """
+    conversion = _tangent_conversion(_radiosim_azimuth_rad(azimuth_rad))
+    for index in range(int(frequencies_hz.size)):
+        components = canonical_data[:, :, index]
+        grid = np.broadcast_to(
+            conversion[np.newaxis, :, :, :],
+            (components.shape[2], components.shape[3], 2, 2),
+        )
+        matrices = _converted_native_jones(components, grid)
+
+        zenith_row = matrices[0]
+        zenith_scale = float(np.max(np.abs(zenith_row)))
+        zenith_bound = scalar_atol + scalar_rtol * zenith_scale
+        spread = float(np.max(np.abs(zenith_row - zenith_row[0])))
+        if spread > zenith_bound:
+            raise UnsupportedBeamCoordinateError(
+                f"BeamFITS {path}: the converted zenith-angle row at frequency "
+                f"{float(frequencies_hz[index])!r} Hz is not single valued; its "
+                f"{zenith_row.shape[0]} azimuth samples spread by {spread!r} "
+                f"against the accepted bound {zenith_bound!r}. The first row is "
+                "one physical direction whose azimuth is arbitrary, so a file "
+                "whose physical matrix depends on it is rejected rather than "
+                "averaged."
+            )
+
+        scale = np.max(np.abs(matrices), axis=(1, 2, 3))
+        bound = scalar_atol + scalar_rtol * scale
+        wrap = np.max(np.abs(matrices[:, -1] - matrices[:, 0]), axis=(1, 2))
+        interior = np.max(np.abs(matrices[:, -2] - matrices[:, -1]), axis=(1, 2))
+        excess = wrap - interior - bound
+        if bool(np.any(excess > 0.0)):
+            row = int(np.argmax(excess))
+            raise UnsupportedBeamCoordinateError(
+                f"BeamFITS {path}: the converted matrix is discontinuous across "
+                f"the endpoint-excluded azimuth wrap at frequency "
+                f"{float(frequencies_hz[index])!r} Hz and zenith-angle row "
+                f"{row}: the seam difference {float(wrap[row])!r} exceeds the "
+                f"adjacent interior difference {float(interior[row])!r} by more "
+                f"than the accepted bound {float(bound[row])!r}."
+            )
+
+
+def _validate_efield_beam(
+    beam: Any,
+    path: Path,
+    *,
+    receptors: tuple[_EfieldReceptorExpectation, ...],
+) -> _ValidatedBeam:
+    """Validate one file against Section 5.1.1's ordered full-efield contract.
+
+    The thirteen items are evaluated in exactly the frozen order, so that the
+    first recorded rejection is deterministic, with Section 5.2.1's two
+    converted-grid continuity predicates between the data and normalization
+    items.  Item 13 keeps its accepted site at the top of
+    :func:`_load_fits_handler`, where its byte-frozen ``float128`` message is
+    raised before any dependency read.
+    """
+    if not receptors:
+        raise TypeError(
+            "the full-efield accepted subset requires the resolved receptor set "
+            "of every assigned antenna; pass receptors=<ResolvedReceptorSet> to "
+            "load_beam_system."
+        )
+    # 1. Dependency and structure.
+    _run_dependency_check(beam, path)
+    # 2. Beam and antenna type.  3. Pixel coordinate system.
+    _validate_beam_family(beam, path)
+
+    # 4. Vector dimensions.
+    naxes = _require_attr(beam, "Naxes_vec", path)
+    ncomponents = _require_attr(beam, "Ncomponents_vec", path)
+    if type(naxes) is not int or type(ncomponents) is not int:
+        cause = TypeError("vector dimensions must be exact dependency integers")
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: vector dimensions have unsupported container types; "
+            "the accepted full-efield subset requires exact integers Naxes_vec=2 "
+            "and Ncomponents_vec=2."
+        ) from cause
+    if naxes != 2 or ncomponents != 2:
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: Naxes_vec={naxes!r}, "
+            f"Ncomponents_vec={ncomponents!r} is unsupported; a three-component "
+            "field has no two-column tangent image and no frozen conversion in "
+            "the accepted full-efield subset."
+        )
+
+    # 5. Feed identity.
+    feed_count = _require_attr(beam, "Nfeeds", path)
+    if type(feed_count) is not int or feed_count != 2:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: Nfeeds={feed_count!r} is unsupported; the accepted "
+            "full-efield subset requires exactly two native feeds."
+        )
+    feed_value = _require_attr(beam, "feed_array", path)
+    try:
+        feed_array = np.asarray(feed_value)
+        if feed_array.ndim != 1:
+            raise TypeError("feed_array must be one-dimensional")
+        feeds = cast(tuple[str, ...], tuple(feed_array.tolist()))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: feed_array must be a one-dimensional dependency "
+            "array containing the ordered pair ('x', 'y') or ('r', 'l')."
+        ) from exc
+    if feeds not in _ACCEPTED_FEED_PAIRS:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: feed_array={feeds!r} is unsupported; the accepted "
+            "full-efield subset requires exactly the ordered pair ('x', 'y') or "
+            "('r', 'l')."
+        )
+    ordered_feeds = cast(tuple[str, str], feeds)
+
+    # 6. Feed angles.  7. Derived orientation consistency.
+    try:
+        feed_angle_array = np.asarray(_require_attr(beam, "feed_angle", path))
+        if feed_angle_array.shape != (2,):
+            raise TypeError("feed_angle must have shape (2,)")
+        feed_angle_finite = bool(np.all(np.isfinite(feed_angle_array)))
+        feed_angle = (
+            float(feed_angle_array[0]),
+            float(feed_angle_array[1]),
+        )
+    except BeamError:
+        raise
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: feed_angle must be a finite numeric dependency "
+            "array with shape (2,)."
+        ) from exc
+    if not feed_angle_finite:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: feed_angle={tuple(feed_angle_array)!r} is "
+            "unsupported; the accepted full-efield subset requires two finite "
+            "radian angles."
+        )
+    verdict = _validate_efield_receptor_agreement(
+        path=path,
+        feeds=ordered_feeds,
+        feed_angle=feed_angle,
+        receptors=receptors,
+    )
+    legacy_orientation = _require_attr(beam, "x_orientation", path)
+    if legacy_orientation is not None:
+        if type(legacy_orientation) is not str:
+            cause = TypeError("x_orientation must be an exact dependency string")
+            raise UnsupportedBeamFeedError(
+                f"BeamFITS {path}: x_orientation has unsupported container type "
+                f"{type(legacy_orientation).__name__!r}."
+            ) from cause
+        # ``verdict`` already renders the agreed ``None`` as ``"none"``, which no
+        # legacy value can equal, so a file exposing one while the feeds imply
+        # none is the disagreement item 7 rejects.
+        if legacy_orientation != verdict:
+            raise UnsupportedBeamFeedError(
+                f"BeamFITS {path}: the legacy x_orientation "
+                f"{legacy_orientation!r} disagrees with the value "
+                f"{verdict!r} derived from feed_array={ordered_feeds!r} and "
+                f"feed_angle={feed_angle!r}."
+            )
+
+    # 8. Mount.
+    mount_type = _require_attr(beam, "mount_type", path)
+    if type(mount_type) is not str:
+        cause = TypeError("mount_type must be an exact dependency string")
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: mount_type has unsupported container type "
+            f"{type(mount_type).__name__!r}; the accepted full-efield subset "
+            f"requires exact {_ACCEPTED_MOUNT_TYPE!r}."
+        ) from cause
+    if mount_type != _ACCEPTED_MOUNT_TYPE:
+        raise UnsupportedBeamFeedError(
+            f"BeamFITS {path}: mount_type={mount_type!r} is unsupported; exact "
+            f"{_ACCEPTED_MOUNT_TYPE!r} declares that the stored az_za pattern is "
+            "intrinsic to the antenna beam frame, and RadioSim's instrument plus "
+            "the P term remain the sole owners of field rotation."
+        )
+
+    # 9. Grid.
+    frequencies, azimuth, azimuth_step, zenith_angle, zenith_step = _validate_axes(
+        beam,
+        path,
+    )
+
+    # 10. Basis-vector array.
+    expected_basis_shape = (2, 2, int(zenith_angle.size), int(azimuth.size))
+    _validate_stored_basis(beam, path, expected_shape=expected_basis_shape)
+
+    # 11. Data.
+    data_value = _require_attr(beam, "data_array", path)
+    if not isinstance(data_value, np.ndarray):
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: data_array must be a NumPy array with full "
+            "E-field shape (2, 2, Nfreq, Nza, Naz)."
+        )
+    data_array = cast(np.ndarray[Any, Any], data_value)
+    native_dtype = data_array.dtype
+    if native_dtype not in {np.dtype(np.complex64), np.dtype(np.complex128)}:
+        raise UnsupportedBeamPrecisionError(
+            f"BeamFITS {path}: native data dtype {native_dtype.name!r} is "
+            "unsupported; write complex64 or complex128 E-field samples."
+        )
+    expected_data_shape = (
+        2,
+        2,
+        int(frequencies.size),
+        int(zenith_angle.size),
+        int(azimuth.size),
+    )
+    if data_array.shape != expected_data_shape:
+        raise UnsupportedBeamBasisError(
+            f"BeamFITS {path}: data_array shape {data_array.shape!r} is "
+            f"unsupported; expected {expected_data_shape!r}."
+        )
+    if not np.all(np.isfinite(data_array)):
+        raise NonFiniteBeamResponseError(
+            f"BeamFITS {path}: native E-field data contains NaN or Inf."
+        )
+
+    scalar_atol, scalar_rtol, normalization_atol = _dtype_tolerances(native_dtype)
+    canonical_data = np.array(data_array, dtype=np.complex128, copy=True, order="C")
+
+    _validate_converted_continuity(
+        path=path,
+        canonical_data=canonical_data,
+        azimuth_rad=azimuth,
+        frequencies_hz=frequencies,
+        scalar_atol=scalar_atol,
+        scalar_rtol=scalar_rtol,
+    )
+
+    # 12. Normalization.
+    normalization = _require_attr(beam, "data_normalization", path)
+    if type(normalization) is not str:
+        cause = TypeError("data_normalization must be an exact dependency string")
+        raise BeamNormalizationError(
+            f"BeamFITS {path}: data_normalization has unsupported container type "
+            f"{type(normalization).__name__!r}; the accepted full-efield subset "
+            "requires exact 'peak'."
+        ) from cause
+    if normalization != "peak":
+        raise BeamNormalizationError(
+            f"BeamFITS {path}: data_normalization={normalization!r} is "
+            "unsupported; provide an already normalized 'peak' beam."
+        )
+    try:
+        bandpass = np.asarray(_require_attr(beam, "bandpass_array", path))
+        bandpass_finite = bool(np.all(np.isfinite(bandpass)))
+    except BeamError:
+        raise
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise BeamNormalizationError(
+            f"BeamFITS {path}: bandpass_array must be a finite numeric dependency "
+            "array of unit values."
+        ) from exc
+    if bandpass.shape != (frequencies.size,):
+        raise BeamNormalizationError(
+            f"BeamFITS {path}: bandpass_array shape {bandpass.shape!r} is "
+            f"invalid; expected ({frequencies.size},) unit values."
+        )
+    if not bandpass_finite:
+        raise NonFiniteBeamResponseError(
+            f"BeamFITS {path}: bandpass_array contains NaN or Inf."
+        )
+    if not np.allclose(
+        bandpass,
+        np.ones(frequencies.size),
+        rtol=0.0,
+        atol=normalization_atol,
+    ):
+        raise BeamNormalizationError(
+            f"BeamFITS {path}: peak beam has non-unit bandpass_array; the "
+            "accepted full-efield subset requires unit bandpass and defers "
+            "direction-independent spectral gain to the configured B term."
+        )
+    stored_peaks: list[tuple[float, float]] = []
+    for index in range(int(frequencies.size)):
+        # The maximum over both vector axes, both feeds, and the *complete*
+        # stored grid, below-horizon rows included: exactly the common scalar
+        # factor UVBeam.peak_normalize divides by.  RadioSim never calls that
+        # mutating operation and never renormalizes over the visible rows alone.
+        peak = float(np.max(np.abs(canonical_data[:, :, index])))
+        if not math.isfinite(peak):
+            raise NonFiniteBeamResponseError(
+                f"BeamFITS {path}: full-stored-grid maximum at frequency "
+                f"{frequencies[index]!r} Hz is non-finite."
+            )
+        if peak <= 0.0 or not math.isclose(
+            peak,
+            1.0,
+            rel_tol=0.0,
+            abs_tol=normalization_atol,
+        ):
+            raise BeamNormalizationError(
+                f"BeamFITS {path}: data_normalization='peak' but the "
+                "full-stored-grid maximum over both vector axes and both feeds "
+                f"at frequency {frequencies[index]!r} Hz is {peak!r}; the "
+                "accepted full-efield subset requires one common unit maximum "
+                "including any stored below-horizon rows."
+            )
+        stored_peaks.append((float(frequencies[index]), peak))
+
+    feature_scale = _derive_feature_scale(
+        zenith_angle_rad=zenith_angle,
+        zenith_angle_step_rad=zenith_step,
+        azimuth_step_rad=azimuth_step,
+        path=path,
+    )
+    canonical_basis = np.zeros(expected_basis_shape, dtype=np.float64)
+    canonical_basis[0, 0] = 1.0
+    canonical_basis[1, 1] = 1.0
+    owned = _owned_uvbeam(beam, canonical_data, canonical_basis, path)
+    return _ValidatedBeam(
+        beam=owned,
+        native_dtype=native_dtype.name,
+        data_shape=tuple(int(item) for item in expected_data_shape),
+        frequencies_hz=frequencies,
+        azimuth_rad=azimuth,
+        zenith_angle_rad=zenith_angle,
+        azimuth_step_rad=azimuth_step,
+        zenith_angle_step_rad=zenith_step,
+        feature_scale_rad=feature_scale,
+        scalar_absolute_tolerance=scalar_atol,
+        scalar_relative_tolerance=scalar_rtol,
+        normalization_absolute_tolerance=normalization_atol,
+        efield=_ValidatedEfieldFacts(
+            feed_array=ordered_feeds,
+            feed_angle_rad=feed_angle,
+            x_orientation=cast("str | None", legacy_orientation),
+            derived_x_orientation_verdict=verdict,
+            stored_grid_peak_by_frequency=tuple(stored_peaks),
+        ),
+    )
+
+
 def _read_and_validate(
     *,
     loader: _UVBeamLoaderProtocol,
     snapshot: _Snapshot,
     source_path: Path,
+    efield_receptors: tuple[_EfieldReceptorExpectation, ...] | None,
 ) -> _ValidatedBeam:
     try:
         beam = loader.read(snapshot.path)
@@ -786,7 +1380,9 @@ def _read_and_validate(
             f"BeamFITS {source_path}: pyuvdata could not read the private snapshot; "
             "regenerate a valid BeamFITS file with pyuvdata 3.2.1."
         ) from exc
-    return _validate_beam(beam, source_path)
+    if efield_receptors is None:
+        return _validate_beam(beam, source_path)
+    return _validate_efield_beam(beam, source_path, receptors=efield_receptors)
 
 
 def _validate_observation_frequencies(
@@ -836,61 +1432,84 @@ def _scientific_fingerprint(
     observation_frequencies_hz: tuple[float, ...],
     feature_scales: tuple[tuple[float, float], ...],
 ) -> str:
-    return _canonical_digest(
-        {
-            "schema_version": "tier3-beam-v1",
-            "kind": "fits_handler",
-            "accepted_subset_version": _ACCEPTED_SUBSET_VERSION,
-            "pyuvdata_version": pyuvdata_version,
-            "fits_content_sha256": file_sha256,
-            "validated_metadata": {
-                "beam_type": "efield",
-                "antenna_type": "simple",
-                "pixel_coordinate_system": "az_za",
-                "mount_type": "fixed",
-                "data_normalization": "peak",
-                "feed_array": ("x", "y"),
-                "x_orientation": "east",
-                "feed_angle_rad": (math.pi / 2.0, 0.0),
-                "data_shape": validated.data_shape,
-                "native_dtype": validated.native_dtype,
-                "native_frequencies_hz": tuple(
-                    float(item) for item in validated.frequencies_hz
-                ),
-                "azimuth_start_rad": float(validated.azimuth_rad[0]),
-                "azimuth_step_rad": validated.azimuth_step_rad,
-                "azimuth_count": int(validated.azimuth_rad.size),
-                "zenith_angle_start_rad": float(validated.zenith_angle_rad[0]),
-                "zenith_angle_step_rad": validated.zenith_angle_step_rad,
-                "zenith_angle_max_rad": float(validated.zenith_angle_rad[-1]),
-                "zenith_angle_count": int(validated.zenith_angle_rad.size),
-            },
-            "contracts": {
-                "basis": "finite_identity_2x2",
-                "scalar_jones": "e_i2_no_conjugation",
-                "normalization": "positive_unit_peak_and_unit_bandpass",
-                "basis_tolerance": _BASIS_TOLERANCE,
-                "feed_angle_tolerance_rad": _FEED_ANGLE_TOLERANCE_RAD,
-                "scalar_absolute_tolerance": validated.scalar_absolute_tolerance,
-                "scalar_relative_tolerance": validated.scalar_relative_tolerance,
-                "normalization_absolute_tolerance": (
-                    validated.normalization_absolute_tolerance
-                ),
-                "frequency_match_tolerance_hz": _FREQUENCY_MATCH_TOLERANCE_HZ,
-                "azimuth_closure_tolerance_rad": (_AZIMUTH_CLOSURE_TOLERANCE_RAD),
-                "horizon_coverage_tolerance_rad": (_HORIZON_COVERAGE_TOLERANCE_RAD),
-            },
-            "load_options": {
-                "normalization": definition.normalization,
-                "angular_interpolation": definition.angular_interpolation,
-                "frequency_interpolation": definition.frequency_interpolation,
-                "interpolation_function": "az_za_simple",
-                "spline_opts": {"kx": 1, "ky": 1, "s": 0},
-            },
-            "observation_frequencies_hz": observation_frequencies_hz,
-            "native_grid_representation_scales": feature_scales,
-        }
-    )
+    """Return the handler's scientific fingerprint.
+
+    Section 5.2.1 extends the existing ``validated_metadata`` and ``contracts``
+    blocks for the full-efield subset -- with the resolved feed pair, the
+    derived orientation, the mount, the three convention literals, and the
+    realized per-frequency common maxima -- and adds no new fingerprint path.
+    The accepted scalar payload is unchanged byte for byte.
+    """
+    efield = validated.efield
+    payload: dict[str, Any] = {
+        "schema_version": "tier3-beam-v1",
+        "kind": "fits_handler",
+        "accepted_subset_version": _accepted_subset_version(definition),
+        "pyuvdata_version": pyuvdata_version,
+        "fits_content_sha256": file_sha256,
+        "validated_metadata": {
+            "beam_type": "efield",
+            "antenna_type": "simple",
+            "pixel_coordinate_system": "az_za",
+            "mount_type": "fixed",
+            "data_normalization": "peak",
+            "feed_array": ("x", "y") if efield is None else efield.feed_array,
+            "x_orientation": (
+                "east" if efield is None else efield.derived_x_orientation_verdict
+            ),
+            "feed_angle_rad": (
+                (math.pi / 2.0, 0.0) if efield is None else efield.feed_angle_rad
+            ),
+            "data_shape": validated.data_shape,
+            "native_dtype": validated.native_dtype,
+            "native_frequencies_hz": tuple(
+                float(item) for item in validated.frequencies_hz
+            ),
+            "azimuth_start_rad": float(validated.azimuth_rad[0]),
+            "azimuth_step_rad": validated.azimuth_step_rad,
+            "azimuth_count": int(validated.azimuth_rad.size),
+            "zenith_angle_start_rad": float(validated.zenith_angle_rad[0]),
+            "zenith_angle_step_rad": validated.zenith_angle_step_rad,
+            "zenith_angle_max_rad": float(validated.zenith_angle_rad[-1]),
+            "zenith_angle_count": int(validated.zenith_angle_rad.size),
+        },
+        "contracts": {
+            "basis": "finite_identity_2x2",
+            "scalar_jones": "e_i2_no_conjugation",
+            "normalization": "positive_unit_peak_and_unit_bandpass",
+            "basis_tolerance": _BASIS_TOLERANCE,
+            "feed_angle_tolerance_rad": _FEED_ANGLE_TOLERANCE_RAD,
+            "scalar_absolute_tolerance": validated.scalar_absolute_tolerance,
+            "scalar_relative_tolerance": validated.scalar_relative_tolerance,
+            "normalization_absolute_tolerance": (
+                validated.normalization_absolute_tolerance
+            ),
+            "frequency_match_tolerance_hz": _FREQUENCY_MATCH_TOLERANCE_HZ,
+            "azimuth_closure_tolerance_rad": (_AZIMUTH_CLOSURE_TOLERANCE_RAD),
+            "horizon_coverage_tolerance_rad": (_HORIZON_COVERAGE_TOLERANCE_RAD),
+        },
+        "load_options": {
+            "normalization": definition.normalization,
+            "angular_interpolation": definition.angular_interpolation,
+            "frequency_interpolation": definition.frequency_interpolation,
+            "interpolation_function": "az_za_simple",
+            "spline_opts": {"kx": 1, "ky": 1, "s": 0},
+        },
+        "observation_frequencies_hz": observation_frequencies_hz,
+        "native_grid_representation_scales": feature_scales,
+    }
+    if efield is not None:
+        payload["validated_metadata"]["resolved_feed_array"] = efield.feed_array
+        payload["validated_metadata"]["derived_x_orientation_verdict"] = (
+            efield.derived_x_orientation_verdict
+        )
+        payload["validated_metadata"]["stored_grid_peak_by_frequency"] = (
+            efield.stored_grid_peak_by_frequency
+        )
+        payload["contracts"]["basis_vector_convention"] = _BASIS_VECTOR_CONVENTION
+        payload["contracts"]["factorization_convention"] = _FACTORIZATION_CONVENTION
+        payload["contracts"]["zenith_limit_convention"] = _ZENITH_LIMIT_CONVENTION
+    return _canonical_digest(payload)
 
 
 def _cleanup_temporary_directory(
@@ -913,8 +1532,15 @@ def _load_fits_handler(  # pyright: ignore[reportUnusedFunction]
     precision: PrecisionConfig,
     handler_ordinal: int,
     loader: _UVBeamLoaderProtocol | None = None,
+    efield_receptors: tuple[_EfieldReceptorExpectation, ...] = (),
 ) -> _LoadedFITSHandler:
-    """Load one already-resolved FITS definition into a private evaluator."""
+    """Load one already-resolved FITS definition into a private evaluator.
+
+    ``efield_receptors`` carries the resolved receptor of every antenna the
+    definition is assigned to, which Section 5.1.1 items 5 through 7 compare the
+    file's own feed labels and angles against.  It is read only when the
+    definition selects the ``uvbeam_peak_common_v1`` accepted subset.
+    """
     if type(definition) is not ResolvedFITSBeamDefinition:
         raise TypeError("definition must be an exact ResolvedFITSBeamDefinition")
     definition.__post_init__()
@@ -948,6 +1574,11 @@ def _load_fits_handler(  # pyright: ignore[reportUnusedFunction]
             loader=selected_loader,
             snapshot=snapshot,
             source_path=definition.path,
+            efield_receptors=(
+                efield_receptors
+                if definition.normalization == _FULL_EFIELD_NORMALIZATION
+                else None
+            ),
         )
         try:
             current_stat = _stat_identity(os.stat(definition.path))
@@ -982,6 +1613,7 @@ def _load_fits_handler(  # pyright: ignore[reportUnusedFunction]
         feature_scales = tuple(
             (frequency, validated.feature_scale_rad) for frequency in observations
         )
+        efield_facts = validated.efield
         file_provenance = BeamFileProvenance(
             resolved_path=definition.path,
             size_bytes=snapshot.source_stat[2],
@@ -992,8 +1624,12 @@ def _load_fits_handler(  # pyright: ignore[reportUnusedFunction]
             pixel_coordinate_system="az_za",
             mount_type="fixed",
             data_normalization="peak",
-            feed_array=("x", "y"),
-            x_orientation="east",
+            feed_array=(
+                ("x", "y") if efield_facts is None else efield_facts.feed_array
+            ),
+            x_orientation=(
+                "east" if efield_facts is None else efield_facts.x_orientation
+            ),
             data_shape=validated.data_shape,
             native_dtype=validated.native_dtype,
             frequency_min_hz=float(validated.frequencies_hz[0]),
@@ -1007,6 +1643,31 @@ def _load_fits_handler(  # pyright: ignore[reportUnusedFunction]
             scalar_relative_tolerance=validated.scalar_relative_tolerance,
             normalization_absolute_tolerance=(
                 validated.normalization_absolute_tolerance
+            ),
+            accepted_subset_version=(
+                None if efield_facts is None else _FULL_EFIELD_SUBSET_VERSION
+            ),
+            radiosim_normalization=(
+                None if efield_facts is None else _FULL_EFIELD_NORMALIZATION
+            ),
+            resolved_feed_array=(
+                None if efield_facts is None else efield_facts.feed_array
+            ),
+            derived_x_orientation_verdict=(
+                None
+                if efield_facts is None
+                else efield_facts.derived_x_orientation_verdict
+            ),
+            basis_vector_convention=(
+                None if efield_facts is None else _BASIS_VECTOR_CONVENTION
+            ),
+            factorization_convention=(
+                None if efield_facts is None else _FACTORIZATION_CONVENTION
+            ),
+            stored_grid_peak_by_frequency=(
+                None
+                if efield_facts is None
+                else efield_facts.stored_grid_peak_by_frequency
             ),
         )
         scientific_fingerprint = _scientific_fingerprint(
@@ -1025,16 +1686,27 @@ def _load_fits_handler(  # pyright: ignore[reportUnusedFunction]
             file=file_provenance,
             voltage_feature_scale_by_frequency=feature_scales,
         )
-        evaluator = _UVBeamScalarEvaluator(
-            beam=validated.beam,
-            identity=state.handler_id,
-            frequency_interpolation=definition.frequency_interpolation,
-            frequencies_hz=validated.frequencies_hz,
-            scalar_absolute_tolerance=validated.scalar_absolute_tolerance,
-            scalar_relative_tolerance=validated.scalar_relative_tolerance,
-            feature_scale_rad=validated.feature_scale_rad,
-            result_dtype=result_dtype,
-        )
+        evaluator: _UVBeamScalarEvaluator | _UVBeamEfieldEvaluator
+        if efield_facts is None:
+            evaluator = _UVBeamScalarEvaluator(
+                beam=validated.beam,
+                identity=state.handler_id,
+                frequency_interpolation=definition.frequency_interpolation,
+                frequencies_hz=validated.frequencies_hz,
+                scalar_absolute_tolerance=validated.scalar_absolute_tolerance,
+                scalar_relative_tolerance=validated.scalar_relative_tolerance,
+                feature_scale_rad=validated.feature_scale_rad,
+                result_dtype=result_dtype,
+            )
+        else:
+            evaluator = _UVBeamEfieldEvaluator(
+                beam=validated.beam,
+                identity=state.handler_id,
+                frequency_interpolation=definition.frequency_interpolation,
+                frequencies_hz=validated.frequencies_hz,
+                feature_scale_rad=validated.feature_scale_rad,
+                result_dtype=result_dtype,
+            )
         loaded = _LoadedFITSHandler(state=state, evaluator=evaluator)
     except BaseException as primary:
         try:

@@ -170,7 +170,28 @@ def test_public_provenance_field_order_and_detached_snapshot(tmp_path: Path) -> 
         "scalar_absolute_tolerance",
         "scalar_relative_tolerance",
         "normalization_absolute_tolerance",
+        # ``docs/development/sci005_beam_physics_plan.md`` Section 5.2.1 appends
+        # exactly these seven for the Stage-3 full-efield accepted subset, each
+        # annotated ``<type> | None = None`` and left ``None`` on this scalar
+        # ``peak`` path so that its snapshot and digest do not move.
+        "accepted_subset_version",
+        "radiosim_normalization",
+        "resolved_feed_array",
+        "derived_x_orientation_verdict",
+        "basis_vector_convention",
+        "factorization_convention",
+        "stored_grid_peak_by_frequency",
     )
+    for name in (
+        "accepted_subset_version",
+        "radiosim_normalization",
+        "resolved_feed_array",
+        "derived_x_orientation_verdict",
+        "basis_vector_convention",
+        "factorization_convention",
+        "stored_grid_peak_by_frequency",
+    ):
+        assert getattr(loaded.state.file, name) is None
     assert tuple(
         field.name for field in dataclasses.fields(LoadedBeamHandlerState)
     ) == (

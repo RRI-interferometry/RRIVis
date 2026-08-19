@@ -292,17 +292,21 @@ def _displaced_beam_directions(
     return np.arctan2(up, np.hypot(east, north)), np.arctan2(east, north)
 
 
-def _squint_receptor_matrix(
+def _native_receptor_matrix(
     basis: str,
     chi_rad: float,
     dtype: np.dtype[Any],
 ) -> np.ndarray:
     """Return ``C = M(basis) @ R(chi)`` at the resolved beam dtype.
 
-    Section 4.2.1 fixes the formulas and requires the composition to stay at the
-    resolved beam width, so this is written here rather than taken from
-    :func:`radiosim.core.jones.receptor.receptor_matrix`, which is defined at
-    ``complex128`` and would narrow an extended-width composition.
+    Sections 4.2.1 and 5.2.1 fix the same formulas for the Stage-2 squint
+    composition ``E = C^dagger D_b C`` and the Stage-3 full-efield
+    factorization ``E = C^dagger J_native``, and both require the composition to
+    stay at the resolved beam width, so this is written here rather than taken
+    from :func:`radiosim.core.jones.receptor.receptor_matrix`, which is defined
+    at ``complex128`` and would narrow an extended-width composition.  The
+    basis and rotation come from the same resolved receptor set the solver's own
+    ``C`` term is built from, so the two cannot disagree.
     """
     real_dtype = np.empty(0, dtype=dtype).real.dtype
     chi = real_dtype.type(chi_rad)
@@ -327,6 +331,92 @@ def _squint_receptor_matrix(
             f"receptor basis {basis!r} is not one of 'linear' or 'circular'."
         )
     return np.asarray(leading @ rotation, dtype=dtype)
+
+
+#: Section 5.1.1's activation literal and its accepted-subset version literal.
+_FULL_EFIELD_NORMALIZATION = "uvbeam_peak_common_v1"
+_FULL_EFIELD_SUBSET_VERSION = "sci005-stage3-full-efield-v1"
+
+
+def _tangent_conversion(phi_rad: np.ndarray) -> np.ndarray:
+    """Return Section 5.2.1's frozen ``T(phi)``, shape ``(..., 2, 2)``.
+
+    ``T(phi) = [[sin phi, -cos phi], [cos phi, sin phi]]`` converts the native
+    UVBeam ``az_za`` field components -- vector axis ``0`` the azimuth
+    component and ``1`` the zenith-angle component, per
+    ``pyuvdata.analytic_beam.ShortDipoleBeam._efield_eval`` -- into RadioSim's
+    ``(co, cross)`` Ludwig-3 tangent pair with ``phi = 0`` North and increasing
+    East (A. C. Ludwig, *The definition of cross polarization*, IEEE Trans.
+    Antennas Propag. 21, 116, 1973).  It is real with ``det T = 1`` and
+    ``T^T T = I_2``, so the conversion preserves total field power by
+    construction and every complex phase stays in the data.  Direction geometry
+    is binary64 throughout.
+    """
+    phi = np.asarray(phi_rad, dtype=np.float64)
+    matrix = np.empty(phi.shape + (2, 2), dtype=np.float64)
+    sine = np.sin(phi)
+    cosine = np.cos(phi)
+    matrix[..., 0, 0] = sine
+    matrix[..., 0, 1] = -cosine
+    matrix[..., 1, 0] = cosine
+    matrix[..., 1, 1] = sine
+    return matrix
+
+
+def _radiosim_azimuth_rad(azimuth_uv_rad: np.ndarray) -> np.ndarray:
+    """Invert the accepted ``az_uv = (pi/2 - az_radiosim) mod 2*pi`` mapping."""
+    return np.asarray(
+        (np.pi / 2.0 - np.asarray(azimuth_uv_rad, dtype=np.float64)) % (2.0 * np.pi)
+    )
+
+
+def _converted_native_jones(
+    components: np.ndarray,
+    conversion: np.ndarray,
+) -> np.ndarray:
+    """Return ``J_native[..., f, c] = sum_a data[a, f, ...] T(phi)[..., a, c]``.
+
+    Section 5.2.1 freezes this sum "with no conjugation and no implicit
+    transpose anywhere, and with no intermediate composed basis": the stored
+    basis-vector array contributes no factor, because item 10 requires it to be
+    the native identity and ``UVBeam._prepare_basis_vector_array`` discards it
+    and rebuilds that identity per interpolation point in any case.
+
+    ``components`` is indexed ``[vector_axis, feed, ...point axes]`` and
+    ``conversion`` ``[...point axes, vector_axis, column]``.
+    """
+    return np.einsum(
+        "af...,...ac->...fc",
+        np.asarray(components, dtype=np.complex128),
+        np.asarray(conversion, dtype=np.float64),
+        optimize=True,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _EfieldReceptorExpectation:
+    """One assigned antenna's resolved receptor, as items 5-7 compare it."""
+
+    antenna_id: AntennaId
+    basis: str
+    feed_rotation_rad: float
+    feed_array: tuple[str, str]
+    feed_angle_rad: tuple[float, float]
+
+
+@dataclass(frozen=True, slots=True)
+class _EfieldPlan:
+    """One antenna's Stage-3 receptor factorization, resolved once.
+
+    The receptor half is read from the resolved receptor set the ``C`` term
+    itself comes from, so the ``C`` inside ``E`` and the chain's ``C`` cannot
+    disagree (Section 5.1.1).
+    """
+
+    normalization: str
+    accepted_subset_version: str
+    receptor_basis: str
+    feed_rotation_rad: float
 
 
 class _UVBeamLike(Protocol):
@@ -389,6 +479,7 @@ def _response_key(
     pointing: ResolvedPointingOffset | None,
     surface_error: ResolvedSurfaceError | None,
     squint_plan: _SquintPlan | None = None,
+    efield_plan: _EfieldPlan | None = None,
 ) -> str:
     """Return the key two antennas share iff their responses are identical.
 
@@ -399,10 +490,19 @@ def _response_key(
     ``docs/development/sci005_beam_physics_plan.md`` Section 4.2.1 widens the
     identity exactly when squint is present, and the receptor half is part of it
     because ``E = C^dagger D_b C`` differs between two antennas that share a
-    handler and a squint record but not a receptor.  An antenna without squint
-    produces a byte-identical key to today.
+    handler and a squint record but not a receptor.  Section 5.2.1 widens it the
+    same way for the Stage-3 full-efield subset, where ``E = C^dagger J_native``
+    differs between two antennas that share one handler and one file but not one
+    receptor; the file's own content identity is already inside ``handler_id``,
+    which embeds the handler scientific fingerprint, so it is not repeated. An
+    antenna with neither produces a byte-identical key to today.
     """
-    if pointing is None and surface_error is None and squint_plan is None:
+    if (
+        pointing is None
+        and surface_error is None
+        and squint_plan is None
+        and efield_plan is None
+    ):
         return handler_id
     payload: dict[str, Any] = {
         "kind": "beam_response_key",
@@ -436,6 +536,13 @@ def _response_key(
             "receptor_basis": squint_plan.receptor_basis,
             "feed_rotation_rad": squint_plan.feed_rotation_rad,
         }
+    if efield_plan is not None:
+        payload["efield"] = {
+            "normalization": efield_plan.normalization,
+            "accepted_subset_version": efield_plan.accepted_subset_version,
+            "receptor_basis": efield_plan.receptor_basis,
+            "feed_rotation_rad": efield_plan.feed_rotation_rad,
+        }
     digest = _canonical_digest(payload)
     return f"{handler_id}+{digest[:16]}"
 
@@ -444,6 +551,7 @@ class _BeamSystemRuntime:
     """Unpublished evaluator lookup owned by exactly one BeamSystem."""
 
     __slots__ = (
+        "efield_by_antenna",
         "evaluator_by_handler_id",
         "handler_id_by_antenna",
         "pointing_by_antenna",
@@ -458,6 +566,7 @@ class _BeamSystemRuntime:
     surface_error_by_antenna: Mapping[AntennaId, ResolvedSurfaceError]
     ruze_diagnostic_by_antenna: Mapping[AntennaId, _RuzeDiagnosticPlan]
     squint_by_antenna: Mapping[AntennaId, _SquintPlan]
+    efield_by_antenna: Mapping[AntennaId, _EfieldPlan]
     response_key_by_antenna: Mapping[AntennaId, str]
 
     def __init__(
@@ -469,10 +578,12 @@ class _BeamSystemRuntime:
         surface_error_by_antenna: dict[AntennaId, ResolvedSurfaceError],
         ruze_diagnostic_by_antenna: dict[AntennaId, _RuzeDiagnosticPlan],
         squint_by_antenna: dict[AntennaId, _SquintPlan] | None = None,
+        efield_by_antenna: dict[AntennaId, _EfieldPlan] | None = None,
     ) -> None:
         # Absent squint is the accepted pre-Stage-2 runtime, so the new map
         # defaults to empty rather than making every construction site pass one.
         squint_plans: dict[AntennaId, _SquintPlan] = dict(squint_by_antenna or {})
+        efield_plans: dict[AntennaId, _EfieldPlan] = dict(efield_by_antenna or {})
         object.__setattr__(
             self,
             "evaluator_by_handler_id",
@@ -505,6 +616,11 @@ class _BeamSystemRuntime:
         )
         object.__setattr__(
             self,
+            "efield_by_antenna",
+            MappingProxyType(efield_plans),
+        )
+        object.__setattr__(
+            self,
             "response_key_by_antenna",
             MappingProxyType(
                 {
@@ -513,6 +629,7 @@ class _BeamSystemRuntime:
                         pointing_by_antenna.get(antenna_id),
                         surface_error_by_antenna.get(antenna_id),
                         squint_plans.get(antenna_id),
+                        efield_plans.get(antenna_id),
                     )
                     for antenna_id, handler_id in handler_id_by_antenna.items()
                 }
@@ -578,6 +695,51 @@ def _preflight_frequency(
         )
 
 
+def _validated_direction_arrays(
+    identity: str,
+    altitude_rad: np.ndarray,
+    azimuth_rad: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return the accepted binary64 direction pair, or raise the typed failure."""
+    if type(altitude_rad) is not np.ndarray or type(azimuth_rad) is not np.ndarray:
+        raise BeamAngularDomainError(
+            f"{identity}: altitude_rad and azimuth_rad must be "
+            "one-dimensional NumPy arrays."
+        )
+    if altitude_rad.ndim != 1 or azimuth_rad.ndim != 1:
+        raise BeamAngularDomainError(
+            f"{identity}: altitude_rad and azimuth_rad must be "
+            "one-dimensional NumPy arrays."
+        )
+    if altitude_rad.shape != azimuth_rad.shape:
+        raise BeamAngularDomainError(
+            f"{identity}: altitude_rad shape {altitude_rad.shape!r} and "
+            f"azimuth_rad shape {azimuth_rad.shape!r} must match."
+        )
+    try:
+        if altitude_rad.dtype.kind not in "fiu" or azimuth_rad.dtype.kind not in "fiu":
+            raise TypeError("direction arrays must have real numeric dtypes")
+        altitude_values = np.asarray(altitude_rad, dtype=np.float64)
+        azimuth_values = np.asarray(azimuth_rad, dtype=np.float64)
+        finite = bool(
+            np.all(np.isfinite(altitude_values)) and np.all(np.isfinite(azimuth_values))
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise BeamAngularDomainError(
+            f"{identity}: direction arrays must contain real numeric radian values."
+        ) from exc
+    if not finite:
+        raise NonFiniteBeamResponseError(
+            f"{identity}: direction coordinates must be finite."
+        )
+    if np.any(altitude_values < -np.pi / 2.0) or np.any(altitude_values > np.pi / 2.0):
+        raise BeamAngularDomainError(
+            f"{identity}: altitude values must lie inside the closed "
+            "interval [-pi/2, pi/2] radians; horizon and zenith are included."
+        )
+    return altitude_values, azimuth_values
+
+
 class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
     """Private owned, locked evaluator for the accepted scalar ``e I2`` subset."""
 
@@ -640,49 +802,11 @@ class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
         time_mjd: float,
     ) -> np.ndarray:
         """Evaluate owned read-only Jones matrices in RadioSim coordinates."""
-        if type(altitude_rad) is not np.ndarray or type(azimuth_rad) is not np.ndarray:
-            raise BeamAngularDomainError(
-                f"{self._identity}: altitude_rad and azimuth_rad must be "
-                "one-dimensional NumPy arrays."
-            )
-        if altitude_rad.ndim != 1 or azimuth_rad.ndim != 1:
-            raise BeamAngularDomainError(
-                f"{self._identity}: altitude_rad and azimuth_rad must be "
-                "one-dimensional NumPy arrays."
-            )
-        if altitude_rad.shape != azimuth_rad.shape:
-            raise BeamAngularDomainError(
-                f"{self._identity}: altitude_rad shape {altitude_rad.shape!r} and "
-                f"azimuth_rad shape {azimuth_rad.shape!r} must match."
-            )
-        try:
-            if (
-                altitude_rad.dtype.kind not in "fiu"
-                or azimuth_rad.dtype.kind not in "fiu"
-            ):
-                raise TypeError("direction arrays must have real numeric dtypes")
-            altitude_values = np.asarray(altitude_rad, dtype=np.float64)
-            azimuth_values = np.asarray(azimuth_rad, dtype=np.float64)
-            finite = bool(
-                np.all(np.isfinite(altitude_values))
-                and np.all(np.isfinite(azimuth_values))
-            )
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise BeamAngularDomainError(
-                f"{self._identity}: direction arrays must contain real numeric "
-                "radian values."
-            ) from exc
-        if not finite:
-            raise NonFiniteBeamResponseError(
-                f"{self._identity}: direction coordinates must be finite."
-            )
-        if np.any(altitude_values < -np.pi / 2.0) or np.any(
-            altitude_values > np.pi / 2.0
-        ):
-            raise BeamAngularDomainError(
-                f"{self._identity}: altitude values must lie inside the closed "
-                "interval [-pi/2, pi/2] radians; horizon and zenith are included."
-            )
+        altitude_values, azimuth_values = _validated_direction_arrays(
+            self._identity,
+            altitude_rad,
+            azimuth_rad,
+        )
 
         target = _require_exact_finite_float(frequency_hz, "frequency_hz")
         _ = _require_exact_finite_float(time_mjd, "time_mjd")
@@ -796,6 +920,237 @@ class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
         result = np.array(output, dtype=self._result_dtype, copy=True, order="C")
         result.setflags(write=False)
         return result
+
+
+class _UVBeamEfieldEvaluator:  # pyright: ignore[reportUnusedClass]
+    """Private owned, locked evaluator for the Stage-3 full-efield subset.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Sections 5.2 and 5.2.1: the
+    interpolated native ``az_za`` components are converted per direction by the
+    frozen real orthogonal ``T(phi)`` into RadioSim's Ludwig-3 ``(co, cross)``
+    tangent pair (A. C. Ludwig, *The definition of cross polarization*, IEEE
+    Trans. Antennas Propag. 21, 116, 1973), giving the complete matrix
+    ``J_native`` that maps the incident tangent field into the file's native
+    feed voltages.  The receptor factorization ``E = C^dagger J_native`` is the
+    beam runtime's, applied in :meth:`BeamSystem.evaluate_jones`, so this
+    evaluator publishes ``J_native`` itself.
+
+    The returned basis vectors are requested in order to be **verified**, never
+    composed: ``UVBeam._prepare_basis_vector_array`` builds them from
+    ``numpy.ones`` and ``numpy.zeros``, and item 10 has already rejected any
+    stored basis that is not itself that identity, so a returned array which is
+    not the identity means the pinned dependency contract has changed beneath
+    RadioSim and is an internal failure rather than a file rejection.
+    """
+
+    __slots__ = (
+        "_beam",
+        "_feature_scale_rad",
+        "_frequency_interpolation",
+        "_frequencies_hz",
+        "_identity",
+        "_lock",
+        "_result_dtype",
+    )
+
+    def __init__(
+        self,
+        *,
+        beam: _UVBeamLike,
+        identity: str,
+        frequency_interpolation: str,
+        frequencies_hz: np.ndarray,
+        feature_scale_rad: float,
+        result_dtype: np.dtype[Any],
+    ) -> None:
+        self._beam = beam
+        self._identity = identity
+        self._frequency_interpolation = frequency_interpolation
+        self._frequencies_hz = np.array(
+            frequencies_hz,
+            dtype=np.float64,
+            copy=True,
+            order="C",
+        )
+        self._frequencies_hz.setflags(write=False)
+        self._feature_scale_rad = feature_scale_rad
+        self._result_dtype = np.dtype(result_dtype)
+        self._lock = threading.RLock()
+
+    def voltage_feature_scale_rad(self, frequency_hz: float) -> float:
+        """Return the fixed native-grid representation scale for an in-domain Hz."""
+        target = _require_exact_finite_float(frequency_hz, "frequency_hz")
+        _preflight_frequency(
+            frequencies_hz=self._frequencies_hz,
+            target_hz=target,
+            interpolation_kind=self._frequency_interpolation,
+            identity=self._identity,
+        )
+        return self._feature_scale_rad
+
+    def evaluate_numpy(
+        self,
+        altitude_rad: np.ndarray,
+        azimuth_rad: np.ndarray,
+        frequency_hz: float,
+        time_mjd: float,
+    ) -> np.ndarray:
+        """Return owned read-only ``J_native`` matrices in RadioSim coordinates."""
+        altitude_values, azimuth_values = _validated_direction_arrays(
+            self._identity,
+            altitude_rad,
+            azimuth_rad,
+        )
+
+        target = _require_exact_finite_float(frequency_hz, "frequency_hz")
+        _ = _require_exact_finite_float(time_mjd, "time_mjd")
+        _preflight_frequency(
+            frequencies_hz=self._frequencies_hz,
+            target_hz=target,
+            interpolation_kind=self._frequency_interpolation,
+            identity=self._identity,
+        )
+
+        count = altitude_rad.size
+        output = np.zeros((count, 2, 2), dtype=np.complex128)
+        visible = altitude_values >= 0.0
+        if np.any(visible):
+            zenith_angle = np.pi / 2.0 - altitude_values[visible]
+            # Section 5.2: coordinate azimuth is singular at the zenith, so that
+            # one physical direction takes the North/East tangent limit at
+            # ``az_radiosim = 0``.  Load has already required the file's own
+            # zenith row to be single valued, so this selects the phi = 0 member
+            # rather than repairing a disagreement.
+            at_zenith = zenith_angle == 0.0
+            phi = np.where(at_zenith, 0.0, azimuth_values[visible])
+            azimuth_uv = (np.pi / 2.0 - phi) % (2.0 * np.pi)
+            data_array, basis_array = self._interpolate(
+                azimuth_uv=azimuth_uv,
+                zenith_angle=zenith_angle,
+                target_hz=target,
+                point_count=int(np.count_nonzero(visible)),
+            )
+            self._require_returned_identity(basis_array)
+            output[visible] = _converted_native_jones(
+                data_array[:, :, 0, :],
+                _tangent_conversion(phi),
+            )
+
+        result = np.array(output, dtype=self._result_dtype, copy=True, order="C")
+        result.setflags(write=False)
+        return result
+
+    def _interpolate(
+        self,
+        *,
+        azimuth_uv: np.ndarray,
+        zenith_angle: np.ndarray,
+        target_hz: float,
+        point_count: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Return the pinned ``(data, basis)`` pair, or the typed rejection.
+
+        Every interpolation argument except ``return_basis_vector`` is
+        byte-identical to the accepted scalar path (Section 5.2.1), and
+        ``polarizations`` is never requested because it is a power-beam knob
+        with no efield meaning.
+        """
+        try:
+            with self._lock:
+                interpolated = self._beam.interp(
+                    az_array=azimuth_uv,
+                    za_array=zenith_angle,
+                    interpolation_function="az_za_simple",
+                    freq_array=np.array([target_hz], dtype=np.float64),
+                    freq_interp_kind=self._frequency_interpolation,
+                    freq_interp_tol=_FREQUENCY_MATCH_TOLERANCE_HZ,
+                    return_basis_vector=True,
+                    spline_opts={"kx": 1, "ky": 1, "s": 0},
+                )
+        except ValueError as exc:
+            message = str(exc).lower()
+            error_type = (
+                BeamFrequencyDomainError
+                if "freq" in message
+                else BeamAngularDomainError
+            )
+            raise error_type(
+                f"{self._identity}: pyuvdata rejected an already preflighted "
+                "interpolation domain; verify the BeamFITS native axes."
+            ) from exc
+        except Exception as exc:
+            raise BeamEvaluationError(
+                f"{self._identity}: pyuvdata interpolation failed after RadioSim "
+                "domain preflight; inspect the chained dependency failure."
+            ) from exc
+        if (
+            type(interpolated) is not tuple
+            or len(cast(tuple[object, ...], interpolated)) != 2
+        ):
+            raise UnsupportedBeamBasisError(
+                f"{self._identity}: UVBeam.interp must return exact "
+                "(data, basis_vector) under return_basis_vector=True; the "
+                "installed pyuvdata 3.2.1 contract is unsupported."
+            )
+        data, basis = cast(tuple[object, object], interpolated)
+        if basis is None:
+            raise UnsupportedBeamBasisError(
+                f"{self._identity}: UVBeam.interp returned no basis despite "
+                "return_basis_vector=True; the installed pyuvdata 3.2.1 "
+                "contract is unsupported."
+            )
+        if not isinstance(data, np.ndarray) or not isinstance(basis, np.ndarray):
+            raise UnsupportedBeamBasisError(
+                f"{self._identity}: UVBeam.interp data and basis vectors must be "
+                "NumPy arrays under the pinned pyuvdata 3.2.1 contract."
+            )
+        data_array = cast(np.ndarray[Any, Any], data)
+        basis_array = cast(np.ndarray[Any, Any], basis)
+        if data_array.dtype != np.dtype(np.complex128):
+            raise UnsupportedBeamBasisError(
+                f"{self._identity}: UVBeam.interp returned data dtype "
+                f"{data_array.dtype.name!r}; the pinned pyuvdata 3.2.1 contract "
+                "requires complex128."
+            )
+        if basis_array.dtype != np.dtype(np.float64):
+            raise UnsupportedBeamBasisError(
+                f"{self._identity}: UVBeam.interp returned basis dtype "
+                f"{basis_array.dtype.name!r}; the pinned pyuvdata 3.2.1 contract "
+                "requires float64."
+            )
+        expected_data_shape = (2, 2, 1, point_count)
+        if data_array.shape != expected_data_shape:
+            raise UnsupportedBeamBasisError(
+                f"{self._identity}: interpolated E-field shape "
+                f"{data_array.shape!r} is unsupported; expected "
+                f"{expected_data_shape!r}."
+            )
+        expected_basis_shape = (2, 2, point_count)
+        if basis_array.shape != expected_basis_shape:
+            raise UnsupportedBeamBasisError(
+                f"{self._identity}: interpolated basis-vector shape "
+                f"{basis_array.shape!r} is unsupported; expected "
+                f"{expected_basis_shape!r} under the pinned pyuvdata 3.2.1 "
+                "contract."
+            )
+        if not np.all(np.isfinite(data_array)):
+            raise NonFiniteBeamResponseError(
+                f"{self._identity}: interpolated E-field contains NaN or Inf."
+            )
+        return data_array, basis_array
+
+    def _require_returned_identity(self, basis_array: np.ndarray) -> None:
+        """Verify the returned basis is exactly the native identity."""
+        expected = np.zeros(basis_array.shape, dtype=np.float64)
+        expected[0, 0] = 1.0
+        expected[1, 1] = 1.0
+        if not np.array_equal(basis_array, expected):
+            raise UnsupportedBeamBasisError(
+                f"{self._identity}: UVBeam.interp returned basis vectors that are "
+                "not exactly the native identity; the pinned pyuvdata 3.2.1 "
+                "contract builds them from numpy.ones and numpy.zeros, so the "
+                "installed dependency no longer satisfies it."
+            )
 
 
 def _require_boresight_pair(
@@ -914,7 +1269,7 @@ def _evaluate_squinted_response(
     diagonal = np.zeros((samples[0].size, 2, 2), dtype=result_dtype, order="C")
     diagonal[:, 0, 0] = samples[0]
     diagonal[:, 1, 1] = samples[1]
-    receptor = _squint_receptor_matrix(
+    receptor = _native_receptor_matrix(
         squint_plan.receptor_basis,
         squint_plan.feed_rotation_rad,
         result_dtype,
@@ -1046,6 +1401,13 @@ class BeamSystem:
         private solver adapter owns and supplies once per antenna and time step.
         An antenna without squint requires both to be ``None`` and its call
         surface, behaviour, and results are unchanged.
+
+        For an antenna assigned a Stage-3 full-efield definition the evaluator
+        publishes the complete ``J_native`` matrix and this method composes
+        Section 5.2.1's ``E = C^dagger J_native``, so that ``C E = J_native``
+        holds exactly against the canonical chain's own ``C``.  A full-efield
+        antenna carries no squint, so both boresight keywords stay ``None`` for
+        it and the accepted two-sided rule is unchanged.
         """
         antenna_id = _require_lookup_antenna_id(antenna_id)
         try:
@@ -1130,6 +1492,22 @@ class BeamSystem:
                 boresight_parallactic_rad=cast(float, boresight_parallactic_rad),
                 boresight_altitude_rad=cast(float, boresight_altitude_rad),
             )
+
+        efield_plan = self.__runtime.efield_by_antenna.get(canonical)
+        if efield_plan is not None:
+            receptor = _native_receptor_matrix(
+                efield_plan.receptor_basis,
+                efield_plan.feed_rotation_rad,
+                np.dtype(host_result.dtype),
+            )
+            composed = np.array(
+                receptor.conj().T @ host_result,
+                dtype=host_result.dtype,
+                copy=True,
+                order="C",
+            )
+            composed.setflags(write=False)
+            host_result = composed
 
         surface_error = self.__runtime.surface_error_by_antenna.get(canonical)
         if surface_error is not None:
@@ -1313,6 +1691,63 @@ def _squint_plans(
     return plans
 
 
+def _is_full_efield_definition(definition: object) -> bool:
+    """Return whether one resolved definition selects the Stage-3 subset."""
+    return (
+        type(definition) is ResolvedFITSBeamDefinition
+        and definition.normalization == _FULL_EFIELD_NORMALIZATION
+    )
+
+
+def _efield_receptor_expectations(
+    resolved_state: ResolvedBeamState,
+    *,
+    receptors: ResolvedReceptorSet | None,
+) -> dict[AntennaId, _EfieldReceptorExpectation]:
+    """Resolve every full-efield antenna's receptor (Section 5.1.1).
+
+    The receptor half of items 5 through 7 needs the resolved receptor set, so
+    ``load_beam_system`` requires its already-accepted ``receptors`` keyword
+    whenever any resolved antenna is assigned a ``uvbeam_peak_common_v1``
+    definition, exactly as it already does for squint.
+    """
+    assigned = tuple(
+        assignment
+        for assignment in resolved_state.assignments
+        if _is_full_efield_definition(assignment.definition)
+    )
+    if not assigned:
+        return {}
+    if receptors is None:
+        raise TypeError(
+            "load_beam_system requires the resolved receptor set whenever any "
+            "resolved antenna is assigned a 'uvbeam_peak_common_v1' BeamFITS "
+            "definition; pass receptors=<ResolvedReceptorSet>."
+        )
+    if type(receptors) is not ResolvedReceptorSet:
+        raise TypeError("receptors must be an exact ResolvedReceptorSet")
+
+    expectations: dict[AntennaId, _EfieldReceptorExpectation] = {}
+    for assignment in assigned:
+        antenna_id = assignment.antenna_id
+        receptor = receptors.receptor_by_antenna.get(antenna_id)
+        if receptor is None:
+            raise InconsistentBeamAssignmentError(
+                "The resolved receptor set has no receptor for canonical "
+                f"antenna number={antenna_id.number}, name={antenna_id.name!r}; "
+                "receptor and beam resolution disagree."
+            )
+        canonical = AntennaId(antenna_id.number, antenna_id.name)
+        expectations[canonical] = _EfieldReceptorExpectation(
+            antenna_id=canonical,
+            basis=receptor.basis,
+            feed_rotation_rad=receptor.feed_rotation_rad,
+            feed_array=receptor.feed_array,
+            feed_angle_rad=receptor.feed_angle_rad,
+        )
+    return expectations
+
+
 def _load_beam_system(
     resolved_state: ResolvedBeamState,
     *,
@@ -1335,6 +1770,10 @@ def _load_beam_system(
         observation_frequencies_hz=frequencies,
         receptors=receptors,
     )
+    efield_expectations = _efield_receptor_expectations(
+        resolved_state,
+        receptors=receptors,
+    )
 
     from radiosim.core.beam.analytic import (
         _analytic_preload_key,  # pyright: ignore[reportPrivateUsage]
@@ -1345,6 +1784,37 @@ def _load_beam_system(
         _load_fits_handler,  # pyright: ignore[reportPrivateUsage]
     )
 
+    def _preload_key(assignment: Any) -> object:
+        definition = assignment.definition
+        if type(definition) is ResolvedAnalyticBeamDefinition:
+            return (
+                "analytic",
+                _analytic_preload_key(
+                    definition,
+                    assignment.antenna_diameter_m,
+                    assignment.aperture_physics,
+                ),
+            )
+        if type(definition) is ResolvedFITSBeamDefinition:
+            return ("fits", _fits_preload_key(definition))
+        raise TypeError("resolved assignment contains an unsupported definition")
+
+    # One handler validates against *every* antenna the file is assigned to
+    # (Section 5.1.1 items 5 through 7), so the assigned receptors are grouped
+    # by pre-load key before the first read rather than discovered per antenna.
+    assignment_keys = [
+        _preload_key(assignment) for assignment in resolved_state.assignments
+    ]
+    expectations_by_key: dict[object, list[_EfieldReceptorExpectation]] = {}
+    for key, assignment in zip(
+        assignment_keys, resolved_state.assignments, strict=True
+    ):
+        expectation = efield_expectations.get(
+            AntennaId(assignment.antenna_id.number, assignment.antenna_id.name)
+        )
+        if expectation is not None:
+            expectations_by_key.setdefault(key, []).append(expectation)
+
     cached: dict[object, tuple[LoadedBeamHandlerState, _BeamEvaluator]] = {}
     handlers: list[LoadedBeamHandlerState] = []
     assignment_handler_ids: list[tuple[AntennaId, str]] = []
@@ -1353,23 +1823,12 @@ def _load_beam_system(
     pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset] = {}
     surface_error_by_antenna: dict[AntennaId, ResolvedSurfaceError] = {}
     ruze_diagnostic_by_antenna: dict[AntennaId, _RuzeDiagnosticPlan] = {}
+    efield_by_antenna: dict[AntennaId, _EfieldPlan] = {}
 
-    for assignment in resolved_state.assignments:
+    for assignment, key in zip(
+        resolved_state.assignments, assignment_keys, strict=True
+    ):
         definition = assignment.definition
-        if type(definition) is ResolvedAnalyticBeamDefinition:
-            key: object = (
-                "analytic",
-                _analytic_preload_key(
-                    definition,
-                    assignment.antenna_diameter_m,
-                    assignment.aperture_physics,
-                ),
-            )
-        elif type(definition) is ResolvedFITSBeamDefinition:
-            key = ("fits", _fits_preload_key(definition))
-        else:
-            raise TypeError("resolved assignment contains an unsupported definition")
-
         cached_handler = cached.get(key)
         if cached_handler is None:
             handler_ordinal = len(handlers)
@@ -1389,6 +1848,7 @@ def _load_beam_system(
                     precision=precision,
                     handler_ordinal=handler_ordinal,
                     loader=loader,
+                    efield_receptors=tuple(expectations_by_key.get(key, ())),
                 )
             cached_handler = (loaded.state, loaded.evaluator)
             cached[key] = cached_handler
@@ -1402,6 +1862,17 @@ def _load_beam_system(
         )
         assignment_handler_ids.append((antenna_id, handler_state.handler_id))
         handler_id_by_antenna[antenna_id] = handler_state.handler_id
+        # Section 5.2.1: the full-efield response identity carries the receptor
+        # half, because ``E = C^dagger J_native`` differs between two antennas
+        # that share one handler and one file but not one receptor.
+        expectation = efield_expectations.get(antenna_id)
+        if expectation is not None:
+            efield_by_antenna[antenna_id] = _EfieldPlan(
+                normalization=_FULL_EFIELD_NORMALIZATION,
+                accepted_subset_version=_FULL_EFIELD_SUBSET_VERSION,
+                receptor_basis=expectation.basis,
+                feed_rotation_rad=expectation.feed_rotation_rad,
+            )
         # Pointing and surface errors are per-antenna and are applied around the
         # evaluator, never inside it, so they take no part in the preload
         # deduplication above: two mispointed antennas still share one handler.
@@ -1448,6 +1919,7 @@ def _load_beam_system(
         surface_error_by_antenna=surface_error_by_antenna,
         ruze_diagnostic_by_antenna=ruze_diagnostic_by_antenna,
         squint_by_antenna=squint_by_antenna,
+        efield_by_antenna=efield_by_antenna,
     )
     system = object.__new__(BeamSystem)
     object.__setattr__(system, "_BeamSystem__state", loaded_state)
@@ -1494,12 +1966,15 @@ def load_beam_system(
     """Atomically load one complete canonical per-antenna beam system.
 
     ``receptors`` is the already-resolved receptor set
-    (``docs/development/sci005_beam_physics_plan.md`` Section 4.2.1).  It is
-    required whenever any resolved antenna carries ``beams.squint``, because the
-    composed ``E = C^dagger D_b C`` is built from the antenna's own resolved
-    receptor basis and static feed rotation -- the same authority the solver's
-    ``C`` term comes from, so the two cannot disagree.  Receptor resolution is
-    unchanged, and a run with no squint neither needs nor reads it.
+    (``docs/development/sci005_beam_physics_plan.md`` Sections 4.2.1 and 5.1.1).
+    It is required whenever any resolved antenna carries ``beams.squint`` or is
+    assigned a ``uvbeam_peak_common_v1`` BeamFITS definition, because the
+    composed ``E = C^dagger D_b C`` and ``E = C^dagger J_native`` are built from
+    the antenna's own resolved receptor basis and static feed rotation -- the
+    same authority the solver's ``C`` term comes from, so the two cannot
+    disagree -- and because the full-efield file's own feed labels and angles
+    are matched against every assigned antenna's receptor.  Receptor resolution
+    is unchanged, and a run with neither neither needs nor reads it.
     """
     return _load_beam_system(
         resolved_state,

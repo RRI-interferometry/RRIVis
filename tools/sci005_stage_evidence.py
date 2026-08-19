@@ -30,7 +30,10 @@ prepares, in memory, the previously absent evidence JSON and
 ``None`` sentinels replaced, writes both through same-directory temporary
 files, restores every original byte and removes every new target on any
 failure, and then requires the working diff to be exactly the two Section 7.5
-``Ei`` paths. Success is silent. Manual artifact copying or pinning is
+``Ei`` paths — or, at Stage 3 alone, those two plus the single dated
+cross-validation artifact this transaction imports from the authenticated
+absolute out-of-repository input its ``stage3_crossvalidation_temp``
+artifact-input names. Success is silent. Manual artifact copying or pinning is
 forbidden: this transaction owns the complete admissible pre-``Ei`` diff.
 """
 
@@ -90,11 +93,22 @@ STAGE2_MEASUREMENT_KEYS: tuple[str, ...] = (
     "squint_setup_rejections",
 )
 
-#: The stage-specific measurement keys, keyed by stage. Stage 3's extensions
-#: are deliberately not frozen until ``D3`` freezes them.
+#: Stage 3 appends exactly these five arrays, in this order (Section 8.1's
+#: "Stage-3 evidence envelope", frozen by the accepted ``D3``).
+STAGE3_MEASUREMENT_KEYS: tuple[str, ...] = (
+    "efield_file_contracts",
+    "basis_conversions",
+    "receptor_factorizations",
+    "ixr_diagnostics",
+    "crossvalidation_comparisons",
+)
+
+#: The stage-specific measurement keys, keyed by stage. The accepted ``D3``
+#: froze Stage 3's extensions, so no stage's extensions remain unfrozen.
 STAGE_MEASUREMENT_KEYS: dict[int, tuple[str, ...]] = {
     1: STAGE1_MEASUREMENT_KEYS,
     2: STAGE2_MEASUREMENT_KEYS,
+    3: STAGE3_MEASUREMENT_KEYS,
 }
 
 #: Section 8.1's common evidence field sequence, in order.
@@ -126,6 +140,53 @@ COMMON_EVIDENCE_KEYS: tuple[str, ...] = (
     "artifacts",
     "limitations",
     "claims_not_licensed",
+)
+
+
+#: Section 8.1's one conditional artifact-input kind. It is legal exactly once,
+#: only at Stage 3, and only for the dated cross-validation target below.
+STAGE3_CROSSVALIDATION_INPUT_KIND = "stage3_crossvalidation_temp"
+
+#: The frozen schema literal of the artifact that kind imports.
+STAGE3_CROSSVALIDATION_SCHEMA = "radiosim.sci005.stage3-crossvalidation.v1"
+
+#: The cross-validation artifact's exact key sequence, in the D3-frozen order.
+STAGE3_CROSSVALIDATION_KEYS: tuple[str, ...] = (
+    "schema_version",
+    "generated_at_utc",
+    "source_sha",
+    "target_path",
+    "gating",
+    "reference_package",
+    "reference_version",
+    "pyuvdata_version",
+    "pyradiosky_version",
+    "astropy_version",
+    "radiosim_version",
+    "output_basis",
+    "input_hashes",
+    "convention_mappings",
+    "correlation_residuals",
+    "open_disagreements",
+    "commands",
+)
+
+#: The three pinned reference versions the evidence tool requires before it may
+#: import the artifact.
+STAGE3_CROSSVALIDATION_VERSIONS: dict[str, str] = {
+    "reference_package": "pyuvsim",
+    "reference_version": "1.4.0",
+    "pyuvdata_version": "3.2.1",
+}
+
+#: Section 7.4's frozen dated basename, whose ``<date>`` is the UTC date of the
+#: artifact's own ``generated_at_utc``.
+STAGE3_CROSSVALIDATION_DIRECTORY = "output/crossvalidation"
+_STAGE3_CROSSVALIDATION_BASENAME = re.compile(
+    r"\A(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})-sci005-efield-pyuvsim-1\.4\.0\.json\Z"
+)
+_TIMESTAMP = re.compile(
+    r"\A(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\Z"
 )
 
 
@@ -289,11 +350,22 @@ def resolve_red_test_sha() -> str:
     return red_test_sha
 
 
-def build_artifacts(rows: list[dict[str, Any]], stage: int) -> list[dict[str, Any]]:
+def build_artifacts(
+    rows: list[dict[str, Any]],
+    stage: int,
+    imports: dict[str, bytes] | None = None,
+    source_sha: str | None = None,
+) -> list[dict[str, Any]]:
     """Derive the sorted ``artifacts`` array and its raw digests.
 
     The caller supplies target paths and roles only; Section 8.1 forbids a
     caller-supplied digest, so every ``sha256`` here is read from the file.
+
+    ``imports`` collects the one Stage-3 exception: the
+    ``stage3_crossvalidation_temp`` input names an absolute regular file
+    *outside* repository root, which this transaction authenticates and then
+    imports to its dated repository target. Passing ``None`` leaves the temp
+    kind unreachable, which is exactly the Stage-1 and Stage-2 behaviour.
     """
     artifacts: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -306,6 +378,19 @@ def build_artifacts(rows: list[dict[str, Any]], stage: int) -> list[dict[str, An
         if target in seen:
             raise EvidenceError(f"duplicate artifact target path {target!r}")
         seen.add(target)
+        if row["input_kind"] == STAGE3_CROSSVALIDATION_INPUT_KIND:
+            payload = import_stage3_crossvalidation(
+                target, str(row["input_path"]), stage, imports, source_sha
+            )
+            artifacts.append(
+                {
+                    "path": target,
+                    "sha256": sha256_bytes(payload),
+                    "media_type": str(row["media_type"]),
+                    "role": str(row["role"]),
+                }
+            )
+            continue
         if row["input_kind"] != "repository":
             raise EvidenceError(
                 f"input_kind {row['input_kind']!r} is not legal at stage {stage}"
@@ -327,6 +412,135 @@ def build_artifacts(rows: list[dict[str, Any]], stage: int) -> list[dict[str, An
         )
     artifacts.sort(key=lambda item: item["path"])
     return artifacts
+
+
+def import_stage3_crossvalidation(
+    target: str,
+    input_path: str,
+    stage: int,
+    imports: dict[str, bytes] | None,
+    source_sha: str | None,
+) -> bytes:
+    """Authenticate and stage one ``stage3_crossvalidation_temp`` input.
+
+    Section 8.1: the kind is legal exactly once, only at Stage 3, only for the
+    dated cross-validation target of Section 7.4, and its ``input_path`` is an
+    absolute regular file **outside** repository root produced from clean ``S3``
+    by the exact ``D3``-frozen cross-validation command. Before importing it the
+    generator requires the artifact's strict schema, ``source_sha == S3``, the
+    three pinned reference versions, every ``input_hashes`` digest it can reach
+    at ``S3``, and the row's target ``path`` to equal the artifact's own
+    ``target_path``. Host temporary paths never enter evidence: only the bytes
+    do, under the dated repository name.
+    """
+    if stage != 3 or imports is None or source_sha is None:
+        raise EvidenceError(
+            f"input_kind {STAGE3_CROSSVALIDATION_INPUT_KIND!r} is legal only at "
+            f"stage 3; observed stage {stage}"
+        )
+    if imports:
+        raise EvidenceError(
+            f"input_kind {STAGE3_CROSSVALIDATION_INPUT_KIND!r} is legal exactly once"
+        )
+    source = Path(input_path)
+    if not source.is_absolute():
+        raise EvidenceError("a stage3_crossvalidation_temp input_path must be absolute")
+    if source.is_symlink() or not source.is_file():
+        raise EvidenceError(f"{input_path} is not a regular file")
+    if source.resolve().is_relative_to(REPOSITORY_ROOT.resolve()):
+        raise EvidenceError(
+            "a stage3_crossvalidation_temp input_path must resolve outside the "
+            "repository root; the evidence transaction is the only admissible "
+            "way for those bytes to enter the repository"
+        )
+    payload = source.read_bytes()
+    document = read_strict_json(source)
+    if not isinstance(document, dict):
+        raise EvidenceError("the cross-validation artifact must be a JSON object")
+    if tuple(document) != STAGE3_CROSSVALIDATION_KEYS:
+        raise EvidenceError(
+            "cross-validation artifact keys must be exactly "
+            f"{list(STAGE3_CROSSVALIDATION_KEYS)}; observed {list(document)}"
+        )
+    if document["schema_version"] != STAGE3_CROSSVALIDATION_SCHEMA:
+        raise EvidenceError(
+            f"the cross-validation artifact is not {STAGE3_CROSSVALIDATION_SCHEMA}"
+        )
+    if document["gating"] is not False:
+        raise EvidenceError("the cross-validation artifact must record gating: false")
+    if document["source_sha"] != source_sha:
+        raise EvidenceError(
+            f"the cross-validation artifact names source_sha "
+            f"{document['source_sha']!r}, not the clean S3 {source_sha!r}"
+        )
+    for key, literal in STAGE3_CROSSVALIDATION_VERSIONS.items():
+        if document[key] != literal:
+            raise EvidenceError(
+                f"the cross-validation artifact's {key} must be {literal!r}"
+            )
+    stamp = _TIMESTAMP.fullmatch(str(document["generated_at_utc"]))
+    if stamp is None:
+        raise EvidenceError(
+            "the cross-validation artifact's generated_at_utc is not a timestamp"
+        )
+    declared = canonical_path(str(document["target_path"]))
+    if declared != target:
+        raise EvidenceError(
+            f"the artifact_inputs target {target!r} does not equal the artifact's "
+            f"own target_path {declared!r}"
+        )
+    directory, _, basename = declared.rpartition("/")
+    if directory != STAGE3_CROSSVALIDATION_DIRECTORY:
+        raise EvidenceError(
+            f"the cross-validation target must live in "
+            f"{STAGE3_CROSSVALIDATION_DIRECTORY}/; observed {declared!r}"
+        )
+    matched = _STAGE3_CROSSVALIDATION_BASENAME.fullmatch(basename)
+    if matched is None:
+        raise EvidenceError(
+            f"{basename!r} is not the frozen Section 7.4 cross-validation basename"
+        )
+    if matched.group("date") != stamp.group("date"):
+        raise EvidenceError(
+            "the cross-validation basename date must be the UTC date of its own "
+            "generated_at_utc"
+        )
+    _require_reachable_input_hashes(document["input_hashes"])
+    imports[target] = payload
+    return payload
+
+
+def _require_reachable_input_hashes(rows: Any) -> None:
+    """Require every input digest the generator can reach at ``S3`` to match.
+
+    Section 8.1 scopes this to "the bytes it can reach at ``S3``": an entry
+    naming a repository path present at this commit is re-hashed and must
+    agree, while an entry naming a comparison input that does not live in the
+    repository is recorded as authored and cannot be re-derived here.
+    """
+    if not isinstance(rows, list) or not rows:
+        raise EvidenceError("input_hashes must be a non-empty array")
+    names: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != {"name", "sha256"}:
+            raise EvidenceError("every input_hashes row is exactly {name, sha256}")
+        name = str(row["name"])
+        digest = str(row["sha256"])
+        if _SHA256.fullmatch(digest) is None:
+            raise EvidenceError(f"input_hashes[{name!r}] is not a lower-case sha256")
+        names.append(name)
+        try:
+            reachable = REPOSITORY_ROOT / canonical_path(name)
+        except EvidenceError:
+            continue
+        if reachable.is_symlink() or not reachable.is_file():
+            continue
+        if sha256_bytes(reachable.read_bytes()) != digest:
+            raise EvidenceError(
+                f"input_hashes[{name!r}] disagrees with the bytes reachable at S3"
+            )
+    if names != sorted(names) or len(set(names)) != len(names):
+        raise EvidenceError("input_hashes must be sorted by unique name")
 
 
 def substitute_sentinels(
@@ -391,11 +605,14 @@ def generate(stage: int, measurement_record: Path) -> None:
         **derive_runtime_fields(),
         "scientific_conventions": record["scientific_conventions"],
     }
+    imports: dict[str, bytes] = {}
     for key in COMMON_EVIDENCE_KEYS:
         if key in document:
             continue
         if key == "artifacts":
-            document[key] = build_artifacts(list(record["artifact_inputs"]), stage)
+            document[key] = build_artifacts(
+                list(record["artifact_inputs"]), stage, imports, source_sha
+            )
         else:
             document[key] = record[key]
     for key in STAGE_MEASUREMENT_KEYS.get(stage, ()):
@@ -411,24 +628,39 @@ def generate(stage: int, measurement_record: Path) -> None:
     payload = canonical_json_bytes(document)
     _self_check_document(document, schema_file, stage)
 
+    for imported in imports:
+        if (REPOSITORY_ROOT / imported).exists():
+            raise EvidenceError(
+                f"{imported} already exists; E3 adds the dated cross-validation "
+                "artifact exactly once"
+            )
+
     validator = REPOSITORY_ROOT / EVIDENCE_VALIDATOR
     original = validator.read_bytes()
     updated = substitute_sentinels(
         original.decode("utf-8"), stage, source_sha, sha256_bytes(payload)
     ).encode("utf-8")
     try:
+        for imported, imported_payload in imports.items():
+            destination = REPOSITORY_ROOT / imported
+            if not destination.parent.is_dir():
+                raise EvidenceError(f"{imported} has no committed parent directory")
+            _atomic_write(destination, imported_payload)
         _atomic_write(target, payload)
         _atomic_write(validator, updated)
         diff = sorted(
             line[3:] for line in run_git("status", "--porcelain").splitlines()
         )
-        if diff != sorted([artifact_path, EVIDENCE_VALIDATOR]):
+        if diff != sorted([artifact_path, EVIDENCE_VALIDATOR, *imports]):
             raise EvidenceError(
-                f"the working diff must be exactly the two Ei paths; observed {diff}"
+                "the working diff must be exactly the two Ei paths, or those two "
+                f"plus the single Stage-3 cross-validation path; observed {diff}"
             )
     except Exception:
         validator.write_bytes(original)
         target.unlink(missing_ok=True)
+        for imported in imports:
+            (REPOSITORY_ROOT / imported).unlink(missing_ok=True)
         raise
 
 
@@ -451,6 +683,8 @@ def _require_no_false_rows(document: dict[str, Any], stage: int) -> None:
                 )
     if stage == 2:
         _require_stage2_row_coverage(document)
+    if stage == 3:
+        _require_stage3_row_coverage(document)
 
 
 #: Section 8.1's Stage-2 geometry probe kinds; every one must appear at least
@@ -551,6 +785,174 @@ def _require_stage2_row_coverage(document: dict[str, Any]) -> None:
         raise EvidenceError(
             "native_feed_factorizations needs exactly one "
             "extended_precision_native_feed_factorization row"
+        )
+
+
+#: Section 8.1's twenty-three Stage-3 file-contract probe kinds; every one must
+#: appear at least once across ``efield_file_contracts``.
+STAGE3_FILE_PROBE_KINDS: frozenset[str] = frozenset(
+    {
+        "accepted_linear_pair",
+        "accepted_circular_pair",
+        "power_beam",
+        "phased_array_antenna",
+        "healpix_pixels",
+        "vector_dimension",
+        "feed_pair",
+        "feed_pair_receptor_mismatch",
+        "feed_angle",
+        "derived_orientation",
+        "mount",
+        "grid_coverage",
+        "zenith_single_valued",
+        "wrap_continuity",
+        "basis_vector_not_identity",
+        "basis_vector_complex",
+        "basis_vector_non_finite",
+        "data_dtype",
+        "data_non_finite",
+        "data_normalization",
+        "bandpass",
+        "visible_only_peak",
+        "extended_precision",
+    }
+)
+
+#: Section 8.1's four Stage-3 conversion oracle kinds; each appears at least
+#: once across ``basis_conversions``.
+STAGE3_ORACLE_KINDS: frozenset[str] = frozenset(
+    {
+        "crossed_ideal_dipole",
+        "quadrupolar",
+        "ludwig3_rotation",
+        "scalar_subset_control",
+    }
+)
+
+#: Section 8.1's three Stage-3 IXR states; each appears at least once across
+#: ``ixr_diagnostics``.
+STAGE3_IXR_STATES: frozenset[str] = frozenset(
+    {"nonsingular", "unitary_scaled", "singular"}
+)
+
+#: The four ``(receptor_basis, output_basis)`` combinations
+#: ``receptor_factorizations`` must cover.
+STAGE3_FACTORIZATION_COMBINATIONS: frozenset[tuple[str, str]] = frozenset(
+    (receptor, output)
+    for receptor in ("linear", "circular")
+    for output in ("linear_xy", "circular_rl")
+)
+
+#: Section 8.1's Stage-3 solver effects; each appears at least once.
+STAGE3_SOLVER_EFFECTS: frozenset[str] = frozenset({"efield_point", "efield_healpix"})
+
+#: The four document-stage Stage-3 rejection codes ``rejection_probes`` must
+#: carry at least once each: Pydantic's own two, plus the two reused frozen
+#: family codes Stage 3 re-witnesses rather than re-codes.
+STAGE3_REJECTION_CODES: frozenset[str] = frozenset(
+    {
+        "literal_error",
+        "extra_forbidden",
+        "beam.squint.unsupported_beam_family",
+        "beam.aperture_physics.unsupported_beam_family",
+    }
+)
+
+#: Section 5.4's ten required ``output_cases`` rows, as ``case_id -> format``.
+STAGE3_REQUIRED_OUTPUT_CASES: dict[str, str] = {
+    "efield_in_memory_linear_xy": "in_memory",
+    "efield_in_memory_circular_rl": "in_memory",
+    "efield_summary_json_linear_xy": "summary_json",
+    "efield_summary_json_circular_rl": "summary_json",
+    "efield_hdf5_linear_xy": "hdf5",
+    "efield_hdf5_circular_rl": "hdf5",
+    "efield_uvfits_linear_xy": "uvfits",
+    "efield_uvfits_circular_rl": "uvfits",
+    "efield_measurement_set_linear_xy": "measurement_set",
+    "efield_measurement_set_circular_rl": "measurement_set",
+}
+
+
+def _require_stage3_row_coverage(document: dict[str, Any]) -> None:
+    """Refuse an incomplete Stage-3 row set before any repository write.
+
+    These are the structural coverage rules only; every deep Stage-3 cross-field
+    predicate — the per-kind frozen exception table, the Ludwig-3 residual
+    bounds, the binary64 non-commutation recomputation, the IXR state rule and
+    the cross-validation bindings — is owned by
+    ``tests/unit/test_sci005_evidence.py``, which is not this file.
+    """
+    kinds = {row["probe_kind"] for row in document["efield_file_contracts"]}
+    if kinds != STAGE3_FILE_PROBE_KINDS:
+        raise EvidenceError(
+            "efield_file_contracts must cover each of the twenty-three probe "
+            f"kinds; missing {sorted(STAGE3_FILE_PROBE_KINDS - kinds)}"
+        )
+    oracles = {row["oracle_kind"] for row in document["basis_conversions"]}
+    if oracles != STAGE3_ORACLE_KINDS:
+        raise EvidenceError(
+            "basis_conversions must cover each of the four oracle kinds; "
+            f"missing {sorted(STAGE3_ORACLE_KINDS - oracles)}"
+        )
+    combinations = {
+        (row["receptor_basis"], row["output_basis"])
+        for row in document["receptor_factorizations"]
+    }
+    if combinations != STAGE3_FACTORIZATION_COMBINATIONS:
+        raise EvidenceError(
+            "receptor_factorizations must cover each receptor/output basis "
+            f"combination; missing "
+            f"{sorted(STAGE3_FACTORIZATION_COMBINATIONS - combinations)}"
+        )
+    if not any(
+        row["receptor_basis"] == "linear" and row["feed_rotation_deg"] != 0.0
+        for row in document["receptor_factorizations"]
+    ):
+        raise EvidenceError(
+            "receptor_factorizations needs a linear row with a non-zero "
+            "feed_rotation_deg"
+        )
+    states = {row["state"] for row in document["ixr_diagnostics"]}
+    if states != STAGE3_IXR_STATES:
+        raise EvidenceError(
+            "ixr_diagnostics must cover each of the three states; "
+            f"missing {sorted(STAGE3_IXR_STATES - states)}"
+        )
+    effects = {row["effect"] for row in document["solver_cases"]}
+    if effects != STAGE3_SOLVER_EFFECTS:
+        raise EvidenceError(
+            "solver_cases must contain both efield_point and efield_healpix"
+        )
+    codes = {row["issue_code"] for row in document["rejection_probes"]}
+    if not STAGE3_REJECTION_CODES <= codes:
+        raise EvidenceError(
+            "rejection_probes must carry each Stage-3 document-stage code; "
+            f"missing {sorted(STAGE3_REJECTION_CODES - codes)}"
+        )
+    observed_outputs = {
+        row["case_id"]: row["format"] for row in document["output_cases"]
+    }
+    for case_id, expected_format in STAGE3_REQUIRED_OUTPUT_CASES.items():
+        if observed_outputs.get(case_id) != expected_format:
+            raise EvidenceError(
+                f"output_cases needs a {case_id!r} row whose format is "
+                f"{expected_format!r}"
+            )
+    comparisons = document["crossvalidation_comparisons"]
+    if not comparisons:
+        raise EvidenceError("crossvalidation_comparisons must be non-empty")
+    named = {(row["artifact_path"], row["artifact_sha256"]) for row in comparisons}
+    if len(named) != 1:
+        raise EvidenceError(
+            "every crossvalidation_comparisons row names the same artifact path "
+            "and digest; exactly one dated artifact exists"
+        )
+    artifact_path, artifact_digest = next(iter(named))
+    digests = {row["path"]: row["sha256"] for row in document["artifacts"]}
+    if digests.get(artifact_path) != artifact_digest:
+        raise EvidenceError(
+            "the retained cross-validation digest must equal the artifacts row "
+            f"for {artifact_path!r}"
         )
 
 

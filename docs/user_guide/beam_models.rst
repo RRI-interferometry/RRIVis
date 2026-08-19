@@ -107,11 +107,14 @@ resolution, not a user-authored tuning field.
 FITS and assignment modes
 -------------------------
 
-A FITS source has ``kind: fits``, ``path``, ``normalization: peak``,
+A FITS source has ``kind: fits``, ``path``, ``normalization: peak`` or
+``normalization: uvbeam_peak_common_v1``,
 ``angular_interpolation: bilinear``, and ``frequency_interpolation: cubic`` or
 ``linear``. The first three option values shown are defaults where applicable.
+That one ``normalization`` field selects which of **two** accepted subsets of
+the same file RadioSim reads, and nothing else in the document does.
 
-The accepted FITS subset is deliberately scalar. RadioSim accepts finite
+The default ``peak`` subset is deliberately scalar. RadioSim accepts finite
 ``efield`` or ``simple`` data on a regular full-visible-hemisphere ``az_za``
 grid, a fixed antenna mount, east-oriented linear X/Y feeds, a finite identity
 basis transform, unit bandpass, peak normalization, and a strictly increasing
@@ -122,13 +125,14 @@ cross-polarization are rejected. Angular interpolation is bilinear; frequency
 interpolation is exactly linear or cubic with no extrapolation or method
 fallback.
 
-Rejecting circular feeds in a BeamFITS file does not restrict the receptor
-model. ``receptors`` supplies the receptor basis and any static feed rotation
-independently of the beam, and the scalar E-Jones response multiplies both bases
-identically. Polarization leakage is now the ``D`` term, configured under
-``jones`` and documented in :doc:`jones_terms`; a beam that genuinely differs
-between the two feeds is a *non-scalar* E-Jones, which remains out of scope and
-is dispositioned in ``docs/development/beam_physics_scope.md``.
+Rejecting circular feeds in a ``peak`` BeamFITS file does not restrict the
+receptor model. ``receptors`` supplies the receptor basis and any static feed
+rotation independently of the beam, and the scalar E-Jones response multiplies
+both bases identically. Polarization leakage is the ``D`` term, configured
+under ``jones`` and documented in :doc:`jones_terms`; a beam that genuinely
+differs between the two feeds is a *non-scalar* E-Jones, which is the second
+accepted subset below (:ref:`stage3-full-efield`). Everything that remains out
+of scope is dispositioned in ``docs/development/beam_physics_scope.md``.
 
 .. code-block:: yaml
 
@@ -572,6 +576,114 @@ prove it does not, so every ``shared_fits``, ``per_antenna_fits``, and
 ``mixed`` document that also carries a squint block is rejected. An antenna
 without squint keeps today's byte-identical response, call surface, and
 result.
+
+.. _stage3-full-efield:
+
+Full-efield BeamFITS
+--------------------
+
+``normalization: uvbeam_peak_common_v1`` reads the **complete complex**
+``data_array`` of the same ``beam_type: efield`` file the scalar ``peak``
+subset reads only the diagonal of. :doc:`configuration` gives the authored
+field, the strict file contract, and every rejection; this section gives the
+physics.
+
+.. code-block:: yaml
+
+   beams:
+     mode: shared_fits
+     beam:
+       kind: fits
+       path: beams/shared.beamfits
+       normalization: uvbeam_peak_common_v1
+
+**Two subsets, not a widening.** The literal names an accepted *interpretation*
+of the committed bytes, not an operation applied to them: RadioSim renormalizes
+nothing under either value. A file the scalar subset accepts is generally
+rejected by the full-efield subset — its zenith row need not be single valued
+once the two vector components are read — and a full-efield file is generally
+rejected by the scalar subset. The two literals therefore name two readings of
+one file format rather than a repair of one by the other.
+
+**Basis conversion.** pyuvdata stores an ``az_za`` E-field beam as two vector
+components per feed, azimuth first and zenith angle second. RadioSim converts
+them per direction into its own :math:`(\mathrm{co}, \mathrm{cross})` tangent
+pair with the fixed real orthogonal matrix
+
+.. math::
+
+   T(\varphi) =
+   \begin{pmatrix}\sin\varphi & -\cos\varphi\\
+   \cos\varphi & \sin\varphi\end{pmatrix},
+   \qquad
+   J_{\rm native}[f, c] = \sum_a \mathrm{data}[a, f]\, T(\varphi)[a, c],
+
+where :math:`\varphi` is RadioSim azimuth, zero at North and increasing
+through East. The pair is Ludwig's third definition of co- and
+cross-polarization (A. C. Ludwig, *The definition of cross polarization*, IEEE
+Trans. Antennas Propag. **21**, 116, 1973, DOI 10.1109/TAP.1973.1140406).
+:math:`T` is real with :math:`\det T = 1` and :math:`T^{\mathsf T} T = I_2`, so
+the conversion preserves total field power exactly and every complex phase
+stays in the data; direction geometry is binary64 throughout. Coordinate
+azimuth is singular at the zenith, so that one physical direction takes the
+North/East tangent limit at :math:`\varphi = 0` — which is well defined only
+because load has already required the file's own zenith row to be single
+valued.
+
+The stored ``basis_vector_array`` is **validated, never composed**: pyuvdata
+3.2.1 builds the array it returns from ``numpy.ones`` and ``numpy.zeros`` and
+discards the stored one, so RadioSim requires the committed array to be
+exactly the native identity and then verifies that the returned array is that
+identity too.
+
+**Factorization.** :math:`J_{\rm native}` maps the incident tangent field to
+the file's own native feed voltages. RadioSim's chain stays fixed at ``C E P``
+(:doc:`jones_matrices`), so the file's response is folded into ``E`` using the
+antenna's own resolved receptor matrix :math:`C`:
+
+.. math::
+
+   E = C^{\dagger} J_{\rm native}, \qquad C\,E = J_{\rm native}.
+
+That :math:`C` is read from the same resolved receptor set the chain's own
+``C`` term is built from, so the two cannot disagree — which is why the file's
+feed pair, feed angles and derived x-orientation must match **every** antenna
+it is assigned to. ``E`` is generally full for both receptor bases and for a
+rotated linear receptor, so ``C E P`` and ``C P E`` genuinely differ.
+
+**Cross-polar diagnostic.** The intrinsic cross-polarization ratio of the
+accepted :math:`J_{\rm native}` follows Carozzi and Woan's polarimetric
+definition (T. D. Carozzi and G. Woan, *A generalized measure of the
+intrinsic cross-polarization ratio*, IEEE Trans. Antennas Propag. **59**,
+2058, 2011, DOI 10.1109/TAP.2011.2143664): from the singular values
+:math:`\sigma_{\max} \ge \sigma_{\min}` and
+:math:`\kappa = \sigma_{\max}/\sigma_{\min}`,
+
+.. math::
+
+   \mathrm{IXR} = \left(\frac{\kappa + 1}{\kappa - 1}\right)^{2},
+   \qquad
+   \mathrm{IXR}_{\rm dB} = 10\log_{10}\mathrm{IXR}.
+
+It is a **diagnostic and never a configuration field, a public method, or a
+result record**: an exactly unitary-scaled matrix has infinite IXR and a
+degenerate one has none, so RadioSim classifies the matrix by a fixed relative
+tolerance and reports the derived numbers only where they are finite and well
+defined, rather than writing an infinity or a ``NaN`` into any output.
+
+**Scope and exclusions.** ``beams.squint`` (:ref:`stage2-beam-squint`) and
+``beams.aperture_physics`` (:ref:`stage1-aperture-physics`) are accepted only
+on the ``analytic`` beams mode, so neither can be combined with either
+BeamFITS subset. That exclusion is deliberate for squint in particular: a
+measured pattern may already contain the physical feed displacement, and no
+BeamFITS metadata lets RadioSim prove it does not, so applying the analytic
+Cotton/Uson displacement to a measured file would double-count it (J. M. Uson
+and W. D. Cotton, `Beam squint and Stokes V with off-axis feeds
+<https://arxiv.org/abs/0807.0026>`_, 2008). The full-efield subset is one
+antenna's element response: it is not a station, array-factor, or
+mutual-coupling model, and it says nothing about near-field or Fresnel-regime
+behaviour. An antenna reading a ``peak`` file keeps today's byte-identical
+scalar response, fingerprints, and result.
 
 HEALPix sampling advice
 -----------------------

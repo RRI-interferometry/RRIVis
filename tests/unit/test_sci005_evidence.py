@@ -4189,3 +4189,2766 @@ def test_the_stage2_succession_reads_parents_not_peels() -> None:
     assert GIT_SHA.fullmatch(parent)
     assert parent != head
     assert parent == _stage2_git("rev-parse", "HEAD^")
+
+
+# === Section 8.1's Stage-3 evidence envelope ==================================
+#
+# Everything below is appended by ``S3``. It adds the Stage-3 validation and its
+# synthetic-document tests and changes no Stage-1 or Stage-2 validation logic,
+# constant, synthetic fixture or test, exactly as the Stage-3 envelope requires.
+
+
+#: Section 8.1's exact Stage-3 top-level key sequence: the common field
+#: sequence followed by the five stage arrays, in that order.
+STAGE3_KEYS: tuple[str, ...] = (
+    "schema_version",
+    "stage",
+    "status",
+    "generated_at_utc",
+    "design_sha",
+    "red_test_sha",
+    "source_sha",
+    "evidence_sha",
+    "working_tree_clean",
+    "radiosim_version",
+    "python_version",
+    "platform",
+    "machine",
+    "pixi_environment",
+    "pixi_lock_sha256",
+    "scientific_conventions",
+    "config_cases",
+    "analytic_invariants",
+    "rejection_probes",
+    "backend_parity",
+    "solver_cases",
+    "output_cases",
+    "fingerprint_diff",
+    "commands",
+    "artifacts",
+    "limitations",
+    "claims_not_licensed",
+    "efield_file_contracts",
+    "basis_conversions",
+    "receptor_factorizations",
+    "ixr_diagnostics",
+    "crossvalidation_comparisons",
+)
+
+#: The four frozen Stage-3 convention literals. The first is Section 5.1.1's
+#: authored configuration literal; the other three are the derived facets
+#: Section 5.2.1 fixes, versioned by that one literal exactly as Stage 2's three
+#: squint facets are versioned by ``cotton_uson_exact_v1``.
+STAGE3_SCIENTIFIC_CONVENTIONS: dict[str, str] = {
+    "efield_normalization": "uvbeam_peak_common_v1",
+    "efield_basis_conversion": "ludwig3_az_za_to_north_east_v1",
+    "efield_zenith_limit": "north_east_tangent_limit_v1",
+    "efield_factorization": "receptor_conjugated_native_efield_v1",
+}
+
+#: The Stage-3 envelope supersedes the Stage-1-scoped member rule with exactly
+#: these five members: "``claims_not_licensed`` must contain exactly the
+#: members", so the retained array is this set and nothing else.
+STAGE3_REQUIRED_CLAIMS: tuple[str, ...] = (
+    "SCI-005 Stage-3 acceptance",
+    "SCI-005 whole-row closure",
+    "a station, array-factor, or mutual-coupling response",
+    "near-field or Fresnel-regime behavior",
+    "an unqualified validation against pyuvsim",
+)
+
+#: Section 8.1's Stage-3 solver effects, both of which must appear.
+STAGE3_SOLVER_EFFECTS: frozenset[str] = frozenset({"efield_point", "efield_healpix"})
+
+STAGE3_RECEPTOR_BASES: frozenset[str] = frozenset({"linear", "circular"})
+STAGE3_OUTPUT_BASES: frozenset[str] = frozenset({"linear_xy", "circular_rl"})
+
+#: The two accepted Stage-3 file-contract probe kinds; every other kind is a
+#: rejection.
+STAGE3_ACCEPTED_PROBE_KINDS: frozenset[str] = frozenset(
+    {"accepted_linear_pair", "accepted_circular_pair"}
+)
+
+#: Section 8.1's frozen ``probe_kind -> exception_type`` table for every
+#: rejected Stage-3 file-contract kind. ``basis_vector_not_identity`` replaces
+#: the retired ``basis_vector_dtype`` and ``basis_vector_degenerate`` kinds.
+STAGE3_PROBE_EXCEPTIONS: dict[str, str] = {
+    "power_beam": "UnsupportedBeamTypeError",
+    "phased_array_antenna": "UnsupportedBeamTypeError",
+    "healpix_pixels": "UnsupportedBeamCoordinateError",
+    "zenith_single_valued": "UnsupportedBeamCoordinateError",
+    "wrap_continuity": "UnsupportedBeamCoordinateError",
+    "grid_coverage": "BeamAngularDomainError",
+    "vector_dimension": "UnsupportedBeamBasisError",
+    "basis_vector_not_identity": "UnsupportedBeamBasisError",
+    "basis_vector_complex": "UnsupportedBeamBasisError",
+    "feed_pair": "UnsupportedBeamFeedError",
+    "feed_pair_receptor_mismatch": "UnsupportedBeamFeedError",
+    "feed_angle": "UnsupportedBeamFeedError",
+    "derived_orientation": "UnsupportedBeamFeedError",
+    "mount": "UnsupportedBeamFeedError",
+    "data_dtype": "UnsupportedBeamPrecisionError",
+    "extended_precision": "UnsupportedBeamPrecisionError",
+    "basis_vector_non_finite": "NonFiniteBeamResponseError",
+    "data_non_finite": "NonFiniteBeamResponseError",
+    "data_normalization": "BeamNormalizationError",
+    "bandpass": "BeamNormalizationError",
+    "visible_only_peak": "BeamNormalizationError",
+}
+
+#: The complete twenty-three-kind inventory: every one appears at least once.
+STAGE3_PROBE_KINDS: frozenset[str] = STAGE3_ACCEPTED_PROBE_KINDS | frozenset(
+    STAGE3_PROBE_EXCEPTIONS
+)
+
+#: The one byte-frozen load-stage message Stage 3 retains. Its only variable
+#: part is the rendered file path, exactly as Stage 2's frozen messages vary
+#: only in their rendered placeholders.
+STAGE3_FLOAT128_MESSAGE = re.compile(
+    r"\ABeamFITS .+: beam precision 'float128' would require complex256, but "
+    r"accepted files and pyuvdata interpolation provide at most complex128; "
+    r"select beam float32 or float64\.\Z"
+)
+
+#: Section 8.1's four Stage-3 conversion oracle kinds; each appears at least
+#: once, and ``scalar_subset_control`` is the retained divergence witness rather
+#: than an agreement row.
+STAGE3_ORACLE_KINDS: frozenset[str] = frozenset(
+    {
+        "crossed_ideal_dipole",
+        "quadrupolar",
+        "ludwig3_rotation",
+        "scalar_subset_control",
+    }
+)
+STAGE3_SCALAR_SUBSET_CONTROL = "scalar_subset_control"
+
+#: Section 5.3's three frozen IXR states; each appears at least once.
+STAGE3_IXR_STATES: frozenset[str] = frozenset(
+    {"nonsingular", "unitary_scaled", "singular"}
+)
+
+#: The complete ordered correlation label set ``core/polarization_basis.py``
+#: gives each reporting basis, transcribed here because this validator loads
+#: only the standard library and may not import the package under review.
+STAGE3_CORRELATION_LABELS: dict[str, frozenset[str]] = {
+    "linear_xy": frozenset({"XX", "XY", "YX", "YY"}),
+    "circular_rl": frozenset({"RR", "RL", "LR", "LL"}),
+}
+
+#: Section 5.4's ten required ``output_cases`` rows, as ``case_id -> format``.
+#: The basis is carried in the identifier because the common row schema has no
+#: basis field and is not changed.
+STAGE3_REQUIRED_OUTPUT_CASES: dict[str, str] = {
+    "efield_hdf5_circular_rl": "hdf5",
+    "efield_hdf5_linear_xy": "hdf5",
+    "efield_in_memory_circular_rl": "in_memory",
+    "efield_in_memory_linear_xy": "in_memory",
+    "efield_measurement_set_circular_rl": "measurement_set",
+    "efield_measurement_set_linear_xy": "measurement_set",
+    "efield_summary_json_circular_rl": "summary_json",
+    "efield_summary_json_linear_xy": "summary_json",
+    "efield_uvfits_circular_rl": "uvfits",
+    "efield_uvfits_linear_xy": "uvfits",
+}
+
+#: The authorable positions of the widened ``normalization`` literal, and the
+#: blocks that carry no such field at all.
+_FITS_SOURCE_PATH = r"beams\.(?:beam|assignments\[[0-9]+\]\.beam)"
+_ANY_BEAMS_PATH = r"beams(?:\.[a-z_]+|\[[0-9]+\])*"
+
+#: Section 8.1's four Stage-3 document-stage rejections, as
+#: ``issue_code -> (exception_type, config-path pattern, exact-message pattern)``.
+#: Section 5.1.1 pins the two Pydantic codes "by code and path rather than by
+#: rendered bytes", because widening the accepted literal necessarily rewrites
+#: Pydantic's own rendered message; their message pattern is therefore ``None``
+#: and the row records the full rendered message as observed data. The two
+#: reused family codes keep their frozen Stage-1 and Stage-2 messages.
+STAGE3_DOCUMENT_REJECTIONS: dict[
+    str, tuple[str, re.Pattern[str], re.Pattern[str] | None]
+] = {
+    "literal_error": (
+        "ConfigSchemaError",
+        re.compile(rf"\A{_FITS_SOURCE_PATH}\.normalization\Z"),
+        None,
+    ),
+    "extra_forbidden": (
+        "ConfigSchemaError",
+        re.compile(rf"\A{_ANY_BEAMS_PATH}\.normalization\Z"),
+        None,
+    ),
+    "beam.squint.unsupported_beam_family": (
+        "UnsupportedConfigError",
+        re.compile(r"\Abeams\.squint\Z"),
+        re.compile(
+            r"\AStage-2 beam squint supports only the analytic beams mode; "
+            r"resolved beams mode is .+\.\Z"
+        ),
+    ),
+    "beam.aperture_physics.unsupported_beam_family": (
+        "UnsupportedConfigError",
+        re.compile(r"\Abeams\.aperture_physics\Z"),
+        re.compile(
+            r"\AStage-1 aperture physics does not support resolved beam family "
+            r".+\.\Z"
+        ),
+    ),
+}
+
+#: Section 7.4's frozen dated cross-validation basename and its directory.
+STAGE3_CROSSVALIDATION_DIRECTORY = "output/crossvalidation"
+STAGE3_CROSSVALIDATION_BASENAME = re.compile(
+    r"\A(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})-sci005-efield-pyuvsim-1\.4\.0\.json\Z"
+)
+
+#: The three pinned reference versions every comparison row retains.
+STAGE3_CROSSVALIDATION_VERSIONS: dict[str, str] = {
+    "reference_package": "pyuvsim",
+    "reference_version": "1.4.0",
+    "pyuvdata_version": "3.2.1",
+}
+
+#: The binary64 agreement budget for the non-commutation recomputation.
+NONCOMMUTING_ABS_AGREEMENT = 1e-15
+
+#: The relative agreement budget for the four recomputed IXR quantities.
+IXR_RELATIVE_AGREEMENT = 1e-9
+
+#: Section 5.3's frozen fixed relative classification tolerance, and the upper
+#: bound a realized ``unitary_scaled`` condition number may reach.
+IXR_CLASSIFICATION_RELATIVE = 1e-12
+UNITARY_CONDITION_UPPER_BOUND = 1.0 + 2e-12
+
+#: Section 8.1: the two Ludwig-3 basis predicates are judged at this fixed
+#: tolerance, because they are predicates on the real ``float64`` conversion
+#: matrix rather than on the converted-matrix pair.
+BASIS_FIXED_TOLERANCE = 1e-12
+
+#: The extended-width dtype no Stage-3 projection may carry.
+FORBIDDEN_STAGE3_DTYPE = "complex256"
+
+
+# --- Stage-3 shared helpers ---------------------------------------------------
+
+
+def _conversion_projection(value: Any, path: str) -> dict[str, Any]:
+    """A ``numeric_projection`` restricted to the Stage-3 conversion shape."""
+    row = _numeric_projection(value, path)
+    _string(row["dtype"], f"{path}.dtype", const="complex128")
+    shape = list(row["shape"])
+    if len(shape) != 3 or shape[1:] != [2, 2]:
+        _fail(f"{path}.shape", "must be [S, 2, 2] with S >= 1")
+    return row
+
+
+def _jones_projection(value: Any, path: str) -> dict[str, Any]:
+    """A ``numeric_projection`` restricted to the Stage-3 factorization shapes."""
+    row = _numeric_projection(value, path)
+    _string(row["dtype"], f"{path}.dtype", const="complex128")
+    shape = list(row["shape"])
+    if shape[-2:] != [2, 2] or len(shape) not in (2, 3):
+        _fail(f"{path}.shape", "must be [2, 2] or [S, 2, 2] with S >= 1")
+    return row
+
+
+def _two_by_two_matrix(value: Any, path: str) -> list[list[complex]]:
+    """One row-major two-by-two array of ``{real, imag}`` objects."""
+    rows = _array(value, path, minimum_length=2)
+    if len(rows) != 2:
+        _fail(path, "must be exactly two rows")
+    matrix: list[list[complex]] = []
+    for index, item in enumerate(rows):
+        columns = _array(item, f"{path}[{index}]", minimum_length=2)
+        if len(columns) != 2:
+            _fail(f"{path}[{index}]", "must be exactly two columns")
+        matrix.append(
+            [
+                _complex_pair(entry, f"{path}[{index}][{column}]")
+                for column, entry in enumerate(columns)
+            ]
+        )
+    return matrix
+
+
+def _relative_agreement(
+    observed: float, expected: float, path: str, detail: str
+) -> None:
+    """Require a recorded value to agree with its binary64 recomputation."""
+    scale = max(abs(expected), 1.0)
+    if abs(observed - expected) > IXR_RELATIVE_AGREEMENT * scale:
+        _fail(path, detail)
+
+
+def _forbid_extended_projections(value: Any, path: str = "$") -> None:
+    """Refuse a ``complex256`` projection anywhere in the Stage-3 envelope.
+
+    Section 8.1: the full-efield path accepts only ``complex64`` and
+    ``complex128`` native data, pyuvdata interpolation returns ``complex128``,
+    and a resolved ``float128`` beam precision is rejected outright, so there
+    exists no Stage-3 computation an extended-width projection could
+    authenticate.
+    """
+    if isinstance(value, dict):
+        if "c_order_sha256" in value and value.get("dtype") == FORBIDDEN_STAGE3_DTYPE:
+            _fail(path, "no Stage-3 projection may carry complex256")
+        for key, item in value.items():
+            _forbid_extended_projections(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            _forbid_extended_projections(item, f"{path}[{index}]")
+
+
+# --- Section 8.1's Stage-3 rows -----------------------------------------------
+
+
+def _efield_file_contract(value: Any, path: str) -> dict[str, Any]:
+    """One ``efield_file_contracts`` row and its frozen per-kind exception."""
+    row = _mapping(
+        value,
+        path,
+        (
+            "case_id",
+            "probe_kind",
+            "outcome",
+            "beam_type",
+            "antenna_type",
+            "pixel_coordinate_system",
+            "feed_array",
+            "feed_angle_rad",
+            "derived_x_orientation",
+            "mount_type",
+            "data_normalization",
+            "basis_vector_dtype",
+            "stored_basis_is_identity",
+            "native_data_dtype",
+            "receptor_basis",
+            "receptor_feed_rotation_rad",
+            "common_peak_by_frequency",
+            "normalization_tolerance",
+            "exception_type",
+            "exact_message",
+            "test_node_id",
+            "input_sha256",
+            "passed",
+        ),
+    )
+    _string(row["case_id"], f"{path}.case_id")
+    _string(row["test_node_id"], f"{path}.test_node_id")
+    kind = _string(row["probe_kind"], f"{path}.probe_kind", allowed=STAGE3_PROBE_KINDS)
+    outcome = _string(
+        row["outcome"], f"{path}.outcome", allowed=frozenset({"accepted", "rejected"})
+    )
+    for key in (
+        "beam_type",
+        "antenna_type",
+        "pixel_coordinate_system",
+        "mount_type",
+        "data_normalization",
+        "basis_vector_dtype",
+        "native_data_dtype",
+    ):
+        _string(row[key], f"{path}.{key}")
+    feeds = _array(row["feed_array"], f"{path}.feed_array", minimum_length=2)
+    if len(feeds) != 2:
+        _fail(f"{path}.feed_array", "must be exactly two non-empty strings")
+    for index, feed in enumerate(feeds):
+        _string(feed, f"{path}.feed_array[{index}]")
+    angles = _array(row["feed_angle_rad"], f"{path}.feed_angle_rad", minimum_length=2)
+    if len(angles) != 2:
+        _fail(f"{path}.feed_angle_rad", "must be exactly two numbers")
+    for index, angle in enumerate(angles):
+        _signed(angle, f"{path}.feed_angle_rad[{index}]")
+    orientation = row["derived_x_orientation"]
+    if orientation is not None:
+        _string(
+            orientation,
+            f"{path}.derived_x_orientation",
+            allowed=frozenset({"east", "north"}),
+        )
+    _boolean(row["stored_basis_is_identity"], f"{path}.stored_basis_is_identity")
+    _string(
+        row["receptor_basis"], f"{path}.receptor_basis", allowed=STAGE3_RECEPTOR_BASES
+    )
+    _open_interval(
+        row["receptor_feed_rotation_rad"],
+        f"{path}.receptor_feed_rotation_rad",
+        lower=-math.pi,
+        upper=math.pi,
+        closed_upper=True,
+    )
+    tolerance = _positive(
+        row["normalization_tolerance"], f"{path}.normalization_tolerance"
+    )
+    _string(row["input_sha256"], f"{path}.input_sha256", pattern=SHA256)
+    _boolean(row["passed"], f"{path}.passed", const=True)
+
+    peaks = _array(
+        row["common_peak_by_frequency"],
+        f"{path}.common_peak_by_frequency",
+        minimum_length=1,
+    )
+    frequencies: list[float] = []
+    observed_peaks: list[float] = []
+    for index, item in enumerate(peaks):
+        where = f"{path}.common_peak_by_frequency[{index}]"
+        sample = _mapping(item, where, ("frequency_hz", "observed_peak"))
+        frequency = _positive(sample["frequency_hz"], f"{where}.frequency_hz")
+        if frequencies and frequency <= frequencies[-1]:
+            _fail(f"{where}.frequency_hz", "samples are strictly increasing")
+        frequencies.append(frequency)
+        observed_peaks.append(
+            _number(sample["observed_peak"], f"{where}.observed_peak")
+        )
+
+    accepted = kind in STAGE3_ACCEPTED_PROBE_KINDS
+    if accepted != (outcome == "accepted"):
+        _fail(
+            f"{path}.outcome",
+            "the two accepted_* kinds are accepted and every other kind is rejected",
+        )
+    if accepted:
+        for key in ("exception_type", "exact_message"):
+            if row[key] is not None:
+                _fail(f"{path}.{key}", "an accepted row carries no error field")
+        _string(
+            row["basis_vector_dtype"],
+            f"{path}.basis_vector_dtype",
+            allowed=frozenset({"float32", "float64"}),
+        )
+        _string(
+            row["native_data_dtype"],
+            f"{path}.native_data_dtype",
+            allowed=frozenset({"complex64", "complex128"}),
+        )
+        if row["stored_basis_is_identity"] is not True:
+            _fail(
+                f"{path}.stored_basis_is_identity",
+                "an accepted file stores exactly the native identity basis",
+            )
+        if orientation is None:
+            _fail(
+                f"{path}.derived_x_orientation",
+                "an accepted row records the orientation the file and the resolved "
+                "receptor agree on",
+            )
+        for index, peak in enumerate(observed_peaks):
+            if abs(peak - 1.0) > tolerance:
+                _fail(
+                    f"{path}.common_peak_by_frequency[{index}].observed_peak",
+                    "an accepted file is unit-peak over the complete stored grid",
+                )
+    else:
+        for key in ("exception_type", "exact_message"):
+            _string(row[key], f"{path}.{key}")
+        if row["exception_type"] != STAGE3_PROBE_EXCEPTIONS[kind]:
+            _fail(
+                f"{path}.exception_type",
+                f"kind {kind!r} is frozen to {STAGE3_PROBE_EXCEPTIONS[kind]!r}",
+            )
+        if kind == "extended_precision" and (
+            STAGE3_FLOAT128_MESSAGE.fullmatch(row["exact_message"]) is None
+        ):
+            _fail(
+                f"{path}.exact_message",
+                "must be the existing frozen float128 rejection literal",
+            )
+    if kind == "basis_vector_not_identity" and row["stored_basis_is_identity"]:
+        _fail(
+            f"{path}.stored_basis_is_identity",
+            "a basis_vector_not_identity row records a stored basis that is not "
+            "the native identity",
+        )
+    return row
+
+
+def _basis_conversion(value: Any, path: str) -> dict[str, Any]:
+    """One ``basis_conversions`` row and its residual and control predicates."""
+    row = _mapping(
+        value,
+        path,
+        (
+            "case_id",
+            "oracle_kind",
+            "receptor_basis",
+            "frequency_hz",
+            "probe_azimuth_rad",
+            "probe_zenith_angle_rad",
+            "expected",
+            "observed",
+            "max_abs_residual",
+            "power_preservation_max_abs_residual",
+            "orthogonality_max_abs_residual",
+            "wrap_continuity_max_abs_delta",
+            "wrap_continuity_bound",
+            "zenith_limit_max_abs_delta",
+            "atol",
+            "rtol",
+            "test_node_id",
+            "passed",
+        ),
+    )
+    _string(row["case_id"], f"{path}.case_id")
+    _string(row["test_node_id"], f"{path}.test_node_id")
+    oracle = _string(
+        row["oracle_kind"], f"{path}.oracle_kind", allowed=STAGE3_ORACLE_KINDS
+    )
+    _string(
+        row["receptor_basis"], f"{path}.receptor_basis", allowed=STAGE3_RECEPTOR_BASES
+    )
+    _positive(row["frequency_hz"], f"{path}.frequency_hz")
+    azimuth = _array_projection(row["probe_azimuth_rad"], f"{path}.probe_azimuth_rad")
+    zenith = _array_projection(
+        row["probe_zenith_angle_rad"], f"{path}.probe_zenith_angle_rad"
+    )
+    for name, projection in (
+        ("probe_azimuth_rad", azimuth),
+        ("probe_zenith_angle_rad", zenith),
+    ):
+        _string(projection["dtype"], f"{path}.{name}.dtype", const="float64")
+    if azimuth["shape"] != zenith["shape"]:
+        _fail(path, "the two probe projections need identical shape")
+    expected = _conversion_projection(row["expected"], f"{path}.expected")
+    observed = _conversion_projection(row["observed"], f"{path}.observed")
+    if expected["dtype"] != observed["dtype"] or expected["shape"] != observed["shape"]:
+        _fail(path, "expected and observed projections need identical dtype and shape")
+    if list(observed["shape"])[0] != list(azimuth["shape"])[0]:
+        _fail(
+            f"{path}.observed.shape",
+            "the leading extent must be the retained probe count S",
+        )
+    residual = _number(row["max_abs_residual"], f"{path}.max_abs_residual")
+    power = _number(
+        row["power_preservation_max_abs_residual"],
+        f"{path}.power_preservation_max_abs_residual",
+    )
+    orthogonality = _number(
+        row["orthogonality_max_abs_residual"],
+        f"{path}.orthogonality_max_abs_residual",
+    )
+    wrap = _number(
+        row["wrap_continuity_max_abs_delta"], f"{path}.wrap_continuity_max_abs_delta"
+    )
+    wrap_bound = _number(row["wrap_continuity_bound"], f"{path}.wrap_continuity_bound")
+    zenith_limit = _number(
+        row["zenith_limit_max_abs_delta"], f"{path}.zenith_limit_max_abs_delta"
+    )
+    atol = _positive(row["atol"], f"{path}.atol")
+    rtol = _number(row["rtol"], f"{path}.rtol")
+    _boolean(row["passed"], f"{path}.passed", const=True)
+
+    if power > BASIS_FIXED_TOLERANCE:
+        _fail(
+            f"{path}.power_preservation_max_abs_residual",
+            f"the real conversion matrix preserves power to {BASIS_FIXED_TOLERANCE}",
+        )
+    if orthogonality > BASIS_FIXED_TOLERANCE:
+        _fail(
+            f"{path}.orthogonality_max_abs_residual",
+            f"the real conversion matrix is orthogonal to {BASIS_FIXED_TOLERANCE}",
+        )
+    if oracle == STAGE3_SCALAR_SUBSET_CONTROL:
+        floor = max(1e-3, 1024.0 * atol)
+        for key, measured in (
+            ("max_abs_residual", residual),
+            ("zenith_limit_max_abs_delta", zenith_limit),
+        ):
+            if measured < floor:
+                _fail(
+                    f"{path}.{key}",
+                    "the scalar-subset control retains a measured divergence; "
+                    f"expected >= {floor}",
+                )
+        return row
+    bound = atol + rtol * float(observed["maximum_abs"])
+    if residual > bound:
+        _fail(f"{path}.max_abs_residual", "exceeds the retained atol/rtol bound")
+    if zenith_limit > bound:
+        _fail(
+            f"{path}.zenith_limit_max_abs_delta",
+            "exceeds the retained atol/rtol bound",
+        )
+    if wrap > wrap_bound:
+        _fail(
+            f"{path}.wrap_continuity_max_abs_delta",
+            "exceeds its own retained continuity bound",
+        )
+    return row
+
+
+def _receptor_factorization(value: Any, path: str) -> dict[str, Any]:
+    """One ``receptor_factorizations`` row and its non-commutation recomputation."""
+    row = _mapping(
+        value,
+        path,
+        (
+            "case_id",
+            "receptor_basis",
+            "feed_rotation_deg",
+            "output_basis",
+            "parallactic_angle_rad",
+            "frequency_hz",
+            "e_matrix",
+            "noncommuting_component",
+            "j_native",
+            "composed_e",
+            "factorization_max_abs_residual",
+            "chain_order_max_abs_residual",
+            "order_control_max_abs_difference",
+            "output_basis_max_abs_residual",
+            "atol",
+            "test_node_id",
+            "passed",
+        ),
+    )
+    _string(row["case_id"], f"{path}.case_id")
+    _string(row["test_node_id"], f"{path}.test_node_id")
+    _string(
+        row["receptor_basis"], f"{path}.receptor_basis", allowed=STAGE3_RECEPTOR_BASES
+    )
+    _string(row["output_basis"], f"{path}.output_basis", allowed=STAGE3_OUTPUT_BASES)
+    _signed(row["feed_rotation_deg"], f"{path}.feed_rotation_deg")
+    _signed(row["parallactic_angle_rad"], f"{path}.parallactic_angle_rad")
+    _positive(row["frequency_hz"], f"{path}.frequency_hz")
+    matrix = _two_by_two_matrix(row["e_matrix"], f"{path}.e_matrix")
+    component = _number(row["noncommuting_component"], f"{path}.noncommuting_component")
+    native = _jones_projection(row["j_native"], f"{path}.j_native")
+    composed = _jones_projection(row["composed_e"], f"{path}.composed_e")
+    if native["dtype"] != composed["dtype"] or native["shape"] != composed["shape"]:
+        _fail(path, "j_native and composed_e need identical dtype and shape")
+    factorization = _number(
+        row["factorization_max_abs_residual"], f"{path}.factorization_max_abs_residual"
+    )
+    chain_order = _number(
+        row["chain_order_max_abs_residual"], f"{path}.chain_order_max_abs_residual"
+    )
+    order_control = _number(
+        row["order_control_max_abs_difference"],
+        f"{path}.order_control_max_abs_difference",
+    )
+    output_basis_residual = _number(
+        row["output_basis_max_abs_residual"], f"{path}.output_basis_max_abs_residual"
+    )
+    atol = _positive(row["atol"], f"{path}.atol")
+    _boolean(row["passed"], f"{path}.passed", const=True)
+
+    for key, measured in (
+        ("factorization_max_abs_residual", factorization),
+        ("chain_order_max_abs_residual", chain_order),
+        ("output_basis_max_abs_residual", output_basis_residual),
+    ):
+        if measured > atol:
+            _fail(f"{path}.{key}", "exceeds the retained atol")
+    recomputed = abs(matrix[0][0] - matrix[1][1]) + abs(matrix[0][1] + matrix[1][0])
+    if abs(recomputed - component) > NONCOMMUTING_ABS_AGREEMENT:
+        _fail(
+            f"{path}.noncommuting_component",
+            "disagrees with the binary64 |E00 - E11| + |E01 + E10| recomputation",
+        )
+    floor = max(1e-3, 1024.0 * atol)
+    for key, measured in (
+        ("noncommuting_component", component),
+        ("order_control_max_abs_difference", order_control),
+    ):
+        if measured < floor:
+            _fail(
+                f"{path}.{key}",
+                f"a general J_native does not commute with a real rotation; "
+                f"expected >= {floor}",
+            )
+    return row
+
+
+def _ixr_diagnostic(value: Any, path: str) -> dict[str, Any]:
+    """One ``ixr_diagnostics`` row, with Section 5.3's exact state rule."""
+    row = _mapping(
+        value,
+        path,
+        (
+            "case_id",
+            "state",
+            "receptor_basis",
+            "frequency_hz",
+            "probe_altitude_rad",
+            "probe_azimuth_rad",
+            "j_matrix",
+            "sigma_max",
+            "sigma_min",
+            "condition_number",
+            "ixr_linear",
+            "ixr_db",
+            "leakage_magnitude",
+            "test_node_id",
+            "passed",
+        ),
+    )
+    _string(row["case_id"], f"{path}.case_id")
+    _string(row["test_node_id"], f"{path}.test_node_id")
+    state = _string(row["state"], f"{path}.state", allowed=STAGE3_IXR_STATES)
+    _string(
+        row["receptor_basis"], f"{path}.receptor_basis", allowed=STAGE3_RECEPTOR_BASES
+    )
+    _positive(row["frequency_hz"], f"{path}.frequency_hz")
+    _signed(row["probe_altitude_rad"], f"{path}.probe_altitude_rad")
+    _signed(row["probe_azimuth_rad"], f"{path}.probe_azimuth_rad")
+    _two_by_two_matrix(row["j_matrix"], f"{path}.j_matrix")
+    sigma_max = _number(row["sigma_max"], f"{path}.sigma_max")
+    sigma_min = _number(row["sigma_min"], f"{path}.sigma_min")
+    _boolean(row["passed"], f"{path}.passed", const=True)
+    if sigma_max < sigma_min:
+        _fail(f"{path}.sigma_min", "must not exceed sigma_max")
+
+    if sigma_max == 0.0 or sigma_min <= IXR_CLASSIFICATION_RELATIVE * sigma_max:
+        recomputed = "singular"
+    elif sigma_max - sigma_min <= IXR_CLASSIFICATION_RELATIVE * sigma_max:
+        recomputed = "unitary_scaled"
+    else:
+        recomputed = "nonsingular"
+    if state != recomputed:
+        _fail(
+            f"{path}.state",
+            f"Section 5.3's deterministic rule classifies this row {recomputed!r}",
+        )
+
+    derived = ("condition_number", "ixr_linear", "ixr_db", "leakage_magnitude")
+    if state == "singular":
+        for key in derived:
+            if row[key] is not None:
+                _fail(f"{path}.{key}", "a singular row records null derived fields")
+        return row
+    if state == "unitary_scaled":
+        condition = _number(
+            row["condition_number"], f"{path}.condition_number", minimum=None
+        )
+        if not 1.0 <= condition <= UNITARY_CONDITION_UPPER_BOUND:
+            _fail(
+                f"{path}.condition_number",
+                "a unitary_scaled row retains the realized ratio in "
+                f"[1.0, {UNITARY_CONDITION_UPPER_BOUND}]",
+            )
+        for key in ("ixr_linear", "ixr_db", "leakage_magnitude"):
+            if row[key] is not None:
+                _fail(
+                    f"{path}.{key}",
+                    "an infinite IXR is recorded by the literal and a null field, "
+                    "never by a non-finite number",
+                )
+        return row
+
+    values: dict[str, float] = {}
+    for key in derived:
+        if row[key] is None:
+            _fail(f"{path}.{key}", "a nonsingular row records all four quantities")
+        values[key] = _number(row[key], f"{path}.{key}", minimum=None)
+    condition = sigma_max / sigma_min
+    ixr_linear = ((condition + 1.0) / (condition - 1.0)) ** 2
+    _relative_agreement(
+        values["condition_number"],
+        condition,
+        f"{path}.condition_number",
+        "disagrees with the binary64 sigma_max / sigma_min recomputation",
+    )
+    _relative_agreement(
+        values["ixr_linear"],
+        ixr_linear,
+        f"{path}.ixr_linear",
+        "disagrees with the binary64 ((k + 1) / (k - 1))**2 recomputation",
+    )
+    _relative_agreement(
+        values["ixr_db"],
+        10.0 * math.log10(ixr_linear),
+        f"{path}.ixr_db",
+        "disagrees with the binary64 10 log10 recomputation",
+    )
+    _relative_agreement(
+        values["leakage_magnitude"],
+        1.0 / math.sqrt(ixr_linear),
+        f"{path}.leakage_magnitude",
+        "disagrees with the binary64 1 / sqrt recomputation",
+    )
+    return row
+
+
+def _crossvalidation_comparison(value: Any, path: str) -> dict[str, Any]:
+    """One ``crossvalidation_comparisons`` row and its artifact bindings."""
+    row = _mapping(
+        value,
+        path,
+        (
+            "case_id",
+            "artifact_path",
+            "artifact_sha256",
+            "artifact_generated_at_utc",
+            "reference_package",
+            "reference_version",
+            "pyuvdata_version",
+            "pyradiosky_version",
+            "astropy_version",
+            "radiosim_source_sha",
+            "input_hashes",
+            "convention_mappings",
+            "correlation_residuals",
+            "output_basis",
+            "gating",
+            "open_disagreements",
+            "test_node_id",
+            "passed",
+        ),
+    )
+    _string(row["case_id"], f"{path}.case_id")
+    _string(row["test_node_id"], f"{path}.test_node_id")
+    artifact_path = _canonical_path(row["artifact_path"], f"{path}.artifact_path")
+    _string(row["artifact_sha256"], f"{path}.artifact_sha256", pattern=SHA256)
+    stamp = _string(
+        row["artifact_generated_at_utc"],
+        f"{path}.artifact_generated_at_utc",
+        pattern=TIMESTAMP,
+    )
+    for key, literal in STAGE3_CROSSVALIDATION_VERSIONS.items():
+        _string(row[key], f"{path}.{key}", const=literal)
+    for key in ("pyradiosky_version", "astropy_version"):
+        _string(row[key], f"{path}.{key}")
+    _string(row["radiosim_source_sha"], f"{path}.radiosim_source_sha", pattern=GIT_SHA)
+    basis = _string(
+        row["output_basis"], f"{path}.output_basis", allowed=STAGE3_OUTPUT_BASES
+    )
+    if row["gating"] is not False:
+        _fail(f"{path}.gating", "must be exactly the boolean false")
+    _boolean(row["passed"], f"{path}.passed", const=True)
+
+    directory, _separator, basename = artifact_path.rpartition("/")
+    if directory != STAGE3_CROSSVALIDATION_DIRECTORY:
+        _fail(
+            f"{path}.artifact_path",
+            f"must live in {STAGE3_CROSSVALIDATION_DIRECTORY}/",
+        )
+    matched = STAGE3_CROSSVALIDATION_BASENAME.fullmatch(basename)
+    if matched is None:
+        _fail(
+            f"{path}.artifact_path",
+            "is not the frozen Section 7.4 dated cross-validation basename",
+        )
+    if matched.group("date") != stamp[:10]:
+        _fail(
+            f"{path}.artifact_path",
+            "the dated basename must carry the UTC date of artifact_generated_at_utc",
+        )
+
+    hashes = _array(row["input_hashes"], f"{path}.input_hashes", minimum_length=4)
+    for index, item in enumerate(hashes):
+        where = f"{path}.input_hashes[{index}]"
+        entry = _mapping(item, where, ("name", "sha256"))
+        _string(entry["name"], f"{where}.name")
+        _string(entry["sha256"], f"{where}.sha256", pattern=SHA256)
+    _sorted_unique([item["name"] for item in hashes], f"{path}.input_hashes")
+
+    mappings = _array(
+        row["convention_mappings"], f"{path}.convention_mappings", minimum_length=4
+    )
+    for index, item in enumerate(mappings):
+        where = f"{path}.convention_mappings[{index}]"
+        entry = _mapping(
+            item, where, ("radiosim_convention", "reference_convention", "equivalent")
+        )
+        _string(entry["radiosim_convention"], f"{where}.radiosim_convention")
+        _string(entry["reference_convention"], f"{where}.reference_convention")
+        _boolean(entry["equivalent"], f"{where}.equivalent")
+    _sorted_unique(
+        [item["radiosim_convention"] for item in mappings],
+        f"{path}.convention_mappings",
+    )
+
+    residuals = _array(
+        row["correlation_residuals"], f"{path}.correlation_residuals", minimum_length=4
+    )
+    if len(residuals) != 4:
+        _fail(f"{path}.correlation_residuals", "must be exactly four rows")
+    labels: list[str] = []
+    for index, item in enumerate(residuals):
+        where = f"{path}.correlation_residuals[{index}]"
+        entry = _mapping(
+            item,
+            where,
+            (
+                "correlation",
+                "max_abs_residual",
+                "max_rel_residual",
+                "reference_max_abs",
+            ),
+        )
+        labels.append(_string(entry["correlation"], f"{where}.correlation"))
+        for key in ("max_abs_residual", "max_rel_residual", "reference_max_abs"):
+            _number(entry[key], f"{where}.{key}")
+    _sorted_unique(labels, f"{path}.correlation_residuals")
+    if frozenset(labels) != STAGE3_CORRELATION_LABELS[basis]:
+        _fail(
+            f"{path}.correlation_residuals",
+            f"must name the complete {basis!r} label set "
+            f"{sorted(STAGE3_CORRELATION_LABELS[basis])}",
+        )
+
+    disagreements = _array(row["open_disagreements"], f"{path}.open_disagreements")
+    for index, item in enumerate(disagreements):
+        _string(item, f"{path}.open_disagreements[{index}]")
+    _sorted_unique(disagreements, f"{path}.open_disagreements")
+    return row
+
+
+def _stage3_solver_case(value: Any, path: str) -> dict[str, Any]:
+    """One Stage-3 ``solver_cases`` row.
+
+    The Stage-3 envelope replaces the Stage-1 effect enum outright: every row is
+    a full-efield row, so no row carries a diagnostic digest, every row expects
+    a visibility change and every row must actually have moved one.
+    """
+    row = _mapping(
+        value,
+        path,
+        (
+            "case_id",
+            "effect",
+            "test_node_id",
+            "input_sha256",
+            "jones_sha256",
+            "visibility_sha256",
+            "diagnostic_sha256",
+            "jones_call_count",
+            "visibility_changed_element_count",
+            "visibility_change_expected",
+            "passed",
+        ),
+    )
+    _string(row["case_id"], f"{path}.case_id")
+    _string(row["effect"], f"{path}.effect", allowed=STAGE3_SOLVER_EFFECTS)
+    _string(row["test_node_id"], f"{path}.test_node_id")
+    for key in ("input_sha256", "jones_sha256", "visibility_sha256"):
+        _string(row[key], f"{path}.{key}", pattern=SHA256)
+    if row["diagnostic_sha256"] is not None:
+        _fail(f"{path}.diagnostic_sha256", "is null on every Stage-3 solver row")
+    _integer(row["jones_call_count"], f"{path}.jones_call_count")
+    _integer(
+        row["visibility_changed_element_count"],
+        f"{path}.visibility_changed_element_count",
+        minimum=1,
+    )
+    _boolean(
+        row["visibility_change_expected"],
+        f"{path}.visibility_change_expected",
+        const=True,
+    )
+    _boolean(row["passed"], f"{path}.passed", const=True)
+    return row
+
+
+# --- the complete Stage-3 validator -------------------------------------------
+
+
+def validate_stage3_evidence(document: Any) -> None:
+    """Authenticate one Stage-3 evidence document against Section 8.1.
+
+    Pure document validation, standard library only: exact key sets and order,
+    the frozen literals, the ``git_sha``/``sha256``/timestamp encodings, JSON
+    number and integer distinctions that reject booleans, sorted-unique arrays,
+    and every Stage-3 cross-field predicate the envelope names.
+    :func:`authenticate_stage3_succession` holds the Git-object ancestry facts
+    separately, exactly as Stages 1 and 2 keep repository authentication out of
+    their document validators.
+    """
+    root = _mapping(document, "$", STAGE3_KEYS)
+    _string(
+        root["schema_version"], "$.schema_version", const="radiosim.sci005.stage3.v1"
+    )
+    if root["stage"] != 3 or isinstance(root["stage"], bool):
+        _fail("$.stage", "must be the integer 3")
+    _string(root["status"], "$.status", const="candidate")
+    _string(root["generated_at_utc"], "$.generated_at_utc", pattern=TIMESTAMP)
+    for key in ("design_sha", "red_test_sha", "source_sha"):
+        _string(root[key], f"$.{key}", pattern=GIT_SHA)
+    if root["evidence_sha"] is not None:
+        _fail(
+            "$.evidence_sha", "must be JSON null; the file cannot contain its own SHA"
+        )
+    _boolean(root["working_tree_clean"], "$.working_tree_clean", const=True)
+    for key in (
+        "radiosim_version",
+        "python_version",
+        "platform",
+        "machine",
+        "pixi_environment",
+    ):
+        _string(root[key], f"$.{key}")
+    _string(root["pixi_lock_sha256"], "$.pixi_lock_sha256", pattern=SHA256)
+
+    conventions = _mapping(
+        root["scientific_conventions"],
+        "$.scientific_conventions",
+        tuple(STAGE3_SCIENTIFIC_CONVENTIONS),
+    )
+    for key, literal in STAGE3_SCIENTIFIC_CONVENTIONS.items():
+        _string(conventions[key], f"$.scientific_conventions.{key}", const=literal)
+
+    _forbid_extended_projections(root)
+
+    for key, checker in (
+        ("config_cases", _config_case),
+        ("rejection_probes", _rejection_probe),
+    ):
+        rows = _array(root[key], f"$.{key}", minimum_length=1)
+        for index, row in enumerate(rows):
+            checker(row, f"$.{key}[{index}]")
+        _rows_sorted_by(rows, "case_id", f"$.{key}")
+
+    probes = root["rejection_probes"]
+    observed_codes = {row["issue_code"] for row in probes}
+    for code, (
+        exception,
+        path_pattern,
+        message_pattern,
+    ) in STAGE3_DOCUMENT_REJECTIONS.items():
+        if code not in observed_codes:
+            _fail("$.rejection_probes", f"must carry the Stage-3 code {code!r}")
+        for index, row in enumerate(probes):
+            if row["issue_code"] != code:
+                continue
+            where = f"$.rejection_probes[{index}]"
+            if row["exception_type"] != exception:
+                _fail(f"{where}.exception_type", f"{code!r} is frozen to {exception!r}")
+            if path_pattern.fullmatch(row["config_path"]) is None:
+                _fail(f"{where}.config_path", f"is not {code!r}'s frozen path")
+            if (
+                message_pattern is not None
+                and message_pattern.fullmatch(row["exact_message"]) is None
+            ):
+                _fail(f"{where}.exact_message", f"is not {code!r}'s frozen message")
+
+    invariants = _array(
+        root["analytic_invariants"], "$.analytic_invariants", minimum_length=1
+    )
+    parsed_invariants = [
+        _analytic_invariant(row, f"$.analytic_invariants[{index}]")
+        for index, row in enumerate(invariants)
+    ]
+    _rows_sorted_by(parsed_invariants, "case_id", "$.analytic_invariants")
+
+    parity = _array(root["backend_parity"], "$.backend_parity", minimum_length=1)
+    parsed_parity = [
+        _backend_parity(row, f"$.backend_parity[{index}]")
+        for index, row in enumerate(parity)
+    ]
+    _sorted_unique(
+        [(row["case_id"], row["backend"]) for row in parsed_parity], "$.backend_parity"
+    )
+    by_case: dict[str, set[str]] = {}
+    standard_width: set[str] = set()
+    for index, row in enumerate(parsed_parity):
+        by_case.setdefault(row["case_id"], set()).add(row["backend"])
+        if (row["real_dtype"], row["complex_dtype"]) == ("float64", "complex128"):
+            standard_width.add(row["case_id"])
+        where = f"$.backend_parity[{index}]"
+        if row["backend"] in {"numpy", "dask"}:
+            if row["observed_result_sha256"] != row["reference_result_sha256"]:
+                _fail(
+                    f"{where}.observed_result_sha256",
+                    "NumPy and Dask must be byte-identical at Stage 3",
+                )
+            if row["max_abs_difference"] != 0.0:
+                _fail(
+                    f"{where}.max_abs_difference",
+                    "a byte-identical backend records an exactly zero difference",
+                )
+        elif row["max_abs_difference"] > row["atol"] or (
+            row["max_rel_difference"] > row["rtol"]
+        ):
+            _fail(where, "JAX must agree at the retained float64 tolerance")
+    for case_id, backends in by_case.items():
+        if backends != {"numpy", "jax", "dask"}:
+            _fail("$.backend_parity", f"case {case_id!r} is missing a backend")
+    if not standard_width:
+        _fail(
+            "$.backend_parity",
+            "at least one full-efield case needs the float64/complex128 pair",
+        )
+
+    solver_rows = _array(root["solver_cases"], "$.solver_cases", minimum_length=1)
+    parsed_solver = [
+        _stage3_solver_case(row, f"$.solver_cases[{index}]")
+        for index, row in enumerate(solver_rows)
+    ]
+    _rows_sorted_by(parsed_solver, "case_id", "$.solver_cases")
+    if {row["effect"] for row in parsed_solver} != STAGE3_SOLVER_EFFECTS:
+        _fail(
+            "$.solver_cases",
+            "both efield_point and efield_healpix must appear at least once",
+        )
+
+    outputs = _array(root["output_cases"], "$.output_cases", minimum_length=10)
+    for index, row in enumerate(outputs):
+        _output_case(row, f"$.output_cases[{index}]")
+    _rows_sorted_by(outputs, "case_id", "$.output_cases")
+    observed_outputs = {row["case_id"]: row["format"] for row in outputs}
+    for case_id, required_format in STAGE3_REQUIRED_OUTPUT_CASES.items():
+        if case_id not in observed_outputs:
+            _fail("$.output_cases", f"the Section 5.4 row {case_id!r} is required")
+        if observed_outputs[case_id] != required_format:
+            _fail(
+                "$.output_cases",
+                f"{case_id!r} must carry format {required_format!r}",
+            )
+
+    fingerprints = _array(
+        root["fingerprint_diff"], "$.fingerprint_diff", minimum_length=1
+    )
+    parsed_fingerprints = [
+        _fingerprint_row(row, f"$.fingerprint_diff[{index}]")
+        for index, row in enumerate(fingerprints)
+    ]
+    _sorted_unique(
+        [(row["environment"], row["workload"]) for row in parsed_fingerprints],
+        "$.fingerprint_diff",
+    )
+    if {row["change_expected"] for row in parsed_fingerprints} != {True, False}:
+        _fail(
+            "$.fingerprint_diff",
+            "both an enabled and a disabled/default control are required",
+        )
+    scalar_controls: list[dict[str, Any]] = []
+    for index, row in enumerate(parsed_fingerprints):
+        if row["change_expected"]:
+            continue
+        where = f"$.fingerprint_diff[{index}]"
+        if row["old_raw_cube_sha256"] != row["new_raw_cube_sha256"]:
+            _fail(where, "an unchanged workload keeps byte-identical cube bytes")
+        workload = row["workload"].lower()
+        if "peak" in workload and "fits" in workload:
+            scalar_controls.append(row)
+    if not scalar_controls:
+        _fail(
+            "$.fingerprint_diff",
+            "the disabled control must include a scalar peak FITS workload whose "
+            "old and new digests and cube bytes are equal",
+        )
+
+    commands = _array(root["commands"], "$.commands", minimum_length=1)
+    for index, row in enumerate(commands):
+        _command_row(row, f"$.commands[{index}]")
+
+    artifacts = _array(root["artifacts"], "$.artifacts", minimum_length=1)
+    parsed_artifacts = [
+        _artifact_row(row, f"$.artifacts[{index}]")
+        for index, row in enumerate(artifacts)
+    ]
+    _rows_sorted_by(parsed_artifacts, "path", "$.artifacts")
+
+    limitations = _array(root["limitations"], "$.limitations")
+    for index, item in enumerate(limitations):
+        _string(item, f"$.limitations[{index}]")
+    _sorted_unique(limitations, "$.limitations")
+    claims = _array(
+        root["claims_not_licensed"], "$.claims_not_licensed", minimum_length=1
+    )
+    for index, item in enumerate(claims):
+        _string(item, f"$.claims_not_licensed[{index}]")
+    _sorted_unique(claims, "$.claims_not_licensed")
+    if set(claims) != set(STAGE3_REQUIRED_CLAIMS):
+        _fail(
+            "$.claims_not_licensed",
+            f"must contain exactly {sorted(STAGE3_REQUIRED_CLAIMS)}",
+        )
+
+    contracts = _array(
+        root["efield_file_contracts"], "$.efield_file_contracts", minimum_length=1
+    )
+    parsed_contracts = [
+        _efield_file_contract(row, f"$.efield_file_contracts[{index}]")
+        for index, row in enumerate(contracts)
+    ]
+    _rows_sorted_by(parsed_contracts, "case_id", "$.efield_file_contracts")
+    covered = {row["probe_kind"] for row in parsed_contracts}
+    if covered != STAGE3_PROBE_KINDS:
+        _fail(
+            "$.efield_file_contracts",
+            f"missing probe kinds {sorted(STAGE3_PROBE_KINDS - covered)}",
+        )
+
+    conversions = _array(
+        root["basis_conversions"], "$.basis_conversions", minimum_length=1
+    )
+    parsed_conversions = [
+        _basis_conversion(row, f"$.basis_conversions[{index}]")
+        for index, row in enumerate(conversions)
+    ]
+    _rows_sorted_by(parsed_conversions, "case_id", "$.basis_conversions")
+    oracles = {row["oracle_kind"] for row in parsed_conversions}
+    if oracles != STAGE3_ORACLE_KINDS:
+        _fail(
+            "$.basis_conversions",
+            f"missing oracle kinds {sorted(STAGE3_ORACLE_KINDS - oracles)}",
+        )
+
+    factorizations = _array(
+        root["receptor_factorizations"], "$.receptor_factorizations", minimum_length=1
+    )
+    parsed_factorizations = [
+        _receptor_factorization(row, f"$.receptor_factorizations[{index}]")
+        for index, row in enumerate(factorizations)
+    ]
+    _rows_sorted_by(parsed_factorizations, "case_id", "$.receptor_factorizations")
+    combinations = {
+        (row["receptor_basis"], row["output_basis"]) for row in parsed_factorizations
+    }
+    required_combinations = {
+        (receptor, output)
+        for receptor in sorted(STAGE3_RECEPTOR_BASES)
+        for output in sorted(STAGE3_OUTPUT_BASES)
+    }
+    if combinations != required_combinations:
+        _fail(
+            "$.receptor_factorizations",
+            "missing receptor/output basis combinations "
+            f"{sorted(required_combinations - combinations)}",
+        )
+    if not any(
+        row["receptor_basis"] == "linear" and row["feed_rotation_deg"] != 0.0
+        for row in parsed_factorizations
+    ):
+        _fail(
+            "$.receptor_factorizations",
+            "a linear row with a non-zero feed_rotation_deg is required",
+        )
+
+    diagnostics = _array(root["ixr_diagnostics"], "$.ixr_diagnostics", minimum_length=1)
+    parsed_diagnostics = [
+        _ixr_diagnostic(row, f"$.ixr_diagnostics[{index}]")
+        for index, row in enumerate(diagnostics)
+    ]
+    _rows_sorted_by(parsed_diagnostics, "case_id", "$.ixr_diagnostics")
+    states = {row["state"] for row in parsed_diagnostics}
+    if states != STAGE3_IXR_STATES:
+        _fail(
+            "$.ixr_diagnostics",
+            f"missing IXR states {sorted(STAGE3_IXR_STATES - states)}",
+        )
+
+    comparisons = _array(
+        root["crossvalidation_comparisons"],
+        "$.crossvalidation_comparisons",
+        minimum_length=1,
+    )
+    parsed_comparisons = [
+        _crossvalidation_comparison(row, f"$.crossvalidation_comparisons[{index}]")
+        for index, row in enumerate(comparisons)
+    ]
+    _rows_sorted_by(parsed_comparisons, "case_id", "$.crossvalidation_comparisons")
+    for index, row in enumerate(parsed_comparisons):
+        if row["radiosim_source_sha"] != root["source_sha"]:
+            _fail(
+                f"$.crossvalidation_comparisons[{index}].radiosim_source_sha",
+                "must equal the record's own source_sha",
+            )
+    named = {
+        (row["artifact_path"], row["artifact_sha256"]) for row in parsed_comparisons
+    }
+    if len(named) != 1:
+        _fail(
+            "$.crossvalidation_comparisons",
+            "every row names the same artifact path and digest; exactly one dated "
+            "artifact exists",
+        )
+    artifact_path, artifact_digest = next(iter(named))
+    digests = {row["path"]: row["sha256"] for row in parsed_artifacts}
+    if artifact_path not in digests:
+        _fail(
+            "$.crossvalidation_comparisons",
+            f"{artifact_path!r} is not retained in the artifacts array",
+        )
+    if digests[artifact_path] != artifact_digest:
+        _fail(
+            "$.crossvalidation_comparisons",
+            "the retained cross-validation digest disagrees with its artifacts row",
+        )
+
+
+# --- Section 8.3's three Stage-3 Git-object ancestry facts ---------------------
+
+
+def _stage3_parent_of(commit: str) -> str:
+    """Return one commit's *direct parent*, never the commit itself.
+
+    ``<rev>^{commit}`` is git's **peel** form: on a commit object it resolves
+    back to that same commit. Section 8.1 records exactly that confusion as the
+    evidence generator's Stage-2 defect, so every direct-parent question here
+    goes through this one function rather than an inline expression.
+    """
+    parent = _stage2_git("rev-parse", f"{commit}^")
+    if GIT_SHA.fullmatch(parent) is None or parent == commit:
+        raise EvidenceSchemaError(f"{commit} has no distinct direct parent")
+    return parent
+
+
+def authenticate_stage3_succession(document: dict[str, Any]) -> None:
+    """Authenticate ``R3^ == D3``, ``S3^ == R3`` and ``D3 != R3`` from Git.
+
+    Section 8.3 keeps ``D3`` the unambiguous direct parent of ``R3`` even though
+    ``U2 ->* D3`` is starred: the starred edge is the reachability *above*
+    ``D3``, which ``tools/sci005_stage3_acceptance.py`` authenticates, while the
+    three facts below are the unstarred edges this record asserts. This runs
+    only against the real retained artifact; a synthetic document names no
+    commit.
+    """
+    design = document["design_sha"]
+    red_test = document["red_test_sha"]
+    source = document["source_sha"]
+    if design == red_test:
+        raise EvidenceSchemaError(
+            "$.design_sha: D3 and R3 are the same commit; Section 8.3 requires "
+            "R3 to be a distinct child of D3"
+        )
+    observed_design = _stage3_parent_of(red_test)
+    if observed_design != design:
+        raise EvidenceSchemaError(
+            f"$.design_sha: R3^ is {observed_design}, not the recorded {design}"
+        )
+    observed_red = _stage3_parent_of(source)
+    if observed_red != red_test:
+        raise EvidenceSchemaError(
+            f"$.red_test_sha: S3^ is {observed_red}, not the recorded {red_test}"
+        )
+
+
+# --- the Stage-3 synthetic fixture --------------------------------------------
+
+
+STAGE3_CROSSVALIDATION_ARTIFACT = (
+    "output/crossvalidation/2026-08-19-sci005-efield-pyuvsim-1.4.0.json"
+)
+
+
+def _stage3_projection(shape: list[int]) -> dict[str, Any]:
+    return {
+        "dtype": "complex128",
+        "shape": shape,
+        "c_order_sha256": "0" * 64,
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0,
+    }
+
+
+def _stage3_probe_projection(extent: int) -> dict[str, Any]:
+    return {
+        "dtype": "float64",
+        "shape": [extent],
+        "c_order_sha256": "0" * 64,
+        "minimum": 0.0,
+        "maximum": 1.0,
+    }
+
+
+def _stage3_matrix() -> list[list[dict[str, float]]]:
+    """One deliberately non-commuting ``E``: ``|E00-E11| + |E01+E10| == 1.8``."""
+    return [
+        [{"real": 1.0, "imag": 0.0}, {"real": 0.5, "imag": 0.0}],
+        [{"real": 0.5, "imag": 0.0}, {"real": 0.2, "imag": 0.0}],
+    ]
+
+
+def _stage3_noncommuting_component() -> float:
+    matrix = [
+        [complex(cell["real"], cell["imag"]) for cell in row]
+        for row in _stage3_matrix()
+    ]
+    return abs(matrix[0][0] - matrix[1][1]) + abs(matrix[0][1] + matrix[1][0])
+
+
+def _efield_contract_row(kind: str, node: str) -> dict[str, Any]:
+    """One self-consistent ``efield_file_contracts`` row for one probe kind."""
+    accepted = kind in STAGE3_ACCEPTED_PROBE_KINDS
+    circular = kind == "accepted_circular_pair"
+    message = "an offending metadata value was observed"
+    if kind == "extended_precision":
+        message = (
+            "BeamFITS /tmp/beam.beamfits: beam precision 'float128' would require "
+            "complex256, but accepted files and pyuvdata interpolation provide at "
+            "most complex128; select beam float32 or float64."
+        )
+    return {
+        "case_id": kind,
+        "probe_kind": kind,
+        "outcome": "accepted" if accepted else "rejected",
+        "beam_type": "efield",
+        "antenna_type": "simple",
+        "pixel_coordinate_system": "az_za",
+        "feed_array": ["r", "l"] if circular else ["x", "y"],
+        "feed_angle_rad": [0.0, 0.0] if circular else [math.pi / 2.0, 0.0],
+        "derived_x_orientation": "east" if accepted else None,
+        "mount_type": "fixed",
+        "data_normalization": "peak",
+        "basis_vector_dtype": "float64",
+        "stored_basis_is_identity": kind != "basis_vector_not_identity",
+        "native_data_dtype": "complex128",
+        "receptor_basis": "circular" if circular else "linear",
+        "receptor_feed_rotation_rad": 0.0,
+        "common_peak_by_frequency": [
+            {"frequency_hz": 1.0e8, "observed_peak": 1.0},
+            {"frequency_hz": 1.5e8, "observed_peak": 1.0},
+        ],
+        "normalization_tolerance": 1e-6,
+        "exception_type": None if accepted else STAGE3_PROBE_EXCEPTIONS[kind],
+        "exact_message": None if accepted else message,
+        "test_node_id": node,
+        "input_sha256": "0" * 64,
+        "passed": True,
+    }
+
+
+def _basis_conversion_row(oracle: str, node: str) -> dict[str, Any]:
+    control = oracle == STAGE3_SCALAR_SUBSET_CONTROL
+    return {
+        "case_id": oracle,
+        "oracle_kind": oracle,
+        "receptor_basis": "circular" if oracle == "quadrupolar" else "linear",
+        "frequency_hz": 1.5e8,
+        "probe_azimuth_rad": _stage3_probe_projection(3),
+        "probe_zenith_angle_rad": _stage3_probe_projection(3),
+        "expected": _stage3_projection([3, 2, 2]),
+        "observed": _stage3_projection([3, 2, 2]),
+        "max_abs_residual": 0.5 if control else 0.0,
+        "power_preservation_max_abs_residual": 0.0,
+        "orthogonality_max_abs_residual": 0.0,
+        "wrap_continuity_max_abs_delta": 0.0,
+        "wrap_continuity_bound": 1e-12,
+        "zenith_limit_max_abs_delta": 0.5 if control else 0.0,
+        "atol": 1e-12,
+        "rtol": 1e-10,
+        "test_node_id": node,
+        "passed": True,
+    }
+
+
+def _receptor_factorization_row(
+    case_id: str, receptor: str, output: str, rotation: float, node: str
+) -> dict[str, Any]:
+    return {
+        "case_id": case_id,
+        "receptor_basis": receptor,
+        "feed_rotation_deg": rotation,
+        "output_basis": output,
+        "parallactic_angle_rad": 0.4,
+        "frequency_hz": 1.5e8,
+        "e_matrix": _stage3_matrix(),
+        "noncommuting_component": _stage3_noncommuting_component(),
+        "j_native": _stage3_projection([2, 2]),
+        "composed_e": _stage3_projection([2, 2]),
+        "factorization_max_abs_residual": 0.0,
+        "chain_order_max_abs_residual": 0.0,
+        "order_control_max_abs_difference": 0.5,
+        "output_basis_max_abs_residual": 0.0,
+        "atol": 1e-12,
+        "test_node_id": node,
+        "passed": True,
+    }
+
+
+def _ixr_row(case_id: str, state: str, node: str) -> dict[str, Any]:
+    sigma_max, sigma_min = {
+        "nonsingular": (2.0, 1.0),
+        "unitary_scaled": (1.0, 1.0),
+        "singular": (1.0, 0.0),
+    }[state]
+    condition: float | None = None
+    ixr_linear: float | None = None
+    ixr_db: float | None = None
+    leakage: float | None = None
+    if state == "unitary_scaled":
+        condition = sigma_max / sigma_min
+    elif state == "nonsingular":
+        condition = sigma_max / sigma_min
+        ixr_linear = ((condition + 1.0) / (condition - 1.0)) ** 2
+        ixr_db = 10.0 * math.log10(ixr_linear)
+        leakage = 1.0 / math.sqrt(ixr_linear)
+    return {
+        "case_id": case_id,
+        "state": state,
+        "receptor_basis": "linear",
+        "frequency_hz": 1.5e8,
+        "probe_altitude_rad": 1.2,
+        "probe_azimuth_rad": 0.7,
+        "j_matrix": _stage3_matrix(),
+        "sigma_max": sigma_max,
+        "sigma_min": sigma_min,
+        "condition_number": condition,
+        "ixr_linear": ixr_linear,
+        "ixr_db": ixr_db,
+        "leakage_magnitude": leakage,
+        "test_node_id": node,
+        "passed": True,
+    }
+
+
+def _stage3_rejection_probe(
+    case_id: str, code: str, config_path: str, message: str, node: str
+) -> dict[str, Any]:
+    return {
+        "case_id": case_id,
+        "config_path": config_path,
+        "exception_type": STAGE3_DOCUMENT_REJECTIONS[code][0],
+        "issue_code": code,
+        "exact_message": message,
+        "test_node_id": node,
+        "input_sha256": "0" * 64,
+        "passed": True,
+    }
+
+
+def synthetic_stage3_document() -> dict[str, Any]:
+    """One minimal document that satisfies every Section 8.1 Stage-3 rule."""
+    digest = "0" * 64
+    node = "tests/unit/test_core/test_sci005_full_efield.py::case"
+    io_node = "tests/unit/test_io/test_sci005_beam_config.py::case"
+    command = {
+        "argv": ["pixi", "run", "test"],
+        "cwd": ".",
+        "pixi_environment": "default",
+        "started_at_utc": "2026-08-19T00:00:00Z",
+        "duration_seconds": 1.0,
+        "exit_code": 0,
+        "stdout_sha256": digest,
+        "stderr_sha256": digest,
+    }
+    crossvalidation_digest = "e" * 64
+    document = {
+        "schema_version": "radiosim.sci005.stage3.v1",
+        "stage": 3,
+        "status": "candidate",
+        "generated_at_utc": "2026-08-19T00:00:00Z",
+        "design_sha": "a" * 40,
+        "red_test_sha": "b" * 40,
+        "source_sha": "c" * 40,
+        "evidence_sha": None,
+        "working_tree_clean": True,
+        "radiosim_version": "0.3.0",
+        "python_version": "3.11.13",
+        "platform": "macOS-15",
+        "machine": "arm64",
+        "pixi_environment": "default",
+        "pixi_lock_sha256": digest,
+        "scientific_conventions": dict(STAGE3_SCIENTIFIC_CONVENTIONS),
+        "config_cases": [
+            {
+                "case_id": "accepted_full_efield_literal",
+                "test_node_id": io_node,
+                "input_sha256": digest,
+                "expected_outcome": "accepted",
+                "observed_outcome": "accepted",
+                "resolved_scientific_sha256": digest,
+                "exception_type": None,
+                "issue_code": None,
+                "exact_message": None,
+                "passed": True,
+            },
+            {
+                "case_id": "rejected_unknown_literal",
+                "test_node_id": io_node,
+                "input_sha256": digest,
+                "expected_outcome": "rejected",
+                "observed_outcome": "rejected",
+                "resolved_scientific_sha256": None,
+                "exception_type": "ConfigSchemaError",
+                "issue_code": "literal_error",
+                "exact_message": "Input should be 'peak' or 'uvbeam_peak_common_v1'",
+                "passed": True,
+            },
+        ],
+        "analytic_invariants": [
+            {
+                "case_id": "ludwig3_rotation",
+                "invariant_id": "ludwig3_basis_conversion",
+                "backend": "numpy",
+                "test_node_id": node,
+                "input_manifest_sha256": digest,
+                "expected": _stage3_projection([3, 2, 2]),
+                "observed": _stage3_projection([3, 2, 2]),
+                "max_abs_residual": 1e-16,
+                "max_rel_residual": 1e-16,
+                "atol": 1e-12,
+                "rtol": 1e-10,
+                "passed": True,
+            }
+        ],
+        "rejection_probes": [
+            _stage3_rejection_probe(
+                "aperture_physics_family",
+                "beam.aperture_physics.unsupported_beam_family",
+                "beams.aperture_physics",
+                "Stage-1 aperture physics does not support resolved beam family "
+                "'fits'.",
+                io_node,
+            ),
+            _stage3_rejection_probe(
+                "normalization_on_analytic_model",
+                "extra_forbidden",
+                "beams.model.normalization",
+                "Extra inputs are not permitted",
+                io_node,
+            ),
+            _stage3_rejection_probe(
+                "squint_against_fits",
+                "beam.squint.unsupported_beam_family",
+                "beams.squint",
+                "Stage-2 beam squint supports only the analytic beams mode; "
+                "resolved beams mode is 'shared_fits'.",
+                io_node,
+            ),
+            _stage3_rejection_probe(
+                "unknown_normalization_literal",
+                "literal_error",
+                "beams.beam.normalization",
+                "Input should be 'peak' or 'uvbeam_peak_common_v1'",
+                io_node,
+            ),
+        ],
+        "backend_parity": [
+            {
+                "case_id": "efield_point",
+                "backend": backend,
+                "actual_device": "cpu",
+                "real_dtype": "float64",
+                "complex_dtype": "complex128",
+                "input_sha256": digest,
+                "reference_result_sha256": digest,
+                "observed_result_sha256": ("d" * 64 if backend == "jax" else digest),
+                "max_abs_difference": 1e-15 if backend == "jax" else 0.0,
+                "max_rel_difference": 1e-15 if backend == "jax" else 0.0,
+                "atol": 1e-12,
+                "rtol": 1e-10,
+                "passed": True,
+            }
+            for backend in ("dask", "jax", "numpy")
+        ],
+        "solver_cases": [
+            {
+                "case_id": "efield_healpix_case",
+                "effect": "efield_healpix",
+                "test_node_id": node,
+                "input_sha256": digest,
+                "jones_sha256": digest,
+                "visibility_sha256": digest,
+                "diagnostic_sha256": None,
+                "jones_call_count": 4,
+                "visibility_changed_element_count": 8,
+                "visibility_change_expected": True,
+                "passed": True,
+            },
+            {
+                "case_id": "efield_point_case",
+                "effect": "efield_point",
+                "test_node_id": node,
+                "input_sha256": digest,
+                "jones_sha256": digest,
+                "visibility_sha256": digest,
+                "diagnostic_sha256": None,
+                "jones_call_count": 4,
+                "visibility_changed_element_count": 8,
+                "visibility_change_expected": True,
+                "passed": True,
+            },
+        ],
+        "output_cases": [
+            {
+                "case_id": case_id,
+                "format": row_format,
+                "writer_test_node_id": node,
+                "reader_test_node_id": None if row_format == "in_memory" else node,
+                "artifact_sha256": None if row_format == "in_memory" else digest,
+                "in_memory_sha256": digest,
+                "observed_projection_sha256": digest,
+                "roundtrip_max_abs_difference": (
+                    None if row_format == "in_memory" else 0.0
+                ),
+                "tolerance": None if row_format == "in_memory" else 1e-12,
+                "passed": True,
+            }
+            for case_id, row_format in sorted(STAGE3_REQUIRED_OUTPUT_CASES.items())
+        ],
+        "fingerprint_diff": [
+            {
+                "environment": "default",
+                "workload": "point_efield",
+                "old_scientific_sha256": digest,
+                "new_scientific_sha256": "b" * 64,
+                "old_raw_cube_sha256": digest,
+                "new_raw_cube_sha256": "b" * 64,
+                "changed_element_count": 8,
+                "maximum_delta": 0.5,
+                "change_expected": True,
+                "test_node_id": node,
+                "passed": True,
+            },
+            {
+                "environment": "default",
+                "workload": "point_scalar_peak_fits",
+                "old_scientific_sha256": digest,
+                "new_scientific_sha256": digest,
+                "old_raw_cube_sha256": digest,
+                "new_raw_cube_sha256": digest,
+                "changed_element_count": 0,
+                "maximum_delta": 0.0,
+                "change_expected": False,
+                "test_node_id": node,
+                "passed": True,
+            },
+        ],
+        "commands": [command],
+        "artifacts": [
+            {
+                "path": "docs/development/sci005_stage3_evidence.schema.json",
+                "sha256": digest,
+                "media_type": "application/schema+json",
+                "role": "schema",
+            },
+            {
+                "path": STAGE3_CROSSVALIDATION_ARTIFACT,
+                "sha256": crossvalidation_digest,
+                "media_type": "application/json",
+                "role": "output",
+            },
+        ],
+        "limitations": [
+            "Backend parity covers the CPU-only JAX build and Dask over NumPy; "
+            "no accelerator device was exercised, consistent with PERF-001."
+        ],
+        "claims_not_licensed": sorted(STAGE3_REQUIRED_CLAIMS),
+        "efield_file_contracts": [
+            _efield_contract_row(kind, node) for kind in sorted(STAGE3_PROBE_KINDS)
+        ],
+        "basis_conversions": [
+            _basis_conversion_row(oracle, node)
+            for oracle in sorted(STAGE3_ORACLE_KINDS)
+        ],
+        "receptor_factorizations": [
+            _receptor_factorization_row(
+                "circular_receptor_circular_output",
+                "circular",
+                "circular_rl",
+                0.0,
+                node,
+            ),
+            _receptor_factorization_row(
+                "circular_receptor_linear_output", "circular", "linear_xy", 0.0, node
+            ),
+            _receptor_factorization_row(
+                "linear_receptor_circular_output", "linear", "circular_rl", 30.0, node
+            ),
+            _receptor_factorization_row(
+                "linear_receptor_linear_output", "linear", "linear_xy", 0.0, node
+            ),
+        ],
+        "ixr_diagnostics": [
+            _ixr_row("ixr_nonsingular", "nonsingular", node),
+            _ixr_row("ixr_singular", "singular", node),
+            _ixr_row("ixr_unitary_scaled", "unitary_scaled", node),
+        ],
+        "crossvalidation_comparisons": [
+            {
+                "case_id": "efield_pyuvsim_linear_xy",
+                "artifact_path": STAGE3_CROSSVALIDATION_ARTIFACT,
+                "artifact_sha256": crossvalidation_digest,
+                "artifact_generated_at_utc": "2026-08-19T00:00:00Z",
+                "reference_package": "pyuvsim",
+                "reference_version": "1.4.0",
+                "pyuvdata_version": "3.2.1",
+                "pyradiosky_version": "1.1.0",
+                "astropy_version": "7.0.0",
+                "radiosim_source_sha": "c" * 40,
+                "input_hashes": [
+                    {"name": "antenna_layout", "sha256": digest},
+                    {"name": "observation_specification", "sha256": digest},
+                    {"name": "sky_model", "sha256": digest},
+                    {"name": "uvbeam_file", "sha256": digest},
+                ],
+                "convention_mappings": [
+                    {
+                        "radiosim_convention": "beam_normalization",
+                        "reference_convention": "uvbeam peak normalization",
+                        "equivalent": True,
+                    },
+                    {
+                        "radiosim_convention": "east_x_orientation",
+                        "reference_convention": "x_orientation east",
+                        "equivalent": True,
+                    },
+                    {
+                        "radiosim_convention": "fringe_sign",
+                        "reference_convention": "conjugated fringe exponent",
+                        "equivalent": False,
+                    },
+                    {
+                        "radiosim_convention": "stokes_to_coherency_factor",
+                        "reference_convention": "pyradiosky mirror-image V sign",
+                        "equivalent": False,
+                    },
+                ],
+                "correlation_residuals": [
+                    {
+                        "correlation": label,
+                        "max_abs_residual": 1e-12,
+                        "max_rel_residual": 1e-12,
+                        "reference_max_abs": 1.0,
+                    }
+                    for label in sorted(STAGE3_CORRELATION_LABELS["linear_xy"])
+                ],
+                "output_basis": "linear_xy",
+                "gating": False,
+                "open_disagreements": [],
+                "test_node_id": (
+                    "tests/crossvalidation/test_sci005_efield_pyuvsim.py::case"
+                ),
+                "passed": True,
+            }
+        ],
+    }
+    return {key: document[key] for key in STAGE3_KEYS}
+
+
+# --- Section 7.5: the Stage-3 S/E state ---------------------------------------
+
+
+def test_the_stage3_artifact_and_its_null_sentinels_agree() -> None:
+    """At ``S3`` the artifact is absent; at ``E3`` it validates completely.
+
+    This is the Stage-3 half of Section 7.5's ``S``/``E`` rule. It is a separate
+    test rather than a change to the Stage-1 parametrized one, because ``S3``
+    changes no Stage-1 or Stage-2 validator byte.
+    """
+    source, digest = STAGE_CONSTANTS[3]
+    if source is None or digest is None:
+        assert source is None and digest is None, (
+            "the two approved constants for one stage move together"
+        )
+        assert not artifact_path(3).exists()
+        return
+    assert GIT_SHA.fullmatch(source)
+    assert SHA256.fullmatch(digest)
+    assert artifact_path(3).is_file()
+    payload = artifact_path(3).read_bytes()
+    import hashlib
+
+    assert hashlib.sha256(payload).hexdigest() == digest
+    document = json.loads(payload.decode("utf-8"))
+    validate_stage3_evidence(document)
+    assert document["source_sha"] == source
+    authenticate_stage3_succession(document)
+
+
+def test_the_stage3_schema_transcription_and_the_validator_agree() -> None:
+    """The normative Stage-3 transcription and this validator pin the same keys."""
+    schema = json.loads(schema_path(3).read_text(encoding="utf-8"))
+    assert tuple(schema["properties"]) == STAGE3_KEYS
+    assert set(schema["required"]) == set(STAGE3_KEYS)
+    assert schema["additionalProperties"] is False
+    conventions = schema["properties"]["scientific_conventions"]["properties"]
+    assert {key: value["const"] for key, value in conventions.items()} == (
+        STAGE3_SCIENTIFIC_CONVENTIONS
+    )
+    assert schema["properties"]["stage"]["const"] == 3
+    assert schema["properties"]["schema_version"]["const"] == (
+        "radiosim.sci005.stage3.v1"
+    )
+    assert schema["properties"]["evidence_sha"] == {"type": "null"}
+    assert set(schema["$defs"]["solver_case"]["properties"]["effect"]["enum"]) == (
+        STAGE3_SOLVER_EFFECTS
+    )
+    assert (
+        set(schema["$defs"]["efield_file_contract"]["properties"]["probe_kind"]["enum"])
+        == STAGE3_PROBE_KINDS
+    )
+    assert (
+        set(schema["$defs"]["basis_conversion"]["properties"]["oracle_kind"]["enum"])
+        == STAGE3_ORACLE_KINDS
+    )
+    assert (
+        set(schema["$defs"]["ixr_diagnostic"]["properties"]["state"]["enum"])
+        == STAGE3_IXR_STATES
+    )
+    assert schema["$defs"]["crossvalidation_comparison"]["properties"]["gating"] == (
+        {"const": False}
+    )
+    # Section 8.1: no ``complex256`` projection appears anywhere in this envelope.
+    assert (
+        FORBIDDEN_STAGE3_DTYPE
+        not in (schema["$defs"]["numeric_projection"]["properties"]["dtype"]["enum"])
+    )
+
+
+def test_the_generator_declares_the_five_stage3_measurement_keys() -> None:
+    """Section 8.1: Stage 3 appends exactly those five arrays, in that order."""
+    stage_specific = (
+        "efield_file_contracts",
+        "basis_conversions",
+        "receptor_factorizations",
+        "ixr_diagnostics",
+        "crossvalidation_comparisons",
+    )
+    assert STAGE3_KEYS[-5:] == stage_specific
+    assert STAGE3_KEYS[:-5] == STAGE1_KEYS[:-3]
+
+    source = (REPOSITORY_ROOT / GENERATOR).read_text(encoding="utf-8")
+    assert "\nSTAGE3_MEASUREMENT_KEYS" in source, (
+        f"{GENERATOR} must declare STAGE3_MEASUREMENT_KEYS"
+    )
+    body = source.split("\nSTAGE3_MEASUREMENT_KEYS", 1)[1].split(")", 1)[0]
+    declared = tuple(re.findall(r'"([a-z0-9_]+)"', body))
+    assert declared == stage_specific
+
+
+def test_the_generator_registers_the_stage3_measurement_table_entry() -> None:
+    """Section 8.1: ``S3`` adds the Stage-3 entry to the stage-keyed table."""
+    source = (REPOSITORY_ROOT / GENERATOR).read_text(encoding="utf-8")
+    body = source.split("\nSTAGE_MEASUREMENT_KEYS", 1)[1].split("}", 1)[0]
+    assert "3: STAGE3_MEASUREMENT_KEYS" in body
+    assert "1: STAGE1_MEASUREMENT_KEYS" in body
+    assert "2: STAGE2_MEASUREMENT_KEYS" in body
+
+
+def test_the_generator_declares_the_stage3_crossvalidation_input_kind() -> None:
+    """Section 8.1's one conditional artifact-input kind and its frozen schema."""
+    source = (REPOSITORY_ROOT / GENERATOR).read_text(encoding="utf-8")
+    assert 'STAGE3_CROSSVALIDATION_INPUT_KIND = "stage3_crossvalidation_temp"' in source
+    assert (
+        'STAGE3_CROSSVALIDATION_SCHEMA = "radiosim.sci005.stage3-crossvalidation.v1"'
+        in source
+    )
+    assert (
+        f'STAGE3_CROSSVALIDATION_DIRECTORY = "{STAGE3_CROSSVALIDATION_DIRECTORY}"'
+        in (source)
+    )
+    body = source.split("\nSTAGE3_CROSSVALIDATION_KEYS", 1)[1].split(")", 1)[0]
+    assert tuple(re.findall(r'"([a-z0-9_]+)"', body)) == (
+        "schema_version",
+        "generated_at_utc",
+        "source_sha",
+        "target_path",
+        "gating",
+        "reference_package",
+        "reference_version",
+        "pyuvdata_version",
+        "pyradiosky_version",
+        "astropy_version",
+        "radiosim_version",
+        "output_basis",
+        "input_hashes",
+        "convention_mappings",
+        "correlation_residuals",
+        "open_disagreements",
+        "commands",
+    )
+    versions = source.split("\nSTAGE3_CROSSVALIDATION_VERSIONS", 1)[1].split("}", 1)[0]
+    for key, literal in STAGE3_CROSSVALIDATION_VERSIONS.items():
+        assert f'"{key}": "{literal}"' in versions
+
+
+def _generator_probe(body: str) -> subprocess.CompletedProcess[str]:
+    """Exercise the stdlib-only generator out of process.
+
+    This validator may not import the tool directly:
+    :func:`test_this_validator_loads_only_the_standard_library` scans every
+    ``import`` statement in this file, and the Stage-2 tests already set the
+    precedent of reading the generator's source or driving it in a subprocess.
+    """
+    return subprocess.run(
+        [sys.executable, "-c", "import sys; sys.path.insert(0, 'tools')\n" + body],
+        cwd=str(REPOSITORY_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+_TEMP_KIND_ROWS = (
+    "rows = [{'path': %r, 'input_kind': 'stage3_crossvalidation_temp',\n"
+    "         'input_path': %r, 'media_type': 'application/json',\n"
+    "         'role': 'output'}]\n"
+)
+
+
+def test_the_temporary_crossvalidation_kind_is_refused_before_stage_three() -> None:
+    """Section 8.1: the kind is legal exactly once, only at Stage 3."""
+    completed = _generator_probe(
+        "import sci005_stage_evidence as m\n"
+        + _TEMP_KIND_ROWS % (STAGE3_CROSSVALIDATION_ARTIFACT, "/tmp/absent.json")
+        + "try:\n"
+        "    m.build_artifacts(rows, 2, {}, 'c' * 40)\n"
+        "except m.EvidenceError as error:\n"
+        "    print(error)\n"
+        "else:\n"
+        "    raise SystemExit('the temporary kind was accepted at stage 2')\n"
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "stage 3" in completed.stdout
+
+
+def test_a_crossvalidation_input_inside_the_repository_is_refused() -> None:
+    """Section 8.1: the temporary input resolves outside repository root."""
+    completed = _generator_probe(
+        "import sci005_stage_evidence as m\n"
+        + _TEMP_KIND_ROWS
+        % (STAGE3_CROSSVALIDATION_ARTIFACT, str(REPOSITORY_ROOT / "pyproject.toml"))
+        + "try:\n"
+        "    m.build_artifacts(rows, 3, {}, 'c' * 40)\n"
+        "except m.EvidenceError as error:\n"
+        "    print(error)\n"
+        "else:\n"
+        "    raise SystemExit('an in-repository temporary input was accepted')\n"
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "outside the repository" in completed.stdout
+
+
+# --- Stage-3 rejection classes -------------------------------------------------
+
+
+def test_a_complete_synthetic_stage3_document_validates() -> None:
+    validate_stage3_evidence(synthetic_stage3_document())
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "schema_version",
+        "scientific_conventions",
+        "efield_file_contracts",
+        "basis_conversions",
+        "receptor_factorizations",
+        "ixr_diagnostics",
+        "crossvalidation_comparisons",
+    ],
+)
+def test_a_missing_stage3_top_level_key_is_rejected(key: str) -> None:
+    document = synthetic_stage3_document()
+    del document[key]
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_an_unknown_stage3_top_level_key_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["squint_geometries"] = []
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_reordered_stage3_top_level_key_sequence_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    reordered = {key: document[key] for key in reversed(STAGE3_KEYS)}
+    with pytest.raises(EvidenceSchemaError, match="declared order"):
+        validate_stage3_evidence(reordered)
+
+
+def test_a_stage2_schema_version_on_a_stage3_document_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["schema_version"] = "radiosim.sci005.stage2.v1"
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_document_declaring_stage_two_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["stage"] = 2
+    with pytest.raises(EvidenceSchemaError, match="integer 3"):
+        validate_stage3_evidence(document)
+
+
+def test_a_boolean_stage3_stage_number_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["stage"] = True
+    with pytest.raises(EvidenceSchemaError, match="integer 3"):
+        validate_stage3_evidence(document)
+
+
+def test_a_non_null_stage3_evidence_sha_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["evidence_sha"] = "c" * 40
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage2_convention_literal_on_a_stage3_document_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["scientific_conventions"]["efield_factorization"] = (
+        "receptor_conjugated_native_diagonal_v1"
+    )
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_an_extra_stage3_scientific_convention_key_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["scientific_conventions"]["squint_frequency_law"] = "cotton_uson_exact_v1"
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_complex256_projection_anywhere_is_rejected() -> None:
+    """Section 8.1: no Stage-3 computation can be performed at extended width."""
+    document = synthetic_stage3_document()
+    document["analytic_invariants"][0]["observed"]["dtype"] = "complex256"
+    with pytest.raises(EvidenceSchemaError, match="complex256"):
+        validate_stage3_evidence(document)
+
+
+def test_the_stage2_claim_member_set_does_not_satisfy_stage3() -> None:
+    document = synthetic_stage3_document()
+    document["claims_not_licensed"] = sorted(
+        [
+            "SCI-005 Stage-2 acceptance",
+            "SCI-005 Stage 3",
+            "SCI-005 whole-row closure",
+            "a full cross-polar or measured-efield beam response",
+        ]
+    )
+    with pytest.raises(EvidenceSchemaError, match="exactly"):
+        validate_stage3_evidence(document)
+
+
+def test_a_missing_stage3_claim_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["claims_not_licensed"] = [
+        claim
+        for claim in document["claims_not_licensed"]
+        if claim != "an unqualified validation against pyuvsim"
+    ]
+    with pytest.raises(EvidenceSchemaError, match="exactly"):
+        validate_stage3_evidence(document)
+
+
+def test_an_extra_stage3_claim_is_rejected() -> None:
+    """The Stage-3 rule is "exactly the members", not "at least"."""
+    document = synthetic_stage3_document()
+    document["claims_not_licensed"] = sorted(
+        [*document["claims_not_licensed"], "a whole other physics"]
+    )
+    with pytest.raises(EvidenceSchemaError, match="exactly"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage2_solver_effect_is_rejected_at_stage3() -> None:
+    document = synthetic_stage3_document()
+    document["solver_cases"][0]["effect"] = "squint_healpix"
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_missing_stage3_solver_effect_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["solver_cases"] = document["solver_cases"][:1]
+    with pytest.raises(EvidenceSchemaError, match="efield_point"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_solver_row_carrying_a_diagnostic_digest_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["solver_cases"][0]["diagnostic_sha256"] = "0" * 64
+    with pytest.raises(EvidenceSchemaError, match="null on every"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_solver_row_that_moved_no_visibility_element_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["solver_cases"][0]["visibility_changed_element_count"] = 0
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_dask_parity_row_that_is_not_byte_identical_is_rejected() -> None:
+    """Section 8.1: NumPy and Dask must be byte-identical at Stage 3."""
+    document = synthetic_stage3_document()
+    document["backend_parity"][0]["observed_result_sha256"] = "f" * 64
+    with pytest.raises(EvidenceSchemaError, match="byte-identical"):
+        validate_stage3_evidence(document)
+
+
+def test_a_dask_parity_row_with_a_nonzero_difference_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["backend_parity"][0]["max_abs_difference"] = 1e-18
+    with pytest.raises(EvidenceSchemaError, match="exactly zero"):
+        validate_stage3_evidence(document)
+
+
+def test_a_jax_parity_row_beyond_its_tolerance_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["backend_parity"]:
+        if row["backend"] == "jax":
+            row["max_abs_difference"] = 1.0
+    with pytest.raises(EvidenceSchemaError, match="float64 tolerance"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_parity_case_missing_a_backend_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["backend_parity"] = document["backend_parity"][:2]
+    with pytest.raises(EvidenceSchemaError, match="missing a backend"):
+        validate_stage3_evidence(document)
+
+
+def test_a_missing_required_stage3_output_row_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["output_cases"] = [
+        row
+        for row in document["output_cases"]
+        if row["case_id"] != "efield_uvfits_circular_rl"
+    ]
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_required_stage3_output_row_with_the_wrong_format_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["output_cases"]:
+        if row["case_id"] == "efield_hdf5_linear_xy":
+            row["format"] = "summary_json"
+    with pytest.raises(EvidenceSchemaError, match="must carry format"):
+        validate_stage3_evidence(document)
+
+
+def test_a_missing_stage3_rejection_probe_code_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["rejection_probes"] = [
+        row
+        for row in document["rejection_probes"]
+        if row["issue_code"] != "literal_error"
+    ]
+    with pytest.raises(EvidenceSchemaError, match="literal_error"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_rejection_probe_with_a_foreign_config_path_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["rejection_probes"]:
+        if row["issue_code"] == "literal_error":
+            row["config_path"] = "beams.squint.default.convention"
+    with pytest.raises(EvidenceSchemaError, match="frozen path"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_rejection_probe_with_the_wrong_exception_type_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["rejection_probes"]:
+        if row["issue_code"] == "extra_forbidden":
+            row["exception_type"] = "ConfigSemanticError"
+    with pytest.raises(EvidenceSchemaError, match="frozen to"):
+        validate_stage3_evidence(document)
+
+
+def test_a_paraphrased_reused_family_message_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["rejection_probes"]:
+        if row["issue_code"] == "beam.squint.unsupported_beam_family":
+            row["exact_message"] = "squint is not supported for FITS beams"
+    with pytest.raises(EvidenceSchemaError, match="frozen message"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_disabled_workload_whose_fingerprint_moved_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["fingerprint_diff"][1]["new_scientific_sha256"] = "c" * 64
+    with pytest.raises(EvidenceSchemaError, match="byte-identical"):
+        validate_stage3_evidence(document)
+
+
+def test_a_disabled_control_whose_cube_bytes_moved_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["fingerprint_diff"][1]["new_raw_cube_sha256"] = "c" * 64
+    with pytest.raises(EvidenceSchemaError, match="cube bytes"):
+        validate_stage3_evidence(document)
+
+
+def test_a_fingerprint_set_without_a_scalar_peak_fits_control_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["fingerprint_diff"][1]["workload"] = "point_scalar_default"
+    with pytest.raises(EvidenceSchemaError, match="scalar peak FITS workload"):
+        validate_stage3_evidence(document)
+
+
+def test_a_missing_efield_probe_kind_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["efield_file_contracts"] = document["efield_file_contracts"][:-1]
+    with pytest.raises(EvidenceSchemaError, match="missing probe kinds"):
+        validate_stage3_evidence(document)
+
+
+def test_an_accepted_file_row_carrying_an_exception_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "accepted_linear_pair":
+            row["exception_type"] = "UnsupportedBeamFeedError"
+    with pytest.raises(EvidenceSchemaError, match="no error field"):
+        validate_stage3_evidence(document)
+
+
+def test_a_rejected_file_row_with_a_null_message_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "power_beam":
+            row["exact_message"] = None
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_file_row_with_the_wrong_frozen_exception_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "grid_coverage":
+            row["exception_type"] = "UnsupportedBeamCoordinateError"
+    with pytest.raises(EvidenceSchemaError, match="frozen to"):
+        validate_stage3_evidence(document)
+
+
+def test_an_accepted_kind_recorded_as_rejected_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "accepted_circular_pair":
+            row["outcome"] = "rejected"
+    with pytest.raises(EvidenceSchemaError, match="accepted_\\* kinds"):
+        validate_stage3_evidence(document)
+
+
+def test_a_basis_vector_not_identity_row_claiming_the_identity_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "basis_vector_not_identity":
+            row["stored_basis_is_identity"] = True
+    with pytest.raises(EvidenceSchemaError, match="native identity"):
+        validate_stage3_evidence(document)
+
+
+def test_an_accepted_row_without_the_stored_identity_basis_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "accepted_linear_pair":
+            row["stored_basis_is_identity"] = False
+    with pytest.raises(EvidenceSchemaError, match="native identity basis"):
+        validate_stage3_evidence(document)
+
+
+def test_an_accepted_row_whose_peak_leaves_its_tolerance_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "accepted_linear_pair":
+            row["common_peak_by_frequency"][1]["observed_peak"] = 1.5
+    with pytest.raises(EvidenceSchemaError, match="unit-peak"):
+        validate_stage3_evidence(document)
+
+
+def test_an_accepted_row_narrowed_to_a_non_native_dtype_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "accepted_linear_pair":
+            row["native_data_dtype"] = "float64"
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_non_increasing_common_peak_frequency_grid_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "accepted_linear_pair":
+            row["common_peak_by_frequency"][1]["frequency_hz"] = 1.0e8
+    with pytest.raises(EvidenceSchemaError, match="strictly increasing"):
+        validate_stage3_evidence(document)
+
+
+def test_a_paraphrased_float128_message_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["efield_file_contracts"]:
+        if row["probe_kind"] == "extended_precision":
+            row["exact_message"] = "float128 beam precision is not supported"
+    with pytest.raises(EvidenceSchemaError, match="float128 rejection literal"):
+        validate_stage3_evidence(document)
+
+
+def test_a_feed_array_of_the_wrong_length_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["efield_file_contracts"][0]["feed_array"] = ["x", "y", "z"]
+    with pytest.raises(EvidenceSchemaError, match="exactly two"):
+        validate_stage3_evidence(document)
+
+
+def test_a_receptor_feed_rotation_outside_its_interval_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["efield_file_contracts"][0]["receptor_feed_rotation_rad"] = -math.pi
+    with pytest.raises(EvidenceSchemaError, match="outside the interval"):
+        validate_stage3_evidence(document)
+
+
+def test_a_missing_basis_conversion_oracle_kind_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["basis_conversions"] = document["basis_conversions"][:-1]
+    with pytest.raises(EvidenceSchemaError, match="missing oracle kinds"):
+        validate_stage3_evidence(document)
+
+
+def test_a_conversion_residual_above_its_bound_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["basis_conversions"]:
+        if row["oracle_kind"] == "crossed_ideal_dipole":
+            row["max_abs_residual"] = 1.0
+    with pytest.raises(EvidenceSchemaError, match="atol/rtol bound"):
+        validate_stage3_evidence(document)
+
+
+def test_a_zenith_limit_delta_above_its_bound_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["basis_conversions"]:
+        if row["oracle_kind"] == "ludwig3_rotation":
+            row["zenith_limit_max_abs_delta"] = 1.0
+    with pytest.raises(EvidenceSchemaError, match="atol/rtol bound"):
+        validate_stage3_evidence(document)
+
+
+def test_a_wrap_continuity_delta_above_its_own_bound_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["basis_conversions"]:
+        if row["oracle_kind"] == "quadrupolar":
+            row["wrap_continuity_max_abs_delta"] = 1.0
+    with pytest.raises(EvidenceSchemaError, match="continuity bound"):
+        validate_stage3_evidence(document)
+
+
+def test_a_power_preservation_residual_above_the_fixed_tolerance_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["basis_conversions"][0]["power_preservation_max_abs_residual"] = 1e-6
+    with pytest.raises(EvidenceSchemaError, match="preserves power"):
+        validate_stage3_evidence(document)
+
+
+def test_an_orthogonality_residual_above_the_fixed_tolerance_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["basis_conversions"][0]["orthogonality_max_abs_residual"] = 1e-6
+    with pytest.raises(EvidenceSchemaError, match="orthogonal"):
+        validate_stage3_evidence(document)
+
+
+def test_a_scalar_subset_control_that_agrees_is_rejected() -> None:
+    """The control is the retained divergence witness, not an agreement row."""
+    document = synthetic_stage3_document()
+    for row in document["basis_conversions"]:
+        if row["oracle_kind"] == STAGE3_SCALAR_SUBSET_CONTROL:
+            row["max_abs_residual"] = 0.0
+    with pytest.raises(EvidenceSchemaError, match="measured divergence"):
+        validate_stage3_evidence(document)
+
+
+def test_a_conversion_projection_narrowed_to_complex64_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["basis_conversions"][0]["observed"]["dtype"] = "complex64"
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_conversion_projection_of_the_wrong_shape_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["basis_conversions"][0]["expected"]["shape"] = [2, 2]
+    document["basis_conversions"][0]["observed"]["shape"] = [2, 2]
+    with pytest.raises(EvidenceSchemaError, match="S, 2, 2"):
+        validate_stage3_evidence(document)
+
+
+def test_a_probe_projection_that_disagrees_with_the_conversion_extent_is_rejected() -> (
+    None
+):
+    document = synthetic_stage3_document()
+    document["basis_conversions"][0]["probe_azimuth_rad"]["shape"] = [4]
+    document["basis_conversions"][0]["probe_zenith_angle_rad"]["shape"] = [4]
+    with pytest.raises(EvidenceSchemaError, match="retained probe count"):
+        validate_stage3_evidence(document)
+
+
+def test_a_missing_receptor_output_basis_combination_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["receptor_factorizations"] = document["receptor_factorizations"][:-1]
+    with pytest.raises(EvidenceSchemaError, match="missing receptor/output"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_factorization_array_without_a_rotated_linear_row_is_rejected() -> (
+    None
+):
+    document = synthetic_stage3_document()
+    for row in document["receptor_factorizations"]:
+        row["feed_rotation_deg"] = 0.0
+    with pytest.raises(EvidenceSchemaError, match="non-zero feed_rotation_deg"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_factorization_residual_above_its_atol_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["receptor_factorizations"][0]["factorization_max_abs_residual"] = 1.0
+    with pytest.raises(EvidenceSchemaError, match="retained atol"):
+        validate_stage3_evidence(document)
+
+
+def test_an_output_basis_residual_above_its_atol_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["receptor_factorizations"][0]["output_basis_max_abs_residual"] = 1.0
+    with pytest.raises(EvidenceSchemaError, match="retained atol"):
+        validate_stage3_evidence(document)
+
+
+def test_a_noncommuting_component_that_fails_its_recomputation_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["receptor_factorizations"][0]["noncommuting_component"] = 1.0
+    with pytest.raises(EvidenceSchemaError, match="recomputation"):
+        validate_stage3_evidence(document)
+
+
+def test_a_commuting_factorization_row_is_rejected() -> None:
+    """A diagonal, symmetric ``E`` commutes with every real rotation."""
+    document = synthetic_stage3_document()
+    row = document["receptor_factorizations"][0]
+    row["e_matrix"] = [
+        [{"real": 1.0, "imag": 0.0}, {"real": 0.0, "imag": 0.0}],
+        [{"real": 0.0, "imag": 0.0}, {"real": 1.0, "imag": 0.0}],
+    ]
+    row["noncommuting_component"] = 0.0
+    with pytest.raises(EvidenceSchemaError, match="does not commute"):
+        validate_stage3_evidence(document)
+
+
+def test_an_order_control_below_the_thousand_atol_floor_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["receptor_factorizations"][0]["order_control_max_abs_difference"] = 1e-9
+    with pytest.raises(EvidenceSchemaError, match="does not commute"):
+        validate_stage3_evidence(document)
+
+
+def test_a_missing_ixr_state_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["ixr_diagnostics"] = document["ixr_diagnostics"][:-1]
+    with pytest.raises(EvidenceSchemaError, match="missing IXR states"):
+        validate_stage3_evidence(document)
+
+
+def test_an_ixr_state_that_contradicts_its_singular_values_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["ixr_diagnostics"]:
+        if row["case_id"] == "ixr_nonsingular":
+            row["state"] = "unitary_scaled"
+    with pytest.raises(EvidenceSchemaError, match="classifies this row"):
+        validate_stage3_evidence(document)
+
+
+def test_a_singular_row_carrying_a_derived_quantity_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["ixr_diagnostics"]:
+        if row["state"] == "singular":
+            row["condition_number"] = 1.0
+    with pytest.raises(EvidenceSchemaError, match="null derived fields"):
+        validate_stage3_evidence(document)
+
+
+def test_a_unitary_scaled_row_carrying_an_ixr_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["ixr_diagnostics"]:
+        if row["state"] == "unitary_scaled":
+            row["ixr_linear"] = 1e30
+    with pytest.raises(EvidenceSchemaError, match="non-finite number"):
+        validate_stage3_evidence(document)
+
+
+def test_a_unitary_scaled_row_with_a_forced_condition_number_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["ixr_diagnostics"]:
+        if row["state"] == "unitary_scaled":
+            row["condition_number"] = 1.5
+    with pytest.raises(EvidenceSchemaError, match="realized ratio"):
+        validate_stage3_evidence(document)
+
+
+def test_a_nonsingular_row_that_fails_its_recomputation_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["ixr_diagnostics"]:
+        if row["state"] == "nonsingular":
+            row["ixr_db"] = 3.0
+    with pytest.raises(EvidenceSchemaError, match="log10 recomputation"):
+        validate_stage3_evidence(document)
+
+
+def test_a_nonsingular_row_missing_a_derived_quantity_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["ixr_diagnostics"]:
+        if row["state"] == "nonsingular":
+            row["leakage_magnitude"] = None
+    with pytest.raises(EvidenceSchemaError, match="all four quantities"):
+        validate_stage3_evidence(document)
+
+
+def test_an_ixr_row_whose_minimum_exceeds_its_maximum_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    for row in document["ixr_diagnostics"]:
+        if row["state"] == "nonsingular":
+            row["sigma_min"] = 3.0
+    with pytest.raises(EvidenceSchemaError, match="must not exceed sigma_max"):
+        validate_stage3_evidence(document)
+
+
+def test_a_comparison_naming_a_foreign_source_sha_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["crossvalidation_comparisons"][0]["radiosim_source_sha"] = "f" * 40
+    with pytest.raises(EvidenceSchemaError, match="own source_sha"):
+        validate_stage3_evidence(document)
+
+
+def test_a_comparison_whose_artifact_is_not_the_dated_one_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["crossvalidation_comparisons"][0]["artifact_path"] = (
+        "output/crossvalidation/2026-08-19-pyuvsim-1.4.0.json"
+    )
+    with pytest.raises(EvidenceSchemaError, match="dated cross-validation basename"):
+        validate_stage3_evidence(document)
+
+
+def test_a_comparison_whose_basename_date_disagrees_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["crossvalidation_comparisons"][0]["artifact_generated_at_utc"] = (
+        "2026-08-20T00:00:00Z"
+    )
+    with pytest.raises(EvidenceSchemaError, match="UTC date"):
+        validate_stage3_evidence(document)
+
+
+def test_a_comparison_digest_disagreeing_with_its_artifacts_row_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["crossvalidation_comparisons"][0]["artifact_sha256"] = "1" * 64
+    with pytest.raises(EvidenceSchemaError, match="disagrees with its artifacts row"):
+        validate_stage3_evidence(document)
+
+
+def test_a_comparison_absent_from_the_artifacts_array_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["artifacts"] = document["artifacts"][:1]
+    with pytest.raises(EvidenceSchemaError, match="not retained in the artifacts"):
+        validate_stage3_evidence(document)
+
+
+def test_a_gating_comparison_row_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["crossvalidation_comparisons"][0]["gating"] = True
+    with pytest.raises(EvidenceSchemaError, match="boolean false"):
+        validate_stage3_evidence(document)
+
+
+def test_a_floated_reference_version_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["crossvalidation_comparisons"][0]["reference_version"] = "1.4.2"
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_correlation_residuals_from_the_wrong_basis_are_rejected() -> None:
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["correlation_residuals"] = [
+        {
+            "correlation": label,
+            "max_abs_residual": 1e-12,
+            "max_rel_residual": 1e-12,
+            "reference_max_abs": 1.0,
+        }
+        for label in sorted(STAGE3_CORRELATION_LABELS["circular_rl"])
+    ]
+    with pytest.raises(EvidenceSchemaError, match="complete 'linear_xy' label set"):
+        validate_stage3_evidence(document)
+
+
+def test_unsorted_correlation_residuals_are_rejected() -> None:
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["correlation_residuals"] = list(reversed(row["correlation_residuals"]))
+    with pytest.raises(EvidenceSchemaError, match="sorted"):
+        validate_stage3_evidence(document)
+
+
+def test_an_incomplete_convention_mapping_set_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["convention_mappings"] = row["convention_mappings"][:3]
+    with pytest.raises(EvidenceSchemaError, match="at least 4"):
+        validate_stage3_evidence(document)
+
+
+def test_an_incomplete_input_hash_set_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["input_hashes"] = row["input_hashes"][:3]
+    with pytest.raises(EvidenceSchemaError, match="at least 4"):
+        validate_stage3_evidence(document)
+
+
+def test_an_unsorted_stage3_case_id_sequence_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["efield_file_contracts"] = list(
+        reversed(document["efield_file_contracts"])
+    )
+    with pytest.raises(EvidenceSchemaError, match="sorted"):
+        validate_stage3_evidence(document)
+
+
+def test_a_duplicate_stage3_case_id_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["ixr_diagnostics"][1]["case_id"] = document["ixr_diagnostics"][0][
+        "case_id"
+    ]
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_boolean_where_a_stage3_number_belongs_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["basis_conversions"][0]["atol"] = True
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_non_finite_stage3_number_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["receptor_factorizations"][0]["order_control_max_abs_difference"] = float(
+        "inf"
+    )
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_false_stage3_row_is_rejected() -> None:
+    document = synthetic_stage3_document()
+    document["ixr_diagnostics"][0]["passed"] = False
+    with pytest.raises(EvidenceSchemaError):
+        validate_stage3_evidence(document)
+
+
+def test_a_nonzero_command_exit_code_is_rejected_at_stage3() -> None:
+    document = synthetic_stage3_document()
+    document["commands"][0]["exit_code"] = 1
+    with pytest.raises(EvidenceSchemaError, match="zero exit code"):
+        validate_stage3_evidence(document)
+
+
+def test_a_stage3_document_whose_design_equals_its_red_test_is_refused() -> None:
+    """The recorded generator defect must fail authentication, not pass it."""
+    document = synthetic_stage3_document()
+    document["design_sha"] = document["red_test_sha"]
+    with pytest.raises(EvidenceSchemaError, match="same commit"):
+        authenticate_stage3_succession(document)
+
+
+def test_the_stage3_succession_reads_parents_not_peels() -> None:
+    """``<sha>^{commit}`` peels; only ``<sha>^`` is the direct parent.
+
+    Section 8.1 records that confusion as the evidence generator's Stage-2
+    defect. The same confusion inside this validator would make the three
+    Stage-3 ancestry facts tautologies, so the distinction is pinned against
+    real repository objects rather than assumed.
+    """
+    head = _stage2_git("rev-parse", "HEAD")
+    assert _stage2_git("rev-parse", f"{head}^{{commit}}") == head
+    parent = _stage3_parent_of(head)
+    assert GIT_SHA.fullmatch(parent)
+    assert parent != head
+    assert parent == _stage2_git("rev-parse", "HEAD^")
