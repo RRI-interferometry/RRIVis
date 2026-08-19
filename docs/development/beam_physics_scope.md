@@ -182,9 +182,18 @@ The RCP/LCP beam offset `theta_squint ≈ d_offset / (2 f)` produces spurious
 Stokes V, `V_meas = V_true + (1/2) I (dA/dn) theta_squint`, and rotates with
 parallactic angle on an alt-az mount.
 
-Out of scope: squint is by definition a *polarization-dependent* beam, so it
-requires a non-scalar `E`. This is also why `BeamSquintLeakageJones` was deleted
-in Tier 7C rather than implemented — an exported class that could only ever
-return the identity is the defect `SCI-001` exists to remove.
+**Implemented — `SCI-005` Stage 2, independently accepted 2026-08-19.**
+`beams.squint` applies the exact Cotton/Uson arcsine frequency law with the
+squint direction at `+pi/2` from the mechanical feed ray in the beam frame,
+mount field rotation evaluated at the resolved boresight, and the two native
+feeds sampling oppositely displaced scalar beams; the beam runtime composes
+the generally full `E = C^dagger D_b C` from those samples and the antenna's
+resolved receptor matrix. For a circular receptor this `E` commutes exactly
+with every real rotation, so the order control lives on a rotated linear
+receptor. The governing design is
+`docs/development/sci005_beam_physics_plan.md` Section 4; the retained
+evidence and acceptance records are
+`docs/development/sci005_stage2_evidence.json` and
+`docs/development/sci005_stage2_acceptance.json`.
 
 **Reference.** Cotton & Uson (2008), arXiv:0807.0026.

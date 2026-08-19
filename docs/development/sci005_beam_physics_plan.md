@@ -3394,3 +3394,16 @@ accepted.
 These sources constrain the named equations and formats. They do not by
 themselves establish RadioSim implementation correctness; that requires the
 stage evidence and independent acceptance above.
+
+## Acceptance notes (append-only)
+
+**Stage 2 accepted — 2026-08-19.** The retained succession is operative `D2`
+`b6d09b7` (through the two accepted bounded corrections and the reopened
+first red slice this memo's header records) `-> R2 da18f96 -> S2 5c94d92
+-> E2 56f7fd5 -> A2 7523706c8c8d480de079100bc21871eb5616536e`, independent
+reviewer verdict `ACCEPT`, acceptance artifact
+`sha256:c19c45cc34a6f3870ba5f9f01007911ebe05d643874b663b41a5d2ae733e3d38`.
+The Stage-1 note deferred at `U1` is subsumed by the Section 8.3 chain this
+note completes through `A2`; Stage 1's succession is
+`D1 c6a5ce90 -> R1 e246c5d -> S1 881b1a9 -> E1 bbc2b1b -> A1 2281f2f ->
+U1 d6eb4b0`. `SCI-005` remains **ROADMAP**; Stage 3 is the remaining slice.

@@ -790,5 +790,5 @@ Each work package runs in the established style:
 | WP-5 | DONE — independently accepted 2026-08-11; SCI-006 closed |
 | WP-6 | DONE — independently accepted 2026-08-11; SCI-007 closed as a retained-fixture accuracy bound |
 | WP-7 | CPU ACCEPTED; P-e hardware-gated. PERF-001 remains ROADMAP; supports_gpu remains false; no accelerator evidence or claim is accepted. |
-| WP-8 | Stage 1 ACCEPTED 2026-08-16: succession D1 `c6a5ce90` -> R1 `e246c5d` -> S1 `881b1a9` -> E1 `bbc2b1b` -> A1 `2281f2f` (independent reviewer verdict ACCEPT; retained evidence and acceptance certificates in docs/development/); Stages 2-3 pending their own successions; SCI-005 remains ROADMAP |
+| WP-8 | Stages 1 and 2 ACCEPTED. Stage 1 2026-08-16: D1 `c6a5ce90` -> R1 `e246c5d` -> S1 `881b1a9` -> E1 `bbc2b1b` -> A1 `2281f2f`. Stage 2 (beam squint) 2026-08-19: operative D2 `b6d09b7` (via the two accepted bounded corrections `3d60b6f` and `0c37815`) -> R2 `da18f96` (re-cut superseding `2a5d5aa`) -> S2 `5c94d92` -> E2 `56f7fd5` -> A2 `7523706` (independent reviewer verdict ACCEPT; retained evidence and acceptance certificates in docs/development/; the Stage-2 certificate is the WP-9 M3 export). Stage 3 pending its own succession; SCI-005 remains ROADMAP |
 | WP-9 | Design candidate drafted; Q5 resolved; independent design approval pending; production phase-gated; SCI-004 remains ROADMAP |

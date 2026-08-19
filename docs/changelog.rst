@@ -9,6 +9,16 @@ All notable changes to RadioSim are documented here.
 Added
 ^^^^^
 
+- ``SCI-005`` Stage 2: beam squint. ``beams.squint`` (Cotton/Uson exact
+  arcsine frequency law, mechanical-feed ``+pi/2`` squint direction, mount
+  field rotation at the resolved boresight) with the two native feeds
+  sampling oppositely displaced scalar beams and the beam runtime composing
+  the generally full ``E = C^dagger D_b C`` at the resolved beam dtype; for
+  a circular receptor ``E`` commutes exactly with every real rotation.
+  Strict typed rejection throughout; absent-block results stay
+  byte-identical. Independently accepted 2026-08-19; retained evidence and
+  acceptance certificates live in ``docs/development/``. The register row
+  stays ROADMAP until Stage 3.
 - ``SCI-005`` Stage 1: scalar aperture physics. ``beams.aperture_physics``
   (central blockage, support-leg shadow masks, Noll real unit-RMS Zernike
   surface heights) and the nested ``error_beam_diagnostic`` (separation-domain
