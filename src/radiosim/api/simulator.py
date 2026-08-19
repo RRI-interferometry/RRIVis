@@ -560,6 +560,7 @@ class Simulator:
                     self._resolved.frequency.channel_frequencies_hz
                 ),
                 precision=self._precision,
+                receptors=self._receptor_set,
             )
             self._beam_system = loaded
 

@@ -1,0 +1,1381 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://radiosim.invalid/schema/sci005_stage2_evidence.schema.json",
+  "title": "SCI-005 Stage-2 retained evidence record",
+  "description": "Literal transcription of docs/development/sci005_beam_physics_plan.md Section 8.1's Stage-2 evidence envelope. Cross-field, ordering, recomputation, and digest predicates that JSON Schema cannot express are mandatory validator checks in tests/unit/test_sci005_evidence.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "stage",
+    "status",
+    "generated_at_utc",
+    "design_sha",
+    "red_test_sha",
+    "source_sha",
+    "evidence_sha",
+    "working_tree_clean",
+    "radiosim_version",
+    "python_version",
+    "platform",
+    "machine",
+    "pixi_environment",
+    "pixi_lock_sha256",
+    "scientific_conventions",
+    "config_cases",
+    "analytic_invariants",
+    "rejection_probes",
+    "backend_parity",
+    "solver_cases",
+    "output_cases",
+    "fingerprint_diff",
+    "commands",
+    "artifacts",
+    "limitations",
+    "claims_not_licensed",
+    "squint_frequency_laws",
+    "squint_geometries",
+    "native_feed_factorizations",
+    "stokes_v_leakages",
+    "squint_setup_rejections"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "radiosim.sci005.stage2.v1"
+    },
+    "stage": {
+      "const": 2
+    },
+    "status": {
+      "const": "candidate"
+    },
+    "generated_at_utc": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "design_sha": {
+      "$ref": "#/$defs/git_sha"
+    },
+    "red_test_sha": {
+      "$ref": "#/$defs/git_sha"
+    },
+    "source_sha": {
+      "$ref": "#/$defs/git_sha"
+    },
+    "evidence_sha": {
+      "type": "null"
+    },
+    "working_tree_clean": {
+      "const": true
+    },
+    "radiosim_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "python_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "platform": {
+      "type": "string",
+      "minLength": 1
+    },
+    "machine": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pixi_environment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pixi_lock_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "scientific_conventions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "squint_frequency_law": {
+          "const": "cotton_uson_exact_v1"
+        },
+        "squint_direction": {
+          "const": "feed_ray_plus_half_pi_north_through_east_v1"
+        },
+        "squint_beam_frame": {
+          "const": "pointing_then_squint_great_circle_v1"
+        },
+        "squint_factorization": {
+          "const": "receptor_conjugated_native_diagonal_v1"
+        }
+      },
+      "required": [
+        "squint_frequency_law",
+        "squint_direction",
+        "squint_beam_frame",
+        "squint_factorization"
+      ]
+    },
+    "config_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/config_case"
+      }
+    },
+    "analytic_invariants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/analytic_invariant"
+      }
+    },
+    "rejection_probes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/rejection_probe"
+      }
+    },
+    "backend_parity": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/backend_parity"
+      }
+    },
+    "solver_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/solver_case"
+      }
+    },
+    "output_cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/output_case"
+      }
+    },
+    "fingerprint_diff": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/fingerprint_row"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/command_row"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/artifact_row"
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "claims_not_licensed": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "squint_frequency_laws": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/squint_frequency_law"
+      }
+    },
+    "squint_geometries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/squint_geometry"
+      }
+    },
+    "native_feed_factorizations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/native_feed_factorization"
+      }
+    },
+    "stokes_v_leakages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/stokes_v_leakage"
+      }
+    },
+    "squint_setup_rejections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/squint_setup_rejection"
+      }
+    }
+  },
+  "$defs": {
+    "git_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "canonical_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(^|/)\\.\\.?(/|$))(?!.*//)(?!.*/$).+$"
+    },
+    "numeric_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "float32",
+            "float64",
+            "float128",
+            "complex64",
+            "complex128",
+            "complex256"
+          ]
+        },
+        "shape": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "c_order_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "minimum_abs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_abs": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dtype",
+        "shape",
+        "c_order_sha256",
+        "minimum_abs",
+        "maximum_abs"
+      ]
+    },
+    "factorization_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dtype": {
+          "enum": [
+            "complex128",
+            "complex256"
+          ]
+        },
+        "shape": {
+          "oneOf": [
+            {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [
+                {
+                  "const": 2
+                },
+                {
+                  "const": 2
+                }
+              ]
+            },
+            {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "prefixItems": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "const": 2
+                },
+                {
+                  "const": 2
+                }
+              ]
+            }
+          ]
+        },
+        "c_order_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "minimum_abs": {
+          "type": "number",
+          "minimum": 0
+        },
+        "maximum_abs": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "dtype",
+        "shape",
+        "c_order_sha256",
+        "minimum_abs",
+        "maximum_abs"
+      ]
+    },
+    "complex_pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "real": {
+          "type": "number"
+        },
+        "imag": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "real",
+        "imag"
+      ]
+    },
+    "command_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "cwd": {
+          "const": "."
+        },
+        "pixi_environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "started_at_utc": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "exit_code": {
+          "const": 0
+        },
+        "stdout_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "stderr_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "argv",
+        "cwd",
+        "pixi_environment",
+        "started_at_utc",
+        "duration_seconds",
+        "exit_code",
+        "stdout_sha256",
+        "stderr_sha256"
+      ]
+    },
+    "artifact_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*\\\\)(?!.*(^|/)\\.\\.?(/|$))(?!.*//)(?!.*/$).+$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "media_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "enum": [
+            "schema",
+            "command_log",
+            "output",
+            "fingerprint",
+            "auxiliary"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "media_type",
+        "role"
+      ]
+    },
+    "config_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected_outcome": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "observed_outcome": {
+          "enum": [
+            "accepted",
+            "rejected"
+          ]
+        },
+        "resolved_scientific_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exception_type": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "issue_code": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exact_message": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "test_node_id",
+        "input_sha256",
+        "expected_outcome",
+        "observed_outcome",
+        "resolved_scientific_sha256",
+        "exception_type",
+        "issue_code",
+        "exact_message",
+        "passed"
+      ]
+    },
+    "analytic_invariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "invariant_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend": {
+          "enum": [
+            "numpy",
+            "jax",
+            "dask",
+            "independent_oracle"
+          ]
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_manifest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expected": {
+          "$ref": "#/$defs/numeric_projection"
+        },
+        "observed": {
+          "$ref": "#/$defs/numeric_projection"
+        },
+        "max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_rel_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rtol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "invariant_id",
+        "backend",
+        "test_node_id",
+        "input_manifest_sha256",
+        "expected",
+        "observed",
+        "max_abs_residual",
+        "max_rel_residual",
+        "atol",
+        "rtol",
+        "passed"
+      ]
+    },
+    "rejection_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "config_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exception_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "issue_code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exact_message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "config_path",
+        "exception_type",
+        "issue_code",
+        "exact_message",
+        "test_node_id",
+        "input_sha256",
+        "passed"
+      ]
+    },
+    "backend_parity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "backend": {
+          "enum": [
+            "numpy",
+            "jax",
+            "dask"
+          ]
+        },
+        "actual_device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "real_dtype": {
+          "enum": [
+            "float32",
+            "float64"
+          ]
+        },
+        "complex_dtype": {
+          "enum": [
+            "complex64",
+            "complex128"
+          ]
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "reference_result_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_result_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "max_abs_difference": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_rel_difference": {
+          "type": "number",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "rtol": {
+          "type": "number",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "backend",
+        "actual_device",
+        "real_dtype",
+        "complex_dtype",
+        "input_sha256",
+        "reference_result_sha256",
+        "observed_result_sha256",
+        "max_abs_difference",
+        "max_rel_difference",
+        "atol",
+        "rtol",
+        "passed"
+      ]
+    },
+    "solver_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "effect": {
+          "enum": [
+            "squint_point",
+            "squint_healpix"
+          ]
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "jones_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "visibility_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "diagnostic_sha256": {
+          "type": "null"
+        },
+        "jones_call_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "visibility_changed_element_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "visibility_change_expected": {
+          "const": true
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "effect",
+        "test_node_id",
+        "input_sha256",
+        "jones_sha256",
+        "visibility_sha256",
+        "diagnostic_sha256",
+        "jones_call_count",
+        "visibility_changed_element_count",
+        "visibility_change_expected",
+        "passed"
+      ]
+    },
+    "output_case": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "format": {
+          "enum": [
+            "in_memory",
+            "summary_json",
+            "hdf5",
+            "uvfits",
+            "measurement_set",
+            "reader_projection"
+          ]
+        },
+        "writer_test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reader_test_node_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "artifact_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "in_memory_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "observed_projection_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "roundtrip_max_abs_difference": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tolerance": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "format",
+        "writer_test_node_id",
+        "reader_test_node_id",
+        "artifact_sha256",
+        "in_memory_sha256",
+        "observed_projection_sha256",
+        "roundtrip_max_abs_difference",
+        "tolerance",
+        "passed"
+      ]
+    },
+    "fingerprint_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "environment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workload": {
+          "type": "string",
+          "minLength": 1
+        },
+        "old_scientific_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "new_scientific_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "old_raw_cube_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "new_raw_cube_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "changed_element_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maximum_delta": {
+          "type": "number",
+          "minimum": 0
+        },
+        "change_expected": {
+          "type": "boolean"
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "environment",
+        "workload",
+        "old_scientific_sha256",
+        "new_scientific_sha256",
+        "old_raw_cube_sha256",
+        "new_raw_cube_sha256",
+        "changed_element_count",
+        "maximum_delta",
+        "change_expected",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "squint_frequency_law_sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "expected_offset_rad": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1.5707963267948966
+        },
+        "observed_offset_rad": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1.5707963267948966
+        },
+        "small_angle_offset_rad": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1.5707963267948966
+        }
+      },
+      "required": [
+        "frequency_hz",
+        "expected_offset_rad",
+        "observed_offset_rad",
+        "small_angle_offset_rad"
+      ]
+    },
+    "squint_frequency_law": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reference_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "per_feed_offset_deg_at_reference": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 90
+        },
+        "samples": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/squint_frequency_law_sample"
+          }
+        },
+        "small_angle_control_frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "small_angle_abs_separation": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "reference_frequency_hz",
+        "per_feed_offset_deg_at_reference",
+        "samples",
+        "small_angle_control_frequency_hz",
+        "small_angle_abs_separation",
+        "max_abs_residual",
+        "tolerance",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "squint_geometry_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "orthogonality_dot_abs",
+            "handedness_plus_half_pi_residual_rad",
+            "midpoint_center_residual_rad",
+            "total_separation_residual_rad",
+            "mount_rotation_residual_rad",
+            "opposite_mount_sign_min_abs_delta_rad",
+            "mechanical_rotation_residual_rad",
+            "feed_sign_reversal_center_residual_rad"
+          ]
+        },
+        "observed": {
+          "type": "number",
+          "minimum": 0
+        },
+        "bound": {
+          "type": "number",
+          "minimum": 0
+        },
+        "relation": {
+          "enum": [
+            "le",
+            "ge"
+          ]
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kind",
+        "observed",
+        "bound",
+        "relation",
+        "passed"
+      ]
+    },
+    "squint_geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mount_type": {
+          "enum": [
+            "alt-az",
+            "equatorial",
+            "fixed",
+            "alt-az+nasmyth-l",
+            "alt-az+nasmyth-r"
+          ]
+        },
+        "mechanical_feed_position_angle_deg": {
+          "type": "number",
+          "exclusiveMinimum": -180,
+          "maximum": 180
+        },
+        "positive_native_feed": {
+          "enum": [
+            "x",
+            "y",
+            "r",
+            "l"
+          ]
+        },
+        "receptor_basis": {
+          "enum": [
+            "linear",
+            "circular"
+          ]
+        },
+        "parallactic_angle_rad": {
+          "type": "number"
+        },
+        "boresight_altitude_rad": {
+          "type": "number"
+        },
+        "frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "resolved_offset_rad": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1.5707963267948966
+        },
+        "probes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/squint_geometry_probe"
+          }
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "mount_type",
+        "mechanical_feed_position_angle_deg",
+        "positive_native_feed",
+        "receptor_basis",
+        "parallactic_angle_rad",
+        "boresight_altitude_rad",
+        "frequency_hz",
+        "resolved_offset_rad",
+        "probes",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "native_feed_factorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "receptor_basis": {
+          "enum": [
+            "linear",
+            "circular"
+          ]
+        },
+        "feed_rotation_deg": {
+          "type": "number"
+        },
+        "parallactic_angle_rad": {
+          "type": "number"
+        },
+        "positive_native_feed": {
+          "enum": [
+            "x",
+            "y",
+            "r",
+            "l"
+          ]
+        },
+        "b_plus": {
+          "$ref": "#/$defs/complex_pair"
+        },
+        "b_minus": {
+          "$ref": "#/$defs/complex_pair"
+        },
+        "expected": {
+          "$ref": "#/$defs/factorization_projection"
+        },
+        "observed": {
+          "$ref": "#/$defs/factorization_projection"
+        },
+        "factorization_max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "chain_order_max_abs_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "order_control_max_abs_difference": {
+          "type": "number",
+          "minimum": 0
+        },
+        "atol": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "receptor_basis",
+        "feed_rotation_deg",
+        "parallactic_angle_rad",
+        "positive_native_feed",
+        "b_plus",
+        "b_minus",
+        "expected",
+        "observed",
+        "factorization_max_abs_residual",
+        "chain_order_max_abs_residual",
+        "order_control_max_abs_difference",
+        "atol",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "stokes_v_leakage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "positive_native_feed": {
+          "enum": [
+            "r",
+            "l"
+          ]
+        },
+        "reversed_case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "frequency_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "probe_altitude_rad": {
+          "type": "number"
+        },
+        "probe_azimuth_rad": {
+          "type": "number"
+        },
+        "observed_v_over_i": {
+          "type": "number"
+        },
+        "expected_sign": {
+          "type": "integer",
+          "enum": [
+            -1,
+            1
+          ]
+        },
+        "observed_sign": {
+          "type": "integer",
+          "enum": [
+            -1,
+            1
+          ]
+        },
+        "min_abs_v_over_i": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "positive_native_feed",
+        "reversed_case_id",
+        "frequency_hz",
+        "probe_altitude_rad",
+        "probe_azimuth_rad",
+        "observed_v_over_i",
+        "expected_sign",
+        "observed_sign",
+        "min_abs_v_over_i",
+        "test_node_id",
+        "passed"
+      ]
+    },
+    "squint_setup_rejection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "case_kind": {
+          "enum": [
+            "unknown_antenna",
+            "duplicate_antenna",
+            "frequency_domain",
+            "receptor_basis",
+            "boresight_degenerate"
+          ]
+        },
+        "exception_type": {
+          "enum": [
+            "UnknownBeamAntennaError",
+            "DuplicateBeamAssignmentError",
+            "SquintFrequencyDomainError",
+            "SquintReceptorBasisError",
+            "BeamAngularDomainError"
+          ]
+        },
+        "exact_message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "test_node_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "case_kind",
+        "exception_type",
+        "exact_message",
+        "test_node_id",
+        "passed"
+      ]
+    }
+  }
+}

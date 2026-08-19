@@ -80,6 +80,23 @@ STAGE1_MEASUREMENT_KEYS: tuple[str, ...] = (
     "ruze_power_diagnostics",
 )
 
+#: Stage 2 appends exactly these five arrays, in this order (Section 8.1's
+#: "Stage-2 evidence envelope").
+STAGE2_MEASUREMENT_KEYS: tuple[str, ...] = (
+    "squint_frequency_laws",
+    "squint_geometries",
+    "native_feed_factorizations",
+    "stokes_v_leakages",
+    "squint_setup_rejections",
+)
+
+#: The stage-specific measurement keys, keyed by stage. Stage 3's extensions
+#: are deliberately not frozen until ``D3`` freezes them.
+STAGE_MEASUREMENT_KEYS: dict[int, tuple[str, ...]] = {
+    1: STAGE1_MEASUREMENT_KEYS,
+    2: STAGE2_MEASUREMENT_KEYS,
+}
+
 #: Section 8.1's common evidence field sequence, in order.
 COMMON_EVIDENCE_KEYS: tuple[str, ...] = (
     "schema_version",
@@ -238,9 +255,16 @@ def resolve_design_sha(stage: int) -> str:
     Section 8.1: Stage 1 resolves ``D1`` **only** from the immutable dependency
     validator's binding constant, never by choosing a matching commit from
     history; Stages 2 and 3 resolve ``Di`` as the direct parent of ``Ri``.
+
+    Clean ``HEAD`` is exact ``Si``, ``Si^`` is ``Ri`` and ``Ri^`` is ``Di``, so
+    ``Di`` is the *grandparent* of ``HEAD``. The Stage-2 evidence envelope
+    records the defect this line repairs: the shipped expression was
+    ``HEAD^^{commit}``, which is git's peel form of ``HEAD^`` rather than the
+    grandparent, so it resolved ``Di == Ri`` and would have written a
+    ``design_sha`` equal to the ``red_test_sha``.
     """
     if stage != 1:
-        return run_git("rev-parse", "HEAD^^{commit}").strip()
+        return run_git("rev-parse", "HEAD~2^{commit}").strip()
     binding = REPOSITORY_ROOT / "tests" / "unit" / "test_sci005_stage1_dependency.py"
     if not binding.is_file():
         raise EvidenceError(f"{binding} is absent; the R1 design binding is required")
@@ -339,7 +363,7 @@ def generate(stage: int, measurement_record: Path) -> None:
     record = read_strict_json(measurement_record)
     if not isinstance(record, dict):
         raise EvidenceError("the measurement record must be a JSON object")
-    expected = COMMON_MEASUREMENT_KEYS + (STAGE1_MEASUREMENT_KEYS if stage == 1 else ())
+    expected = COMMON_MEASUREMENT_KEYS + STAGE_MEASUREMENT_KEYS.get(stage, ())
     if tuple(record) != expected:
         raise EvidenceError(
             "measurement record keys must be exactly "
@@ -374,9 +398,8 @@ def generate(stage: int, measurement_record: Path) -> None:
             document[key] = build_artifacts(list(record["artifact_inputs"]), stage)
         else:
             document[key] = record[key]
-    if stage == 1:
-        for key in STAGE1_MEASUREMENT_KEYS:
-            document[key] = record[key]
+    for key in STAGE_MEASUREMENT_KEYS.get(stage, ()):
+        document[key] = record[key]
 
     for row in document["commands"]:
         if row.get("exit_code") != 0:
@@ -426,6 +449,109 @@ def _require_no_false_rows(document: dict[str, Any], stage: int) -> None:
                 raise EvidenceError(
                     "every ruze_power_diagnostics row needs all six limit-oracle kinds"
                 )
+    if stage == 2:
+        _require_stage2_row_coverage(document)
+
+
+#: Section 8.1's Stage-2 geometry probe kinds; every one must appear at least
+#: once across ``squint_geometries``.
+STAGE2_GEOMETRY_PROBE_KINDS: frozenset[str] = frozenset(
+    {
+        "orthogonality_dot_abs",
+        "handedness_plus_half_pi_residual_rad",
+        "midpoint_center_residual_rad",
+        "total_separation_residual_rad",
+        "mount_rotation_residual_rad",
+        "opposite_mount_sign_min_abs_delta_rad",
+        "mechanical_rotation_residual_rad",
+        "feed_sign_reversal_center_residual_rad",
+    }
+)
+
+#: Section 8.1's Stage-2 setup-rejection kinds; every one must appear at least
+#: once across ``squint_setup_rejections``.
+STAGE2_SETUP_REJECTION_KINDS: frozenset[str] = frozenset(
+    {
+        "unknown_antenna",
+        "duplicate_antenna",
+        "frequency_domain",
+        "receptor_basis",
+        "boresight_degenerate",
+    }
+)
+
+#: Section 8.1's Stage-2 solver effects; each appears at least once.
+STAGE2_SOLVER_EFFECTS: frozenset[str] = frozenset({"squint_point", "squint_healpix"})
+
+#: The five frozen Section 4.1.1 document issue codes the Stage-2 envelope
+#: requires ``rejection_probes`` to carry at least once each.
+STAGE2_REJECTION_CODES: frozenset[str] = frozenset(
+    {
+        "beam.squint.identity_block",
+        "beam.squint.reference_frequency_domain",
+        "beam.squint.offset_domain",
+        "beam.squint.mechanical_angle_domain",
+        "beam.squint.unsupported_beam_family",
+    }
+)
+
+
+def _require_stage2_row_coverage(document: dict[str, Any]) -> None:
+    """Refuse an incomplete Stage-2 row set before any repository write.
+
+    The evidence-generation transaction refuses "an incomplete row set" as
+    hard as it refuses a false row. These are the structural coverage rules
+    only; every deep Stage-2 cross-field predicate — the binary64 frequency-law
+    recomputations, the by-basis order control, the Stokes-V reciprocity — is
+    owned by ``tests/unit/test_sci005_evidence.py``, which is not this file.
+    """
+    probe_kinds = {
+        probe["kind"]
+        for row in document["squint_geometries"]
+        for probe in row["probes"]
+    }
+    if probe_kinds != STAGE2_GEOMETRY_PROBE_KINDS:
+        raise EvidenceError(
+            "squint_geometries must cover each of the eight probe kinds; "
+            f"missing {sorted(STAGE2_GEOMETRY_PROBE_KINDS - probe_kinds)}"
+        )
+    mounts = {row["mount_type"] for row in document["squint_geometries"]}
+    if not {"alt-az", "fixed"} <= mounts:
+        raise EvidenceError(
+            "squint_geometries needs at least one alt-az row and one fixed row"
+        )
+    setup_kinds = {row["case_kind"] for row in document["squint_setup_rejections"]}
+    if setup_kinds != STAGE2_SETUP_REJECTION_KINDS:
+        raise EvidenceError(
+            "squint_setup_rejections must cover each of the five case kinds; "
+            f"missing {sorted(STAGE2_SETUP_REJECTION_KINDS - setup_kinds)}"
+        )
+    effects = {row["effect"] for row in document["solver_cases"]}
+    if effects != STAGE2_SOLVER_EFFECTS:
+        raise EvidenceError(
+            "solver_cases must contain both squint_point and squint_healpix"
+        )
+    codes = {row["issue_code"] for row in document["rejection_probes"]}
+    if not STAGE2_REJECTION_CODES <= codes:
+        raise EvidenceError(
+            "rejection_probes must carry each frozen Section 4.1.1 code; "
+            f"missing {sorted(STAGE2_REJECTION_CODES - codes)}"
+        )
+    bases = [row["receptor_basis"] for row in document["native_feed_factorizations"]]
+    if "circular" not in bases or "linear" not in bases:
+        raise EvidenceError(
+            "native_feed_factorizations needs a circular row and a linear row"
+        )
+    extended = [
+        row
+        for row in document["native_feed_factorizations"]
+        if row["case_id"] == "extended_precision_native_feed_factorization"
+    ]
+    if len(extended) != 1:
+        raise EvidenceError(
+            "native_feed_factorizations needs exactly one "
+            "extended_precision_native_feed_factorization row"
+        )
 
 
 def _self_check_document(

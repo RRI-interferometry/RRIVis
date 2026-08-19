@@ -1192,6 +1192,63 @@ def _run_point_workload(
     )
 
 
+#: SCI-005 Stage-2 Section 4.2's ``beams.squint`` block, on the default
+#: two-antenna fixture with a rotated linear receptor so the composed
+#: ``E = C^dagger D_b C`` is generally full rather than accidentally diagonal
+#: (Section 4.2: "E is generally full ... including for a rotated linear
+#: receptor").  ``15 deg`` at the reference frequency stays inside the main
+#: lobe at both ``_WORKLOAD_FREQS`` channels and is a physically large
+#: native-feed squint, matching this module's own large-value convention for a
+#: term's own fingerprint.
+_SQUINT_BEAMS: dict[str, Any] = {
+    "mode": "analytic",
+    "model": {
+        "kind": "circular_aperture",
+        "taper": {"kind": "gaussian", "edge_taper_db": 10.0},
+    },
+    "squint": {
+        "default": {
+            "convention": "cotton_uson_exact_v1",
+            "reference_frequency_hz": 1.0e8,
+            "per_feed_offset_deg_at_reference": 15.0,
+            "mechanical_feed_position_angle_deg": 40.0,
+            "positive_native_feed": "x",
+        }
+    },
+}
+
+_SQUINT_RECEPTORS: dict[str, Any] = {
+    "default": {"basis": "linear", "feed_rotation_deg": 23.0},
+}
+
+
+def _run_squint_workload(tmp_path: Path):
+    """SCI-005 Stage-2 row: two antennas, one squint-enabled analytic beam.
+
+    Deliberately small and deterministic: the shipped two-antenna fixture, the
+    default two-time/two-frequency workload grid, and a fixed (non-rotating)
+    mount, so the resolved boresight is the topocentric zenith and
+    ``eta_p == 0`` supplies exactly ``0.0`` for the parallactic angle --
+    Section 4.2.1's safe case that never touches the rotating-mount
+    exactly-zenith rejection.
+    """
+    instrument, beam_system, receptors = _solver_components(
+        tmp_path,
+        beams=_SQUINT_BEAMS,
+        receptors=_SQUINT_RECEPTORS,
+    )
+    return calculate_visibility(
+        instrument=instrument,
+        beam_system=beam_system,
+        source_arrays=_workload_point_sources(polarized=True, gaussian=False),
+        location=WORKLOAD_LOCATION,
+        time_grid=WORKLOAD_TIME_GRID,
+        frequencies=_WORKLOAD_FREQS,
+        backend=get_backend("numpy"),
+        receptors=receptors,
+    )
+
+
 def _run_healpix_workload(tmp_path: Path, *, polarized: bool):
     instrument, beam_system, receptors = _solver_components(tmp_path)
     return calculate_visibility_healpix(
@@ -2610,6 +2667,9 @@ _WORKLOAD_RUNNERS: dict[str, Any] = {
     "heterogeneous_receptor_bases": lambda tmp: _run_point_workload(
         tmp, polarized=True, heterogeneous=True
     ),
+    # SCI-005 Stage 2, Section 4.2: native-feed beam squint on a rotated linear
+    # receptor, so the composed E is generally full.
+    "point_squint_rotated_linear_receptor": _run_squint_workload,
 }
 
 _WORKLOAD_SHAPES: dict[str, tuple[int, ...]] = {
@@ -2618,6 +2678,7 @@ _WORKLOAD_SHAPES: dict[str, tuple[int, ...]] = {
     "heterogeneous_receptor_bases": (2, 3, 2, 2, 2),
     "point_gaussian_morphology": (2, 3, 2, 2, 2),
     "point_polarized_2times": (2, 3, 2, 2, 2),
+    "point_squint_rotated_linear_receptor": (2, 3, 2, 2, 2),
     "point_unpolarized_1time_2freq": (1, 3, 2, 2, 2),
 }
 
@@ -2743,6 +2804,14 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
         ),
         "osx-arm64-py312": (
             "e0532c3fe5ccb57ad8e6c43552528bc397a0d71840c1c46de1a4e85506cdbf68",
+        ),
+    },
+    # SCI-005 Stage 2, Section 4.2: harvested only for the environment(s) this
+    # slice's acceptance actually ran on; a later environment class is added
+    # deliberately, exactly like every other row in this table.
+    "point_squint_rotated_linear_receptor": {
+        "osx-arm64-py311": (
+            "2b42465f7a36b2cd6bbfbdc2a2a48fcad1510194ca61eda08d5dbc2e67ef630d",
         ),
     },
     "point_unpolarized_1time_2freq": {

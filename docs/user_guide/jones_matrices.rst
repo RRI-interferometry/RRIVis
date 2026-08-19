@@ -3,9 +3,11 @@ Jones Matrix Framework
 
 RadioSim exposes a Jones-term framework in which every exported term carries
 real physics and says so. The high-level ``Simulator`` always applies geometric
-phase (K, a separate per-baseline function), the private solver-owned scalar
-E-Jones primary beam, and the exported receptor configuration (C) and output
-basis transform (H). Nine further exported Jones terms —
+phase (K, a separate per-baseline function), the private solver-owned E-Jones
+primary beam — a scalar complex voltage on the diagonal, except when SCI-005
+Stage-2 beam squint is configured, where it is generally full — and the
+exported receptor configuration (C) and output basis transform (H). Nine
+further exported Jones terms —
 gain (G), bandpass (B), cable reflection (Rc), instrumental delay (Kd),
 cross-hand phase and delay (X), polarization leakage (D), parallactic angle (P),
 troposphere (T), and ionosphere (Z) — are applied when the ``jones:`` section
@@ -62,8 +64,16 @@ use the strict tagged configuration, for example:
 ``analytic``, ``shared_fits``, ``per_antenna_fits``, and ``mixed`` all resolve
 to one canonical per-antenna ``BeamSystem``. The point-source, HEALPix, and
 observability paths use the same evaluator. Within the accepted FITS subset,
-the E-Jones response is a scalar complex voltage on the diagonal of a 2x2
+the accepted scalar E-Jones response is a complex voltage on the diagonal of
+a 2x2
 matrix. It does not claim arbitrary cross-polarization or receptor coupling.
+
+SCI-005 Stage 2's ``beams.squint`` (:ref:`stage2-beam-squint`) is the one
+exception, and it is accepted only on the ``analytic`` mode: the two native
+feeds sample the same scalar pattern at oppositely displaced directions, and
+the beam runtime composes the resulting :math:`E = C^\dagger D_b\,C` from
+those samples and the antenna's own resolved receptor matrix. An antenna
+without squint keeps today's byte-identical scalar response.
 
 The high-level API does not accept a caller-supplied Jones chain. General
 polarized BeamFITS remains outside the accepted scalar subset; a circular
@@ -280,11 +290,25 @@ What in that order is physical, and what is convention
   :math:`\sin(\alpha_p) \ne 0`. The executable oracle
   therefore distinguishes the orders for both linear and circular receptors.
   See :doc:`../migration_guide`.
-* **Not yet observable.** The relative order of ``E`` and ``P``. ``E`` is a
-  scalar complex voltage on the diagonal, so it commutes with everything and
-  ``C E P`` and ``C P E`` are numerically identical. The order is fixed at
-  ``C E P`` because that is the physically correct one for a future non-scalar
-  ``E``.
+* **Physical, and tested when beam squint is enabled.** The relative order of
+  ``E`` and ``P``. For every beam declaration except SCI-005 Stage-2
+  ``beams.squint``, ``E`` is a scalar complex voltage on the diagonal, so it
+  commutes with everything and ``C E P`` and ``C P E`` remain numerically
+  identical — the order was fixed at ``C E P`` in anticipation of a future
+  non-scalar ``E``. Beam squint is that non-scalar ``E``: the chain order does
+  not change, but it is no longer a convention with nothing to test. On a
+  rotated **linear** receptor, ``C E P`` (physically correct, because a field
+  rotation acts on the incoming field before the receptor and the beam see
+  it — the same reasoning as the ``P``/``C`` bullet above) and ``C P E``
+  differ, and this is an executable order-matters oracle. On *any* **circular**
+  receptor the composed
+  :math:`E = C^\dagger \operatorname{diag}(b_0, b_1)\, C` reduces to
+  :math:`\frac{b_0+b_1}{2}I_2 - \frac{b_0-b_1}{2}\sigma_y`,
+  independent of the feed rotation :math:`\chi`, which commutes exactly with
+  every real rotation :math:`R(\theta) = \exp(i\theta\sigma_y)`; a
+  circular-receptor order control is therefore identically zero by this exact
+  algebraic identity, not because the physical effect is absent — squint still
+  leaves :math:`|E_{01}| = |b_0 - b_1|/2 > 0`. See :ref:`stage2-beam-squint`.
 
 The two terms outside the chain
 -------------------------------

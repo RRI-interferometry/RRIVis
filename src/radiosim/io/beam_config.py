@@ -444,6 +444,69 @@ class BeamSurfaceErrorConfig(_BeamInputModel):
         return self
 
 
+class SquintRecordConfig(_BeamInputModel):
+    """One complete authored native-feed squint record (Section 4.1).
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 4.1: the nominal
+    pointing is the midpoint of the two native feeds, so
+    ``per_feed_offset_deg_at_reference`` is the displacement of **one** hand and
+    the total feed-to-feed separation is twice it.  The mechanical position
+    angle describes the physical off-axis feed location, measured North through
+    East in the antenna beam frame; it is not the electrical
+    ``receptors.*.feed_rotation_deg`` used to build ``C``.
+
+    The Cotton/Uson frequency law is exact
+    (``delta(nu) = asin[(nu_ref / nu) sin delta_ref]``); the small-angle
+    ``1/nu`` limit is documentation, not the production law.
+    """
+
+    convention: Literal["cotton_uson_exact_v1"]
+    reference_frequency_hz: _Stage1Float
+    per_feed_offset_deg_at_reference: _Stage1Float
+    mechanical_feed_position_angle_deg: _Stage1Float
+    positive_native_feed: Literal["x", "y", "r", "l"]
+
+
+class AntennaSquintConfig(_BeamInputModel):
+    """One authored per-antenna squint record.
+
+    Section 4.1.1: a per-antenna record carries exactly ``antenna`` plus one
+    complete squint record's five fields.  There is no suppression form in v1 --
+    an array in which some antennas must not squint is authored with no
+    ``default`` and one record per squinting antenna.
+    """
+
+    antenna: AntennaReference
+    convention: Literal["cotton_uson_exact_v1"]
+    reference_frequency_hz: _Stage1Float
+    per_feed_offset_deg_at_reference: _Stage1Float
+    mechanical_feed_position_angle_deg: _Stage1Float
+    positive_native_feed: Literal["x", "y", "r", "l"]
+
+    @field_validator("antenna")
+    @classmethod
+    def require_exact_antenna_reference(
+        cls, value: AntennaReference
+    ) -> AntennaReference:
+        if type(value) not in (AntennaNumberReference, AntennaNameReference):
+            raise ValueError("antenna must be an exact AntennaReference model")
+        return value
+
+
+class BeamSquintConfig(_BeamInputModel):
+    """The optional ``beams.squint`` block (Section 4.1.1).
+
+    Exactly two fields.  A block carrying neither a ``default`` nor any
+    ``per_antenna`` record is an exact identity and is rejected as a
+    ``ConfigSemanticError`` with the frozen ``beam.squint.identity_block`` code,
+    not here: the identity, value-domain, and unsupported-family rules are
+    document-level checks with frozen paths and messages.
+    """
+
+    default: SquintRecordConfig | None = None
+    per_antenna: tuple[AntennaSquintConfig, ...] = ()
+
+
 class SupportLegConfig(_BeamInputModel):
     """One authored support leg.
 
@@ -511,6 +574,7 @@ class AnalyticBeamsConfig(_BeamInputModel):
     pointing: BeamPointingConfig | None = None
     surface_error: BeamSurfaceErrorConfig | None = None
     aperture_physics: AperturePhysicsConfig | None = None
+    squint: BeamSquintConfig | None = None
 
 
 class SharedFITSBeamsConfig(_BeamInputModel):
@@ -521,6 +585,7 @@ class SharedFITSBeamsConfig(_BeamInputModel):
     pointing: BeamPointingConfig | None = None
     surface_error: BeamSurfaceErrorConfig | None = None
     aperture_physics: AperturePhysicsConfig | None = None
+    squint: BeamSquintConfig | None = None
 
 
 class PerAntennaFITSBeamsConfig(_BeamInputModel):
@@ -531,6 +596,7 @@ class PerAntennaFITSBeamsConfig(_BeamInputModel):
     pointing: BeamPointingConfig | None = None
     surface_error: BeamSurfaceErrorConfig | None = None
     aperture_physics: AperturePhysicsConfig | None = None
+    squint: BeamSquintConfig | None = None
 
 
 class MixedBeamsConfig(_BeamInputModel):
@@ -544,6 +610,7 @@ class MixedBeamsConfig(_BeamInputModel):
     pointing: BeamPointingConfig | None = None
     surface_error: BeamSurfaceErrorConfig | None = None
     aperture_physics: AperturePhysicsConfig | None = None
+    squint: BeamSquintConfig | None = None
 
 
 BeamsConfig = Annotated[
@@ -558,6 +625,7 @@ BeamsConfig = Annotated[
 __all__ = [
     "AnalyticBeamChoiceConfig",
     "AntennaPointingOffsetConfig",
+    "AntennaSquintConfig",
     "AntennaSurfaceErrorConfig",
     "ApertureBlockageConfig",
     "AperturePhysicsConfig",
@@ -566,8 +634,10 @@ __all__ = [
     "ZernikeModeConfig",
     "ZernikeSurfaceConfig",
     "BeamPointingConfig",
+    "BeamSquintConfig",
     "BeamSurfaceErrorConfig",
     "PointingOffsetConfig",
+    "SquintRecordConfig",
     "SurfaceErrorConfig",
     "AnalyticBeamModelConfig",
     "AnalyticBeamsConfig",

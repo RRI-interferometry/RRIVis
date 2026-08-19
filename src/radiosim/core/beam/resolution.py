@@ -27,7 +27,10 @@ from radiosim.core.beam.models import (
     ResolvedPerAntennaFITSBeamsInput,
     ResolvedPointingOffset,
     ResolvedSharedFITSBeamsInput,
+    ResolvedSquint,
+    ResolvedSquintRecord,
     ResolvedSurfaceError,
+    SquintMountType,
     _create_resolved_beam_assignment,  # pyright: ignore[reportPrivateUsage]
     _create_resolved_beam_state,  # pyright: ignore[reportPrivateUsage]
     _deduplicated_definitions,  # pyright: ignore[reportPrivateUsage]
@@ -124,10 +127,21 @@ def _mount_science(
 ) -> tuple[
     dict[AntennaId, ResolvedPointingOffset | None],
     dict[AntennaId, ResolvedSurfaceError | None],
+    dict[AntennaId, ResolvedSquint | None],
 ]:
-    """Return the per-antenna pointing and surface-error values, defaults applied."""
+    """Return the per-antenna pointing, surface-error, and squint values.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 4.1.1: squint
+    resolves through the same accepted default-then-override map the two Tier 7I
+    blocks use, so an unknown reference is the existing typed
+    ``UnknownBeamAntennaError`` and a repeated canonical antenna the existing
+    typed ``DuplicateBeamAssignmentError``.  Resolution is also where each
+    squinting antenna's mount literal is captured, because the mount belongs to
+    the instrument and ``None`` retains its accepted ``fixed`` reading.
+    """
     pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset | None] = {}
     surface_by_antenna: dict[AntennaId, ResolvedSurfaceError | None] = {}
+    squint_by_antenna: dict[AntennaId, ResolvedSquint | None] = {}
 
     pointing = config.pointing
     if pointing is not None:
@@ -157,7 +171,36 @@ def _mount_science(
                 surface_error.default,
             )
 
-    return pointing_by_antenna, surface_by_antenna
+    squint = config.squint
+    if squint is not None:
+        overrides = _mount_override_map(
+            squint.per_antenna,
+            "squint",
+            logical_path="beams.squint.per_antenna",
+            instrument=instrument,
+        )
+        for antenna in instrument.antennas:
+            record = cast(
+                ResolvedSquintRecord | None,
+                overrides.get(antenna.id, squint.default),
+            )
+            squint_by_antenna[antenna.id] = (
+                None
+                if record is None
+                else ResolvedSquint(
+                    record.convention,
+                    record.reference_frequency_hz,
+                    record.per_feed_offset_deg_at_reference,
+                    record.mechanical_feed_position_angle_deg,
+                    record.positive_native_feed,
+                    cast(
+                        SquintMountType,
+                        "fixed" if antenna.mount_type is None else antenna.mount_type,
+                    ),
+                )
+            )
+
+    return pointing_by_antenna, surface_by_antenna, squint_by_antenna
 
 
 def _definition_for_explicit_input(
@@ -177,6 +220,7 @@ def _explicit_assignments(
     instrument: ResolvedInstrument,
     pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset | None],
     surface_by_antenna: dict[AntennaId, ResolvedSurfaceError | None],
+    squint_by_antenna: dict[AntennaId, ResolvedSquint | None],
     aperture_physics: ResolvedAperturePhysics | None,
 ) -> tuple[ResolvedBeamAssignment, ...]:
     by_number = {antenna.id.number: antenna for antenna in instrument.antennas}
@@ -253,6 +297,7 @@ def _explicit_assignments(
                 pointing=pointing_by_antenna.get(antenna.id),
                 surface_error=surface_by_antenna.get(antenna.id),
                 aperture_physics=aperture_physics,
+                squint=squint_by_antenna.get(antenna.id),
             )
         )
     return tuple(assignments)
@@ -265,6 +310,7 @@ def _uniform_assignments(
     source: Literal["analytic_mode", "shared_mode"],
     pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset | None],
     surface_by_antenna: dict[AntennaId, ResolvedSurfaceError | None],
+    squint_by_antenna: dict[AntennaId, ResolvedSquint | None],
     aperture_physics: ResolvedAperturePhysics | None,
 ) -> tuple[ResolvedBeamAssignment, ...]:
     assignments: list[ResolvedBeamAssignment] = []
@@ -286,6 +332,7 @@ def _uniform_assignments(
                 pointing=pointing_by_antenna.get(antenna.id),
                 surface_error=surface_by_antenna.get(antenna.id),
                 aperture_physics=aperture_physics,
+                squint=squint_by_antenna.get(antenna.id),
             )
         )
     return tuple(assignments)
@@ -336,7 +383,9 @@ def resolve_beam_assignments(
     if type(instrument) is not ResolvedInstrument:
         raise TypeError("instrument must be an exact ResolvedInstrument")
 
-    pointing_by_antenna, surface_by_antenna = _mount_science(config, instrument)
+    pointing_by_antenna, surface_by_antenna, squint_by_antenna = _mount_science(
+        config, instrument
+    )
     aperture_physics = config.aperture_physics
     _require_representable_support_geometry(aperture_physics, instrument)
 
@@ -347,6 +396,7 @@ def resolve_beam_assignments(
             source="analytic_mode",
             pointing_by_antenna=pointing_by_antenna,
             surface_by_antenna=surface_by_antenna,
+            squint_by_antenna=squint_by_antenna,
             aperture_physics=aperture_physics,
         )
     elif type(config) is ResolvedSharedFITSBeamsInput:
@@ -356,6 +406,7 @@ def resolve_beam_assignments(
             source="shared_mode",
             pointing_by_antenna=pointing_by_antenna,
             surface_by_antenna=surface_by_antenna,
+            squint_by_antenna=squint_by_antenna,
             aperture_physics=aperture_physics,
         )
     else:
@@ -367,6 +418,7 @@ def resolve_beam_assignments(
             instrument,
             pointing_by_antenna,
             surface_by_antenna,
+            squint_by_antenna,
             aperture_physics,
         )
 

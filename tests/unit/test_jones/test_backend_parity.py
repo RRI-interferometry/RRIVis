@@ -219,6 +219,84 @@ def test_healpix_path_parity_with_a_circular_receptor(
 
 
 # ---------------------------------------------------------------------------
+# The SCI-005 Stage-2 case: native-feed beam squint composes E = C^dagger D_b C
+# ---------------------------------------------------------------------------
+#
+# ``docs/development/sci005_beam_physics_plan.md`` Section 4.2 rules that ``E``
+# is generally full when squint is enabled, including for a rotated linear
+# receptor, so this reuses the established rotated-receptor recipe above rather
+# than the default unrotated one -- a diagonal ``E`` would exercise the same
+# array plumbing every no-squint case already covers.  ``15deg`` at the
+# resolved reference frequency keeps the two displaced feed samples inside the
+# main lobe at both workload channels while still being a physically large
+# native-feed squint, matching Section 28's "large, deliberately" rule for a
+# term's own parity case.
+
+_PARITY_SQUINT_BEAMS: dict[str, Any] = {
+    "mode": "analytic",
+    "model": {
+        "kind": "circular_aperture",
+        "taper": {"kind": "gaussian", "edge_taper_db": 10.0},
+    },
+    "squint": {
+        "default": {
+            "convention": "cotton_uson_exact_v1",
+            "reference_frequency_hz": 1.0e8,
+            "per_feed_offset_deg_at_reference": 15.0,
+            "mechanical_feed_position_angle_deg": 40.0,
+            "positive_native_feed": "x",
+        }
+    },
+}
+
+_PARITY_SQUINT_FREQS = np.array([1.0e8, 1.01e8], dtype=np.float64)
+
+_PARITY_SQUINT_RECEPTORS: dict[str, Any] = {
+    "default": {"basis": "linear", "feed_rotation_deg": 23.0},
+}
+
+
+@pytest.mark.parametrize("backend_name", ["dask", "jax"])
+def test_point_path_parity_with_beam_squint(
+    tmp_path,
+    backend_name: str,
+) -> None:
+    """SCI-005 Stage 2: the composed squinted ``E`` on the point path.
+
+    The default fixed-mount antenna (no ``beams.pointing``) keeps the
+    boresight at the topocentric zenith, which Section 4.2.1 fixes as safe for
+    a non-rotating mount -- the ``eta_p == 0`` case supplies exactly ``0.0``
+    for the parallactic angle regardless of altitude, so this stays a small,
+    fast workload without touching the rotating-mount zenith rejection.
+    """
+    instrument, beam_system, receptors = _solver_components(
+        tmp_path,
+        frequency={
+            "mode": "explicit",
+            "channel_frequencies_hz": list(_PARITY_SQUINT_FREQS),
+            "channel_widths_hz": [1.0e6, 1.0e6],
+        },
+        beams=_PARITY_SQUINT_BEAMS,
+        receptors=_PARITY_SQUINT_RECEPTORS,
+    )
+    sources = _workload_point_sources(polarized=True, gaussian=False)
+
+    def build(backend):
+        return calculate_visibility(
+            instrument=instrument,
+            beam_system=beam_system,
+            source_arrays=sources,
+            location=WORKLOAD_LOCATION,
+            time_grid=WORKLOAD_TIME_GRID,
+            frequencies=_PARITY_SQUINT_FREQS,
+            backend=backend,
+            receptors=receptors,
+        )
+
+    assert_backend_parity(build, backend_name=backend_name)
+
+
+# ---------------------------------------------------------------------------
 # The 7D and 7E cases: one per implemented term, at a large parameter value
 # ---------------------------------------------------------------------------
 #

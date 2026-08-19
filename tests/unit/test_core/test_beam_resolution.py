@@ -216,6 +216,11 @@ def test_complete_public_error_hierarchy_and_exports_are_exact():
         "BeamNormalizationError": errors.BeamLoadError,
         "UnsupportedBeamPrecisionError": errors.BeamLoadError,
         "BeamSamplingDerivationError": errors.BeamLoadError,
+        # SCI-005 Stage 2, Section 4.1.1: both rejections are owned by
+        # beam-system load rather than the document, because they need
+        # resolved instrument, receptor, or frequency state.
+        "SquintFrequencyDomainError": errors.BeamLoadError,
+        "SquintReceptorBasisError": errors.BeamLoadError,
         "BeamEvaluationError": errors.BeamError,
         "BeamFrequencyDomainError": errors.BeamEvaluationError,
         "BeamAngularDomainError": errors.BeamEvaluationError,
@@ -227,8 +232,13 @@ def test_complete_public_error_hierarchy_and_exports_are_exact():
     # ``InvalidBeamGeometryError`` reaches the beam boundary only: Stage 1 may
     # append to ``core/beam/errors.py`` and re-export from
     # ``core/beam/__init__.py``, but ``src/radiosim/core/__init__.py`` is not on
-    # its writable list.
-    beam_only = {"InvalidBeamGeometryError"}
+    # its writable list. SCI-005 Stage 2's two new error classes are bound by
+    # the same Section 7.3 writable list and stay at the beam boundary only.
+    beam_only = {
+        "InvalidBeamGeometryError",
+        "SquintFrequencyDomainError",
+        "SquintReceptorBasisError",
+    }
     for name, direct_base in expected.items():
         value = getattr(errors, name)
         assert value.__bases__ == (direct_base,)

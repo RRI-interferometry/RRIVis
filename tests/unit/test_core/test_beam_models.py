@@ -155,6 +155,7 @@ def test_resolved_leaf_field_order_is_exact():
             "pointing",
             "surface_error",
             "aperture_physics",
+            "squint",
         ),
         "ResolvedPointingOffset": (
             "azimuth_offset_rad",
@@ -197,6 +198,7 @@ def test_resolved_leaf_field_order_is_exact():
             "pointing",
             "surface_error",
             "aperture_physics",
+            "squint",
         ),
         "ResolvedBeamState": (
             "mode",

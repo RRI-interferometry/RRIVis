@@ -190,6 +190,10 @@ Beam support by stage
      - Supported
      - Not applicable
      - Supported on an unobstructed circular pupil only
+   * - ``beams.squint``
+     - Supported
+     - Not applicable
+     - Supported on ``analytic`` beams only
 
 ``beams.aperture_physics`` composes a central blockage, support-leg shadows and
 a deterministic real unit-RMS disk Zernike surface height inside one normalized
@@ -198,8 +202,18 @@ compact aperture-plane profile: ``circular_aperture`` with a ``uniform``,
 ``parabolic`` or ``parabolic_squared`` taper, and ``analytical_illumination``
 with a ``parabolic`` or ``parabolic_squared`` taper profile. Gaussian, cosine
 and numerical illuminations, the rectangular and elliptical families, and every
-BeamFITS source are rejected with ``UnsupportedConfigError``. Beam squint and
-full cross-polarization remain unimplemented.
+BeamFITS source are rejected with ``UnsupportedConfigError``. Full
+cross-polarization remains unimplemented.
+
+``beams.squint`` (SCI-005 Stage 2) samples the analytic beam at two oppositely
+displaced native-feed directions and composes them into a generally full ``E``
+following the exact Cotton/Uson arcsine law; see :ref:`stage2-beam-squint`. It
+is accepted only when the resolved beams mode is ``analytic`` — every
+``shared_fits``, ``per_antenna_fits``, and ``mixed`` document carrying a
+squint block is rejected with ``UnsupportedConfigError`` before any
+antenna-reference matching, because a measured BeamFITS pattern may already
+contain the physical feed displacement and the accepted scalar subset carries
+no metadata by which RadioSim could prove it does not.
 
 The nested ``error_beam_diagnostic`` declaration is validated, resolved and
 fingerprinted, and it is deliberately *not* a Jones voltage: it can never change

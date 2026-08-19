@@ -1687,6 +1687,7 @@ from radiosim.io.beam_config import (  # noqa: E402, I001
     AperturePhysicsConfig,
     BeamPointingConfig,
     BeamsConfig as _BeamsConfig,
+    BeamSquintConfig,
     BeamSurfaceErrorConfig,
     CircularApertureBeamModelConfig,
     EllipticalApertureBeamModelConfig,
@@ -1696,6 +1697,7 @@ from radiosim.io.beam_config import (  # noqa: E402, I001
     PointingOffsetConfig,
     RectangularApertureBeamModelConfig,
     SharedFITSBeamsConfig,
+    SquintRecordConfig,
     SurfaceErrorConfig,
 )
 from radiosim.io.instrument_config import (  # noqa: E402
@@ -2305,6 +2307,118 @@ def _stage1_semantic_issues(config: RadioSimConfig) -> list[ConfigIssue]:
     return issues
 
 
+_SQUINT_PATH = "beams.squint"
+
+#: Section 4.1.1's exact identity message.
+_SQUINT_IDENTITY_MESSAGE = (
+    "A beams.squint block must carry a default record or at least one "
+    "per-antenna record."
+)
+
+
+def _squint_unsupported_family_message(mode: str) -> str:
+    """Section 4.1.1's exact unsupported-beams-mode message."""
+    return (
+        "Stage-2 beam squint supports only the analytic beams mode; resolved "
+        f"beams mode is {mode!r}."
+    )
+
+
+def _authored_squint_records(
+    squint: BeamSquintConfig,
+) -> tuple[tuple[str, Any], ...]:
+    """Return every authored record with its path, default then ascending index.
+
+    Section 4.1.1 fixes this visit order, so the first rejection recorded in
+    evidence is the same on every run.
+    """
+    records: list[tuple[str, Any]] = []
+    if squint.default is not None:
+        records.append((f"{_SQUINT_PATH}.default", squint.default))
+    for index, entry in enumerate(squint.per_antenna):
+        records.append((f"{_SQUINT_PATH}.per_antenna[{index}]", entry))
+    return tuple(records)
+
+
+def _stage2_semantic_issues(config: RadioSimConfig) -> list[ConfigIssue]:
+    """Collect Section 4.1.1's identity and value-domain rows.
+
+    Every code, path, and message below is frozen by Section 4.1.1.  The
+    identity check precedes the value-domain checks, the value-domain checks
+    visit the ``default`` record and then ascending ``per_antenna`` indices, and
+    each record's fields are visited in the declared field order.
+    """
+    squint = config.beams.squint
+    if squint is None:
+        return []
+    if squint.default is None and not squint.per_antenna:
+        return [
+            ConfigIssue(
+                _SQUINT_PATH,
+                "beam.squint.identity_block",
+                _SQUINT_IDENTITY_MESSAGE,
+            )
+        ]
+
+    issues: list[ConfigIssue] = []
+    for base, record in _authored_squint_records(squint):
+        reference_frequency_hz = record.reference_frequency_hz
+        if not reference_frequency_hz > 0.0:
+            issues.append(
+                ConfigIssue(
+                    f"{base}.reference_frequency_hz",
+                    "beam.squint.reference_frequency_domain",
+                    "squint reference_frequency_hz must be a positive finite "
+                    f"frequency in Hz; resolved {reference_frequency_hz!r}.",
+                )
+            )
+        offset_deg = record.per_feed_offset_deg_at_reference
+        if not 0.0 < offset_deg < 90.0:
+            issues.append(
+                ConfigIssue(
+                    f"{base}.per_feed_offset_deg_at_reference",
+                    "beam.squint.offset_domain",
+                    "squint per_feed_offset_deg_at_reference must lie in the "
+                    f"open interval (0, 90); resolved {offset_deg!r}.",
+                )
+            )
+        mechanical_deg = record.mechanical_feed_position_angle_deg
+        if not -180.0 < mechanical_deg <= 180.0:
+            # Section 4.1.1: the authored value is required in the canonical
+            # interval and is never wrapped for the author.
+            issues.append(
+                ConfigIssue(
+                    f"{base}.mechanical_feed_position_angle_deg",
+                    "beam.squint.mechanical_angle_domain",
+                    "squint mechanical_feed_position_angle_deg must lie in "
+                    f"(-180, 180]; resolved {mechanical_deg!r}.",
+                )
+            )
+    return issues
+
+
+def _stage2_unsupported_issues(config: RadioSimConfig) -> list[ConfigIssue]:
+    """Collect Section 4.1.1's one unsupported beams-family row.
+
+    Stage-2 v1 accepts ``beams.squint`` only when the resolved beams mode is
+    ``analytic``: a measured file's pattern may already contain the physical
+    feed displacement, and the scalar accepted subset provides no metadata by
+    which RadioSim could prove it does not.  The rejection is on the resolved
+    *mode*, so ``mixed`` is rejected even when every authored assignment happens
+    to be analytic, and it runs with no antenna-reference matching.
+    """
+    beams = config.beams
+    if beams.squint is None or isinstance(beams, AnalyticBeamsConfig):
+        return []
+    return [
+        _unsupported_issue(
+            _SQUINT_PATH,
+            "beam.squint.unsupported_beam_family",
+            _squint_unsupported_family_message(beams.mode),
+        )
+    ]
+
+
 def _resolved_beam_precision(config: RadioSimConfig) -> str:
     """Return the resolved ``jones.beam`` precision level for the document."""
     precision = config.execution.precision
@@ -2407,6 +2521,9 @@ def _stage1_unsupported_issues(config: RadioSimConfig) -> list[ConfigIssue]:
 def collect_semantic_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
     """Collect every pure cross-field issue from a valid input model."""
     issues: list[ConfigIssue] = _stage1_semantic_issues(config)
+    # Section 4.1.1: Stage-2 document checks run after every Stage-1 aperture
+    # and diagnostic check in Section 3.5's fixed order.
+    issues.extend(_stage2_semantic_issues(config))
     if config.obs_time.time_step_seconds > config.obs_time.duration_seconds:
         issues.append(
             ConfigIssue(
@@ -2537,9 +2654,13 @@ def collect_unsupported_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...
     SCI-005 Stage 1 is its first live entry: an aperture-physics block or a Ruze
     power diagnostic attached to a beam family or pupil profile that Section 3.1
     excludes, and a diagnostic requested under extended beam precision, are
-    declared-but-unsupported combinations rather than domain errors.
+    declared-but-unsupported combinations rather than domain errors.  Stage 2
+    adds one more: ``beams.squint`` on a resolved beams mode other than
+    ``analytic`` (Section 4.1.1).
     """
     issues: list[ConfigIssue] = _stage1_unsupported_issues(config)
+    # Section 4.1.1: the unsupported-family check runs last.
+    issues.extend(_stage2_unsupported_issues(config))
     return _ordered_issues(issues)
 
 
@@ -2688,9 +2809,12 @@ _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
         "analytic_model",
         "pointing",
         "surface_error",
+        "squint",
     ),
     "beams.pointing": tuple(BeamPointingConfig.model_fields),
     "beams.pointing.default": tuple(PointingOffsetConfig.model_fields),
+    "beams.squint": tuple(BeamSquintConfig.model_fields),
+    "beams.squint.default": tuple(SquintRecordConfig.model_fields),
     "beams.surface_error": tuple(BeamSurfaceErrorConfig.model_fields),
     "beams.surface_error.default": tuple(SurfaceErrorConfig.model_fields),
     "baseline_selection": tuple(BaselineSelectionConfig.model_fields),

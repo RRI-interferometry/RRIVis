@@ -719,6 +719,179 @@ class ResolvedBeamSurfaceError(_ResolvedValue):
         object.__setattr__(self, "per_antenna", per_antenna)
 
 
+#: Section 4.1's five accepted mount literals, with ``None`` already resolved to
+#: ``fixed`` by beam-assignment resolution.
+SquintMountType = Literal[
+    "alt-az",
+    "equatorial",
+    "fixed",
+    "alt-az+nasmyth-l",
+    "alt-az+nasmyth-r",
+]
+
+#: Section 4.1's four accepted native feed labels.
+NativeFeedLabel = Literal["x", "y", "r", "l"]
+
+_SQUINT_MOUNT_TYPES: tuple[str, ...] = (
+    "alt-az",
+    "equatorial",
+    "fixed",
+    "alt-az+nasmyth-l",
+    "alt-az+nasmyth-r",
+)
+_NATIVE_FEED_LABELS: tuple[str, ...] = ("x", "y", "r", "l")
+
+
+def _require_member(value: Any, allowed: tuple[str, ...], field_name: str) -> None:
+    if type(value) is not str or value not in allowed:
+        raise ValueError(f"{field_name} must be one of {allowed!r}")
+
+
+def _require_squint_fields(record: Any) -> None:
+    """Validate the five authored squint values every resolved record carries."""
+    _require_literal(record.convention, "cotton_uson_exact_v1", "convention")
+    _require_float(
+        record.reference_frequency_hz,
+        "reference_frequency_hz",
+        positive=True,
+    )
+    _require_float(
+        record.per_feed_offset_deg_at_reference,
+        "per_feed_offset_deg_at_reference",
+        positive=True,
+    )
+    if record.per_feed_offset_deg_at_reference >= 90.0:
+        raise ValueError("per_feed_offset_deg_at_reference must lie in (0, 90)")
+    _require_float(
+        record.mechanical_feed_position_angle_deg,
+        "mechanical_feed_position_angle_deg",
+    )
+    if not -180.0 < record.mechanical_feed_position_angle_deg <= 180.0:
+        raise ValueError("mechanical_feed_position_angle_deg must lie in (-180, 180]")
+    _require_member(
+        record.positive_native_feed,
+        _NATIVE_FEED_LABELS,
+        "positive_native_feed",
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSquintRecord(_ResolvedValue):
+    """One authored ``beams.squint`` record, resolved but not yet assigned.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 4.1: the nominal
+    pointing is the midpoint of the two native feeds, ``delta_ref`` is the
+    displacement of *one* hand, and the mechanical position angle is the
+    physical off-axis feed direction in the antenna beam frame, measured North
+    through East.  The mount literal is not here because it belongs to the
+    instrument and is captured only when the record is assigned.
+    """
+
+    convention: Literal["cotton_uson_exact_v1"]
+    reference_frequency_hz: float
+    per_feed_offset_deg_at_reference: float
+    mechanical_feed_position_angle_deg: float
+    positive_native_feed: NativeFeedLabel
+
+    def __post_init__(self) -> None:
+        _require_squint_fields(self)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedAntennaSquint(_ResolvedValue):
+    """One authored per-antenna squint override.
+
+    Section 4.1.1 grants no suppression form in v1, so ``squint`` is always a
+    real record: an antenna that must not squint is simply not named.
+    """
+
+    antenna: AntennaReference
+    squint: ResolvedSquintRecord
+
+    def __post_init__(self) -> None:
+        _require_antenna_reference(self.antenna, "antenna")
+        _require_exact(self.squint, (ResolvedSquintRecord,), "squint")
+        self.squint.__post_init__()
+
+    @property
+    def convention(self) -> str:
+        """This override's authored convention literal."""
+        return self.squint.convention
+
+    @property
+    def reference_frequency_hz(self) -> float:
+        """This override's authored reference frequency, in Hz."""
+        return self.squint.reference_frequency_hz
+
+    @property
+    def per_feed_offset_deg_at_reference(self) -> float:
+        """This override's authored one-hand displacement, in degrees."""
+        return self.squint.per_feed_offset_deg_at_reference
+
+    @property
+    def mechanical_feed_position_angle_deg(self) -> float:
+        """This override's authored mechanical feed position angle."""
+        return self.squint.mechanical_feed_position_angle_deg
+
+    @property
+    def positive_native_feed(self) -> str:
+        """The native feed label carrying the positive displacement."""
+        return self.squint.positive_native_feed
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedBeamSquint(_ResolvedValue):
+    """The authored ``beams.squint`` block, resolved but not yet assigned."""
+
+    default: ResolvedSquintRecord | None
+    per_antenna: tuple[ResolvedAntennaSquint, ...]
+
+    def __post_init__(self) -> None:
+        if self.default is not None:
+            _require_exact(self.default, (ResolvedSquintRecord,), "default")
+            self.default.__post_init__()
+        per_antenna = cast(
+            tuple[ResolvedAntennaSquint, ...],
+            _copy_override_tuple(
+                self.per_antenna,
+                (ResolvedAntennaSquint,),
+                "per_antenna",
+            ),
+        )
+        if self.default is None and not per_antenna:
+            raise ValueError("a resolved squint block must carry at least one record")
+        object.__setattr__(self, "per_antenna", per_antenna)
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSquint(_ResolvedValue):
+    """One antenna's assigned native-feed squint (Section 4.2.1).
+
+    The five authored values plus the antenna's resolved mount literal, which
+    fixes the field-rotation factors ``(eta_p, nu_p)`` the feed ray follows:
+    ``beta_feed = wrap(beta_mechanical + eta_p psi_p + nu_p alt_p)`` at the
+    antenna's resolved boresight.  An instrument source carrying no mount
+    metadata resolves to ``fixed``, which is that value's accepted reading.
+    """
+
+    convention: Literal["cotton_uson_exact_v1"]
+    reference_frequency_hz: float
+    per_feed_offset_deg_at_reference: float
+    mechanical_feed_position_angle_deg: float
+    positive_native_feed: NativeFeedLabel
+    mount_type: SquintMountType
+
+    def __post_init__(self) -> None:
+        _require_squint_fields(self)
+        _require_member(self.mount_type, _SQUINT_MOUNT_TYPES, "mount_type")
+
+
+def _require_squint_block(value: Any) -> None:
+    if value is not None:
+        _require_exact(value, (ResolvedBeamSquint,), "squint")
+        value.__post_init__()
+
+
 ZERNIKE_MAX_RADIAL_ORDER = 32
 """Section 3.3's v1 radial-order computation bound.
 
@@ -927,12 +1100,14 @@ class ResolvedAnalyticBeamsInput(_ResolvedValue):
     pointing: ResolvedBeamPointing | None = None
     surface_error: ResolvedBeamSurfaceError | None = None
     aperture_physics: ResolvedAperturePhysics | None = None
+    squint: ResolvedBeamSquint | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "analytic", "mode")
         _require_exact(self.model, (ResolvedAnalyticBeamDefinition,), "model")
         _require_mount_blocks((self.pointing, self.surface_error))
         _require_aperture_physics(self.aperture_physics)
+        _require_squint_block(self.squint)
 
 
 @dataclass(frozen=True, slots=True)
@@ -942,12 +1117,14 @@ class ResolvedSharedFITSBeamsInput(_ResolvedValue):
     pointing: ResolvedBeamPointing | None = None
     surface_error: ResolvedBeamSurfaceError | None = None
     aperture_physics: ResolvedAperturePhysics | None = None
+    squint: ResolvedBeamSquint | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "shared_fits", "mode")
         _require_exact(self.beam, (ResolvedFITSBeamDefinition,), "beam")
         _require_mount_blocks((self.pointing, self.surface_error))
         _require_aperture_physics(self.aperture_physics)
+        _require_squint_block(self.squint)
 
 
 @dataclass(frozen=True, slots=True)
@@ -957,6 +1134,7 @@ class ResolvedPerAntennaFITSBeamsInput(_ResolvedValue):
     pointing: ResolvedBeamPointing | None = None
     surface_error: ResolvedBeamSurfaceError | None = None
     aperture_physics: ResolvedAperturePhysics | None = None
+    squint: ResolvedBeamSquint | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "per_antenna_fits", "mode")
@@ -967,6 +1145,7 @@ class ResolvedPerAntennaFITSBeamsInput(_ResolvedValue):
         )
         _require_mount_blocks((self.pointing, self.surface_error))
         _require_aperture_physics(self.aperture_physics)
+        _require_squint_block(self.squint)
         object.__setattr__(self, "assignments", copied)
 
 
@@ -978,6 +1157,7 @@ class ResolvedMixedBeamsInput(_ResolvedValue):
     pointing: ResolvedBeamPointing | None = None
     surface_error: ResolvedBeamSurfaceError | None = None
     aperture_physics: ResolvedAperturePhysics | None = None
+    squint: ResolvedBeamSquint | None = None
 
     def __post_init__(self) -> None:
         _require_literal(self.mode, "mixed", "mode")
@@ -993,6 +1173,7 @@ class ResolvedMixedBeamsInput(_ResolvedValue):
         )
         _require_mount_blocks((self.pointing, self.surface_error))
         _require_aperture_physics(self.aperture_physics)
+        _require_squint_block(self.squint)
         object.__setattr__(self, "assignments", copied)
 
 
@@ -1411,6 +1592,31 @@ def _surface_error_payload(surface_error: ResolvedSurfaceError) -> dict[str, Any
     return payload
 
 
+def _squint_payload(squint: ResolvedSquint) -> dict[str, Any]:
+    """Return the canonical scientific payload for one resolved squint record.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 4.2.1 freezes the
+    key set: the six resolved field values plus the three convention literals
+    that fix which displacement, which frame composition, and which
+    factorization the numbers mean.  An antenna without squint contributes no
+    key at all, which is what keeps every pre-Stage-2 assignment identity
+    byte-identical.
+    """
+    return {
+        "convention": squint.convention,
+        "reference_frequency_hz": squint.reference_frequency_hz,
+        "per_feed_offset_deg_at_reference": (squint.per_feed_offset_deg_at_reference),
+        "mechanical_feed_position_angle_deg": (
+            squint.mechanical_feed_position_angle_deg
+        ),
+        "positive_native_feed": squint.positive_native_feed,
+        "mount_type": squint.mount_type,
+        "direction_convention": "feed_ray_plus_half_pi_north_through_east_v1",
+        "frame_convention": "pointing_then_squint_great_circle_v1",
+        "factorization_convention": "receptor_conjugated_native_diagonal_v1",
+    }
+
+
 def _assignment_fingerprint(
     antenna_id: AntennaId,
     antenna_diameter_m: float,
@@ -1418,6 +1624,7 @@ def _assignment_fingerprint(
     pointing: ResolvedPointingOffset | None = None,
     surface_error: ResolvedSurfaceError | None = None,
     aperture_physics: ResolvedAperturePhysics | None = None,
+    squint: ResolvedSquint | None = None,
 ) -> str:
     payload: dict[str, Any] = {
         "schema_version": _SCHEMA_VERSION,
@@ -1446,6 +1653,10 @@ def _assignment_fingerprint(
     # is absent -- byte for byte -- when the block is absent.
     if aperture_physics is not None:
         payload["aperture_physics"] = _aperture_physics_payload(aperture_physics)
+    # Stage-2 squint is per-antenna state like pointing and surface error: it
+    # enters the assignment identity only when the antenna actually carries it.
+    if squint is not None:
+        payload["squint"] = _squint_payload(squint)
     return _canonical_digest(payload)
 
 
@@ -1459,6 +1670,7 @@ class ResolvedBeamAssignment(_ResolvedValue):
     pointing: ResolvedPointingOffset | None = None
     surface_error: ResolvedSurfaceError | None = None
     aperture_physics: ResolvedAperturePhysics | None = None
+    squint: ResolvedSquint | None = None
 
     def __post_init__(self) -> None:
         antenna_id = _copy_antenna_id(self.antenna_id, "antenna_id")
@@ -1486,6 +1698,9 @@ class ResolvedBeamAssignment(_ResolvedValue):
             )
             self.surface_error.__post_init__()
         _require_aperture_physics(self.aperture_physics)
+        if self.squint is not None:
+            _require_exact(self.squint, (ResolvedSquint,), "squint")
+            self.squint.__post_init__()
         if self.provenance.canonical_antenna != antenna_id:
             raise ValueError("provenance.canonical_antenna must equal antenna_id")
         _require_fingerprint(self.assignment_fingerprint, "assignment_fingerprint")
@@ -1496,6 +1711,7 @@ class ResolvedBeamAssignment(_ResolvedValue):
             self.pointing,
             self.surface_error,
             self.aperture_physics,
+            self.squint,
         )
         if self.assignment_fingerprint != expected:
             raise ValueError(
@@ -1513,6 +1729,7 @@ def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
     pointing: ResolvedPointingOffset | None = None,
     surface_error: ResolvedSurfaceError | None = None,
     aperture_physics: ResolvedAperturePhysics | None = None,
+    squint: ResolvedSquint | None = None,
 ) -> ResolvedBeamAssignment:
     fingerprint = _assignment_fingerprint(
         antenna_id,
@@ -1521,6 +1738,7 @@ def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
         pointing,
         surface_error,
         aperture_physics,
+        squint,
     )
     return ResolvedBeamAssignment(
         antenna_id=antenna_id,
@@ -1531,6 +1749,7 @@ def _create_resolved_beam_assignment(  # pyright: ignore[reportUnusedFunction]
         pointing=pointing,
         surface_error=surface_error,
         aperture_physics=aperture_physics,
+        squint=squint,
     )
 
 

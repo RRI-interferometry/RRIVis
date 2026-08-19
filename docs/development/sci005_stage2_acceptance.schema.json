@@ -1,0 +1,376 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://radiosim.invalid/schema/sci005_stage2_acceptance.schema.json",
+  "title": "SCI-005 Stage-2 independent acceptance record",
+  "description": "Literal transcription of docs/development/sci005_beam_physics_plan.md Section 8.2 for Stage 2. Cross-field, Git-object, raw-byte digest, ordering, succession, and diff-authority predicates that JSON Schema cannot express are mandatory validator checks in tests/unit/test_sci005_stage2_acceptance.py and tools/sci005_stage2_acceptance.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "stage",
+    "verdict",
+    "generated_at_utc",
+    "implementation_identity",
+    "reviewer_identity",
+    "reviewer_independent",
+    "design_sha",
+    "red_test_sha",
+    "source_sha",
+    "evidence_commit_sha",
+    "evidence_artifact_path",
+    "evidence_artifact_sha256",
+    "evidence_schema_path",
+    "evidence_schema_sha256",
+    "toolchain",
+    "acceptance_commit_sha",
+    "acceptance_commit_sha_reason",
+    "successor_unlocks",
+    "reviewed_artifacts",
+    "rederived_oracles",
+    "review_checks",
+    "commands",
+    "blockers",
+    "accepted_limitations",
+    "claims_not_licensed"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "radiosim.sci005.stage2-acceptance.v1"
+    },
+    "stage": {
+      "const": 2
+    },
+    "verdict": {
+      "enum": [
+        "ACCEPT",
+        "REJECT"
+      ]
+    },
+    "generated_at_utc": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "implementation_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer_identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "reviewer_independent": {
+      "type": "boolean"
+    },
+    "design_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "red_test_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "evidence_commit_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "evidence_artifact_path": {
+      "const": "docs/development/sci005_stage2_evidence.json"
+    },
+    "evidence_artifact_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "evidence_schema_path": {
+      "const": "docs/development/sci005_stage2_evidence.schema.json"
+    },
+    "evidence_schema_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence_generator_path": {
+          "const": "tools/sci005_stage_evidence.py"
+        },
+        "evidence_generator_git_blob": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "evidence_validator_path": {
+          "const": "tests/unit/test_sci005_evidence.py"
+        },
+        "evidence_validator_git_blob": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "acceptance_generator_path": {
+          "const": "tools/sci005_stage2_acceptance.py"
+        },
+        "acceptance_generator_git_blob": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "acceptance_validator_path": {
+          "const": "tests/unit/test_sci005_stage2_acceptance.py"
+        },
+        "acceptance_validator_pre_a_git_blob": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "acceptance_schema_path": {
+          "const": "docs/development/sci005_stage2_acceptance.schema.json"
+        },
+        "acceptance_schema_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "evidence_generator_path",
+        "evidence_generator_git_blob",
+        "evidence_validator_path",
+        "evidence_validator_git_blob",
+        "acceptance_generator_path",
+        "acceptance_generator_git_blob",
+        "acceptance_validator_path",
+        "acceptance_validator_pre_a_git_blob",
+        "acceptance_schema_path",
+        "acceptance_schema_sha256"
+      ]
+    },
+    "acceptance_commit_sha": {
+      "type": "null"
+    },
+    "acceptance_commit_sha_reason": {
+      "enum": [
+        "self-reference: U2 and SCI004.M3 bind the containing A2 commit",
+        "not-applicable: REJECT creates no A commit"
+      ]
+    },
+    "successor_unlocks": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "SCI004.M3",
+          "SCI005.U2"
+        ]
+      },
+      "uniqueItems": true,
+      "maxItems": 2
+    },
+    "reviewed_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*\\\\)(?!.*(^|/)\\.\\.?(/|$))(?!.*//)(?!.*/$).+$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "source_sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "authenticated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "sha256",
+          "source_sha",
+          "authenticated"
+        ]
+      }
+    },
+    "rederived_oracles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "oracle_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "method": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observed": {
+            "type": "number",
+            "minimum": 0
+          },
+          "fixed_limit": {
+            "type": "number",
+            "minimum": 0
+          },
+          "units": {
+            "type": "string",
+            "minLength": 1
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "oracle_id",
+          "method",
+          "observed",
+          "fixed_limit",
+          "units",
+          "passed"
+        ]
+      }
+    },
+    "review_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "check_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "method": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected_outcome": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observed_outcome": {
+            "type": "string",
+            "minLength": 1
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "check_id",
+          "method",
+          "expected_outcome",
+          "observed_outcome",
+          "passed"
+        ]
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "argv": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "cwd": {
+            "const": "."
+          },
+          "pixi_environment": {
+            "type": "string",
+            "minLength": 1
+          },
+          "started_at_utc": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "exit_code": {
+            "type": "integer"
+          },
+          "stdout_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "stderr_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "argv",
+          "cwd",
+          "pixi_environment",
+          "started_at_utc",
+          "duration_seconds",
+          "exit_code",
+          "stdout_sha256",
+          "stderr_sha256"
+        ]
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "blocker_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "requirement_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          },
+          "required_remediation": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "blocker_id",
+          "requirement_id",
+          "evidence",
+          "required_remediation"
+        ]
+      }
+    },
+    "accepted_limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "claims_not_licensed": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    }
+  }
+}

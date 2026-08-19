@@ -1268,6 +1268,42 @@ def _resolve_beam_surface_error(
     )
 
 
+def _resolve_squint_record(
+    record: beam_input.SquintRecordConfig | beam_input.AntennaSquintConfig,
+) -> resolved_beams.ResolvedSquintRecord:
+    """Carry one authored squint record across exactly as authored.
+
+    Domain and identity rejections have already been collected as
+    ``ConfigSemanticError`` issues before resolution runs, and Section 4.1.1
+    rules that the mechanical position angle is never wrapped for the author, so
+    this conversion changes no value.
+    """
+    return resolved_beams.ResolvedSquintRecord(
+        record.convention,
+        record.reference_frequency_hz,
+        record.per_feed_offset_deg_at_reference,
+        record.mechanical_feed_position_angle_deg,
+        record.positive_native_feed,
+    )
+
+
+def _resolve_beam_squint(
+    squint: beam_input.BeamSquintConfig | None,
+) -> resolved_beams.ResolvedBeamSquint | None:
+    if squint is None:
+        return None
+    return resolved_beams.ResolvedBeamSquint(
+        None if squint.default is None else _resolve_squint_record(squint.default),
+        tuple(
+            resolved_beams.ResolvedAntennaSquint(
+                entry.antenna,
+                _resolve_squint_record(entry),
+            )
+            for entry in squint.per_antenna
+        ),
+    )
+
+
 def _resolve_beam_input(
     beams: beam_input.BeamsConfig,
     resolver: _PathResolver,
@@ -1275,6 +1311,7 @@ def _resolve_beam_input(
     pointing = _resolve_beam_pointing(beams.pointing)
     surface_error = _resolve_beam_surface_error(beams.surface_error)
     aperture_physics = _resolve_aperture_physics(beams.aperture_physics)
+    squint = _resolve_beam_squint(beams.squint)
     if isinstance(beams, beam_input.AnalyticBeamsConfig):
         return resolved_beams.ResolvedAnalyticBeamsInput(
             "analytic",
@@ -1282,6 +1319,7 @@ def _resolve_beam_input(
             pointing,
             surface_error,
             aperture_physics,
+            squint,
         )
     if isinstance(beams, beam_input.SharedFITSBeamsConfig):
         return resolved_beams.ResolvedSharedFITSBeamsInput(
@@ -1294,6 +1332,7 @@ def _resolve_beam_input(
             pointing,
             surface_error,
             aperture_physics,
+            squint,
         )
     if isinstance(beams, beam_input.PerAntennaFITSBeamsConfig):
         assignments = tuple(
@@ -1313,6 +1352,7 @@ def _resolve_beam_input(
             pointing,
             surface_error,
             aperture_physics,
+            squint,
         )
     if isinstance(beams, beam_input.MixedBeamsConfig):
         mixed_assignments = tuple(
@@ -1335,6 +1375,7 @@ def _resolve_beam_input(
             pointing,
             surface_error,
             aperture_physics,
+            squint,
         )
     raise TypeError(f"unsupported beams mode {type(beams).__name__}")
 

@@ -22,7 +22,7 @@ from typing_extensions import override
 
 # Import backend abstraction
 from radiosim.backends import ArrayBackend
-from radiosim.core.beam import BeamSystem
+from radiosim.core.beam import BeamAngularDomainError, BeamSystem
 from radiosim.core.contraction import baseline_contraction_for
 from radiosim.core.instrument import AntennaId
 from radiosim.core.instrument_adapters import InstrumentAdapterInvariantError
@@ -36,9 +36,13 @@ from radiosim.core.jones.baseline_errors import (
     BaselineFactors,
     evaluate_baseline_factors,
 )
-from radiosim.core.jones.directions import DirectionBatch
+from radiosim.core.jones.directions import (
+    DirectionBatch,
+    equatorial_from_horizontal,
+)
 from radiosim.core.jones.evaluate import evaluate_antenna_jones
 from radiosim.core.jones.geometric import geometric_phase, uvw_in_wavelengths
+from radiosim.core.jones.parallactic import mount_factors, parallactic_angle
 from radiosim.core.jones.receptor import BasisTransformJones, ReceptorConfigJones
 from radiosim.core.jones_terms import (
     CANONICAL_CHAIN_ORDER,
@@ -192,6 +196,15 @@ class _ResolvedBeamJones(JonesTerm):
     ``(time, frequency)`` step -- is also what keeps it thread-safe under
     ``execution.workers > 1``: solver workers own disjoint time ranges and
     therefore disjoint adapters.
+
+    The adapter also owns the SCI-005 Stage-2 boresight computation
+    (``docs/development/sci005_beam_physics_plan.md`` Section 4.2.1): once per
+    antenna and step it derives the antenna's resolved boresight, its apparent
+    hour angle and declination through the same accepted inverse horizontal
+    transform ``DirectionBatch`` uses, and the accepted parallactic angle, and
+    hands both values to the beam runtime.  Because each adapter's lifetime is
+    exactly one step, the time dependence of a rotating mount's ``beta_feed``
+    never crosses a cache boundary.
     """
 
     def __init__(
@@ -203,6 +216,7 @@ class _ResolvedBeamJones(JonesTerm):
         azimuth_rad: np.ndarray,
         frequency_hz: float,
         time_mjd: float,
+        location: Any = None,
     ) -> None:
         from radiosim.core.instrument_adapters import SolverInstrumentView
 
@@ -227,6 +241,67 @@ class _ResolvedBeamJones(JonesTerm):
         self._time_mjd = float(time_mjd)
         self._handler_by_antenna = dict(beam_system.state.assignment_handler_ids)
         self._handler_cache: dict[str, Any] = {}
+        self._location = location
+        self._squint_by_antenna = {
+            assignment.antenna_id: assignment.squint
+            for assignment in beam_system.state.resolved.assignments
+            if assignment.squint is not None
+        }
+        self._pointing_by_antenna = {
+            assignment.antenna_id: assignment.pointing
+            for assignment in beam_system.state.resolved.assignments
+            if assignment.pointing is not None
+        }
+        self._boresight_cache: dict[AntennaId, tuple[float, float]] = {}
+
+    def _boresight_pair(self, antenna_id: AntennaId) -> tuple[float, float]:
+        """Return ``(parallactic_rad, altitude_rad)`` of one antenna's boresight.
+
+        The boresight is the beam-frame zenith mapped to the sky through the
+        antenna's accepted pointing rotation, and the topocentric zenith when no
+        pointing offset is configured.  Section 4.2.1: a mount with
+        ``eta_p == 0`` takes exactly ``0.0``, which the feed-ray formula
+        multiplies away, and a rotating mount at an exactly zenith boresight is
+        undefined rather than ``arctan2(0, 0)``.
+        """
+        cached = self._boresight_cache.get(antenna_id)
+        if cached is not None:
+            return cached
+        offset = self._pointing_by_antenna.get(antenna_id)
+        if offset is None:
+            altitude = np.pi / 2.0
+            azimuth = 0.0
+        else:
+            # The inverse of the accepted beam-frame rotation applied to the
+            # beam-frame zenith, read back with the same ``arctan2`` forms.
+            north = np.sin(offset.elevation_offset_rad)
+            up = np.cos(offset.elevation_offset_rad)
+            altitude = float(np.arctan2(up, np.abs(north)))
+            azimuth = float(np.arctan2(0.0, north) + offset.azimuth_offset_rad)
+        squint = self._squint_by_antenna[antenna_id]
+        eta, _nasmyth = mount_factors(squint.mount_type)
+        if eta == 0.0:
+            pair = (0.0, float(altitude))
+        else:
+            if float(altitude) == np.pi / 2.0:
+                raise BeamAngularDomainError(
+                    "Beam squint on a rotating mount is undefined at an exactly "
+                    "zenith boresight."
+                )
+            latitude_rad = float(self._location.lat.rad)
+            hour_angle, declination = equatorial_from_horizontal(
+                alt_rad=np.array([altitude], dtype=np.float64),
+                az_rad=np.array([azimuth], dtype=np.float64),
+                latitude_rad=latitude_rad,
+            )
+            parallactic = parallactic_angle(
+                hour_angle_rad=hour_angle,
+                dec_rad=declination,
+                latitude_rad=latitude_rad,
+            )
+            pair = (float(parallactic[0]), float(altitude))
+        self._boresight_cache[antenna_id] = pair
+        return pair
 
     @property
     @override
@@ -306,11 +381,19 @@ class _ResolvedBeamJones(JonesTerm):
             ) from exc
         # Keyed on the response key, not the handler id: two antennas of the
         # same diameter and model share one handler, and a per-antenna pointing
-        # offset or surface error (Tier 7I) makes their responses differ.  With
-        # neither configured the response key *is* the handler id, so the cache
+        # offset, surface error (Tier 7I), or squint record with its receptor
+        # state (SCI-005 Stage 2) makes their responses differ.  With none of
+        # them configured the response key *is* the handler id, so the cache
         # behaves exactly as it did before.
         response_key = self._beam_system.response_key(canonical)
         if response_key not in self._handler_cache:
+            boresight: dict[str, float] = {}
+            if canonical in self._squint_by_antenna:
+                parallactic_rad, altitude_rad = self._boresight_pair(canonical)
+                boresight = {
+                    "boresight_parallactic_rad": parallactic_rad,
+                    "boresight_altitude_rad": altitude_rad,
+                }
             self._handler_cache[response_key] = self._beam_system.evaluate_jones(
                 canonical,
                 altitude_rad=np.array(
@@ -328,6 +411,7 @@ class _ResolvedBeamJones(JonesTerm):
                 frequency_hz=self._frequency_hz,
                 time_mjd=self._time_mjd,
                 backend=backend,
+                **boresight,
             )
         return backend.asarray(self._handler_cache[response_key], dtype=dtype)
 
@@ -1121,6 +1205,7 @@ def _build_jones_chain(
         azimuth_rad=az_rad,
         frequency_hz=float(freq),
         time_mjd=float(time_mjd),
+        location=location,
     )
 
     # H is leftmost because the reporting-basis change happens at the

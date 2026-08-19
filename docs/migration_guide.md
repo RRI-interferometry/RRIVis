@@ -551,6 +551,52 @@ efficiency. Both closed forms are public as
 `radiosim.core.beam.runtime.ruze_power_efficiency` and `ruze_voltage_factor`.
 See the beam guide for the exact geometry and the alt-az keyhole degeneracy.
 
+### New: `beams.squint` and non-scalar `E`
+
+One more optional per-antenna block was added (SCI-005 Stage 2), and it is
+additive on the same terms as `pointing` and `surface_error` above: omit it
+and the cube, every beam fingerprint, and `scientific_sha256` are exactly what
+they were, and the no-squint `BeamSystem.evaluate_jones` call surface,
+behaviour, and results are byte-identical to before.
+
+```yaml
+beams:
+  mode: analytic
+  model: {kind: circular_aperture}
+  squint:
+    default:
+      convention: cotton_uson_exact_v1
+      reference_frequency_hz: 1.5e8
+      per_feed_offset_deg_at_reference: 2.0
+      mechanical_feed_position_angle_deg: 35.0
+      positive_native_feed: x
+```
+
+When a squint block *is* authored, three surfaces widen:
+
+- **`E` is generally full**, not scalar, for a squint-carrying antenna. The
+  chain order stays `H G B Rc Kd X D C E P T Z`; only what `E` itself
+  contains changes. For any circular receptor the composed `E` still reduces
+  to an exact scalar-plus-`sigma_y` form independent of the feed rotation, so
+  the non-scalar effect is observable only on a linear receptor. See the beam
+  guide's squint section and the Jones-matrix guide's chain-order discussion.
+- `BeamSystem.evaluate_jones` gains two keyword-only parameters,
+  `boresight_parallactic_rad: float | None = None` and
+  `boresight_altitude_rad: float | None = None`. Both are required to be
+  exact finite Python floats for a squint-carrying antenna, and required to
+  stay `None` for every other antenna.
+- `radiosim.core.beam.load_beam_system` gains one keyword-only parameter,
+  `receptors: ResolvedReceptorSet | None = None`. It is required whenever any
+  resolved antenna carries `beams.squint`, because the composed `E` is built
+  from that antenna's own resolved receptor basis and static feed rotation —
+  the same authority the solver's `C` term comes from, so the two can never
+  disagree.
+
+`beams.squint` is accepted only on the `analytic` beams mode; a `shared_fits`,
+`per_antenna_fits`, or `mixed` document that also authors a squint block is
+rejected. No migration is needed for a document that does not author
+`beams.squint`.
+
 ### Moved: `beam/TODO.md` became a scope document
 
 `src/radiosim/core/jones/beam/TODO.md` no longer exists. It was an in-source

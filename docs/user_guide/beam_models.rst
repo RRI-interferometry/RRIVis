@@ -238,8 +238,9 @@ per-antenna ``assignment_fingerprint`` and therefore the beam state fingerprint
 and ``scientific_sha256``.
 
 What RadioSim does **not** model, and who owns it, is written out item by item
-in ``docs/development/beam_physics_scope.md``: polarized and cross-polar beams,
-beam squint, and the Ruze error-beam decomposition.
+in ``docs/development/beam_physics_scope.md``: full cross-polarization and the
+Ruze error-beam decomposition. SCI-005 Stage 2 removed beam squint from that
+list; see `Beam squint`_ below.
 
 .. _stage1-aperture-physics:
 
@@ -431,6 +432,146 @@ DOI 10.1109/PROC.1966.4784).
 
 An absent ``aperture_physics`` block changes nothing at all — the same resolved
 configuration, fingerprints, result bytes and logs as before.
+
+.. _stage2-beam-squint:
+
+Beam squint
+-----------
+
+``beams.squint`` turns the scalar analytic beam into **two native-feed
+samples of the same scalar pattern, oppositely displaced**, then composes
+them back into the receptor's ``E`` factor. It follows the exact Cotton/Uson
+law rather than the small-angle approximation often quoted for it (J. M.
+Uson and W. D. Cotton, `Beam squint and Stokes V with off-axis feeds
+<https://arxiv.org/abs/0807.0026>`_, 2008). :doc:`configuration` gives the
+five authored fields, their domains, and every rejection; this section gives
+the physics.
+
+.. code-block:: yaml
+
+   beams:
+     mode: analytic
+     model:
+       kind: circular_aperture
+       taper: {kind: uniform}
+     squint:
+       default:
+         convention: cotton_uson_exact_v1
+         reference_frequency_hz: 1.5e8
+         per_feed_offset_deg_at_reference: 2.0
+         mechanical_feed_position_angle_deg: 35.0
+         positive_native_feed: x
+
+**Frequency law.** ``per_feed_offset_deg_at_reference`` is the displacement
+:math:`\delta_{\rm ref}` of *one* hand at ``reference_frequency_hz``
+:math:`\nu_{\rm ref}`, so the nominal pointing is the midpoint of the two
+feeds and their total feed-to-feed separation is :math:`2\delta(\nu)`. The
+exact scaling is
+
+.. math::
+
+   \delta(\nu) = \sin^{-1}\!\left[\frac{\nu_{\rm ref}}{\nu}\sin\delta_{\rm ref}\right],
+
+evaluated as one binary64 expression at both beam-system load (a preflight
+over every observation channel) and at evaluation time, so an argument the
+preflight accepted cannot leave :math:`[-1, 1]` later. RadioSim rejects an
+out-of-domain channel; it never clips a displacement, because a clipped value
+would silently report a different telescope. The approximation
+:math:`\delta \propto 1/\nu` is only this law's small-angle limit and is
+never the production computation.
+
+**Direction convention.** The squint direction is orthogonal to the
+optical-axis/feed plane, not along the physical feed-location ray. Writing
+the feed-ray unit vector as
+:math:`\mathbf u_{\rm feed}(\beta) = \cos\beta\,\hat{\mathbf N} + \sin\beta\,\hat{\mathbf E}`,
+the v1 handedness fixes the squint direction as that ray rotated a further
+:math:`+\pi/2`:
+
+.. math::
+
+   \mathbf u_{{\rm squint},+}(\beta) =
+   -\sin\beta\,\hat{\mathbf N} + \cos\beta\,\hat{\mathbf E} =
+   \mathbf u_{\rm feed}(\beta + \pi/2).
+
+The ``positive_native_feed`` label is evaluated at :math:`+\delta(\nu)` along
+this direction and its basis partner (``x``/``y`` or ``r``/``l``, fixed by
+the label pair) at :math:`-\delta(\nu)`; swapping the positive feed reverses
+the sign of the Stokes-V leakage this produces. Both evaluations are exact
+great-circle (Rodrigues) rotations of the already pointing-transformed beam
+direction about the horizontal axis
+:math:`\hat{\mathbf a}_p = \sin\beta_{{\rm squint},p}\,\hat{\mathbf N}
+- \cos\beta_{{\rm squint},p}\,\hat{\mathbf E}`, so that a rotation of
+:math:`+\delta` about :math:`\hat{\mathbf a}_p` moves the beam-frame zenith
+along :math:`+\mathbf u_{{\rm squint},+}`; the horizon gate stays on the true
+topocentric altitude exactly as it does for a mispointed boresight.
+
+**Mount field rotation.** ``mechanical_feed_position_angle_deg`` describes
+the physical off-axis feed location in the antenna beam frame, North through
+East — it is not ``receptors.*.feed_rotation_deg``, which is the electrical
+receptor-axis convention used to build ``C`` and cannot rotate a physical
+feed displacement. On a rotating mount the feed ray follows the antenna's
+resolved boresight exactly as :math:`P`'s field rotation does:
+
+.. math::
+
+   \beta_{{\rm feed},p} = \operatorname{wrap}\!\left(
+   \beta_{\rm mechanical} + \eta_p\,\psi_p + \nu_p\,\mathrm{alt}_p\right),
+   \qquad
+   \beta_{{\rm squint},p} = \operatorname{wrap}\!\left(
+   \beta_{{\rm feed},p} + \pi/2\right),
+
+where :math:`\psi_p` and :math:`\mathrm{alt}_p` are the parallactic angle and
+true altitude of the antenna's resolved boresight (the beam-frame zenith
+mapped through any configured pointing offset, or the topocentric zenith
+otherwise) and :math:`(\eta_p, \nu_p)` are the same accepted mount factors
+``P`` uses: :math:`(1, 0)` for ``alt-az``, :math:`(0, 0)` for
+``equatorial``/``fixed``, :math:`(1, +1)` for Nasmyth-right, and
+:math:`(1, -1)` for Nasmyth-left. For :math:`\eta_p = 0` the parallactic
+angle is taken as exactly ``0.0``, which the formula multiplies away; for
+:math:`\eta_p \ne 0` at a boresight exactly at zenith the parallactic angle
+is undefined, and RadioSim raises rather than substituting
+:math:`\operatorname{atan2}(0, 0)` — a non-rotating mount, or a rotating one
+with a nonzero pointing offset, avoids this.
+
+**Factorization.** Writing the two displaced native-feed voltage samples as
+:math:`D_b = \operatorname{diag}(b_0, b_1)`, the physical local response is
+:math:`D_b C P`. RadioSim's chain stays fixed at ``C E P``
+(:doc:`jones_matrices`), so squint is folded into ``E`` rather than into a
+new chain position:
+
+.. math::
+
+   E = C^\dagger D_b\,C, \qquad C E = D_b C.
+
+``E`` is **generally full** in RadioSim's sky-side space once squint is
+enabled — the old scalar-only ``E`` is retired for a squint-carrying antenna
+— including for a rotated linear receptor. The one exception is exact: for
+*any* circular receptor :math:`C = S\,R(\chi)`, and any :math:`b_0 \ne b_1`,
+
+.. math::
+
+   E = C^\dagger \operatorname{diag}(b_0, b_1)\, C =
+   \frac{b_0 + b_1}{2}\, I_2 - \frac{b_0 - b_1}{2}\, \sigma_y,
+
+independent of :math:`\chi`, whose diagonal entries are exactly equal and
+which commutes exactly with every real rotation because
+:math:`R(\theta) = \exp(i\theta\sigma_y)`. A circular receptor's squint is
+therefore still physically present — :math:`|E_{01}| = |b_0 - b_1|/2 > 0` —
+but it is unable to make ``C E P`` and ``C P E`` differ; only a rotated
+*linear* receptor makes the chain order observable.
+
+**Precision and scope.** Displacement geometry (the feed ray, the squint
+rotation, and the boresight computation) is binary64 throughout, matching
+``DirectionBatch`` and the accepted pointing rotation. The two feed samples,
+the receptor matrix ``C``, and the ``E`` composition are evaluated at the
+resolved beam dtype and never narrow through ``complex128`` when that dtype
+is wider. ``beams.squint`` is accepted only on the analytic beams mode: a
+measured BeamFITS pattern may already contain the physical feed displacement,
+and the accepted scalar subset carries no metadata by which RadioSim could
+prove it does not, so every ``shared_fits``, ``per_antenna_fits``, and
+``mixed`` document that also carries a squint block is rejected. An antenna
+without squint keeps today's byte-identical response, call surface, and
+result.
 
 HEALPix sampling advice
 -----------------------

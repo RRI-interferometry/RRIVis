@@ -1084,11 +1084,18 @@ def test_public_factory_and_evaluation_signatures_hide_loader_seam() -> None:
         "resolved_state",
         "observation_frequencies_hz",
         "precision",
+        "receptors",
     )
     assert factory.parameters["observation_frequencies_hz"].kind is (
         inspect.Parameter.KEYWORD_ONLY
     )
     assert factory.parameters["precision"].kind is inspect.Parameter.KEYWORD_ONLY
+    # SCI-005 Stage 2, Section 4.2.1: the resolved receptor set is required only
+    # when a resolved antenna carries beams.squint, so the widened parameter is
+    # keyword-only and defaults to None -- a no-squint call surface is
+    # byte-identical to today.
+    assert factory.parameters["receptors"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert factory.parameters["receptors"].default is None
     operation = inspect.signature(BeamSystem.evaluate_jones)
     assert tuple(operation.parameters) == (
         "self",
@@ -1098,8 +1105,20 @@ def test_public_factory_and_evaluation_signatures_hide_loader_seam() -> None:
         "frequency_hz",
         "time_mjd",
         "backend",
+        "boresight_parallactic_rad",
+        "boresight_altitude_rad",
     )
     assert operation.parameters["backend"].default is None
+    # Section 4.2.1: both boresight values are keyword-only and default to
+    # None, and an antenna without squint requires both to stay None.
+    assert operation.parameters["boresight_parallactic_rad"].kind is (
+        inspect.Parameter.KEYWORD_ONLY
+    )
+    assert operation.parameters["boresight_parallactic_rad"].default is None
+    assert operation.parameters["boresight_altitude_rad"].kind is (
+        inspect.Parameter.KEYWORD_ONLY
+    )
+    assert operation.parameters["boresight_altitude_rad"].default is None
 
 
 def test_symlink_to_same_resolved_fits_target_is_one_preload_key(

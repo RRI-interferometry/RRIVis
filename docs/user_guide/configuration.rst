@@ -405,6 +405,84 @@ accepted only on the supported pupils above, and supports only
 never creates a deterministic error-beam voltage and never changes a
 cross-baseline visibility.
 
+Beam squint
+-----------
+
+``beams.squint`` is the optional array-wide block that samples the analytic
+beam at two oppositely displaced native-feed directions and composes them
+into the ``E`` factor, following the exact Cotton/Uson arcsine frequency law.
+It is a strict default-plus-per-antenna block, like ``pointing`` and
+``surface_error`` above, but has **no per-antenna suppression form**: every
+antenna not named by a ``per_antenna`` record inherits ``default``, and an
+array in which some antennas must not squint while others do is authored with
+no ``default`` and one record per squinting antenna.
+
+.. code-block:: yaml
+
+   beams:
+     mode: analytic
+     model:
+       kind: circular_aperture
+
+     squint:                                # optional; absent = no effect
+       default:                             # optional array-wide default
+         convention: cotton_uson_exact_v1
+         reference_frequency_hz: 1.5e8
+         per_feed_offset_deg_at_reference: 2.0
+         mechanical_feed_position_angle_deg: 35.0
+         positive_native_feed: x
+       per_antenna:                         # optional; overrides the default
+         - antenna: {kind: number, number: 1}
+           convention: cotton_uson_exact_v1
+           reference_frequency_hz: 1.5e8
+           per_feed_offset_deg_at_reference: 3.0
+           mechanical_feed_position_angle_deg: -45.0
+           positive_native_feed: y
+
+Every squint record carries all five fields: ``convention`` is exactly the
+literal ``cotton_uson_exact_v1``; ``reference_frequency_hz`` is a positive
+finite frequency in Hz; ``per_feed_offset_deg_at_reference`` is the
+displacement of **one** hand and must lie in the open interval ``(0, 90)`` —
+the total feed-to-feed separation is twice it;
+``mechanical_feed_position_angle_deg`` is the physical off-axis feed
+direction, measured North through East, required in ``(-180, 180]`` and never
+wrapped for the author; and ``positive_native_feed`` is one of ``x``, ``y``,
+``r``, or ``l`` and must belong to the antenna's resolved receptor basis
+(``x``/``y`` require ``linear``, ``r``/``l`` require ``circular``) — its basis
+partner (``x``/``y`` or ``r``/``l``) receives the negative displacement
+automatically; no second label is authored. :doc:`beam_models` gives the
+frequency law, the direction convention, the mount field rotation, and the
+``E`` factorization; :doc:`jones_matrices` gives the chain-order consequence.
+
+Rejections follow the same discipline as ``aperture_physics``:
+
+- a ``beams.squint`` block with neither a ``default`` record nor any
+  ``per_antenna`` record is an exact identity and is rejected;
+- every domain violation — ``reference_frequency_hz``,
+  ``per_feed_offset_deg_at_reference``, and
+  ``mechanical_feed_position_angle_deg`` — is a ``ConfigSemanticError`` under a
+  stable ``beam.squint.*`` issue code, checked on the ``default`` record and
+  then ascending ``per_antenna`` indices, and every Stage-1 float field
+  rejects ``bool`` and ``int``;
+- ``beams.squint`` is accepted only when the resolved beams mode is
+  ``analytic``; a ``shared_fits``, ``per_antenna_fits``, or ``mixed`` document
+  carrying a squint block is rejected with ``UnsupportedConfigError`` before
+  any antenna-reference matching, because a measured BeamFITS pattern may
+  already contain the physical feed displacement and the accepted scalar
+  subset carries no metadata by which RadioSim could prove it does not;
+- an unknown or repeated ``per_antenna`` antenna reference is rejected exactly
+  as ``beams.pointing`` rejects one, once the instrument resolves; and
+- two further rejections need resolved instrument, receptor, or frequency
+  state and so are raised at beam-system load rather than at the document
+  stage: ``SquintFrequencyDomainError`` when the exact arcsine argument
+  leaves ``[-1, 1]`` at any observation channel — RadioSim rejects rather
+  than clips — and ``SquintReceptorBasisError`` when
+  ``positive_native_feed`` does not belong to its antenna's resolved
+  receptor basis.
+
+An absent ``beams.squint`` block changes nothing at all — the same resolved
+configuration, fingerprints, result bytes and logs as before.
+
 Jones-term declarations
 -----------------------
 

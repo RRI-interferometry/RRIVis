@@ -31,6 +31,8 @@ from radiosim.core.beam.errors import (
     BeamFrequencyDomainError,
     InconsistentBeamAssignmentError,
     NonFiniteBeamResponseError,
+    SquintFrequencyDomainError,
+    SquintReceptorBasisError,
     UnsupportedBeamBasisError,
     UnsupportedBeamPrecisionError,
 )
@@ -41,12 +43,14 @@ from radiosim.core.beam.models import (
     ResolvedBeamState,
     ResolvedFITSBeamDefinition,
     ResolvedPointingOffset,
+    ResolvedSquint,
     ResolvedSurfaceError,
     _canonical_digest,  # pyright: ignore[reportPrivateUsage]
     _create_loaded_beam_state,  # pyright: ignore[reportPrivateUsage]
 )
 from radiosim.core.instrument import AntennaId
 from radiosim.core.precision import PrecisionConfig
+from radiosim.core.receptor import ResolvedReceptorSet
 
 if TYPE_CHECKING:
     from radiosim.backends.base import ArrayBackend
@@ -166,6 +170,165 @@ def _rotate_into_beam_frame(
     return beam_altitude, beam_azimuth
 
 
+#: Section 4.1.1's label pairing: the feed that is not the positive one takes the
+#: negative displacement, and each pair belongs to exactly one receptor basis.
+_REQUIRED_BASIS_BY_FEED: Mapping[str, str] = MappingProxyType(
+    {"x": "linear", "y": "linear", "r": "circular", "l": "circular"}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _SquintPlan:
+    """Everything one antenna's native-feed squint needs, resolved once.
+
+    The receptor half is read from the resolved receptor set the ``C`` term
+    itself comes from, so the ``C`` inside ``E`` and the chain's ``C`` cannot
+    disagree.
+    """
+
+    squint: ResolvedSquint
+    receptor_basis: str
+    feed_rotation_rad: float
+    feed_array: tuple[str, str]
+
+
+def _squint_arcsine_argument(
+    *,
+    reference_frequency_hz: float,
+    per_feed_offset_deg_at_reference: float,
+    frequency_hz: float,
+) -> float:
+    """Return the exact binary64 Cotton/Uson arcsine argument.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 4.1: the frequency
+    law is ``delta(nu) = asin[(nu_ref / nu) sin delta_ref]`` (J. M. Uson and
+    W. D. Cotton, *Beam squint and Stokes V with off-axis feeds*, arXiv:0807.0026,
+    2008).  The setup preflight and the evaluation path compute this identical
+    expression, so an argument the preflight accepted cannot leave the domain
+    later.
+    """
+    return (reference_frequency_hz / frequency_hz) * math.sin(
+        math.radians(per_feed_offset_deg_at_reference)
+    )
+
+
+def _wrap_to_pi(angle_rad: float) -> float:
+    """Section 4.1's ``wrap`` onto the canonical ``(-pi, pi]`` interval."""
+    wrapped = math.remainder(angle_rad, 2.0 * math.pi)
+    return math.pi if wrapped == -math.pi else wrapped
+
+
+def _squint_position_angle_rad(
+    squint: ResolvedSquint,
+    *,
+    boresight_parallactic_rad: float,
+    boresight_altitude_rad: float,
+) -> float:
+    """Return ``beta_squint`` for one antenna at one time step (Section 4.2.1).
+
+    ``beta_feed = wrap(beta_mechanical + eta_p psi_p + nu_p alt_p)`` is the
+    physical feed-location ray in the beam frame, evaluated at the antenna's
+    resolved boresight; the squint direction is orthogonal to the
+    optical-axis/feed plane, which the v1 handedness fixes as
+    ``beta_feed + pi/2``.  The mount factors are the same accepted
+    field-rotation factors ``P`` uses.
+    """
+    from radiosim.core.jones.parallactic import mount_factors
+
+    parallactic_factor, nasmyth_factor = mount_factors(squint.mount_type)
+    feed_angle = _wrap_to_pi(
+        math.radians(squint.mechanical_feed_position_angle_deg)
+        + parallactic_factor * boresight_parallactic_rad
+        + nasmyth_factor * boresight_altitude_rad
+    )
+    return _wrap_to_pi(feed_angle + math.pi / 2.0)
+
+
+def _displaced_beam_directions(
+    altitude_rad: np.ndarray,
+    azimuth_rad: np.ndarray,
+    *,
+    beta_squint_rad: float,
+    signed_offset_rad: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return ``R(-s_f delta; a_p) n`` as beam-frame ``(altitude, azimuth)``.
+
+    Section 4.2.1's exact Rodrigues rotation about the horizontal axis
+    ``a_p = sin(beta_squint) N - cos(beta_squint) E``, so that rotating the
+    beam-frame zenith by ``+delta`` about ``a_p`` moves it along
+    ``+u_squint``.  The components are written in the right-handed
+    ``(East, North, Up)`` triad -- ``N x E = -U``, so writing the cross product
+    with the memo's ``(North, East)`` ordering would reverse the rotation -- and
+    the inverse is taken with the same ``arctan2`` forms the accepted pointing
+    rotation uses.  Everything here is binary64, matching the accepted
+    ``DirectionBatch`` and pointing-rotation contract.
+    """
+    cos_altitude = np.cos(altitude_rad)
+    vectors = np.stack(
+        (
+            cos_altitude * np.sin(azimuth_rad),
+            cos_altitude * np.cos(azimuth_rad),
+            np.sin(altitude_rad),
+        ),
+        axis=-1,
+    )
+    axis = np.array(
+        [-math.cos(beta_squint_rad), math.sin(beta_squint_rad), 0.0],
+        dtype=np.float64,
+    )
+    angle = -signed_offset_rad
+    cos_angle = math.cos(angle)
+    sin_angle = math.sin(angle)
+    cross = np.cross(np.broadcast_to(axis, vectors.shape), vectors)
+    projection = vectors @ axis
+    rotated = (
+        vectors * cos_angle
+        + cross * sin_angle
+        + axis * projection[..., None] * (1.0 - cos_angle)
+    )
+    east = rotated[..., 0]
+    north = rotated[..., 1]
+    up = rotated[..., 2]
+    return np.arctan2(up, np.hypot(east, north)), np.arctan2(east, north)
+
+
+def _squint_receptor_matrix(
+    basis: str,
+    chi_rad: float,
+    dtype: np.dtype[Any],
+) -> np.ndarray:
+    """Return ``C = M(basis) @ R(chi)`` at the resolved beam dtype.
+
+    Section 4.2.1 fixes the formulas and requires the composition to stay at the
+    resolved beam width, so this is written here rather than taken from
+    :func:`radiosim.core.jones.receptor.receptor_matrix`, which is defined at
+    ``complex128`` and would narrow an extended-width composition.
+    """
+    real_dtype = np.empty(0, dtype=dtype).real.dtype
+    chi = real_dtype.type(chi_rad)
+    rotation = np.array(
+        [
+            [np.cos(chi), np.sin(chi)],
+            [-np.sin(chi), np.cos(chi)],
+        ],
+        dtype=dtype,
+    )
+    if basis == "linear":
+        leading = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=dtype)
+    elif basis == "circular":
+        one = real_dtype.type(1.0)
+        inverse_root_two = one / np.sqrt(real_dtype.type(2.0))
+        leading = inverse_root_two * np.array(
+            [[1.0, 1.0j], [1.0, -1.0j]],
+            dtype=dtype,
+        )
+    else:  # pragma: no cover - receptor resolution owns the two-member vocabulary
+        raise UnsupportedBeamBasisError(
+            f"receptor basis {basis!r} is not one of 'linear' or 'circular'."
+        )
+    return np.asarray(leading @ rotation, dtype=dtype)
+
+
 class _UVBeamLike(Protocol):
     """Structural subset of UVBeam privately consumed by Tier 3D."""
 
@@ -225,34 +388,55 @@ def _response_key(
     handler_id: str,
     pointing: ResolvedPointingOffset | None,
     surface_error: ResolvedSurfaceError | None,
+    squint_plan: _SquintPlan | None = None,
 ) -> str:
     """Return the key two antennas share iff their responses are identical.
 
     It is the ``handler_id`` itself whenever the antenna carries no mount
     physics, which is what keeps the pre-7I solver cache behaviour, and its
     keys, unchanged by construction.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 4.2.1 widens the
+    identity exactly when squint is present, and the receptor half is part of it
+    because ``E = C^dagger D_b C`` differs between two antennas that share a
+    handler and a squint record but not a receptor.  An antenna without squint
+    produces a byte-identical key to today.
     """
-    if pointing is None and surface_error is None:
+    if pointing is None and surface_error is None and squint_plan is None:
         return handler_id
-    digest = _canonical_digest(
-        {
-            "kind": "beam_response_key",
-            "handler_id": handler_id,
-            "pointing": (
-                None
-                if pointing is None
-                else {
-                    "azimuth_offset_rad": pointing.azimuth_offset_rad,
-                    "elevation_offset_rad": pointing.elevation_offset_rad,
-                }
+    payload: dict[str, Any] = {
+        "kind": "beam_response_key",
+        "handler_id": handler_id,
+        "pointing": (
+            None
+            if pointing is None
+            else {
+                "azimuth_offset_rad": pointing.azimuth_offset_rad,
+                "elevation_offset_rad": pointing.elevation_offset_rad,
+            }
+        ),
+        "surface_error": (
+            None
+            if surface_error is None
+            else {"rms_surface_error_m": surface_error.rms_surface_error_m}
+        ),
+    }
+    if squint_plan is not None:
+        squint = squint_plan.squint
+        payload["squint"] = {
+            "reference_frequency_hz": squint.reference_frequency_hz,
+            "per_feed_offset_deg_at_reference": (
+                squint.per_feed_offset_deg_at_reference
             ),
-            "surface_error": (
-                None
-                if surface_error is None
-                else {"rms_surface_error_m": surface_error.rms_surface_error_m}
+            "mechanical_feed_position_angle_deg": (
+                squint.mechanical_feed_position_angle_deg
             ),
+            "positive_native_feed": squint.positive_native_feed,
+            "mount_type": squint.mount_type,
+            "receptor_basis": squint_plan.receptor_basis,
+            "feed_rotation_rad": squint_plan.feed_rotation_rad,
         }
-    )
+    digest = _canonical_digest(payload)
     return f"{handler_id}+{digest[:16]}"
 
 
@@ -265,6 +449,7 @@ class _BeamSystemRuntime:
         "pointing_by_antenna",
         "response_key_by_antenna",
         "ruze_diagnostic_by_antenna",
+        "squint_by_antenna",
         "surface_error_by_antenna",
     )
     evaluator_by_handler_id: Mapping[str, _BeamEvaluator]
@@ -272,6 +457,7 @@ class _BeamSystemRuntime:
     pointing_by_antenna: Mapping[AntennaId, ResolvedPointingOffset]
     surface_error_by_antenna: Mapping[AntennaId, ResolvedSurfaceError]
     ruze_diagnostic_by_antenna: Mapping[AntennaId, _RuzeDiagnosticPlan]
+    squint_by_antenna: Mapping[AntennaId, _SquintPlan]
     response_key_by_antenna: Mapping[AntennaId, str]
 
     def __init__(
@@ -282,7 +468,11 @@ class _BeamSystemRuntime:
         pointing_by_antenna: dict[AntennaId, ResolvedPointingOffset],
         surface_error_by_antenna: dict[AntennaId, ResolvedSurfaceError],
         ruze_diagnostic_by_antenna: dict[AntennaId, _RuzeDiagnosticPlan],
+        squint_by_antenna: dict[AntennaId, _SquintPlan] | None = None,
     ) -> None:
+        # Absent squint is the accepted pre-Stage-2 runtime, so the new map
+        # defaults to empty rather than making every construction site pass one.
+        squint_plans: dict[AntennaId, _SquintPlan] = dict(squint_by_antenna or {})
         object.__setattr__(
             self,
             "evaluator_by_handler_id",
@@ -310,6 +500,11 @@ class _BeamSystemRuntime:
         )
         object.__setattr__(
             self,
+            "squint_by_antenna",
+            MappingProxyType(squint_plans),
+        )
+        object.__setattr__(
+            self,
             "response_key_by_antenna",
             MappingProxyType(
                 {
@@ -317,6 +512,7 @@ class _BeamSystemRuntime:
                         handler_id,
                         pointing_by_antenna.get(antenna_id),
                         surface_error_by_antenna.get(antenna_id),
+                        squint_plans.get(antenna_id),
                     )
                     for antenna_id, handler_id in handler_id_by_antenna.items()
                 }
@@ -602,6 +798,137 @@ class _UVBeamScalarEvaluator:  # pyright: ignore[reportUnusedClass]
         return result
 
 
+def _require_boresight_pair(
+    squint_plan: _SquintPlan | None,
+    *,
+    boresight_parallactic_rad: float | None,
+    boresight_altitude_rad: float | None,
+) -> None:
+    """Enforce Section 4.2.1's two-sided boresight rule.
+
+    When the resolved antenna carries squint both values must be exact finite
+    Python floats; when it does not, both must be ``None``.
+    """
+    supplied = (
+        ("boresight_parallactic_rad", boresight_parallactic_rad),
+        ("boresight_altitude_rad", boresight_altitude_rad),
+    )
+    if squint_plan is None:
+        for name, value in supplied:
+            if value is not None:
+                raise BeamEvaluationError(
+                    f"{name} must be None for an antenna that carries no beam "
+                    f"squint; observed {value!r}."
+                )
+        return
+    for name, value in supplied:
+        if type(value) is not float or not math.isfinite(value):
+            raise BeamEvaluationError(
+                f"{name} must be an exact finite Python float for an antenna "
+                f"that carries beam squint; observed {value!r}."
+            )
+
+
+def _evaluate_squinted_response(
+    evaluator: _BeamEvaluator,
+    squint_plan: _SquintPlan,
+    *,
+    true_altitude_rad: Any,
+    beam_altitude_rad: Any,
+    beam_azimuth_rad: Any,
+    frequency_hz: float,
+    time_mjd: float,
+    boresight_parallactic_rad: float,
+    boresight_altitude_rad: float,
+) -> np.ndarray:
+    """Return one antenna's composed ``E = C^dagger D_b C`` (Section 4.2.1).
+
+    The two native feeds sample the antenna's existing scalar evaluator at
+    oppositely displaced directions: the common pointing rotation has already
+    expressed the true visible directions in the beam frame, and each feed adds
+    its own exact great-circle rotation about the resolved boresight.  The
+    horizon gate stays on true topocentric altitude, so only visible directions
+    are rotated and the evaluator's own domain behaviour applies to a displaced
+    direction exactly as it does to a pointing-rotated one.
+    """
+    if type(beam_altitude_rad) is not np.ndarray or (
+        type(beam_azimuth_rad) is not np.ndarray
+    ):
+        raise BeamAngularDomainError(
+            "altitude_rad and azimuth_rad must be one-dimensional NumPy arrays."
+        )
+    squint = squint_plan.squint
+    argument = _squint_arcsine_argument(
+        reference_frequency_hz=squint.reference_frequency_hz,
+        per_feed_offset_deg_at_reference=(squint.per_feed_offset_deg_at_reference),
+        frequency_hz=float(frequency_hz),
+    )
+    if not -1.0 <= argument <= 1.0:
+        # The setup preflight evaluates this identical binary64 expression over
+        # every observation channel, so reaching here is an internal failure.
+        raise BeamEvaluationError(
+            "Beam squint arcsine argument left [-1, 1] at evaluation time after "
+            f"the load preflight accepted it; observed {argument!r}."
+        )
+    offset_rad = math.asin(argument)
+    beta_squint_rad = _squint_position_angle_rad(
+        squint,
+        boresight_parallactic_rad=boresight_parallactic_rad,
+        boresight_altitude_rad=boresight_altitude_rad,
+    )
+    visible = np.asarray(true_altitude_rad, dtype=np.float64) >= 0.0
+
+    samples: list[np.ndarray] = []
+    for label in squint_plan.feed_array:
+        sign = 1.0 if label == squint.positive_native_feed else -1.0
+        feed_altitude = np.array(
+            beam_altitude_rad,
+            dtype=np.float64,
+            copy=True,
+            order="C",
+        )
+        feed_azimuth = np.array(
+            beam_azimuth_rad,
+            dtype=np.float64,
+            copy=True,
+            order="C",
+        )
+        if bool(np.any(visible)):
+            displaced_altitude, displaced_azimuth = _displaced_beam_directions(
+                feed_altitude[visible],
+                feed_azimuth[visible],
+                beta_squint_rad=beta_squint_rad,
+                signed_offset_rad=sign * offset_rad,
+            )
+            feed_altitude[visible] = displaced_altitude
+            feed_azimuth[visible] = displaced_azimuth
+        sampled = evaluator.evaluate_numpy(
+            feed_altitude,
+            feed_azimuth,
+            frequency_hz,
+            time_mjd,
+        )
+        samples.append(np.asarray(sampled)[:, 0, 0])
+
+    result_dtype = np.dtype(samples[0].dtype)
+    diagonal = np.zeros((samples[0].size, 2, 2), dtype=result_dtype, order="C")
+    diagonal[:, 0, 0] = samples[0]
+    diagonal[:, 1, 1] = samples[1]
+    receptor = _squint_receptor_matrix(
+        squint_plan.receptor_basis,
+        squint_plan.feed_rotation_rad,
+        result_dtype,
+    )
+    composed = np.array(
+        receptor.conj().T @ diagonal @ receptor,
+        dtype=result_dtype,
+        copy=True,
+        order="C",
+    )
+    composed.setflags(write=False)
+    return composed
+
+
 def _require_lookup_antenna_id(value: Any) -> AntennaId:
     if type(value) is not AntennaId:
         if isinstance(value, AntennaId):
@@ -706,8 +1033,20 @@ class BeamSystem:
         frequency_hz: float,
         time_mjd: float,
         backend: ArrayBackend | None = None,
+        boresight_parallactic_rad: float | None = None,
+        boresight_altitude_rad: float | None = None,
     ) -> np.ndarray | ArrayLike:
-        """Evaluate one antenna's canonical scalar Jones response."""
+        """Evaluate one antenna's canonical Jones response.
+
+        The response is the accepted scalar ``e I2`` unless the antenna carries
+        SCI-005 Stage-2 native-feed squint, in which case it is the composed
+        ``E = C^dagger D_b C`` of ``docs/development/sci005_beam_physics_plan.md``
+        Section 4.2.1 and the two boresight values are required: the parallactic
+        angle and true altitude of the antenna's resolved boresight, which the
+        private solver adapter owns and supplies once per antenna and time step.
+        An antenna without squint requires both to be ``None`` and its call
+        surface, behaviour, and results are unchanged.
+        """
         antenna_id = _require_lookup_antenna_id(antenna_id)
         try:
             canonical = AntennaId(antenna_id.number, antenna_id.name)
@@ -733,6 +1072,12 @@ class BeamSystem:
                 f"BeamSystem has no evaluator for handler_id={handler_id!r}; "
                 "loaded beam runtime is inconsistent."
             )
+        squint_plan = self.__runtime.squint_by_antenna.get(canonical)
+        _require_boresight_pair(
+            squint_plan,
+            boresight_parallactic_rad=boresight_parallactic_rad,
+            boresight_altitude_rad=boresight_altitude_rad,
+        )
         evaluated_altitude = altitude_rad
         evaluated_azimuth = azimuth_rad
         offset = self.__runtime.pointing_by_antenna.get(canonical)
@@ -766,12 +1111,25 @@ class BeamSystem:
                 evaluated_altitude[visible] = beam_altitude
                 evaluated_azimuth[visible] = beam_azimuth
 
-        host_result = evaluator.evaluate_numpy(
-            evaluated_altitude,
-            evaluated_azimuth,
-            frequency_hz,
-            time_mjd,
-        )
+        if squint_plan is None:
+            host_result = evaluator.evaluate_numpy(
+                evaluated_altitude,
+                evaluated_azimuth,
+                frequency_hz,
+                time_mjd,
+            )
+        else:
+            host_result = _evaluate_squinted_response(
+                evaluator,
+                squint_plan,
+                true_altitude_rad=altitude_rad,
+                beam_altitude_rad=evaluated_altitude,
+                beam_azimuth_rad=evaluated_azimuth,
+                frequency_hz=frequency_hz,
+                time_mjd=time_mjd,
+                boresight_parallactic_rad=cast(float, boresight_parallactic_rad),
+                boresight_altitude_rad=cast(float, boresight_altitude_rad),
+            )
 
         surface_error = self.__runtime.surface_error_by_antenna.get(canonical)
         if surface_error is not None:
@@ -870,12 +1228,98 @@ def _validated_observation_frequencies(
     return tuple(copied)
 
 
+def _squint_plans(
+    resolved_state: ResolvedBeamState,
+    *,
+    observation_frequencies_hz: tuple[float, ...],
+    receptors: ResolvedReceptorSet | None,
+) -> dict[AntennaId, _SquintPlan]:
+    """Resolve and preflight every squint-carrying antenna (Section 4.1.1).
+
+    Both rejections are raised before any handler evaluation: the exact
+    Cotton/Uson arcsine domain over every observation channel, which rejects and
+    never clips, and the receptor-basis membership of the authored feed label,
+    which needs the resolved receptor set and therefore cannot be a document
+    check.
+    """
+    squinting = tuple(
+        assignment
+        for assignment in resolved_state.assignments
+        if assignment.squint is not None
+    )
+    if not squinting:
+        return {}
+    if receptors is None:
+        raise TypeError(
+            "load_beam_system requires the resolved receptor set whenever any "
+            "resolved antenna carries beams.squint; pass receptors="
+            "<ResolvedReceptorSet>."
+        )
+    if type(receptors) is not ResolvedReceptorSet:
+        raise TypeError("receptors must be an exact ResolvedReceptorSet")
+
+    for assignment in squinting:
+        squint = cast(ResolvedSquint, assignment.squint)
+        antenna_id = assignment.antenna_id
+        for frequency_hz in observation_frequencies_hz:
+            argument = _squint_arcsine_argument(
+                reference_frequency_hz=squint.reference_frequency_hz,
+                per_feed_offset_deg_at_reference=(
+                    squint.per_feed_offset_deg_at_reference
+                ),
+                frequency_hz=frequency_hz,
+            )
+            if not -1.0 <= argument <= 1.0:
+                raise SquintFrequencyDomainError(
+                    "beams.squint: canonical antenna "
+                    f"number={antenna_id.number}, name={antenna_id.name!r} has "
+                    "no real feed displacement at observation frequency "
+                    f"{frequency_hz!r} Hz: the exact Cotton/Uson argument "
+                    f"(reference_frequency_hz={squint.reference_frequency_hz!r} "
+                    f"/ {frequency_hz!r}) * sin(radians("
+                    "per_feed_offset_deg_at_reference="
+                    f"{squint.per_feed_offset_deg_at_reference!r})) is "
+                    f"{argument!r}, which is outside [-1, 1]; RadioSim rejects "
+                    "the observation rather than clipping the displacement."
+                )
+
+    plans: dict[AntennaId, _SquintPlan] = {}
+    for assignment in squinting:
+        squint = cast(ResolvedSquint, assignment.squint)
+        antenna_id = assignment.antenna_id
+        receptor = receptors.receptor_by_antenna.get(antenna_id)
+        if receptor is None:
+            raise InconsistentBeamAssignmentError(
+                "The resolved receptor set has no receptor for canonical "
+                f"antenna number={antenna_id.number}, name={antenna_id.name!r}; "
+                "receptor and beam resolution disagree."
+            )
+        required_basis = _REQUIRED_BASIS_BY_FEED[squint.positive_native_feed]
+        if receptor.basis != required_basis:
+            raise SquintReceptorBasisError(
+                "beams.squint: canonical antenna "
+                f"number={antenna_id.number}, name={antenna_id.name!r} declares "
+                f"positive_native_feed={squint.positive_native_feed!r}, which "
+                f"requires the {required_basis!r} receptor basis, but the "
+                f"antenna's resolved receptor basis is {receptor.basis!r}; "
+                "'x'/'y' belong to 'linear' and 'r'/'l' to 'circular'."
+            )
+        plans[AntennaId(antenna_id.number, antenna_id.name)] = _SquintPlan(
+            squint=squint,
+            receptor_basis=receptor.basis,
+            feed_rotation_rad=receptor.feed_rotation_rad,
+            feed_array=receptor.feed_array,
+        )
+    return plans
+
+
 def _load_beam_system(
     resolved_state: ResolvedBeamState,
     *,
     observation_frequencies_hz: tuple[float, ...],
     precision: PrecisionConfig,
     loader: _UVBeamLoaderProtocol,
+    receptors: ResolvedReceptorSet | None = None,
 ) -> BeamSystem:
     """Private injectable implementation of the atomic BeamSystem factory."""
     if type(resolved_state) is not ResolvedBeamState:
@@ -886,6 +1330,11 @@ def _load_beam_system(
     if not callable(getattr(loader, "read", None)):
         raise TypeError("loader must provide a callable read(path) method")
     frequencies = _validated_observation_frequencies(observation_frequencies_hz)
+    squint_by_antenna = _squint_plans(
+        resolved_state,
+        observation_frequencies_hz=frequencies,
+        receptors=receptors,
+    )
 
     from radiosim.core.beam.analytic import (
         _analytic_preload_key,  # pyright: ignore[reportPrivateUsage]
@@ -998,6 +1447,7 @@ def _load_beam_system(
         pointing_by_antenna=pointing_by_antenna,
         surface_error_by_antenna=surface_error_by_antenna,
         ruze_diagnostic_by_antenna=ruze_diagnostic_by_antenna,
+        squint_by_antenna=squint_by_antenna,
     )
     system = object.__new__(BeamSystem)
     object.__setattr__(system, "_BeamSystem__state", loaded_state)
@@ -1039,13 +1489,24 @@ def load_beam_system(
     *,
     observation_frequencies_hz: tuple[float, ...],
     precision: PrecisionConfig,
+    receptors: ResolvedReceptorSet | None = None,
 ) -> BeamSystem:
-    """Atomically load one complete canonical per-antenna beam system."""
+    """Atomically load one complete canonical per-antenna beam system.
+
+    ``receptors`` is the already-resolved receptor set
+    (``docs/development/sci005_beam_physics_plan.md`` Section 4.2.1).  It is
+    required whenever any resolved antenna carries ``beams.squint``, because the
+    composed ``E = C^dagger D_b C`` is built from the antenna's own resolved
+    receptor basis and static feed rotation -- the same authority the solver's
+    ``C`` term comes from, so the two cannot disagree.  Receptor resolution is
+    unchanged, and a run with no squint neither needs nor reads it.
+    """
     return _load_beam_system(
         resolved_state,
         observation_frequencies_hz=observation_frequencies_hz,
         precision=precision,
         loader=_ProductionUVBeamLoader(),
+        receptors=receptors,
     )
 
 

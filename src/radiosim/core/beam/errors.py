@@ -84,6 +84,28 @@ class BeamSamplingDerivationError(BeamLoadError):
     """A beam sampling requirement cannot be derived."""
 
 
+class SquintFrequencyDomainError(BeamLoadError):
+    """A squint displacement is undefined at an observation frequency.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 4.1.1: the exact
+    Cotton/Uson law ``delta(nu) = asin[(nu_ref / nu) sin delta_ref]`` has a real
+    solution only while the arcsine argument stays inside ``[-1, 1]``.  The
+    setup preflight rejects an out-of-domain observation channel; it never
+    clips, because a clipped displacement would silently report a different
+    telescope.
+    """
+
+
+class SquintReceptorBasisError(BeamLoadError):
+    """A squint feed label does not belong to the resolved receptor basis.
+
+    ``docs/development/sci005_beam_physics_plan.md`` Section 4.1.1: ``x``/``y``
+    require the ``linear`` basis and ``r``/``l`` require the ``circular`` basis.
+    The check belongs to beam-system load rather than document validation
+    because per-antenna receptor bases exist only after receptor resolution.
+    """
+
+
 class BeamEvaluationError(BeamError):
     """Base class for beam evaluation failures."""
 
@@ -124,6 +146,8 @@ __all__ = [
     "BeamNormalizationError",
     "UnsupportedBeamPrecisionError",
     "BeamSamplingDerivationError",
+    "SquintFrequencyDomainError",
+    "SquintReceptorBasisError",
     "BeamEvaluationError",
     "BeamFrequencyDomainError",
     "BeamAngularDomainError",
