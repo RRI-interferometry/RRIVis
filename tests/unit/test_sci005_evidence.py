@@ -4241,7 +4241,7 @@ STAGE3_KEYS: tuple[str, ...] = (
 #: squint facets are versioned by ``cotton_uson_exact_v1``.
 STAGE3_SCIENTIFIC_CONVENTIONS: dict[str, str] = {
     "efield_normalization": "uvbeam_peak_common_v1",
-    "efield_basis_conversion": "ludwig3_az_za_to_north_east_v1",
+    "efield_basis_conversion": "uvbeam_theta_phi_chain_tangent_v1",
     "efield_zenith_limit": "north_east_tangent_limit_v1",
     "efield_factorization": "receptor_conjugated_native_efield_v1",
 }
@@ -4310,6 +4310,35 @@ STAGE3_FLOAT128_MESSAGE = re.compile(
     r"select beam float32 or float64\.\Z"
 )
 
+#: The amended Section 8.1 contract for the two blocks the chain-basis and
+#: comparison correction added to every ``crossvalidation_comparisons`` row.
+#: ``bounded_quantities`` names the only quantities this comparison bounds,
+#: because they are the only ones the adjudicated ``pyradiosky`` local-frame
+#: linear mirror leaves untouched; every bound must sit at or below the
+#: accepted SCI-007 frame residual.
+STAGE3_BOUNDED_QUANTITIES: frozenset[str] = frozenset(
+    {"total_intensity", "stokes_v_class"}
+)
+STAGE3_BOUNDED_QUANTITY_CEILING = 1.9e-3
+
+#: ``reference_frame_mirror`` is the structured record of the open
+#: disagreement; its transfer-solve residual is the quantitative claim that the
+#: mechanism is complete, checked directly so an unexplained residual cannot
+#: hide behind prose.
+STAGE3_MIRROR_MECHANISM = "pyradiosky_local_linear_mirror_v1"
+STAGE3_MIRROR_CITATIONS: tuple[str, ...] = (
+    "pyradiosky/skymodel.py:2667-2676",
+    "pyradiosky/utils.py:105-120",
+)
+STAGE3_MIRROR_TRANSFER_SOLVE_CEILING = 1e-3
+
+#: The one convention mapping the amended Section 5.5 requires to be
+#: equivalent, and the two it forbids from being equivalent.
+STAGE3_EQUALIZED_CONVENTION = "interpolation_order"
+STAGE3_NON_EQUIVALENT_CONVENTIONS: frozenset[str] = frozenset(
+    {"east_x_orientation", "stokes_to_coherency_factor"}
+)
+
 #: Section 8.1's four Stage-3 conversion oracle kinds; each appears at least
 #: once, and ``scalar_subset_control`` is the retained divergence witness rather
 #: than an agreement row.
@@ -4317,7 +4346,7 @@ STAGE3_ORACLE_KINDS: frozenset[str] = frozenset(
     {
         "crossed_ideal_dipole",
         "quadrupolar",
-        "ludwig3_rotation",
+        "chain_tangent_mapping",
         "scalar_subset_control",
     }
 )
@@ -4987,6 +5016,8 @@ def _crossvalidation_comparison(value: Any, path: str) -> dict[str, Any]:
             "input_hashes",
             "convention_mappings",
             "correlation_residuals",
+            "bounded_quantities",
+            "reference_frame_mirror",
             "output_basis",
             "gating",
             "open_disagreements",
@@ -5042,20 +5073,36 @@ def _crossvalidation_comparison(value: Any, path: str) -> dict[str, Any]:
     _sorted_unique([item["name"] for item in hashes], f"{path}.input_hashes")
 
     mappings = _array(
-        row["convention_mappings"], f"{path}.convention_mappings", minimum_length=4
+        row["convention_mappings"], f"{path}.convention_mappings", minimum_length=6
     )
+    equivalence: dict[str, bool] = {}
     for index, item in enumerate(mappings):
         where = f"{path}.convention_mappings[{index}]"
         entry = _mapping(
             item, where, ("radiosim_convention", "reference_convention", "equivalent")
         )
-        _string(entry["radiosim_convention"], f"{where}.radiosim_convention")
+        name = _string(entry["radiosim_convention"], f"{where}.radiosim_convention")
         _string(entry["reference_convention"], f"{where}.reference_convention")
         _boolean(entry["equivalent"], f"{where}.equivalent")
+        equivalence[name] = entry["equivalent"]
     _sorted_unique(
         [item["radiosim_convention"] for item in mappings],
         f"{path}.convention_mappings",
     )
+    # Amended Section 5.5: an unequalized comparison is inadmissible as
+    # evidence, so the interpolation mapping must be present and equivalent.
+    if equivalence.get(STAGE3_EQUALIZED_CONVENTION) is not True:
+        _fail(
+            f"{path}.convention_mappings",
+            f"must carry {STAGE3_EQUALIZED_CONVENTION!r} with equivalent true",
+        )
+    # And the adjudicated mechanism makes these two false as written.
+    for name in sorted(STAGE3_NON_EQUIVALENT_CONVENTIONS):
+        if equivalence.get(name) is True:
+            _fail(
+                f"{path}.convention_mappings",
+                f"must not record {name!r} as equivalent",
+            )
 
     residuals = _array(
         row["correlation_residuals"], f"{path}.correlation_residuals", minimum_length=4
@@ -5090,6 +5137,110 @@ def _crossvalidation_comparison(value: Any, path: str) -> dict[str, Any]:
     for index, item in enumerate(disagreements):
         _string(item, f"{path}.open_disagreements[{index}]")
     _sorted_unique(disagreements, f"{path}.open_disagreements")
+
+    bounded = _array(
+        row["bounded_quantities"], f"{path}.bounded_quantities", minimum_length=2
+    )
+    quantities: list[str] = []
+    for index, item in enumerate(bounded):
+        where = f"{path}.bounded_quantities[{index}]"
+        entry = _mapping(
+            item, where, ("quantity", "max_rel_residual", "bound", "passed")
+        )
+        quantities.append(
+            _string(
+                entry["quantity"],
+                f"{where}.quantity",
+                allowed=STAGE3_BOUNDED_QUANTITIES,
+            )
+        )
+        residual = _number(entry["max_rel_residual"], f"{where}.max_rel_residual")
+        bound = _number(entry["bound"], f"{where}.bound")
+        if bound > STAGE3_BOUNDED_QUANTITY_CEILING:
+            _fail(
+                f"{where}.bound",
+                "must sit at or below the accepted SCI-007 frame residual "
+                f"{STAGE3_BOUNDED_QUANTITY_CEILING!r}",
+            )
+        _boolean(entry["passed"], f"{where}.passed")
+        if entry["passed"] is not (residual <= bound):
+            _fail(f"{where}.passed", "must equal max_rel_residual <= bound")
+    _sorted_unique(quantities, f"{path}.bounded_quantities")
+    if frozenset(quantities) != STAGE3_BOUNDED_QUANTITIES:
+        _fail(
+            f"{path}.bounded_quantities",
+            "must carry exactly "
+            f"{sorted(STAGE3_BOUNDED_QUANTITIES)}: these are the only quantities "
+            "the Section-5.5 mechanism leaves untouched",
+        )
+
+    mirror = _mapping(
+        row["reference_frame_mirror"],
+        f"{path}.reference_frame_mirror",
+        (
+            "mechanism",
+            "citations",
+            "transfer_solve_max_abs_residual",
+            "affected_correlations",
+            "observed_rel_residual_min",
+            "observed_rel_residual_max",
+        ),
+    )
+    where = f"{path}.reference_frame_mirror"
+    _string(mirror["mechanism"], f"{where}.mechanism", const=STAGE3_MIRROR_MECHANISM)
+    citations = _array(mirror["citations"], f"{where}.citations", minimum_length=2)
+    for index, item in enumerate(citations):
+        _string(item, f"{where}.citations[{index}]")
+    _sorted_unique(citations, f"{where}.citations")
+    if not frozenset(STAGE3_MIRROR_CITATIONS) <= frozenset(citations):
+        _fail(
+            f"{where}.citations",
+            f"must name at minimum {list(STAGE3_MIRROR_CITATIONS)}",
+        )
+    transfer = _number(
+        mirror["transfer_solve_max_abs_residual"],
+        f"{where}.transfer_solve_max_abs_residual",
+    )
+    if transfer > STAGE3_MIRROR_TRANSFER_SOLVE_CEILING:
+        _fail(
+            f"{where}.transfer_solve_max_abs_residual",
+            "must not exceed "
+            f"{STAGE3_MIRROR_TRANSFER_SOLVE_CEILING!r}: it is the quantitative "
+            "claim that the mechanism is complete and sufficient",
+        )
+    affected = _array(
+        mirror["affected_correlations"],
+        f"{where}.affected_correlations",
+        minimum_length=1,
+    )
+    for index, item in enumerate(affected):
+        _string(item, f"{where}.affected_correlations[{index}]")
+    _sorted_unique(affected, f"{where}.affected_correlations")
+    if not frozenset(affected) <= frozenset(labels):
+        _fail(
+            f"{where}.affected_correlations",
+            "must be a subset of the row's own correlation labels",
+        )
+    minimum = _number(
+        mirror["observed_rel_residual_min"], f"{where}.observed_rel_residual_min"
+    )
+    maximum = _number(
+        mirror["observed_rel_residual_max"], f"{where}.observed_rel_residual_max"
+    )
+    if minimum > maximum:
+        _fail(f"{where}.observed_rel_residual_min", "must not exceed the maximum")
+    # A mirrored correlation can never be silently counted as an agreement.
+    for label in affected:
+        if not any(entry.startswith(f"{label}:") for entry in disagreements):
+            _fail(
+                f"{where}.affected_correlations",
+                f"{label!r} must appear in open_disagreements",
+            )
+        if label in frozenset(quantities):
+            _fail(
+                f"{where}.affected_correlations",
+                f"{label!r} must not appear in bounded_quantities",
+            )
     return row
 
 
@@ -5759,8 +5910,8 @@ def synthetic_stage3_document() -> dict[str, Any]:
         ],
         "analytic_invariants": [
             {
-                "case_id": "ludwig3_rotation",
-                "invariant_id": "ludwig3_basis_conversion",
+                "case_id": "chain_tangent_mapping",
+                "invariant_id": "chain_basis_conversion",
                 "backend": "numpy",
                 "test_node_id": node,
                 "input_manifest_sha256": digest,
@@ -5971,9 +6122,14 @@ def synthetic_stage3_document() -> dict[str, Any]:
                         "equivalent": True,
                     },
                     {
-                        "radiosim_convention": "east_x_orientation",
-                        "reference_convention": "x_orientation east",
+                        "radiosim_convention": "chain_sky_tangent_basis",
+                        "reference_convention": "correctly paired (theta, phi_uv)",
                         "equivalent": True,
+                    },
+                    {
+                        "radiosim_convention": "east_x_orientation",
+                        "reference_convention": "pyradiosky local linear mirror",
+                        "equivalent": False,
                     },
                     {
                         "radiosim_convention": "fringe_sign",
@@ -5981,8 +6137,15 @@ def synthetic_stage3_document() -> dict[str, Any]:
                         "equivalent": False,
                     },
                     {
+                        "radiosim_convention": "interpolation_order",
+                        "reference_convention": (
+                            "BeamList spline_interp_opts {'kx': 1, 'ky': 1, 's': 0}"
+                        ),
+                        "equivalent": True,
+                    },
+                    {
                         "radiosim_convention": "stokes_to_coherency_factor",
-                        "reference_convention": "pyradiosky mirror-image V sign",
+                        "reference_convention": "pyradiosky (South, East) frame pair",
                         "equivalent": False,
                     },
                 ],
@@ -5995,9 +6158,34 @@ def synthetic_stage3_document() -> dict[str, Any]:
                     }
                     for label in sorted(STAGE3_CORRELATION_LABELS["linear_xy"])
                 ],
+                "bounded_quantities": [
+                    {
+                        "quantity": "stokes_v_class",
+                        "max_rel_residual": 4e-4,
+                        "bound": 1.9e-3,
+                        "passed": True,
+                    },
+                    {
+                        "quantity": "total_intensity",
+                        "max_rel_residual": 4e-4,
+                        "bound": 1.9e-3,
+                        "passed": True,
+                    },
+                ],
+                "reference_frame_mirror": {
+                    "mechanism": STAGE3_MIRROR_MECHANISM,
+                    "citations": list(STAGE3_MIRROR_CITATIONS),
+                    "transfer_solve_max_abs_residual": 6.8e-5,
+                    "affected_correlations": ["XY", "YX"],
+                    "observed_rel_residual_min": 4e-2,
+                    "observed_rel_residual_max": 1.1e-1,
+                },
                 "output_basis": "linear_xy",
                 "gating": False,
-                "open_disagreements": [],
+                "open_disagreements": [
+                    "XY: mirrored by the recorded pyradiosky local linear mirror",
+                    "YX: mirrored by the recorded pyradiosky local linear mirror",
+                ],
                 "test_node_id": (
                     "tests/crossvalidation/test_sci005_efield_pyuvsim.py::case"
                 ),
@@ -6597,7 +6785,7 @@ def test_a_conversion_residual_above_its_bound_is_rejected() -> None:
 def test_a_zenith_limit_delta_above_its_bound_is_rejected() -> None:
     document = synthetic_stage3_document()
     for row in document["basis_conversions"]:
-        if row["oracle_kind"] == "ludwig3_rotation":
+        if row["oracle_kind"] == "chain_tangent_mapping":
             row["zenith_limit_max_abs_delta"] = 1.0
     with pytest.raises(EvidenceSchemaError, match="atol/rtol bound"):
         validate_stage3_evidence(document)
@@ -6867,10 +7055,103 @@ def test_unsorted_correlation_residuals_are_rejected() -> None:
 
 
 def test_an_incomplete_convention_mapping_set_is_rejected() -> None:
+    """The amended contract's minimum coverage is six rows, not four.
+
+    The chain-basis and comparison correction added the chain sky tangent basis
+    and the interpolation order to the mapping set Section 8.1 requires at
+    minimum.
+    """
     document = synthetic_stage3_document()
     row = document["crossvalidation_comparisons"][0]
     row["convention_mappings"] = row["convention_mappings"][:3]
-    with pytest.raises(EvidenceSchemaError, match="at least 4"):
+    with pytest.raises(EvidenceSchemaError, match="at least 6"):
+        validate_stage3_evidence(document)
+
+
+def test_an_unequalized_interpolation_order_is_rejected() -> None:
+    """Amended Section 5.5: a run without equalized interpolation order "is not
+    evidence and may not be retained"."""
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    for mapping in row["convention_mappings"]:
+        if mapping["radiosim_convention"] == STAGE3_EQUALIZED_CONVENTION:
+            mapping["equivalent"] = False
+    with pytest.raises(EvidenceSchemaError, match="equivalent true"):
+        validate_stage3_evidence(document)
+
+
+@pytest.mark.parametrize("name", sorted(STAGE3_NON_EQUIVALENT_CONVENTIONS))
+def test_a_falsely_equivalent_convention_mapping_is_rejected(name: str) -> None:
+    """Amended Section 8.1: "The east-X and Stokes-to-coherency rows may **not**
+    be recorded ``equivalent: true``"."""
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    for mapping in row["convention_mappings"]:
+        if mapping["radiosim_convention"] == name:
+            mapping["equivalent"] = True
+    with pytest.raises(EvidenceSchemaError, match="must not record"):
+        validate_stage3_evidence(document)
+
+
+def test_a_bounded_quantity_above_the_frame_residual_ceiling_is_rejected() -> None:
+    """Amended Section 8.1: "every ``bound`` must be at or below the accepted
+    ``1.9e-3`` SCI-007 frame residual"."""
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["bounded_quantities"][0]["bound"] = 1e-2
+    with pytest.raises(EvidenceSchemaError, match="SCI-007 frame residual"):
+        validate_stage3_evidence(document)
+
+
+def test_a_bounded_quantity_whose_verdict_disagrees_is_rejected() -> None:
+    """A row's ``passed`` equals ``max_rel_residual <= bound``."""
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["bounded_quantities"][0]["max_rel_residual"] = 1.5e-3
+    row["bounded_quantities"][0]["bound"] = 1e-3
+    with pytest.raises(EvidenceSchemaError, match="max_rel_residual <= bound"):
+        validate_stage3_evidence(document)
+
+
+def test_an_incomplete_bounded_quantity_set_is_rejected() -> None:
+    """Both ``total_intensity`` and ``stokes_v_class`` must appear."""
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["bounded_quantities"] = row["bounded_quantities"][:1]
+    with pytest.raises(EvidenceSchemaError, match="at least 2"):
+        validate_stage3_evidence(document)
+
+
+def test_a_mirror_transfer_solve_residual_above_its_bound_is_rejected() -> None:
+    """Amended Section 8.1: the transfer-solve residual "must not exceed
+    ``1e-3``, and it is the quantitative claim that the mechanism is complete --
+    a validator checks it directly, so an unexplained residual cannot hide
+    behind prose"."""
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["reference_frame_mirror"]["transfer_solve_max_abs_residual"] = 1e-2
+    with pytest.raises(EvidenceSchemaError, match="mechanism is complete"):
+        validate_stage3_evidence(document)
+
+
+def test_a_mirror_without_its_two_citations_is_rejected() -> None:
+    """The mechanism is retained with its line citations or not at all."""
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["reference_frame_mirror"]["citations"] = ["pyradiosky/utils.py:105-120"]
+    with pytest.raises(EvidenceSchemaError, match="at least 2"):
+        validate_stage3_evidence(document)
+
+
+def test_a_mirrored_correlation_missing_from_open_disagreements_is_rejected() -> None:
+    """Amended Section 8.1's cross-field rule: "a mirrored correlation can never
+    be silently counted as an agreement"."""
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["open_disagreements"] = [
+        entry for entry in row["open_disagreements"] if not entry.startswith("XY:")
+    ]
+    with pytest.raises(EvidenceSchemaError, match="must appear in open_disagreements"):
         validate_stage3_evidence(document)
 
 

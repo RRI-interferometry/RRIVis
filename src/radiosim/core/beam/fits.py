@@ -45,12 +45,11 @@ from radiosim.core.beam.runtime import (
     _EfieldReceptorExpectation,  # pyright: ignore[reportPrivateUsage]
     _preflight_frequency,  # pyright: ignore[reportPrivateUsage]
     _ProductionUVBeamLoader,  # pyright: ignore[reportPrivateUsage]
-    _radiosim_azimuth_rad,  # pyright: ignore[reportPrivateUsage]
-    _tangent_conversion,  # pyright: ignore[reportPrivateUsage]
     _UVBeamEfieldEvaluator,  # pyright: ignore[reportPrivateUsage]
     _UVBeamLike,  # pyright: ignore[reportPrivateUsage]
     _UVBeamLoaderProtocol,  # pyright: ignore[reportPrivateUsage]
     _UVBeamScalarEvaluator,  # pyright: ignore[reportPrivateUsage]
+    _zenith_spin_rotation,  # pyright: ignore[reportPrivateUsage]
 )
 from radiosim.core.precision import PrecisionConfig
 
@@ -62,10 +61,19 @@ _AZIMUTH_CLOSURE_TOLERANCE_RAD = 1e-10
 _HORIZON_COVERAGE_TOLERANCE_RAD = 1e-10
 _STAT_FIELDS = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
 
-#: SCI-005 Stage-3 convention literals (Sections 5.2.1 and 8.1).
-_BASIS_VECTOR_CONVENTION = "ludwig3_az_za_to_north_east_v1"
+#: SCI-005 Stage-3 convention literals (Sections 5.2.1 and 8.1).  The
+#: basis-vector literal names the conversion from the native ``az_za``
+#: components into the chain's own mixed-sign spherical tangent pair, whose
+#: frozen definition is the constant ``M`` of :func:`_chain_conversion`; the
+#: zenith literal names the de-spin predicate together with the
+#: ``az_radiosim = 0`` selection whose limit is ``-(N_hat, E_hat)``.
+_BASIS_VECTOR_CONVENTION = "uvbeam_theta_phi_chain_tangent_v1"
 _FACTORIZATION_CONVENTION = "receptor_conjugated_native_efield_v1"
 _ZENITH_LIMIT_CONVENTION = "north_east_tangent_limit_v1"
+
+#: Corrected Section 5.2.1's frozen wrap-continuity margin factor: the seam
+#: second difference is compared against eight times the interior maximum.
+_WRAP_SECOND_DIFFERENCE_FACTOR = 8.0
 
 #: Section 5.1.1 item 5's two accepted ordered native feed pairs.
 _ACCEPTED_FEED_PAIRS = (("x", "y"), ("r", "l"))
@@ -1024,49 +1032,74 @@ def _validate_converted_continuity(
     scalar_atol: float,
     scalar_rtol: float,
 ) -> None:
-    """Run Section 5.2.1's two frozen file-grid continuity predicates.
+    """Run corrected Section 5.2.1's two frozen file-grid continuity predicates.
 
     Both are evaluated on the converted matrices at every intrinsic frequency,
-    before any frequency interpolation.
+    before any frequency interpolation, and neither touches the accepted scalar
+    ``peak`` path.
+
+    The **zenith** predicate is the de-spin form.  Requiring the converted
+    matrices of the ``za = 0`` row to be *equal* is withdrawn: the chain tangent
+    pair spins with the azimuth coordinate at the pole while the physical
+    response is one fixed map, so under any constant ``M`` a perfectly valid
+    file's converted zenith row spreads by the full response scale.  What is
+    single-valued is ``J(az_uv) R(az_uv)^T``, equivalently
+    ``J(az_uv) = J(az_ref) R(az_uv - az_ref)``.
+
+    The **wrap** predicate is a second difference compared against the interior
+    **maximum**, because only the second difference is scale-consistent: for a
+    twice-differentiable periodic row sampled at step ``h`` every
+    ``Delta^2_k`` equals ``h^2 J''(xi_k)``, so seam and interior second
+    differences are the same order at every sampling density.  A first
+    difference has no such property -- it holds only when the sampling is
+    symmetric about the seam, an accident of one particular grid.
     """
-    conversion = _tangent_conversion(_radiosim_azimuth_rad(azimuth_rad))
+    despin = _zenith_spin_rotation(np.asarray(azimuth_rad, dtype=np.float64))
     for index in range(int(frequencies_hz.size)):
-        components = canonical_data[:, :, index]
-        grid = np.broadcast_to(
-            conversion[np.newaxis, :, :, :],
-            (components.shape[2], components.shape[3], 2, 2),
-        )
-        matrices = _converted_native_jones(components, grid)
+        matrices = _converted_native_jones(canonical_data[:, :, index])
 
         zenith_row = matrices[0]
-        zenith_scale = float(np.max(np.abs(zenith_row)))
+        de_spun = zenith_row @ np.transpose(despin, (0, 2, 1))
+        zenith_scale = float(np.max(np.abs(de_spun)))
         zenith_bound = scalar_atol + scalar_rtol * zenith_scale
-        spread = float(np.max(np.abs(zenith_row - zenith_row[0])))
+        spread = float(np.max(np.abs(de_spun - de_spun[0])))
         if spread > zenith_bound:
             raise UnsupportedBeamCoordinateError(
-                f"BeamFITS {path}: the converted zenith-angle row at frequency "
-                f"{float(frequencies_hz[index])!r} Hz is not single valued; its "
-                f"{zenith_row.shape[0]} azimuth samples spread by {spread!r} "
-                f"against the accepted bound {zenith_bound!r}. The first row is "
-                "one physical direction whose azimuth is arbitrary, so a file "
-                "whose physical matrix depends on it is rejected rather than "
-                "averaged."
+                f"BeamFITS {path}: the de-spun zenith-angle row at frequency "
+                f"{float(frequencies_hz[index])!r} Hz is not constant; its "
+                f"{zenith_row.shape[0]} azimuth samples of "
+                f"J(az_uv) R(az_uv)^T spread by {spread!r} against the accepted "
+                f"bound {zenith_bound!r}. The first row is one physical "
+                "direction whose azimuth is arbitrary, so a file whose physical "
+                "matrix depends on it is rejected rather than averaged."
             )
 
+        count = int(matrices.shape[1])
+        second = (
+            np.roll(matrices, -1, axis=1)
+            - 2.0 * matrices
+            + np.roll(matrices, 1, axis=1)
+        )
+        seam = np.max(np.abs(second[:, 0]), axis=(1, 2))
+        interior_samples = second[:, 2 : count - 1]
+        interior = (
+            np.max(np.abs(interior_samples), axis=(1, 2, 3))
+            if interior_samples.shape[1] > 0
+            else np.zeros(matrices.shape[0], dtype=np.float64)
+        )
         scale = np.max(np.abs(matrices), axis=(1, 2, 3))
         bound = scalar_atol + scalar_rtol * scale
-        wrap = np.max(np.abs(matrices[:, -1] - matrices[:, 0]), axis=(1, 2))
-        interior = np.max(np.abs(matrices[:, -2] - matrices[:, -1]), axis=(1, 2))
-        excess = wrap - interior - bound
+        excess = seam - _WRAP_SECOND_DIFFERENCE_FACTOR * interior - bound
         if bool(np.any(excess > 0.0)):
             row = int(np.argmax(excess))
             raise UnsupportedBeamCoordinateError(
                 f"BeamFITS {path}: the converted matrix is discontinuous across "
                 f"the endpoint-excluded azimuth wrap at frequency "
                 f"{float(frequencies_hz[index])!r} Hz and zenith-angle row "
-                f"{row}: the seam difference {float(wrap[row])!r} exceeds the "
-                f"adjacent interior difference {float(interior[row])!r} by more "
-                f"than the accepted bound {float(bound[row])!r}."
+                f"{row}: the seam second difference {float(seam[row])!r} exceeds "
+                f"{_WRAP_SECOND_DIFFERENCE_FACTOR!r} times the interior maximum "
+                f"{float(interior[row])!r} by more than the accepted bound "
+                f"{float(bound[row])!r}."
             )
 
 

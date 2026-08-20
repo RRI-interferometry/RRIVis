@@ -1303,7 +1303,7 @@ FULL_EFIELD_NORMALIZATION = "uvbeam_peak_common_v1"
 FULL_EFIELD_SUBSET_VERSION = "sci005-stage3-full-efield-v1"
 
 #: The three derived convention literals Section 8.1 freezes beside it.
-FULL_EFIELD_BASIS_CONVERSION_CONVENTION = "ludwig3_az_za_to_north_east_v1"
+FULL_EFIELD_BASIS_CONVERSION_CONVENTION = "uvbeam_theta_phi_chain_tangent_v1"
 FULL_EFIELD_FACTORIZATION_CONVENTION = "receptor_conjugated_native_efield_v1"
 
 

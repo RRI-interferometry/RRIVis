@@ -620,8 +620,10 @@ bytes, and the same result cube as before.
 When the new literal *is* authored, three things widen:
 
 - **`E` is a generally full 2x2 matrix**, not a scalar on the diagonal. The
-  file's complete complex `data_array` is converted per direction into
-  RadioSim's Ludwig-3 tangent pair to give `J_native`, and the beam runtime
+  file's complete complex `data_array` is converted by the frozen constant
+  `M = [[0, 1], [-1, 0]]` into the chain's own mixed-sign tangent pair
+  `(-e_theta, +e_az_uv)` — the pair `P` delivers — to give `J_native`, and the
+  beam runtime
   composes `E = C^dagger J_native` from the antenna's own resolved receptor
   matrix, so `C E == J_native` exactly. The chain order stays
   `H G B Rc Kd X D C E P T Z`; only what `E` contains changes. Both cross-hand
@@ -634,7 +636,9 @@ When the new literal *is* authored, three things widen:
   reverse; in particular the full-efield subset requires the stored
   `basis_vector_array` to be exactly the native identity, requires a
   full-stored-grid unit peak at every intrinsic frequency (a visible-row-only
-  peak is rejected), requires a single-valued zenith row, and requires the
+  peak is rejected), requires the zenith row to satisfy the de-spin predicate
+  `J(az_uv) = J(az_ref) R(az_uv - az_ref)`, requires the converted azimuth seam
+  to satisfy the second-difference continuity predicate, and requires the
   file's feed pair, feed angles and derived x-orientation to agree with *every*
   antenna it is assigned to under the `receptors` section.
 - **`BeamFileProvenance` gained seven optional fields**, appended after
@@ -649,7 +653,9 @@ When the new literal *is* authored, three things widen:
   became nullable: `x_orientation` is now `str | None`, because pyuvdata
   legitimately derives no orientation for a rotated linear receptor or for a
   circular receptor whose static rotation is neither 0 nor pi/2. The scalar
-  path still records exactly `"east"`.
+  path still records exactly `"east"`. `basis_vector_convention` records the
+  literal `uvbeam_theta_phi_chain_tangent_v1`, whose frozen definition is the
+  constant `M` and the mixed-sign chain basis above.
 
 `beams.squint` and `beams.aperture_physics` are accepted only on the `analytic`
 beams mode, so neither can be combined with either BeamFITS subset. No

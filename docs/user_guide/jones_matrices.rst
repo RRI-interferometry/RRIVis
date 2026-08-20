@@ -80,8 +80,10 @@ for itself:
   :math:`E = C^\dagger D_b\,C` from those samples.
 * SCI-005 Stage 3's ``normalization: uvbeam_peak_common_v1``
   (:ref:`stage3-full-efield`), accepted only on a ``kind: fits`` source: the
-  file's complete complex ``data_array`` is converted per direction into
-  RadioSim's Ludwig-3 tangent pair, giving the full matrix
+  file's complete complex ``data_array`` is converted by the frozen constant
+  :math:`M = [[0, 1], [-1, 0]]` into the chain's own mixed-sign tangent pair
+  :math:`(-\hat{\mathbf e}_\theta, +\hat{\mathbf e}_{\mathrm{az_{uv}}})` —
+  the pair ``P`` itself delivers — giving the full matrix
   :math:`J_{\rm native}` that maps the incident tangent field to the file's
   native feed voltages, and the runtime composes
   :math:`E = C^\dagger J_{\rm native}` so that :math:`C\,E = J_{\rm native}`

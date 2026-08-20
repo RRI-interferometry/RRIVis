@@ -98,7 +98,7 @@
           "const": "uvbeam_peak_common_v1"
         },
         "efield_basis_conversion": {
-          "const": "ludwig3_az_za_to_north_east_v1"
+          "const": "uvbeam_theta_phi_chain_tangent_v1"
         },
         "efield_zenith_limit": {
           "const": "north_east_tangent_limit_v1"
@@ -1265,7 +1265,7 @@
           "enum": [
             "crossed_ideal_dipole",
             "quadrupolar",
-            "ludwig3_rotation",
+            "chain_tangent_mapping",
             "scalar_subset_control"
           ]
         },
@@ -1618,6 +1618,84 @@
         "reference_max_abs"
       ]
     },
+    "bounded_quantity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quantity": {
+          "enum": [
+            "total_intensity",
+            "stokes_v_class"
+          ]
+        },
+        "max_rel_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "bound": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.0019
+        },
+        "passed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "quantity",
+        "max_rel_residual",
+        "bound",
+        "passed"
+      ]
+    },
+    "reference_frame_mirror": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mechanism": {
+          "const": "pyradiosky_local_linear_mirror_v1"
+        },
+        "citations": {
+          "type": "array",
+          "minItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "transfer_solve_max_abs_residual": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.001
+        },
+        "affected_correlations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "observed_rel_residual_min": {
+          "type": "number",
+          "minimum": 0
+        },
+        "observed_rel_residual_max": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "mechanism",
+        "citations",
+        "transfer_solve_max_abs_residual",
+        "affected_correlations",
+        "observed_rel_residual_min",
+        "observed_rel_residual_max"
+      ]
+    },
     "crossvalidation_comparison": {
       "type": "object",
       "additionalProperties": false,
@@ -1677,6 +1755,17 @@
             "$ref": "#/$defs/correlation_residual"
           }
         },
+        "bounded_quantities": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "$ref": "#/$defs/bounded_quantity"
+          }
+        },
+        "reference_frame_mirror": {
+          "$ref": "#/$defs/reference_frame_mirror"
+        },
         "output_basis": {
           "enum": [
             "linear_xy",
@@ -1716,6 +1805,8 @@
         "input_hashes",
         "convention_mappings",
         "correlation_residuals",
+        "bounded_quantities",
+        "reference_frame_mirror",
         "output_basis",
         "gating",
         "open_disagreements",

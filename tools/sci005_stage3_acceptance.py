@@ -38,12 +38,15 @@ constants; ``U2`` located as the unique commit on ``D3``'s first-parent ancestry
 whose direct parent is ``A2``, satisfying the committed Stage-2
 ``verify-status`` form; ``A2`` an ancestor of ``D3`` through the committed
 Stage-2 ``verify`` form; and every commit in ``U2..D3`` other than ``D3``
-matched against the header-enumerated three-kind interval rule with its own
-recorded touch set. Unlike the Stage-2 edge, the two header-recorded superseded
-red slices have *different* touch sets, so each commit's recorded set is what
-:func:`require_interval_kind` compares against and
-:data:`STAGE3_RED_SLICE_PATHS` bounds the kind. The operative ``D3`` itself
-touches only the design memo.
+matched against the header-enumerated four-kind interval rule with its own
+recorded touch set. Unlike the Stage-2 edge, the three header-recorded
+superseded red slices have *different* touch sets, so each commit's recorded set
+is what :func:`require_interval_kind` compares against and
+:data:`STAGE3_RED_SLICE_PATHS` bounds the kind. The fourth kind, the superseded
+implementation commit the chain-basis and comparison correction added, is
+bounded by :data:`STAGE3_IMPLEMENTATION_PATHS` and may carry neither
+successor-only artifact. The operative ``D3`` itself touches only the design
+memo.
 
 It emits exactly one canonical UTF-8 JSON line on success. Failure emits no
 certificate on stdout, exits non-zero, and writes a stderr line beginning with
@@ -187,10 +190,19 @@ REQUIRED_CHECKS = frozenset(
     }
 )
 
-#: Section 8.3's three header-recorded interval-commit kinds.
+#: Section 8.3's four header-recorded interval-commit kinds.  The fourth was
+#: added by the chain-basis and comparison correction and is what a reopened
+#: ``S3`` requires: a **superseded implementation commit** is a stage
+#: implementation whose design a later, independently accepted,
+#: header-recorded correction superseded before that implementation could be
+#: accepted.  It touches only paths on that stage's Section 7.4 list, and it
+#: carries no evidence artifact, no acceptance artifact, and no
+#: approved-constant change, because those live in the ``E``, ``A`` and ``U``
+#: successors it never reached.
 STATUS_PROSE_KIND = "status-prose"
 SUPERSEDED_DESIGN_KIND = "superseded-design"
 SUPERSEDED_RED_SLICE_KIND = "superseded-red-slice"
+SUPERSEDED_IMPLEMENTATION_KIND = "superseded-implementation"
 
 #: The Section 7.4 test paths the header-recorded superseded *first* Stage-3 red
 #: slice cut, reopened by the basis-vector and provenance correction.
@@ -216,6 +228,68 @@ SECOND_SUPERSEDED_RED_SLICE_PATHS = frozenset(
     }
 )
 
+#: The Section 7.4 test paths the header-recorded superseded *second re-cut*
+#: Stage-3 red slice touched, reopened by the chain-basis and comparison
+#: correction for a third governed re-cut.
+THIRD_SUPERSEDED_RED_SLICE_PATHS = frozenset(
+    {
+        "tests/fixtures/beamfits.py",
+        "tests/unit/test_core/test_sci005_full_efield.py",
+        "tests/unit/test_jones/test_chain_order.py",
+    }
+)
+
+#: The twenty-eight Section 7.4 paths the header-recorded superseded Stage-3
+#: implementation commit touched, transcribed from Section 8.3's enumeration.
+#: None of them is an evidence or acceptance successor, which is exactly what
+#: distinguishes a superseded implementation from an accepted one.
+SUPERSEDED_IMPLEMENTATION_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_acceptance.schema.json",
+        "docs/development/sci005_stage3_evidence.schema.json",
+        "docs/migration_guide.md",
+        "docs/user_guide/beam_models.rst",
+        "docs/user_guide/configuration.rst",
+        "docs/user_guide/configuration_support.rst",
+        "docs/user_guide/jones_matrices.rst",
+        "src/radiosim/core/beam/fits.py",
+        "src/radiosim/core/beam/models.py",
+        "src/radiosim/core/beam/runtime.py",
+        "src/radiosim/io/beam_config.py",
+        "tests/characterization/test_tier6_current_behavior.py",
+        "tests/crossvalidation/test_sci005_efield_pyuvsim.py",
+        "tests/fixtures/beamfits.py",
+        "tests/unit/test_core/test_beam_fits.py",
+        "tests/unit/test_core/test_beam_solver_integration.py",
+        "tests/unit/test_core/test_result.py",
+        "tests/unit/test_io/test_hdf5_result.py",
+        "tests/unit/test_io/test_measurement_set.py",
+        "tests/unit/test_io/test_result_summary.py",
+        "tests/unit/test_io/test_standard_visibility.py",
+        "tests/unit/test_io/test_uvfits.py",
+        "tests/unit/test_jones/test_backend_parity.py",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage3_acceptance.py",
+        "tools/sci005_stage3_acceptance.py",
+        "tools/sci005_stage3_crossvalidation.py",
+        "tools/sci005_stage_evidence.py",
+    }
+)
+
+#: Every Section 7.4 path a superseded implementation commit may touch, and the
+#: only bound this kind carries; the per-commit recorded set above is the
+#: authority for the one instance, exactly as it is for the red slices.
+STAGE3_IMPLEMENTATION_PATHS = SUPERSEDED_IMPLEMENTATION_PATHS
+
+#: The two Section 7.4 ``successor only`` paths a superseded implementation
+#: commit may never introduce: reaching them is what an *accepted* stage does.
+STAGE3_SUCCESSOR_ONLY_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_evidence.json",
+        "docs/development/sci005_stage3_acceptance.json",
+    }
+)
+
 #: Every Section 7.4 test path a superseded red-slice commit may touch, and the
 #: only bound this kind carries. Unlike the Stage-2 edge, whose single slice
 #: made the kind bound and the recorded set the same frozenset, the two Stage-3
@@ -223,7 +297,9 @@ SECOND_SUPERSEDED_RED_SLICE_PATHS = frozenset(
 #: :data:`INTERVAL_COMMITS` carries each commit's own exact recorded set and
 #: :func:`require_interval_kind` compares against that.
 STAGE3_RED_SLICE_PATHS = (
-    FIRST_SUPERSEDED_RED_SLICE_PATHS | SECOND_SUPERSEDED_RED_SLICE_PATHS
+    FIRST_SUPERSEDED_RED_SLICE_PATHS
+    | SECOND_SUPERSEDED_RED_SLICE_PATHS
+    | THIRD_SUPERSEDED_RED_SLICE_PATHS
 )
 
 #: Section 8.3's observed ``U2..D3`` interval, transcribed in ancestry order
@@ -252,6 +328,23 @@ INTERVAL_COMMITS: dict[str, tuple[str, frozenset[str]]] = {
     "ea06bc649ae9987253c8002150e21b03a842cb45": (
         SUPERSEDED_RED_SLICE_KIND,
         SECOND_SUPERSEDED_RED_SLICE_PATHS,
+    ),
+    # The superseded response-identity and oracle-domain correction: memo only.
+    "5856587c49ac6a6134265be11954c2b9bcedf76f": (
+        SUPERSEDED_DESIGN_KIND,
+        frozenset({DESIGN_MEMO}),
+    ),
+    # The superseded second re-cut Stage-3 red slice, reopened by the
+    # chain-basis and comparison correction for a third re-cut.
+    "e3205d60977153857941f1a485ec81eac7340335": (
+        SUPERSEDED_RED_SLICE_KIND,
+        THIRD_SUPERSEDED_RED_SLICE_PATHS,
+    ),
+    # The superseded Stage-3 implementation commit, the first of the fourth
+    # kind in this programme.
+    "9bcfcbcb762edbbfd0bcfd170674f59ebcebfc84": (
+        SUPERSEDED_IMPLEMENTATION_KIND,
+        SUPERSEDED_IMPLEMENTATION_PATHS,
     ),
 }
 
@@ -724,7 +817,23 @@ def require_interval_kind(commit: str, kind: str, recorded: frozenset[str]) -> N
                 f"superseded red-slice commit {commit} touches {outside}, which is "
                 "not a Section 7.4 test path",
             )
-    else:  # pragma: no cover - the table only carries the three frozen kinds
+    elif kind == SUPERSEDED_IMPLEMENTATION_KIND:
+        outside = sorted(touched - STAGE3_IMPLEMENTATION_PATHS)
+        if outside:
+            raise AcceptanceError(
+                DIFF_AUTHORITY,
+                f"superseded implementation commit {commit} touches {outside}, "
+                "which is not a Section 7.4 path",
+            )
+        successors = sorted(touched & STAGE3_SUCCESSOR_ONLY_PATHS)
+        if successors:
+            raise AcceptanceError(
+                DIFF_AUTHORITY,
+                f"superseded implementation commit {commit} carries the successor-"
+                f"only artifacts {successors}; those live in the E, A and U "
+                "successors it never reached",
+            )
+    else:  # pragma: no cover - the table only carries the four frozen kinds
         raise AcceptanceError(ANCESTRY, f"{kind!r} is not a header-recorded kind")
 
 

@@ -824,7 +824,7 @@ STAGE3_ORACLE_KINDS: frozenset[str] = frozenset(
     {
         "crossed_ideal_dipole",
         "quadrupolar",
-        "ludwig3_rotation",
+        "chain_tangent_mapping",
         "scalar_subset_control",
     }
 )

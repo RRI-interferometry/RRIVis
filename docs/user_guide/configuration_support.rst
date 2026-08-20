@@ -218,9 +218,10 @@ no metadata by which RadioSim could prove it does not.
 a BeamFITS file is read. The default ``peak`` is the accepted scalar subset,
 whose evaluated response is one complex voltage on the diagonal of ``E``.
 ``uvbeam_peak_common_v1`` is the accepted full-efield subset: the file's
-complete complex ``data_array`` is converted per direction into RadioSim's
-Ludwig-3 tangent pair and factorized against the antenna's own resolved
-receptor, so ``E`` is a generally full 2x2 matrix; see
+complete complex ``data_array`` is converted by the frozen constant matrix
+``M = [[0, 1], [-1, 0]]`` into the chain's own sky tangent pair and factorized
+against the antenna's own resolved receptor, so ``E`` is a generally full 2x2
+matrix; see
 :ref:`stage3-full-efield`. The literal names an accepted interpretation of the
 committed bytes rather than a normalizing operation, and the two subsets are
 different readings of the same ``beam_type: efield`` file rather than a strict

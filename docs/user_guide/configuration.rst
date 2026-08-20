@@ -502,8 +502,10 @@ through the one field ``beams.beam.normalization``, and through nothing else:
 ``peak`` is the accepted scalar subset that has always been there: the file's
 response is read as one complex voltage on the diagonal of ``E``.
 ``uvbeam_peak_common_v1`` is the full-efield subset: the file's complete
-complex ``data_array`` is converted per direction into RadioSim's Ludwig-3
-tangent pair and factorized against the antenna's own resolved receptor, so
+complex ``data_array`` is converted by the frozen constant matrix
+``M = [[0, 1], [-1, 0]]`` into the chain's own sky tangent pair — the one the
+``P`` term delivers — and factorized against the antenna's own resolved
+receptor, so
 ``E`` is a generally full 2x2 matrix. :doc:`beam_models` gives the conversion,
 the factorization, and the cross-polar diagnostic.
 
@@ -534,8 +536,9 @@ anything else with the existing typed ``UnsupportedBeamTypeError``,
   metadata matches one antenna and not another is rejected, not silently
   reused;
 - unit bandpass, ``data_normalization: peak``, and a full-visible-hemisphere
-  grid whose zenith row is single valued and whose azimuth wraps
-  continuously; and
+  grid whose zenith row satisfies the de-spin predicate
+  ``J(az_uv) = J(az_ref) R(az_uv - az_ref)`` and whose azimuth seam satisfies
+  the second-difference continuity predicate; and
 - a **full-stored-grid** unit peak at every intrinsic frequency: below-horizon
   rows, when stored, participate in that maximum, so a file that is unit-peak
   only over the visible rows is rejected.

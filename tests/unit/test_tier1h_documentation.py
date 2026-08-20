@@ -1404,10 +1404,18 @@ def test_tier7j_crossvalidation_evidence_is_committed_and_bounded():
     for path in records:
         record = json.loads(path.read_text(encoding="utf-8"))
         assert record["gating"] is False
-        if record.get("schema") == "radiosim-crossvalidation-1.2.0":
+        if record.get("schema") == SCI007_CROSSVALIDATION_SCHEMA:
             # The SCI-007 record has a deliberately stricter schema and is
             # authenticated by the dedicated deep validator tests below.
             assert path.name == "2026-08-11-pyuvsim-1.4.0-sci007.json"
+            continue
+        if record.get("schema_version") == "radiosim.sci005.stage3-crossvalidation.v1":
+            # ``docs/development/sci005_beam_physics_plan.md`` Section 7.4 grants
+            # exactly one further foreign-schema carve-out, mirroring the SCI-007
+            # pattern above: the Stage-3 comparison artifact is a different,
+            # strictly validated document authenticated by its own generator's
+            # ``validate`` form and by ``tests/unit/test_sci005_evidence.py``.
+            assert path.name.endswith("-sci005-efield-pyuvsim-1.4.0.json")
             continue
         assert record["reference"]["version"] == "1.4.0"
         # A recorded comparison without a measured number is not evidence.
@@ -1441,6 +1449,9 @@ def test_tier7j_the_crossvalidation_module_is_excluded_from_the_default_gate():
     assert "crossval" not in workflow
 
 
+#: The SCI-007 comparison record's own schema literal, defined once so the
+#: walker carve-out below and the deep validator tests assert one value.
+SCI007_CROSSVALIDATION_SCHEMA = "radiosim-crossvalidation-1.2.0"
 SCI007_EVIDENCE_TOOL = REPOSITORY_ROOT / "tools" / "wp6_sci007_evidence.py"
 SCI007_EVIDENCE_ARTIFACT = (
     REPOSITORY_ROOT
@@ -1625,7 +1636,7 @@ spec = importlib.util.spec_from_file_location("sci007_evidence", {str(SCI007_EVI
 assert spec is not None and spec.loader is not None
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-assert module.SCHEMA == "radiosim-crossvalidation-1.2.0"
+assert module.SCHEMA == {SCI007_CROSSVALIDATION_SCHEMA!r}
 """
     completed = subprocess.run(
         [sys.executable, "-I", "-c", script],
@@ -1679,7 +1690,7 @@ def test_sci007_in_memory_record_has_exact_complete_contract():
     module = _load_sci007_evidence_tool()
     record = _valid_sci007_record(module)
 
-    assert module.SCHEMA == "radiosim-crossvalidation-1.2.0"
+    assert module.SCHEMA == SCI007_CROSSVALIDATION_SCHEMA
     assert set(record) == {
         "schema",
         "recorded_utc",

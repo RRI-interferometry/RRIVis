@@ -1428,7 +1428,7 @@ class BeamFileProvenance(_ResolvedValue):
             )
         _require_literal(
             self.basis_vector_convention,
-            "ludwig3_az_za_to_north_east_v1",
+            "uvbeam_theta_phi_chain_tangent_v1",
             "basis_vector_convention",
         )
         _require_literal(

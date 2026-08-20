@@ -2820,9 +2820,20 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     # SCI-005 Stage 3, Section 5.2: harvested only for the environment(s) this
     # slice's acceptance actually ran on, exactly like the Stage-2 row below;
     # a later environment class is added deliberately.
+    #
+    # Re-harvested at the re-cut ``S3``.  The accepted chain-basis correction
+    # replaced the conversion ``T(phi) = M S(phi)`` with the constant
+    # ``M = [[0, 1], [-1, 0]]``, which is a genuine physics change for
+    # full-efield workloads and for those alone: the superseded law delivered
+    # the Ludwig-3 matrix into a chain whose ``P`` term expects the mixed-sign
+    # ``(-e_theta, +e_az_uv)`` pair.  The superseded digest
+    # ``438bad6c...`` differs from the value below by ``max|dV| = 0.204``.  A
+    # scalar ``E = e I_2`` is basis-free and Stage-2 squint is a receptor-space
+    # sandwich, so no other workload in this table moved by a byte -- which the
+    # rest of this suite passing unchanged is the measurement of.
     "point_full_efield_quadrupolar": {
         "osx-arm64-py311": (
-            "438bad6ce4b8169a687727e67649cf3f4d3443bf49cdb74cb94122b2ca081082",
+            "87ae1a927ffd6ae371979a9b2f11f5b6161acd3075f546e05c4c05f5a9a5e99d",
         ),
     },
     "point_gaussian_morphology": {

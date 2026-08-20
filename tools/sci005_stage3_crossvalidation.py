@@ -153,14 +153,34 @@ REQUIRED_INPUT_NAMES: tuple[str, ...] = (
 )
 
 #: Section 8.1 requires ``convention_mappings`` to cover *at minimum* the
-#: east-X orientation, the fringe sign, the Stokes-to-coherency factor, and the
-#: beam normalization.  Lexically ordered, which is the required sort order.
+#: east-X orientation, the fringe sign, the Stokes-to-coherency factor, the
+#: beam normalization, the chain sky tangent basis, and the interpolation
+#: order.  Lexically ordered, which is the required sort order.
 REQUIRED_CONVENTION_NAMES: tuple[str, ...] = (
     "beam_normalization",
+    "chain_sky_tangent_basis",
     "east_x_orientation",
     "fringe_sign",
+    "interpolation_order",
     "stokes_to_coherency_factor",
 )
+
+#: The one mapping the amended Section 5.5 requires to be ``equivalent: true``:
+#: an unequalized interpolation order is not evidence, because that mismatch
+#: alone contributes ``1.27e-1`` to the ``J J^dagger`` comparison.
+EQUALIZED_CONVENTION_NAME = "interpolation_order"
+
+#: The two mappings the adjudicated mechanism makes false as written, which a
+#: row may therefore never record as equivalent.
+NON_EQUIVALENT_CONVENTION_NAMES: tuple[str, ...] = (
+    "east_x_orientation",
+    "stokes_to_coherency_factor",
+)
+
+#: pyuvsim's ``BeamList`` is built with exactly these options so that both
+#: codes read the one stored grid at the same polynomial order.  They are
+#: RadioSim's own pinned ``spline_opts``.
+SPLINE_INTERP_OPTS: dict[str, int] = {"kx": 1, "ky": 1, "s": 0}
 
 #: A literal transcription of ``CORRELATION_LABELS`` in
 #: ``src/radiosim/core/polarization_basis.py``.  The validate path may not
@@ -197,20 +217,25 @@ OUTPUT_BASIS = "linear_xy"
 # never gating (that module is marked `crossval` and `slow`).
 # --------------------------------------------------------------------------
 
-#: Total intensity -- the `XX + YY` trace -- is invariant under a unitary
-#: rotation of the tangent basis, because `J -> J R` and `B -> R^H B R` leave
-#: `Tr(J_1 B J_2^H)` unchanged.  The residual frame difference between
-#: RadioSim's parallactic angle and pyradiosky's exact tangent-basis rotation
-#: (WP-6 SCI-007) therefore cannot enter the trace, and what remains is
-#: interpolation and double-precision round-off.
-TRACE_RELATIVE_BOUND = 1e-6
+#: Amended Section 5.5 retires the trace-invariance shortcut.  The invariance
+#: it rested on holds only when the coherency ``B`` is proportional to the
+#: identity or ``J`` is proportional to a unitary; a full-efield ``E`` is
+#: neither, so the trace of a residual between two codes does not cancel and no
+#: bound on it follows from invariance.  Adjudication against hand truth
+#: supports the retirement from the other side: both codes' traces matched
+#: truth to ``4e-4`` while their correlations disagreed at ten per cent, so the
+#: trace is insensitive to exactly the defect class under test.  The total
+#: intensity is still *measured* and recorded, and it is one of the two
+#: quantities the evidence envelope's ``bounded_quantities`` bounds, at or
+#: below the accepted SCI-007 frame residual.
+TOTAL_INTENSITY_RELATIVE_BOUND = 1.9e-3
 
-#: An individual correlation is *not* frame invariant: the SCI-007 record
-#: measures the RadioSim-minus-pyradiosky frame angle at about 0.05 degrees for
-#: this class of fixture, i.e. a few parts in a thousand of the linearly
-#: polarized amplitude.  One part in a hundred sits comfortably above that
-#: known milli-radian effect and far below the order-unity disagreement an
-#: actually wrong convention mapping produces.
+#: An individual correlation is *not* frame invariant, and the amended Section
+#: 5.5 records a further, structural reason it may disagree: ``pyradiosky``
+#: delivers the linear polarization angle mirrored about the local frame,
+#: ``chi -> 2 psi - chi``.  The bound below therefore classifies rather than
+#: gates -- an exceedance is recorded as a mechanism-explained open
+#: disagreement, never as a widened bound.
 PER_CORRELATION_RELATIVE_BOUND = 1e-2
 
 #: The comparison must not be vacuous: undoing the fringe Hermitian mapping has
@@ -462,16 +487,18 @@ def _validate_input_hashes(value: object) -> None:
 def _validate_convention_mappings(value: object) -> None:
     rows = _require_list(value, "convention_mappings", minimum=1)
     names: list[str] = []
+    equivalence: dict[str, bool] = {}
     for index, row in enumerate(rows):
         path = f"convention_mappings[{index}]"
         mapping = _require_key_order(row, CONVENTION_KEYS, path)
-        names.append(
-            _require_string(
-                mapping["radiosim_convention"], f"{path}.radiosim_convention"
-            )
+        name = _require_string(
+            mapping["radiosim_convention"], f"{path}.radiosim_convention"
         )
+        names.append(name)
         _require_string(mapping["reference_convention"], f"{path}.reference_convention")
-        _require_boolean(mapping["equivalent"], f"{path}.equivalent")
+        equivalence[name] = _require_boolean(
+            mapping["equivalent"], f"{path}.equivalent"
+        )
     _require_sorted_unique_keys(
         names, "convention_mappings", key_name="radiosim_convention"
     )
@@ -481,6 +508,24 @@ def _validate_convention_mappings(value: object) -> None:
             "convention_mappings must cover at minimum "
             f"{list(REQUIRED_CONVENTION_NAMES)}; missing {missing}"
         )
+    # Amended Section 5.5: an unequalized comparison is inadmissible as
+    # evidence, so the interpolation mapping must be present and equivalent.
+    if not equivalence.get(EQUALIZED_CONVENTION_NAME, False):
+        raise CrossValidationError(
+            f"convention_mappings[{EQUALIZED_CONVENTION_NAME!r}].equivalent must "
+            "be true: pyuvsim's BeamList must be built with spline_interp_opts "
+            f"{SPLINE_INTERP_OPTS} to match RadioSim's pinned bilinear, and a "
+            "run without that equalization is not evidence"
+        )
+    # And the adjudicated mechanism makes these two false as written, so a row
+    # asserting either equivalence fails validation.
+    for name in NON_EQUIVALENT_CONVENTION_NAMES:
+        if equivalence.get(name, False):
+            raise CrossValidationError(
+                f"convention_mappings[{name!r}].equivalent must not be true: "
+                "the adjudicated pyradiosky local-frame linear mirror makes it "
+                "false as written"
+            )
 
 
 def _validate_correlation_residuals(value: object, output_basis: str) -> None:
@@ -1083,22 +1128,27 @@ def _run_radiosim(inputs: ComparisonInputs, output_directory: Path) -> Any:
 
 
 def _reference_sky(inputs: ComparisonInputs) -> Any:
-    """Read the one committed sky file and apply the Stokes-V sign mapping.
+    """Read the one committed sky file exactly as authored.
 
-    RadioSim builds ``B = (1/2) [[I+Q, U+iV], [U-iV, I-Q]]``
-    (``core/polarization.py``); ``pyradiosky`` uses the mirror image,
-    ``0.5 * [[I+Q, U-iV], [U+iV, I-Q]]`` (``pyradiosky/utils.py``,
-    ``stokes_to_coherency``).  The forward model is linear in the Stokes
-    parameters, so the reference run of the *same* sky bytes under the
-    *opposite* ``V`` sign is exactly the reference RadioSim's convention
-    predicts.  The conversion is derived from the two published definitions and
-    is recorded as a non-equivalent convention mapping, never fitted.
+    The superseded harness flipped ``stokes[3]`` here on the reading that
+    ``pyradiosky`` stores the mirror-image coherency.  The adjudication against
+    hand-computed IAU ground truth withdrew that: ``pyuvsim 1.4.0`` with
+    ``pyradiosky 1.1.0`` reproduces IAU truth for ``I`` and ``V``, so after
+    this harness's own conjugating fringe mapping the reference ``V`` is
+    already consistent and the flip *creates* a ``V`` error rather than
+    removing one.  What ``pyradiosky`` does get wrong is the linear
+    polarization angle, mirrored about the local frame as ``chi -> 2 psi -
+    chi`` through two composed defects
+    (``pyradiosky/utils.py:105-120`` and
+    ``pyradiosky/skymodel.py:2667-2676``); because that composite is
+    ``psi``-dependent, no static relabelling of input Stokes expresses it, so
+    it is recorded as a structured open disagreement rather than compensated
+    here.
     """
     from pyradiosky import SkyModel
 
     sky = SkyModel()
     sky.read_skyh5(str(inputs.skyh5))
-    sky.stokes[3] = -sky.stokes[3]
     return sky
 
 
@@ -1118,7 +1168,15 @@ def _reference_cube(result: Any, inputs: ComparisonInputs, sky: Any) -> Any:
     from pyuvsim import Antenna, Baseline, BeamList, SkyModelData, Telescope, UVEngine
     from pyuvsim.uvsim import UVTask
 
-    beam_list = BeamList([UVBeam.from_file(str(inputs.beamfits))])
+    # Amended Section 5.5: the two simulators otherwise read the one stored
+    # grid at different polynomial order, and that mismatch alone contributes
+    # 1.27e-1 to the J J^dagger comparison -- an order of magnitude larger than
+    # every physical residual under test and entirely an artifact of the
+    # harness.  A comparison run without this equalization is not evidence.
+    beam_list = BeamList(
+        [UVBeam.from_file(str(inputs.beamfits))],
+        spline_interp_opts=dict(SPLINE_INTERP_OPTS),
+    )
     telescope = Telescope(TELESCOPE_NAME, _earth_location(), beam_list)
     antennas = {
         antenna.id.number: Antenna(
@@ -1198,13 +1256,35 @@ def _convention_mappings() -> list[dict[str, Any]]:
             "equivalent": True,
         },
         {
-            "radiosim_convention": "east_x_orientation",
+            "radiosim_convention": "chain_sky_tangent_basis",
             "reference_convention": (
-                "both codes report linear receptors as (X=east, Y=north) after "
-                "SCI-006, so raw Q and U are compared directly with no frame "
-                "compensation"
+                "RadioSim converts the native az_za components into the "
+                "chain's own mixed-sign tangent pair (-e_theta, +e_az_uv) by "
+                "the constant M = [[0, 1], [-1, 0]], which is the pair its P "
+                "term delivers; pyuvsim contracts a correctly paired "
+                "(theta, phi_uv) Jones at pyuvsim/antenna.py:146-149, verified "
+                "against hand truth at 3.7e-5, so the two codes agree on the "
+                "beam-side basis"
             ),
             "equivalent": True,
+        },
+        {
+            "radiosim_convention": "east_x_orientation",
+            "reference_convention": (
+                "both codes label linear receptors (X=east, Y=north), but the "
+                "reference does not deliver raw Q and U in that frame: "
+                "pyradiosky mirrors the linear polarization angle about the "
+                "local frame, chi -> 2 psi - chi, through "
+                "pyradiosky/utils.py:105-120 storing the coherency with U -> "
+                "-U in the (South, East) frame pair and "
+                "pyradiosky/skymodel.py:2667-2676 applying the passive "
+                "transform as R^T C R where R C R^T is required; the composite "
+                "is psi-dependent, so no static relabelling expresses it and "
+                "the Q/U-carrying correlations are recorded as a "
+                "mechanism-explained open disagreement rather than compared as "
+                "equivalent"
+            ),
+            "equivalent": False,
         },
         {
             "radiosim_convention": "fringe_sign",
@@ -1218,13 +1298,33 @@ def _convention_mappings() -> list[dict[str, Any]]:
             "equivalent": False,
         },
         {
+            "radiosim_convention": "interpolation_order",
+            "reference_convention": (
+                "pyuvsim's BeamList is constructed with spline_interp_opts "
+                "{'kx': 1, 'ky': 1, 's': 0}, matching RadioSim's pinned "
+                "bilinear spline_opts exactly, so both codes read the one "
+                "stored grid at the same polynomial order; without this "
+                "equalization the order mismatch alone contributes 1.27e-1 to "
+                "the J J^dagger comparison and the run is inadmissible as "
+                "evidence"
+            ),
+            "equivalent": True,
+        },
+        {
             "radiosim_convention": "stokes_to_coherency_factor",
             "reference_convention": (
-                "RadioSim uses B = (1/2)[[I+Q, U+iV], [U-iV, I-Q]] and "
-                "pyradiosky the mirror image 0.5*[[I+Q, U-iV], [U+iV, I-Q]]; "
-                "both carry the same 1/2 factor, and the comparison drives the "
-                "reference with the sign-mapped Stokes V read from the same sky "
-                "bytes"
+                "RadioSim builds B = (1/2)[[I+Q, U+iV], [U-iV, I-Q]] "
+                "(core/polarization.py, IAU Stokes V); pyradiosky writes "
+                "0.5*[[I+Q, U-iV],[U+iV, I-Q]] into the frame basis its own "
+                "skymodel.py defines as (theta_frame, phi_frame) with "
+                "theta_frame = pi/2 - dec -- the (South, East) pair -- where "
+                "the IAU coherency is 0.5*[[I+Q, -(U+iV)], [-(U-iV), I-Q]], so "
+                "the stored sky carries U -> -U exactly. The comparison reads "
+                "the committed sky bytes unaltered: the reference's V is "
+                "already consistent after the conjugating fringe mapping "
+                "recorded above, so the superseded harness's Stokes-V input "
+                "flip created a V error rather than removing one and is "
+                "withdrawn"
             ),
             "equivalent": False,
         },
@@ -1294,16 +1394,20 @@ def run_comparison(directory: Path) -> ComparisonResult:
                 f"bound {PER_CORRELATION_RELATIVE_BOUND!r}"
             )
 
+    # The total intensity is measured and recorded, but not as a
+    # trace-invariance expectation: amended Section 5.5 retires that shortcut.
+    # It is bounded here at the accepted SCI-007 frame residual because it is
+    # one of the two mechanism-free quantities, not because anything cancels.
     ours_trace = ours[..., 0] + ours[..., 3]
     reference_trace = reference[..., 0] + reference[..., 3]
     trace_scale = float(np.max(np.abs(reference_trace)))
     if trace_scale <= 0.0:
         raise CrossValidationError("the reference total-intensity scale is zero")
     trace_relative = float(np.max(np.abs(ours_trace - reference_trace))) / trace_scale
-    if trace_relative > TRACE_RELATIVE_BOUND:
+    if trace_relative > TOTAL_INTENSITY_RELATIVE_BOUND:
         disagreements.append(
-            "total_intensity: the frame-invariant XX + YY residual exceeds the "
-            f"declared bound {TRACE_RELATIVE_BOUND!r}"
+            "total_intensity: the measured XX + YY residual exceeds the declared "
+            f"bound {TOTAL_INTENSITY_RELATIVE_BOUND!r}"
         )
 
     scale = float(np.max(np.abs(reference)))

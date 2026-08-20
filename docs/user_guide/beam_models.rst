@@ -600,35 +600,95 @@ physics.
 **Two subsets, not a widening.** The literal names an accepted *interpretation*
 of the committed bytes, not an operation applied to them: RadioSim renormalizes
 nothing under either value. A file the scalar subset accepts is generally
-rejected by the full-efield subset — its zenith row need not be single valued
-once the two vector components are read — and a full-efield file is generally
-rejected by the scalar subset. The two literals therefore name two readings of
-one file format rather than a repair of one by the other.
+rejected by the full-efield subset — its zenith row does not satisfy the
+de-spin predicate below once the two vector components are read — and a
+full-efield file is generally rejected by the scalar subset. The two literals
+therefore name two readings of one file format rather than a repair of one by
+the other.
 
 **Basis conversion.** pyuvdata stores an ``az_za`` E-field beam as two vector
 components per feed, azimuth first and zenith angle second. RadioSim converts
-them per direction into its own :math:`(\mathrm{co}, \mathrm{cross})` tangent
-pair with the fixed real orthogonal matrix
+them into the **chain's own** sky tangent pair with the fixed real orthogonal
+*constant*
 
 .. math::
 
-   T(\varphi) =
-   \begin{pmatrix}\sin\varphi & -\cos\varphi\\
-   \cos\varphi & \sin\varphi\end{pmatrix},
+   M = \begin{pmatrix}0 & 1\\ -1 & 0\end{pmatrix},
+   \qquad \det M = +1,
    \qquad
-   J_{\rm native}[f, c] = \sum_a \mathrm{data}[a, f]\, T(\varphi)[a, c],
+   J_{\rm native}[f, c] = \sum_a \mathrm{data}[a, f]\, M[a, c],
 
-where :math:`\varphi` is RadioSim azimuth, zero at North and increasing
-through East. The pair is Ludwig's third definition of co- and
-cross-polarization (A. C. Ludwig, *The definition of cross polarization*, IEEE
-Trans. Antennas Propag. **21**, 116, 1973, DOI 10.1109/TAP.1973.1140406).
-:math:`T` is real with :math:`\det T = 1` and :math:`T^{\mathsf T} T = I_2`, so
-the conversion preserves total field power exactly and every complex phase
-stays in the data; direction geometry is binary64 throughout. Coordinate
-azimuth is singular at the zenith, so that one physical direction takes the
-North/East tangent limit at :math:`\varphi = 0` — which is well defined only
-because load has already required the file's own zenith row to be single
-valued.
+so that :math:`J_{\rm native}[f, 0] = -E_\theta` and
+:math:`J_{\rm native}[f, 1] = +E_{\mathrm{az_{uv}}}`. The target basis is
+fixed by the ``P`` term rather than chosen here. ``E`` sits between ``C`` and
+``P``, so its columns must be whatever tangent basis ``P`` delivers the sky
+coherency into, and that is the **mixed-sign** pair
+:math:`(-\hat{\mathbf e}_\theta, +\hat{\mathbf e}_{\mathrm{az_{uv}}})`:
+:math:`\hat{\mathbf e}_\theta = -(\cos\psi\,\hat{\mathbf N} +
+\sin\psi\,\hat{\mathbf E})` while
+:math:`\hat{\mathbf e}_{\mathrm{az_{uv}}} = -\sin\psi\,\hat{\mathbf N} +
+\cos\psi\,\hat{\mathbf E}` is unnegated. The mixed sign is structurally
+necessary: :math:`\hat{\mathbf N}\times\hat{\mathbf E} = -\hat{\mathbf r}`
+while :math:`\hat{\mathbf e}_\theta \times
+\hat{\mathbf e}_{\mathrm{az_{uv}}} = +\hat{\mathbf r}`, so the two frames
+carry opposite handedness and a proper rotation cannot deliver a common-sign
+copy of one from the other. :math:`M` is constant, orthogonal, **antisymmetric**
+with :math:`M^{\mathsf T} = -M`, and proper, so the conversion preserves total
+field power exactly, introduces no reflection into the chain, and leaves every
+complex phase in the data; direction geometry is binary64 throughout. The
+accepted direction mapping ``az_uv = (pi/2 - az_radiosim) mod 2*pi`` is
+unchanged and still fixes only *where* the pattern is sampled.
+
+Ludwig's third definition (A. C. Ludwig, *The definition of cross
+polarization*, IEEE Trans. Antennas Propag. **21**, 116, 1973, DOI
+10.1109/TAP.1973.1140406) remains RadioSim's language for **diagnostics and
+oracles**, and only there. With :math:`\varphi` measured from North through
+East, the chain-basis to Ludwig-3 map is the *proper* rotation
+
+.. math::
+
+   S(\varphi) =
+   \begin{pmatrix}-\cos\varphi & -\sin\varphi\\
+   \ \ \sin\varphi & -\cos\varphi\end{pmatrix},
+   \qquad \det S = +1,
+   \qquad J_{\rm chain}\,S(\varphi) = J_{\rm L3},
+
+so a co/cross oracle is mapped into the chain basis by :math:`S(\varphi)`
+before it is compared with production.
+
+**The zenith.** Coordinate azimuth is singular at the pole, and the chain
+tangent pair *spins* with it while the physical response is one fixed map.
+Requiring the converted ``za = 0`` row to be equal across azimuth would
+therefore reject a perfectly valid file. What is single valued is the de-spun
+matrix:
+
+.. math::
+
+   J(\mathrm{az_{uv}}) = J(\mathrm{az_{ref}})\,
+   R(\mathrm{az_{uv}} - \mathrm{az_{ref}}),
+   \qquad
+   R(x) = \begin{pmatrix}\ \ \cos x & \sin x\\
+   -\sin x & \cos x\end{pmatrix},
+
+equivalently that :math:`J(\mathrm{az_{uv}})\,R(\mathrm{az_{uv}})^{\mathsf T}`
+is constant across the row. A file whose de-spun zenith row is not constant
+declares a physical matrix that depends on an arbitrary coordinate and is
+rejected. At ``az_radiosim = 0`` the chain pair is exactly
+:math:`-(\hat{\mathbf N}, \hat{\mathbf E})` — a genuinely common sign at
+that one point — so the North/East tangent limit survives there.
+
+**Azimuth-wrap continuity.** The azimuth axis is endpoint-excluded and closes
+:math:`2\pi`, and the seam predicate is a **second** difference compared
+against the interior maximum, not a first difference against one adjacent
+sample. Only the second difference is scale-consistent: for a
+twice-differentiable periodic row sampled at step :math:`h`, every
+:math:`\Delta^2_k` equals :math:`h^2 J''(\xi_k)`, so seam and interior second
+differences are the same order at every sampling density. The predicate is
+:math:`|\Delta^2_0|_{\max} \leq 8\max_{k\ \rm interior}|\Delta^2_k|_{\max} +
+(\mathrm{atol} + \mathrm{rtol}\cdot\mathrm{scale})`, evaluated per intrinsic
+frequency and per zenith-angle row. It is deliberately not claimed to detect a
+seam jump smaller than the row's own local curvature scale: on a coarse grid
+such a jump is genuinely indistinguishable from smooth variation.
 
 The stored ``basis_vector_array`` is **validated, never composed**: pyuvdata
 3.2.1 builds the array it returns from ``numpy.ones`` and ``numpy.zeros`` and

@@ -1049,10 +1049,10 @@ def test_counting_loader_rejects_invalid_one_based_attempts(
 # Section 5.1.1 item 10 now requires a committed ``basis_vector_array`` to be
 # **exactly** the native identity at a real floating stored dtype judged by kind
 # and width, and corrected Section 5.2.1 keeps ``return_basis_vector=True`` only
-# in order to *verify* the returned identity, applying RadioSim's own
-# ``T(phi)`` to the native components instead of composing the stored array. The
-# round-trip control is what makes an exactness predicate -- rather than a
-# tolerance -- the correct and reachable one.
+# in order to *verify* the returned identity, applying RadioSim's own constant
+# ``M = [[0, 1], [-1, 0]]`` to the native components instead of composing the
+# stored array. The round-trip control is what makes an exactness predicate --
+# rather than a tolerance -- the correct and reachable one.
 
 
 def _stage3_constant_basis_beam(matrix: np.ndarray) -> UVBeam:

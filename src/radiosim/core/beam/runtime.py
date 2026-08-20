@@ -338,43 +338,70 @@ _FULL_EFIELD_NORMALIZATION = "uvbeam_peak_common_v1"
 _FULL_EFIELD_SUBSET_VERSION = "sci005-stage3-full-efield-v1"
 
 
-def _tangent_conversion(phi_rad: np.ndarray) -> np.ndarray:
-    """Return Section 5.2.1's frozen ``T(phi)``, shape ``(..., 2, 2)``.
+#: Corrected Section 5.2.1's frozen conversion: the **constant** real
+#: orthogonal ``M`` with ``det M = +1`` and ``M^T = -M``.
+_CHAIN_CONVERSION: NDArray[np.float64] = np.array(
+    [[0.0, 1.0], [-1.0, 0.0]],
+    dtype=np.float64,
+)
+_CHAIN_CONVERSION.setflags(write=False)
 
-    ``T(phi) = [[sin phi, -cos phi], [cos phi, sin phi]]`` converts the native
-    UVBeam ``az_za`` field components -- vector axis ``0`` the azimuth
-    component and ``1`` the zenith-angle component, per
-    ``pyuvdata.analytic_beam.ShortDipoleBeam._efield_eval`` -- into RadioSim's
-    ``(co, cross)`` Ludwig-3 tangent pair with ``phi = 0`` North and increasing
-    East (A. C. Ludwig, *The definition of cross polarization*, IEEE Trans.
-    Antennas Propag. 21, 116, 1973).  It is real with ``det T = 1`` and
-    ``T^T T = I_2``, so the conversion preserves total field power by
-    construction and every complex phase stays in the data.  Direction geometry
-    is binary64 throughout.
+
+def _chain_conversion() -> NDArray[np.float64]:
+    """Return corrected Section 5.2.1's frozen conversion matrix ``M``.
+
+    ``M = [[0, 1], [-1, 0]]`` carries the native UVBeam ``az_za`` field
+    components -- vector axis ``0`` the azimuth component and ``1`` the
+    zenith-angle component, per
+    ``pyuvdata.analytic_beam.ShortDipoleBeam._efield_eval`` -- into the
+    **chain's own** sky tangent pair, the mixed-sign
+    ``(-e_theta, +e_az_uv)`` that the accepted ``P`` term delivers, giving
+    ``J_native[f, 0] = -E_theta`` and ``J_native[f, 1] = +E_az_uv``.
+
+    The target basis is fixed by ``P``, not chosen here: ``P = R(psi)`` applied
+    to ``(N_hat, E_hat)`` delivers that mixed-sign pair, because
+    ``e_theta = -(cos psi N_hat + sin psi E_hat)`` while
+    ``e_az_uv = -sin psi N_hat + cos psi E_hat`` is unnegated.  The mixed sign
+    is structurally necessary rather than accidental: ``N_hat x E_hat = -r_hat``
+    while ``e_theta x e_az_uv = +r_hat``, so the two frames carry opposite
+    handedness and a proper rotation cannot deliver a common-sign copy of one
+    from the other.
+
+    ``M`` is constant, orthogonal with ``M^T M = I_2``, **antisymmetric** with
+    ``M^T = -M``, and proper with ``det M = +1``, so it preserves total field
+    power exactly, introduces no reflection into the chain, and leaves every
+    complex phase in ``data``.  Ludwig's third definition (A. C. Ludwig, *The
+    definition of cross polarization*, IEEE Trans. Antennas Propag. 21, 116,
+    1973) survives as diagnostic and oracle language only: the chain-basis to
+    Ludwig-3 map is the proper rotation
+    ``S(phi) = [[-cos phi, -sin phi], [sin phi, -cos phi]]``.
     """
-    phi = np.asarray(phi_rad, dtype=np.float64)
-    matrix = np.empty(phi.shape + (2, 2), dtype=np.float64)
-    sine = np.sin(phi)
-    cosine = np.cos(phi)
-    matrix[..., 0, 0] = sine
-    matrix[..., 0, 1] = -cosine
-    matrix[..., 1, 0] = cosine
-    matrix[..., 1, 1] = sine
+    return _CHAIN_CONVERSION
+
+
+def _zenith_spin_rotation(angle_rad: np.ndarray) -> np.ndarray:
+    """Return corrected Section 5.2.1's zenith rotation ``R(x)``.
+
+    ``R(x) = [[cos x, sin x], [-sin x, cos x]]``.  The frozen zenith predicate
+    is ``J(az_uv) = J(az_ref) R(az_uv - az_ref)``, equivalently that
+    ``J(az_uv) R(az_uv)^T`` is constant across the degenerate ``za = 0`` row.
+    The sense is tied to the conversion's orientation: under a ``det = -1``
+    conversion it would reverse to ``R(-x)``, which is one more reason the sign
+    of ``M`` is not a matter of taste.
+    """
+    angle = np.asarray(angle_rad, dtype=np.float64)
+    matrix = np.empty(angle.shape + (2, 2), dtype=np.float64)
+    cosine = np.cos(angle)
+    sine = np.sin(angle)
+    matrix[..., 0, 0] = cosine
+    matrix[..., 0, 1] = sine
+    matrix[..., 1, 0] = -sine
+    matrix[..., 1, 1] = cosine
     return matrix
 
 
-def _radiosim_azimuth_rad(azimuth_uv_rad: np.ndarray) -> np.ndarray:
-    """Invert the accepted ``az_uv = (pi/2 - az_radiosim) mod 2*pi`` mapping."""
-    return np.asarray(
-        (np.pi / 2.0 - np.asarray(azimuth_uv_rad, dtype=np.float64)) % (2.0 * np.pi)
-    )
-
-
-def _converted_native_jones(
-    components: np.ndarray,
-    conversion: np.ndarray,
-) -> np.ndarray:
-    """Return ``J_native[..., f, c] = sum_a data[a, f, ...] T(phi)[..., a, c]``.
+def _converted_native_jones(components: np.ndarray) -> np.ndarray:
+    """Return ``J_native[..., f, c] = sum_a data[a, f, ...] M[a, c]``.
 
     Section 5.2.1 freezes this sum "with no conjugation and no implicit
     transpose anywhere, and with no intermediate composed basis": the stored
@@ -382,13 +409,12 @@ def _converted_native_jones(
     the native identity and ``UVBeam._prepare_basis_vector_array`` discards it
     and rebuilds that identity per interpolation point in any case.
 
-    ``components`` is indexed ``[vector_axis, feed, ...point axes]`` and
-    ``conversion`` ``[...point axes, vector_axis, column]``.
+    ``components`` is indexed ``[vector_axis, feed, ...point axes]``.
     """
     return np.einsum(
-        "af...,...ac->...fc",
+        "af...,ac->...fc",
         np.asarray(components, dtype=np.complex128),
-        np.asarray(conversion, dtype=np.float64),
+        _CHAIN_CONVERSION,
         optimize=True,
     )
 
@@ -926,14 +952,17 @@ class _UVBeamEfieldEvaluator:  # pyright: ignore[reportUnusedClass]
     """Private owned, locked evaluator for the Stage-3 full-efield subset.
 
     ``docs/development/sci005_beam_physics_plan.md`` Sections 5.2 and 5.2.1: the
-    interpolated native ``az_za`` components are converted per direction by the
-    frozen real orthogonal ``T(phi)`` into RadioSim's Ludwig-3 ``(co, cross)``
-    tangent pair (A. C. Ludwig, *The definition of cross polarization*, IEEE
-    Trans. Antennas Propag. 21, 116, 1973), giving the complete matrix
-    ``J_native`` that maps the incident tangent field into the file's native
-    feed voltages.  The receptor factorization ``E = C^dagger J_native`` is the
-    beam runtime's, applied in :meth:`BeamSystem.evaluate_jones`, so this
-    evaluator publishes ``J_native`` itself.
+    interpolated native ``az_za`` components are converted by the frozen
+    constant real orthogonal ``M`` of :func:`_chain_conversion` into the
+    **chain's own** sky tangent pair -- the mixed-sign
+    ``(-e_theta, +e_az_uv)`` that the accepted ``P`` term delivers -- giving the
+    complete matrix ``J_native`` that maps the incident tangent field into the
+    file's native feed voltages.  The conversion carries no azimuth dependence:
+    the accepted ``az_uv = (pi/2 - az_radiosim) mod 2*pi`` mapping fixes *where*
+    the pattern is sampled and nothing else.  The receptor factorization
+    ``E = C^dagger J_native`` is the beam runtime's, applied in
+    :meth:`BeamSystem.evaluate_jones`, so this evaluator publishes
+    ``J_native`` itself.
 
     The returned basis vectors are requested in order to be **verified**, never
     composed: ``UVBeam._prepare_basis_vector_array`` builds them from
@@ -1016,25 +1045,34 @@ class _UVBeamEfieldEvaluator:  # pyright: ignore[reportUnusedClass]
         visible = altitude_values >= 0.0
         if np.any(visible):
             zenith_angle = np.pi / 2.0 - altitude_values[visible]
-            # Section 5.2: coordinate azimuth is singular at the zenith, so that
-            # one physical direction takes the North/East tangent limit at
-            # ``az_radiosim = 0``.  Load has already required the file's own
-            # zenith row to be single valued, so this selects the phi = 0 member
-            # rather than repairing a disagreement.
+            # The accepted direction mapping fixes only *where* the pattern is
+            # sampled; the conversion itself is the constant ``M``.
+            azimuth_uv = (np.pi / 2.0 - azimuth_values[visible]) % (2.0 * np.pi)
+            # At the pole the coordinate azimuth is singular and the stored row
+            # is degenerate: load has required it to satisfy
+            # ``J(az_uv) = J(az_ref) R(az_uv - az_ref)``, so the zenith is
+            # evaluated from the reference member ``az_uv = 0`` -- always a
+            # stored node, because item 9 requires a zero-origin azimuth axis --
+            # and spun to the requested coordinate by that same law.  Sampling
+            # the degenerate row instead would measure the interpolator across
+            # the azimuth step rather than the response, and it is the law that
+            # delivers Section 5.2.1's ``az_radiosim = 0`` member, whose chain
+            # pair is exactly ``-(N_hat, E_hat)``.
             at_zenith = zenith_angle == 0.0
-            phi = np.where(at_zenith, 0.0, azimuth_values[visible])
-            azimuth_uv = (np.pi / 2.0 - phi) % (2.0 * np.pi)
+            sampled_azimuth_uv = np.where(at_zenith, 0.0, azimuth_uv)
             data_array, basis_array = self._interpolate(
-                azimuth_uv=azimuth_uv,
+                azimuth_uv=sampled_azimuth_uv,
                 zenith_angle=zenith_angle,
                 target_hz=target,
                 point_count=int(np.count_nonzero(visible)),
             )
             self._require_returned_identity(basis_array)
-            output[visible] = _converted_native_jones(
-                data_array[:, :, 0, :],
-                _tangent_conversion(phi),
-            )
+            converted = _converted_native_jones(data_array[:, :, 0, :])
+            if bool(np.any(at_zenith)):
+                converted[at_zenith] = converted[at_zenith] @ _zenith_spin_rotation(
+                    azimuth_uv[at_zenith]
+                )
+            output[visible] = converted
 
         result = np.array(output, dtype=self._result_dtype, copy=True, order="C")
         result.setflags(write=False)
