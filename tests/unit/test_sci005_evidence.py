@@ -6296,6 +6296,62 @@ def test_the_stage3_artifact_and_its_null_sentinels_agree() -> None:
     authenticate_stage3_succession(document)
 
 
+def test_the_stage3_disposal_invariant_couples_both_artifacts_to_the_sentinels() -> (
+    None
+):
+    """Section 7.5's disposal rule, as a **state-coupled** invariant.
+
+    Whenever the Stage-3 sentinels are the literal ``None``, both the official
+    Stage-3 evidence artifact and the dated Stage-3 cross-validation record are
+    absent; and whenever they are set, both are present and the evidence
+    artifact validates completely under the witness-adequacy guard.
+
+    The form matters as much as the content. This module's ``S``/``E``-state
+    tests are deliberately state-agnostic, and an unconditional assertion that
+    the artifact is absent and the sentinels are ``None`` would pass after the
+    disposal ``S3`` and then fail forever after ``E3``, "making the
+    regeneration this correction exists to enable permanently impossible". The
+    coupling below instead fails at the re-cut, where the sentinels are set and
+    the retained artifact violates the guard; passes after the ``S3``, where
+    both are ``None`` and both files are gone; and passes after ``E3``, where
+    both are set and the regenerated artifact validates.
+
+    It adds the coupling the existing tests lack -- none of them says anything
+    about the dated cross-validation record, whose presence Section 7.5 now
+    ties to the same sentinel pair -- without duplicating
+    :func:`test_the_stage3_artifact_and_its_null_sentinels_agree`, which keeps
+    the digest, ``source_sha`` and succession authentication. Section 7.5:
+    the reopened slice's ``S`` commit "deletes the superseded stage evidence
+    artifact ..., deletes the superseded dated cross-validation record ..., and
+    returns ``APPROVED_STAGE3_SOURCE_SHA`` and
+    ``APPROVED_STAGE3_EVIDENCE_ARTIFACT_SHA256`` to the literal ``None``".
+    """
+    source, digest = STAGE_CONSTANTS[3]
+    directory = REPOSITORY_ROOT / STAGE3_CROSSVALIDATION_DIRECTORY
+    dated_records = sorted(
+        path
+        for path in directory.glob("*.json")
+        if STAGE3_CROSSVALIDATION_BASENAME.fullmatch(path.name)
+    )
+
+    if source is None or digest is None:
+        assert source is None and digest is None, (
+            "the two approved constants for one stage move together"
+        )
+        assert not artifact_path(3).exists()
+        assert dated_records == [], (
+            "the disposal S commit deletes the superseded dated record too"
+        )
+        return
+
+    assert artifact_path(3).is_file()
+    assert len(dated_records) == 1, (
+        "a set sentinel pair means exactly one dated Stage-3 record is retained"
+    )
+    document = json.loads(artifact_path(3).read_text(encoding="utf-8"))
+    validate_stage3_evidence(document)
+
+
 def test_the_stage3_schema_transcription_and_the_validator_agree() -> None:
     """The normative Stage-3 transcription and this validator pin the same keys."""
     schema = json.loads(schema_path(3).read_text(encoding="utf-8"))
