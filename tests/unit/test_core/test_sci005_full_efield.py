@@ -1004,9 +1004,12 @@ def test_the_ixr_classification_rule_assigns_each_state_by_precedence(
 ) -> None:
     """Section 5.3's total, deterministic, fixed-relative-tolerance rule.
 
-    The rank-one matrix is mathematically singular and returns a
-    ``sigma_min`` of order ``1e-16`` rather than zero, which is exactly why
-    Section 5.3 forbids an exact-tie rule; the all-zero matrix is the
+    The rank-one matrix is mathematically singular; depending on the
+    platform's LAPACK its computed ``sigma_min`` is either an exact zero
+    (linux-64 OpenBLAS) or a rounding remnant of order ``1e-16``
+    (osx-arm64), and the frozen rule is insensitive to which: ``singular``
+    holds whenever ``sigma_min <= 1e-12 * sigma_max``, which is exactly why
+    Section 5.3 forbids an exact-tie rule. The all-zero matrix is the
     degenerate overlap that rule 1's first clause settles.
     """
     row = ixr_row(matrix)
@@ -1014,7 +1017,9 @@ def test_the_ixr_classification_rule_assigns_each_state_by_precedence(
     assert row["state"] == state
     assert row["sigma_max"] >= row["sigma_min"] >= 0.0
     if label == "rank_one":
-        assert 0.0 < row["sigma_min"] <= IXR_CLASSIFICATION_TOLERANCE * row["sigma_max"]
+        assert (
+            0.0 <= row["sigma_min"] <= IXR_CLASSIFICATION_TOLERANCE * row["sigma_max"]
+        )
 
 
 def test_a_receptor_conjugated_scaled_identity_is_unitary_scaled() -> None:
