@@ -6952,6 +6952,43 @@ def test_an_order_control_below_the_thousand_atol_floor_is_rejected() -> None:
         validate_stage3_evidence(document)
 
 
+def test_a_factorization_row_whose_composed_e_repeats_j_native_is_rejected() -> None:
+    """Section 8.1's witness-adequacy guard,
+    ``composed_e.c_order_sha256 != j_native.c_order_sha256`` on every row.
+
+    This is "a **witness-adequacy** rule, not a theorem, and the distinction is
+    load-bearing". The document mutated below is *legitimately computable*
+    rather than unphysical: since ``E = C^dagger J_native``, coincidence occurs
+    exactly when ``J_native``'s columns lie in the ``+1`` eigenspace of
+    ``C^dagger``, and that eigenspace exists in **both** bases -- the linear
+    ``C(chi) = P_swap R(chi)`` is a reflection with eigenvalues exactly
+    ``{+1, -1}`` at every ``chi``, and the circular ``C^dagger`` has an
+    isolated unit eigenvalue at ``chi = pi/4`` modulo ``2*pi``, an entirely
+    unremarkable ``feed_rotation_deg`` of ``45.0``.
+
+    It is rejected because such a scenario "**cannot serve as the retained
+    witness**": where ``E`` coincides with ``J_native`` the row "demonstrates
+    nothing about ``C^dagger`` conjugation, and the mis-projection this rule
+    exists to catch -- retaining ``C @ E``, which *is* ``J_native``, in the
+    field reserved for ``E`` -- would be undetectable in it". That is exactly
+    the defect the ``A3`` acceptance review found in the retained bytes, whose
+    four rows carried the two fields byte-identical.
+
+    The coincidence is written in explicitly rather than inherited from the
+    synthetic builder, so the mutation states the rejected condition whatever
+    digests that builder emits, and the unmutated document is validated first
+    so the rejection is attributable to this mutation and to nothing else.
+    """
+    document = synthetic_stage3_document()
+    validate_stage3_evidence(document)
+
+    for row in document["receptor_factorizations"]:
+        row["composed_e"]["c_order_sha256"] = row["j_native"]["c_order_sha256"]
+
+    with pytest.raises(EvidenceSchemaError, match="receptor_factorizations"):
+        validate_stage3_evidence(document)
+
+
 def test_a_missing_ixr_state_is_rejected() -> None:
     document = synthetic_stage3_document()
     document["ixr_diagnostics"] = document["ixr_diagnostics"][:-1]
