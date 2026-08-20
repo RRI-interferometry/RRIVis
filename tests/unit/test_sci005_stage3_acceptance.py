@@ -147,11 +147,14 @@ INTERVAL_KINDS: dict[str, str] = {
     "5856587c49ac6a6134265be11954c2b9bcedf76f": "superseded-design",
     "e3205d60977153857941f1a485ec81eac7340335": "superseded-red-slice",
     "9bcfcbcb762edbbfd0bcfd170674f59ebcebfc84": "superseded-implementation",
+    "41b3a8ed1687526651e109cd2da8cc86d0579010": "superseded-design",
+    "76e162cfee5570910a4196baae60ed5b61e36eae": "superseded-red-slice",
+    "c38f94b481226fbb0731cdaaecb2d76515881f86": "superseded-implementation",
 }
 
 #: The last commit of that interval; the operative ``D3`` is its single
 #: first-parent child.
-LAST_INTERVAL_COMMIT = "9bcfcbcb762edbbfd0bcfd170674f59ebcebfc84"
+LAST_INTERVAL_COMMIT = "c38f94b481226fbb0731cdaaecb2d76515881f86"
 
 #: The six Section 7.4 test paths the first superseded red slice cut, which are
 #: also the union bounding the kind.
@@ -181,12 +184,19 @@ THIRD_RED_SLICE_PATHS = frozenset(
         "tests/unit/test_jones/test_chain_order.py",
     }
 )
+#: And the two the third re-cut slice touched.
+FOURTH_RED_SLICE_PATHS = frozenset(
+    {
+        "tests/fixtures/beamfits.py",
+        "tests/unit/test_core/test_sci005_full_efield.py",
+    }
+)
 
 #: The twenty-eight Section 7.4 paths the header-recorded superseded Stage-3
 #: implementation commit touched. The chain-basis and comparison correction
 #: added this fourth interval kind, and its defining negative property is that
 #: neither Section 7.4 ``successor only`` artifact appears here.
-IMPLEMENTATION_PATHS = frozenset(
+FIRST_IMPLEMENTATION_PATHS = frozenset(
     {
         "docs/development/sci005_stage3_acceptance.schema.json",
         "docs/development/sci005_stage3_evidence.schema.json",
@@ -213,6 +223,34 @@ IMPLEMENTATION_PATHS = frozenset(
         "tests/unit/test_jones/test_backend_parity.py",
         "tests/unit/test_sci005_evidence.py",
         "tests/unit/test_sci005_stage3_acceptance.py",
+        "tools/sci005_stage3_acceptance.py",
+        "tools/sci005_stage3_crossvalidation.py",
+        "tools/sci005_stage_evidence.py",
+    }
+)
+
+#: The twenty Section 7.4 paths the re-cut implementation commit touched.
+#: Neither implementation set contains the other, so the fourth kind is
+#: per-commit recorded exactly as the red-slice kind is.
+SECOND_IMPLEMENTATION_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_evidence.schema.json",
+        "docs/migration_guide.md",
+        "docs/user_guide/beam_models.rst",
+        "docs/user_guide/configuration.rst",
+        "docs/user_guide/configuration_support.rst",
+        "docs/user_guide/jones_matrices.rst",
+        "output/crossvalidation/README.md",
+        "src/radiosim/core/beam/fits.py",
+        "src/radiosim/core/beam/models.py",
+        "src/radiosim/core/beam/runtime.py",
+        "tests/characterization/test_tier6_current_behavior.py",
+        "tests/crossvalidation/test_sci005_efield_pyuvsim.py",
+        "tests/fixtures/beamfits.py",
+        "tests/unit/test_core/test_beam_pyuvdata_contract.py",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage3_acceptance.py",
+        "tests/unit/test_tier1h_documentation.py",
         "tools/sci005_stage3_acceptance.py",
         "tools/sci005_stage3_crossvalidation.py",
         "tools/sci005_stage_evidence.py",
@@ -956,15 +994,17 @@ def test_the_tool_anchors_the_edge_on_the_stage2_retained_surface() -> None:
 
 
 def test_the_interval_table_is_the_header_enumerated_one() -> None:
-    """Exactly seven commits, their kinds, and their exact recorded path sets.
+    """Exactly ten commits, their kinds, and their exact recorded path sets.
 
     The chain-basis and comparison correction grew the interval from four to
-    seven and its kind vocabulary from three to four, by adding its own
-    superseded design gate, the second re-cut red slice it reopened, and the
-    superseded Stage-3 implementation commit whose design it superseded.
+    seven and its kind vocabulary from three to four. The carve-out and
+    comparability correction then grew it to **ten**, not to nine: a
+    superseding correction puts the design gate it supersedes into the interval
+    at the moment of supersession, so the chain-basis correction itself joins
+    beside the red slice and the implementation commit it reopened.
     """
     module = _tool()
-    assert len(module.INTERVAL_COMMITS) == 7
+    assert len(module.INTERVAL_COMMITS) == 10
     assert {sha: kind for sha, (kind, _paths) in module.INTERVAL_COMMITS.items()} == (
         INTERVAL_KINDS
     )
@@ -988,27 +1028,53 @@ def test_the_interval_table_is_the_header_enumerated_one() -> None:
         THIRD_RED_SLICE_PATHS
     )
     assert module.INTERVAL_COMMITS["9bcfcbcb762edbbfd0bcfd170674f59ebcebfc84"][1] == (
-        IMPLEMENTATION_PATHS
+        FIRST_IMPLEMENTATION_PATHS
+    )
+    assert module.INTERVAL_COMMITS["41b3a8ed1687526651e109cd2da8cc86d0579010"][1] == (
+        memo
+    )
+    assert module.INTERVAL_COMMITS["76e162cfee5570910a4196baae60ed5b61e36eae"][1] == (
+        FOURTH_RED_SLICE_PATHS
+    )
+    assert module.INTERVAL_COMMITS["c38f94b481226fbb0731cdaaecb2d76515881f86"][1] == (
+        SECOND_IMPLEMENTATION_PATHS
     )
 
 
-def test_the_three_red_slices_differ_and_the_union_bounds_the_kind() -> None:
+def test_the_interval_is_exactly_the_observed_rev_list() -> None:
+    """Section 8.3: "``git rev-list f275e75..c38f94b`` returns exactly these ten"."""
+    module = _tool()
+    observed = module.run_git(
+        "rev-list", f"{STATUS_SUCCESSOR}..{LAST_INTERVAL_COMMIT}"
+    ).split()
+    assert sorted(observed) == sorted(module.INTERVAL_COMMITS)
+    assert len(observed) == 10
+
+
+def test_the_four_red_slices_differ_and_the_union_bounds_the_kind() -> None:
     """Unlike Stage 2's single slice, the recorded sets are not one frozenset."""
     module = _tool()
     assert module.FIRST_SUPERSEDED_RED_SLICE_PATHS == FIRST_RED_SLICE_PATHS
     assert module.SECOND_SUPERSEDED_RED_SLICE_PATHS == SECOND_RED_SLICE_PATHS
     assert module.THIRD_SUPERSEDED_RED_SLICE_PATHS == THIRD_RED_SLICE_PATHS
-    assert module.SECOND_SUPERSEDED_RED_SLICE_PATHS < (
-        module.FIRST_SUPERSEDED_RED_SLICE_PATHS
-    )
-    assert module.THIRD_SUPERSEDED_RED_SLICE_PATHS < (
-        module.FIRST_SUPERSEDED_RED_SLICE_PATHS
-    )
+    assert module.FOURTH_SUPERSEDED_RED_SLICE_PATHS == FOURTH_RED_SLICE_PATHS
+    for recorded in (
+        module.SECOND_SUPERSEDED_RED_SLICE_PATHS,
+        module.THIRD_SUPERSEDED_RED_SLICE_PATHS,
+        module.FOURTH_SUPERSEDED_RED_SLICE_PATHS,
+    ):
+        assert recorded < module.FIRST_SUPERSEDED_RED_SLICE_PATHS
     assert module.SECOND_SUPERSEDED_RED_SLICE_PATHS != (
         module.THIRD_SUPERSEDED_RED_SLICE_PATHS
     )
+    assert module.FOURTH_SUPERSEDED_RED_SLICE_PATHS < (
+        module.THIRD_SUPERSEDED_RED_SLICE_PATHS
+    )
     assert module.STAGE3_RED_SLICE_PATHS == (
-        FIRST_RED_SLICE_PATHS | SECOND_RED_SLICE_PATHS | THIRD_RED_SLICE_PATHS
+        FIRST_RED_SLICE_PATHS
+        | SECOND_RED_SLICE_PATHS
+        | THIRD_RED_SLICE_PATHS
+        | FOURTH_RED_SLICE_PATHS
     )
     assert len(module.STAGE3_RED_SLICE_PATHS) == 6
 
@@ -1023,11 +1089,22 @@ def test_the_superseded_implementation_kind_carries_no_successor_artifact() -> N
     """
     module = _tool()
     assert module.SUPERSEDED_IMPLEMENTATION_KIND == "superseded-implementation"
-    assert module.SUPERSEDED_IMPLEMENTATION_PATHS == IMPLEMENTATION_PATHS
-    assert len(module.SUPERSEDED_IMPLEMENTATION_PATHS) == 28
-    assert module.STAGE3_IMPLEMENTATION_PATHS == IMPLEMENTATION_PATHS
+    assert module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS == FIRST_IMPLEMENTATION_PATHS
+    assert module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS == SECOND_IMPLEMENTATION_PATHS
+    assert len(module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS) == 28
+    assert len(module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS) == 20
+    # Neither contains the other, so this kind is per-commit recorded too.
+    assert not module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS <= (
+        module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS
+    )
+    assert not module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS <= (
+        module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS
+    )
+    assert module.STAGE3_IMPLEMENTATION_PATHS == (
+        FIRST_IMPLEMENTATION_PATHS | SECOND_IMPLEMENTATION_PATHS
+    )
     assert module.STAGE3_SUCCESSOR_ONLY_PATHS == SUCCESSOR_ONLY_PATHS
-    assert not (module.SUPERSEDED_IMPLEMENTATION_PATHS & SUCCESSOR_ONLY_PATHS)
+    assert not (module.STAGE3_IMPLEMENTATION_PATHS & SUCCESSOR_ONLY_PATHS)
 
 
 def test_a_superseded_implementation_carrying_a_successor_artifact_is_refused() -> None:
@@ -1037,7 +1114,8 @@ def test_a_superseded_implementation_carrying_a_successor_artifact_is_refused() 
         module.require_interval_kind(
             "9bcfcbcb762edbbfd0bcfd170674f59ebcebfc84",
             "superseded-implementation",
-            IMPLEMENTATION_PATHS | {"docs/development/sci005_stage3_evidence.json"},
+            FIRST_IMPLEMENTATION_PATHS
+            | {"docs/development/sci005_stage3_evidence.json"},
         )
     assert error.value.prefix == "SCI005_ACCEPTANCE_DIFF_AUTHORITY"
 

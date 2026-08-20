@@ -39,14 +39,15 @@ whose direct parent is ``A2``, satisfying the committed Stage-2
 ``verify-status`` form; ``A2`` an ancestor of ``D3`` through the committed
 Stage-2 ``verify`` form; and every commit in ``U2..D3`` other than ``D3``
 matched against the header-enumerated four-kind interval rule with its own
-recorded touch set. Unlike the Stage-2 edge, the three header-recorded
+recorded touch set. Unlike the Stage-2 edge, the four header-recorded
 superseded red slices have *different* touch sets, so each commit's recorded set
 is what :func:`require_interval_kind` compares against and
 :data:`STAGE3_RED_SLICE_PATHS` bounds the kind. The fourth kind, the superseded
 implementation commit the chain-basis and comparison correction added, is
 bounded by :data:`STAGE3_IMPLEMENTATION_PATHS` and may carry neither
-successor-only artifact. The operative ``D3`` itself touches only the design
-memo.
+successor-only artifact; neither of its two instances' path sets contains the
+other, so it too is per-commit recorded. The operative ``D3`` itself touches
+only the design memo.
 
 It emits exactly one canonical UTF-8 JSON line on success. Failure emits no
 certificate on stdout, exits non-zero, and writes a stderr line beginning with
@@ -239,11 +240,20 @@ THIRD_SUPERSEDED_RED_SLICE_PATHS = frozenset(
     }
 )
 
+#: And the two the *third re-cut* slice touched, reopened by the carve-out and
+#: comparability correction for a fourth governed re-cut.
+FOURTH_SUPERSEDED_RED_SLICE_PATHS = frozenset(
+    {
+        "tests/fixtures/beamfits.py",
+        "tests/unit/test_core/test_sci005_full_efield.py",
+    }
+)
+
 #: The twenty-eight Section 7.4 paths the header-recorded superseded Stage-3
 #: implementation commit touched, transcribed from Section 8.3's enumeration.
 #: None of them is an evidence or acceptance successor, which is exactly what
 #: distinguishes a superseded implementation from an accepted one.
-SUPERSEDED_IMPLEMENTATION_PATHS = frozenset(
+FIRST_SUPERSEDED_IMPLEMENTATION_PATHS = frozenset(
     {
         "docs/development/sci005_stage3_acceptance.schema.json",
         "docs/development/sci005_stage3_evidence.schema.json",
@@ -276,10 +286,42 @@ SUPERSEDED_IMPLEMENTATION_PATHS = frozenset(
     }
 )
 
+#: The twenty Section 7.4 paths the header-recorded superseded *re-cut* Stage-3
+#: implementation commit touched, reopened by the carve-out and comparability
+#: correction for a third ``S3``. Neither implementation set contains the
+#: other: this one adds ``output/crossvalidation/README.md`` and drops the
+#: eleven paths the chain-basis law did not move.
+SECOND_SUPERSEDED_IMPLEMENTATION_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_evidence.schema.json",
+        "docs/migration_guide.md",
+        "docs/user_guide/beam_models.rst",
+        "docs/user_guide/configuration.rst",
+        "docs/user_guide/configuration_support.rst",
+        "docs/user_guide/jones_matrices.rst",
+        "output/crossvalidation/README.md",
+        "src/radiosim/core/beam/fits.py",
+        "src/radiosim/core/beam/models.py",
+        "src/radiosim/core/beam/runtime.py",
+        "tests/characterization/test_tier6_current_behavior.py",
+        "tests/crossvalidation/test_sci005_efield_pyuvsim.py",
+        "tests/fixtures/beamfits.py",
+        "tests/unit/test_core/test_beam_pyuvdata_contract.py",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage3_acceptance.py",
+        "tests/unit/test_tier1h_documentation.py",
+        "tools/sci005_stage3_acceptance.py",
+        "tools/sci005_stage3_crossvalidation.py",
+        "tools/sci005_stage_evidence.py",
+    }
+)
+
 #: Every Section 7.4 path a superseded implementation commit may touch, and the
 #: only bound this kind carries; the per-commit recorded set above is the
-#: authority for the one instance, exactly as it is for the red slices.
-STAGE3_IMPLEMENTATION_PATHS = SUPERSEDED_IMPLEMENTATION_PATHS
+#: authority for each instance, exactly as it is for the red slices.
+STAGE3_IMPLEMENTATION_PATHS = (
+    FIRST_SUPERSEDED_IMPLEMENTATION_PATHS | SECOND_SUPERSEDED_IMPLEMENTATION_PATHS
+)
 
 #: The two Section 7.4 ``successor only`` paths a superseded implementation
 #: commit may never introduce: reaching them is what an *accepted* stage does.
@@ -300,12 +342,19 @@ STAGE3_RED_SLICE_PATHS = (
     FIRST_SUPERSEDED_RED_SLICE_PATHS
     | SECOND_SUPERSEDED_RED_SLICE_PATHS
     | THIRD_SUPERSEDED_RED_SLICE_PATHS
+    | FOURTH_SUPERSEDED_RED_SLICE_PATHS
 )
 
 #: Section 8.3's observed ``U2..D3`` interval, transcribed in ancestry order
 #: from this memo's own header records: each commit's SHA, its kind, and the
 #: exact paths its header record names. A commit in the interval that this table
 #: does not name invalidates the starred edge.
+#:
+#: The count is **ten** rather than the nine a "previous seven plus two" count
+#: suggests, because a superseding correction puts the design gate it supersedes
+#: into the interval at the moment of supersession: entry 8 was itself the
+#: operative ``D3`` until the carve-out and comparability correction replaced
+#: it. ``git rev-list f275e75..c38f94b`` returns exactly these ten.
 INTERVAL_COMMITS: dict[str, tuple[str, frozenset[str]]] = {
     # The superseded original Stage-3 design gate: memo only.
     "2adc2acca8606b3a9774e14f28725a5687c0ecc8": (
@@ -344,7 +393,26 @@ INTERVAL_COMMITS: dict[str, tuple[str, frozenset[str]]] = {
     # kind in this programme.
     "9bcfcbcb762edbbfd0bcfd170674f59ebcebfc84": (
         SUPERSEDED_IMPLEMENTATION_KIND,
-        SUPERSEDED_IMPLEMENTATION_PATHS,
+        FIRST_SUPERSEDED_IMPLEMENTATION_PATHS,
+    ),
+    # The superseded chain-basis and comparison correction, which was itself
+    # the operative D3 until the carve-out and comparability correction
+    # superseded it: memo only.
+    "41b3a8ed1687526651e109cd2da8cc86d0579010": (
+        SUPERSEDED_DESIGN_KIND,
+        frozenset({DESIGN_MEMO}),
+    ),
+    # The superseded third re-cut Stage-3 red slice, reopened by the carve-out
+    # and comparability correction for a fourth re-cut.
+    "76e162cfee5570910a4196baae60ed5b61e36eae": (
+        SUPERSEDED_RED_SLICE_KIND,
+        FOURTH_SUPERSEDED_RED_SLICE_PATHS,
+    ),
+    # The superseded re-cut Stage-3 implementation commit, the second of the
+    # fourth kind.
+    "c38f94b481226fbb0731cdaaecb2d76515881f86": (
+        SUPERSEDED_IMPLEMENTATION_KIND,
+        SECOND_SUPERSEDED_IMPLEMENTATION_PATHS,
     ),
 }
 

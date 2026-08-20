@@ -1655,6 +1655,9 @@
         "mechanism": {
           "const": "pyradiosky_local_linear_mirror_v1"
         },
+        "construction": {
+          "const": "local_u_negation_in_reference_coherency_v1"
+        },
         "citations": {
           "type": "array",
           "minItems": 2,
@@ -1668,6 +1671,15 @@
           "type": "number",
           "minimum": 0,
           "maximum": 0.001
+        },
+        "transfer_solve_max_rel_residual": {
+          "type": "number",
+          "minimum": 0
+        },
+        "reassembly_gap": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1e-12
         },
         "affected_correlations": {
           "type": "array",
@@ -1689,8 +1701,11 @@
       },
       "required": [
         "mechanism",
+        "construction",
         "citations",
         "transfer_solve_max_abs_residual",
+        "transfer_solve_max_rel_residual",
+        "reassembly_gap",
         "affected_correlations",
         "observed_rel_residual_min",
         "observed_rel_residual_max"

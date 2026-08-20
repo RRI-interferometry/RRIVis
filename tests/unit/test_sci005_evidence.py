@@ -4332,6 +4332,22 @@ STAGE3_MIRROR_CITATIONS: tuple[str, ...] = (
 )
 STAGE3_MIRROR_TRANSFER_SOLVE_CEILING = 1e-3
 
+#: The amended Section 8.1 freezes the **construction** that produces that
+#: residual as well as its ceiling, "because a ceiling without a construction
+#: makes two regenerations incomparable" -- and they were not: one adjudication
+#: measured ``6.8e-5`` with one construction while the campaign measured
+#: ``7.36e-4`` with a different, parameter-free one. The frozen procedure
+#: applies ``C[0,1] -> -C[1,0]`` and ``C[1,0] -> -C[0,1]`` -- the local-frame
+#: reading of the adjudicated ``chi -> 2 psi - chi`` mirror -- to pyuvsim's own
+#: ``local_coherency`` and propagates it through pyuvsim's own beam Jones and
+#: fringe. It fits nothing.
+STAGE3_MIRROR_CONSTRUCTION = "local_u_negation_in_reference_coherency_v1"
+
+#: ``reassembly_gap`` is the residual between that reassembly with the
+#: substitution **disabled** and the comparison tool's own reference path: it
+#: is what proves the substitution is the only difference between the two.
+STAGE3_MIRROR_REASSEMBLY_GAP_CEILING = 1e-12
+
 #: The one convention mapping the amended Section 5.5 requires to be
 #: equivalent, and the two it forbids from being equivalent.
 STAGE3_EQUALIZED_CONVENTION = "interpolation_order"
@@ -5179,8 +5195,11 @@ def _crossvalidation_comparison(value: Any, path: str) -> dict[str, Any]:
         f"{path}.reference_frame_mirror",
         (
             "mechanism",
+            "construction",
             "citations",
             "transfer_solve_max_abs_residual",
+            "transfer_solve_max_rel_residual",
+            "reassembly_gap",
             "affected_correlations",
             "observed_rel_residual_min",
             "observed_rel_residual_max",
@@ -5188,6 +5207,11 @@ def _crossvalidation_comparison(value: Any, path: str) -> dict[str, Any]:
     )
     where = f"{path}.reference_frame_mirror"
     _string(mirror["mechanism"], f"{where}.mechanism", const=STAGE3_MIRROR_MECHANISM)
+    _string(
+        mirror["construction"],
+        f"{where}.construction",
+        const=STAGE3_MIRROR_CONSTRUCTION,
+    )
     citations = _array(mirror["citations"], f"{where}.citations", minimum_length=2)
     for index, item in enumerate(citations):
         _string(item, f"{where}.citations[{index}]")
@@ -5207,6 +5231,24 @@ def _crossvalidation_comparison(value: Any, path: str) -> dict[str, Any]:
             "must not exceed "
             f"{STAGE3_MIRROR_TRANSFER_SOLVE_CEILING!r}: it is the quantitative "
             "claim that the mechanism is complete and sufficient",
+        )
+    # Deliberately **informational-only**: recorded and type-checked, but with
+    # no ceiling, because the denominator is a per-correlation scale that moves
+    # with the fixture's Stokes content. The absolute residual is anchored to
+    # the comparison's own cube scale and is therefore the meaningful gate.
+    _number(
+        mirror["transfer_solve_max_rel_residual"],
+        f"{where}.transfer_solve_max_rel_residual",
+    )
+    gap = _number(mirror["reassembly_gap"], f"{where}.reassembly_gap")
+    if gap > STAGE3_MIRROR_REASSEMBLY_GAP_CEILING:
+        _fail(
+            f"{where}.reassembly_gap",
+            "must not exceed "
+            f"{STAGE3_MIRROR_REASSEMBLY_GAP_CEILING!r}: it is what proves the "
+            "frozen substitution is the only difference between the "
+            "construction's reassembly and the comparison tool's own reference "
+            "path",
         )
     affected = _array(
         mirror["affected_correlations"],
@@ -6174,11 +6216,14 @@ def synthetic_stage3_document() -> dict[str, Any]:
                 ],
                 "reference_frame_mirror": {
                     "mechanism": STAGE3_MIRROR_MECHANISM,
+                    "construction": STAGE3_MIRROR_CONSTRUCTION,
                     "citations": list(STAGE3_MIRROR_CITATIONS),
-                    "transfer_solve_max_abs_residual": 6.8e-5,
+                    "transfer_solve_max_abs_residual": 7.36e-4,
+                    "transfer_solve_max_rel_residual": 3.52e-4,
+                    "reassembly_gap": 5.03e-14,
                     "affected_correlations": ["XY", "YX"],
-                    "observed_rel_residual_min": 4e-2,
-                    "observed_rel_residual_max": 1.1e-1,
+                    "observed_rel_residual_min": 4.16e-2,
+                    "observed_rel_residual_max": 1.024e-1,
                 },
                 "output_basis": "linear_xy",
                 "gating": False,
@@ -7131,6 +7176,48 @@ def test_a_mirror_transfer_solve_residual_above_its_bound_is_rejected() -> None:
     row = document["crossvalidation_comparisons"][0]
     row["reference_frame_mirror"]["transfer_solve_max_abs_residual"] = 1e-2
     with pytest.raises(EvidenceSchemaError, match="mechanism is complete"):
+        validate_stage3_evidence(document)
+
+
+def test_a_mirror_construction_literal_that_is_not_the_frozen_one_is_rejected() -> None:
+    """Amended Section 8.1 freezes the construction, not only the ceiling.
+
+    "A ceiling without a construction makes two regenerations incomparable" --
+    and they were not: the adjudication measured ``6.8e-5`` with one
+    construction while the campaign measured ``7.36e-4`` with the frozen
+    parameter-free one, and only the latter governs a retained row.
+    """
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["reference_frame_mirror"]["construction"] = "fitted_frame_rotation_v1"
+    with pytest.raises(EvidenceSchemaError, match="construction"):
+        validate_stage3_evidence(document)
+
+
+def test_a_reassembly_gap_above_its_ceiling_is_rejected() -> None:
+    """The gap "is what proves the substitution is the only difference"."""
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["reference_frame_mirror"]["reassembly_gap"] = 1e-9
+    with pytest.raises(EvidenceSchemaError, match="only difference"):
+        validate_stage3_evidence(document)
+
+
+def test_the_relative_transfer_solve_residual_carries_no_ceiling() -> None:
+    """Amended Section 8.1 rules it **informational-only**.
+
+    "Freezing a relative ceiling would freeze a fixture-dependent bound,
+    because the denominator is a per-correlation scale that moves with the
+    fixture's Stokes content"; the absolute ``1e-3`` governs. It is still
+    type-checked, so a non-number is refused.
+    """
+    document = synthetic_stage3_document()
+    row = document["crossvalidation_comparisons"][0]
+    row["reference_frame_mirror"]["transfer_solve_max_rel_residual"] = 0.5
+    validate_stage3_evidence(document)
+
+    row["reference_frame_mirror"]["transfer_solve_max_rel_residual"] = "large"
+    with pytest.raises(EvidenceSchemaError, match="transfer_solve_max_rel_residual"):
         validate_stage3_evidence(document)
 
 

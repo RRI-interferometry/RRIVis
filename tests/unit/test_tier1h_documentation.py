@@ -1404,7 +1404,7 @@ def test_tier7j_crossvalidation_evidence_is_committed_and_bounded():
     for path in records:
         record = json.loads(path.read_text(encoding="utf-8"))
         assert record["gating"] is False
-        if record.get("schema") == SCI007_CROSSVALIDATION_SCHEMA:
+        if record.get("schema") == "radiosim-crossvalidation-1.2.0":
             # The SCI-007 record has a deliberately stricter schema and is
             # authenticated by the dedicated deep validator tests below.
             assert path.name == "2026-08-11-pyuvsim-1.4.0-sci007.json"
@@ -1449,9 +1449,6 @@ def test_tier7j_the_crossvalidation_module_is_excluded_from_the_default_gate():
     assert "crossval" not in workflow
 
 
-#: The SCI-007 comparison record's own schema literal, defined once so the
-#: walker carve-out below and the deep validator tests assert one value.
-SCI007_CROSSVALIDATION_SCHEMA = "radiosim-crossvalidation-1.2.0"
 SCI007_EVIDENCE_TOOL = REPOSITORY_ROOT / "tools" / "wp6_sci007_evidence.py"
 SCI007_EVIDENCE_ARTIFACT = (
     REPOSITORY_ROOT
@@ -1636,7 +1633,7 @@ spec = importlib.util.spec_from_file_location("sci007_evidence", {str(SCI007_EVI
 assert spec is not None and spec.loader is not None
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-assert module.SCHEMA == {SCI007_CROSSVALIDATION_SCHEMA!r}
+assert module.SCHEMA == "radiosim-crossvalidation-1.2.0"
 """
     completed = subprocess.run(
         [sys.executable, "-I", "-c", script],
@@ -1690,7 +1687,7 @@ def test_sci007_in_memory_record_has_exact_complete_contract():
     module = _load_sci007_evidence_tool()
     record = _valid_sci007_record(module)
 
-    assert module.SCHEMA == SCI007_CROSSVALIDATION_SCHEMA
+    assert module.SCHEMA == "radiosim-crossvalidation-1.2.0"
     assert set(record) == {
         "schema",
         "recorded_utc",
