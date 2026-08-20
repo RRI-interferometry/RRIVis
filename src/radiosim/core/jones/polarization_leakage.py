@@ -42,8 +42,12 @@ D-term, which would create the second beam pathway Section 4 forbids.
 The IXR conversion, and why it is written this way
 --------------------------------------------------
 Carozzi & Woan (2011) define ``IXR_J = ((kappa + 1)/(kappa - 1))^2`` for the
-condition number ``kappa`` of the Jones matrix.  For ``[[1, d], [-d^*, 1]]`` the
-singular values are ``1 +- |d|``, so ``kappa = (1 + |d|)/(1 - |d|)``; writing
+condition number ``kappa`` of the Jones matrix.  The convention above,
+``[[1, d], [-d^*, 1]]``, has equal singular values --
+``D^dagger D = (1 + |d|^2) I2`` -- so by itself it has unit condition number.
+The ``1 +- |d|`` singular-value pair the derivation uses belongs instead to
+the Hermitian matrix ``[[1, d], [d^*, 1]]``, whose condition number is
+``kappa = (1 + |d|)/(1 - |d|)``; writing
 ``s = sqrt(IXR_lin)`` gives ``kappa = (s + 1)/(s - 1)`` and therefore
 ``|d| = (kappa - 1)/(kappa + 1) = 1/s``.  A larger IXR is a *smaller* leakage,
 ``|d| -> 0`` as ``IXR_dB -> infinity``, and ``|d| = 1`` at ``IXR_dB = 0``.

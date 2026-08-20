@@ -213,10 +213,12 @@ def test_the_ixr_parameterization_matches_carozzi_and_woan(
     """``|d| = 1 / sqrt(IXR_lin)``, with ``IXR_lin = 10^(IXR_dB/10)``.
 
     Carozzi & Woan (2011) define ``IXR_J = ((kappa + 1)/(kappa - 1))^2`` for the
-    condition number ``kappa`` of the Jones matrix.  For
-    ``D = [[1, d], [-d^*, 1]]`` the singular values are ``1 +- |d|``, so
-    ``kappa = (1 + |d|)/(1 - |d|)`` and the two relations compose to
-    ``|d| = 1/sqrt(IXR_lin)`` exactly -- the familiar
+    condition number ``kappa`` of the Jones matrix.  The shipped convention
+    ``D = [[1, d], [-d^*, 1]]`` has equal singular values
+    (``D^dagger D = (1 + |d|^2) I2``); the ``1 +- |d|`` pair the derivation
+    uses belongs to the Hermitian matrix ``[[1, d], [d^*, 1]]``, whose
+    condition number is ``kappa = (1 + |d|)/(1 - |d|)``.  The two relations
+    compose to ``|d| = 1/sqrt(IXR_lin)`` exactly -- the familiar
     ``IXR_dB = -20 log10 |d|``.
 
     The number is checked in both directions, because the whole risk in a dB
