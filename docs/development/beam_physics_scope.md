@@ -116,9 +116,13 @@ case. The three items below are disposed individually.
   must reproduce, but it is never exposed as a public production beam
   parametrization.
 - **IXR conversion.** The intrinsic cross-polarization ratio is a
-  basis-independent polarimetric fidelity measure. For a leakage matrix
-  `D = [[1, d], [-d*, 1]]` the singular values are `1 ± |d|`, so the condition
-  number is `kappa = (1 + |d|)/(1 - |d|)` and Carozzi & Woan's
+  basis-independent polarimetric fidelity measure. The `D` term's leakage
+  convention `D = [[1, d], [-d*, 1]]` (see above) has `D^dagger D =
+  (1 + |d|^2) I_2` — equal singular values, hence unit condition number and
+  infinite IXR by itself. The `1 ± |d|` singular-value pair the derivation
+  below relies on belongs instead to the Hermitian matrix
+  `[[1, d], [d*, 1]]`: its condition number is
+  `kappa = (1 + |d|)/(1 - |d|)` and Carozzi & Woan's
   `IXR_J = ((kappa + 1)/(kappa - 1))^2` gives
 
   ```

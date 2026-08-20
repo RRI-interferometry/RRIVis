@@ -6253,3 +6253,52 @@ reviewer verdict `ACCEPT`, acceptance artifact
 `sha256:40682a51f1dcf4a7d485f397702c439aa341f0565901d384cf48b33b9846b5c6`.
 `SCI-005` remains **ROADMAP**; the whole-row closure successor `C` is the
 remaining step.
+
+**Whole-row closure — 2026-08-20.** This commit is `C`, the separate
+whole-row-closure review Section 9 requires and the only review empowered to
+retire this row; `C^ == U3 4540f203f64473e162ebf8cca1ca3707f23b6247`. An
+independent reviewer with no authorship in this program's design gates, red
+slices, implementations, evidence, or stage acceptances re-ran all three
+phase-local verifiers at closure — `tools/sci005_stage1_acceptance.py verify
+--acceptance-commit 2281f2f00576abbc98a0a047ce192ad3013aa202 --descendant
+HEAD`, the Stage-2 form with `A2
+7523706c8c8d480de079100bc21871eb5616536e`, and the Stage-3 form with `A3
+ac269cdd7269da359cf15eeb99930f232b3295e4` — each returning certificate
+`"verdict":"ACCEPT"` and exit 0, plus `verify-status` for `U1`, `U2`, and
+`U3` against their respective accepted `Ai`, all silent zero exits. The
+seven Section 9 closure bullets are established from the retained stage
+evidence and code: (a) central/support blockage and deterministic Zernike
+behavior under the one normalized aperture transform (`sci005_stage1_evidence.json`
+`support_masks`, `pupil_profiles`, and the `analytic_invariants` rows
+`zernike_orthonormality` / `extended_mask_plus_zernike`); (b) Ruze coherent-loss
+voltage (`core/beam/runtime.py::ruze_voltage_factor`) and the separation-domain
+ensemble-scattered-power diagnostic kept apart, with `claims_not_licensed`
+explicitly disclaiming a deterministic Ruze Jones or error voltage; (c)
+`beams.squint`'s exact Cotton-Uson arcsine frequency law, mechanical-feed
+semantics, and `E = C^dagger D_b C` (`sci005_stage2_evidence.json`
+`squint_frequency_laws`, `native_feed_factorizations`); (d) full-efield
+ingestion's explicit normalization, coordinate, chain-tangent, receptor,
+reporting-basis, and output-format semantics (`sci005_stage3_evidence.json`
+`efield_file_contracts`, `basis_conversions`, `receptor_factorizations`,
+`ixr_diagnostics`); (e) point/HEALPix, backend, output, and the optional
+`pyuvsim` evidence retained (all three stage evidence JSONs plus
+`output/crossvalidation/2026-08-20-sci005-efield-pyuvsim-1.4.0.json`, whose
+`reference_frame_mirror` field and `east_x_orientation` convention mapping
+record the `Q`/`U` residual as a mechanism-explained open disagreement,
+`gating:false`, never "validated"); (f) no contraction-signature or
+compilation-boundary change across the whole program (`git diff
+f275e753..4540f203 -- src/radiosim/core/contraction.py` is empty, and
+literal `backend.compile(` has exactly one call site in `src/`, at
+`core/contraction.py:169`); (g) `Fix.md`, this plan, the scope document, the
+changelog, the migration guide, and the API/user docs agree with the
+accepted implementation, spot-checked at their load-bearing statements. The
+`Fix.md` `SCI-005` row is set to **DONE**. `docs/development/
+beam_physics_scope.md`'s leakage-matrix wording is reconciled per the first
+Stage-3 correction's header (commit `9956e774`, "Bounded Stage-3
+basis-vector and provenance correction — 2026-08-19"): the `D` term's
+leakage convention `D = [[1, d], [-d*, 1]]` has `D^dagger D = (1 + |d|^2)
+I_2` — equal singular values — so the `1 +- |d|` pair the IXR derivation
+needs belongs to the Hermitian `[[1, d], [d*, 1]]` instead; Section 5.3's
+own frozen relations are unchanged. The full gate battery is green at `C`
+(unit, integration, not-slow, doctest, lint, check-format, typecheck,
+strict Sphinx, the Tier-8 release-acceptance module, `git diff --check`).
