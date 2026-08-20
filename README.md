@@ -45,7 +45,7 @@ canonical reference antenna unless all assigned handlers are scientifically
 equivalent.
 
 Every Jones term RadioSim exports implements real physics and declares
-`term_status: "implemented"`. The geometric phase (K), the canonical scalar
+`term_status: "implemented"`. The geometric phase (K), the canonical
 primary beam (E), the receptor configuration (C), and the output basis
 transform (H) are always applied; the nine chain terms above are applied when
 `jones:` configures them, and M and Q apply by Hadamard product outside the
@@ -382,7 +382,7 @@ at [`output/benchmarks/reference/`](output/benchmarks/reference/):
 - JAX-CPU agrees with NumPy within `|dV| <= atol + 1e-12*|V|`; worst observed
   absolute deviation `1.7e-11` against an allowed `5.2e-9`.
 - JAX-CPU is **slower** than NumPy on every workload measured here — about 3x on
-  a 4096-source run and 10-20x on the small parity workloads — plus 0.02-0.80 s
+  a 4096-source run and 10-20x on the small parity workloads — plus 0.002-0.80 s
   of first-call compilation. The host-side time and frequency loops give XLA
   nothing to amortize against yet.
 - No accelerator was exercised. Every record states `accelerator: "none"` and

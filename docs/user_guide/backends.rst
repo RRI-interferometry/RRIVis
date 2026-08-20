@@ -221,7 +221,7 @@ four-time point workload:
 workload measured, by roughly 3x on the 4096-source workload (0.121 s versus
 0.040 s steady-state median) and by 10-20x on the small parity workloads, where
 per-call dispatch dominates. Dask matches NumPy to within noise, as expected
-from delegation. First-call compilation added 0.02-0.80 s depending on workload.
+from delegation. First-call compilation added 0.002-0.80 s depending on workload.
 
 That is the honest position and it is not a defect: Tier 6 completed backend
 *correctness* parity and the compilation boundary, not device-resident

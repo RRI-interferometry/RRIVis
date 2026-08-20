@@ -77,9 +77,12 @@ Current high-level support
 
 FITS/mixed/per-antenna beams, HDF5, summary JSON, Measurement Set, and UVFITS
 output are supported within their documented contracts, and each records the
-resolved polarization basis. Elliptical or non-orthogonal feed pairs,
-single-feed and multi-feed antennas, a frequency- or time-dependent receptor
-basis, a non-scalar E-Jones, and later simulator modes remain separate work.
+resolved polarization basis. The E-Jones is scalar by default and generally
+full under the two accepted ``SCI-005`` subsets (``beams.squint`` and
+full-efield BeamFITS under ``uvbeam_peak_common_v1``). Elliptical or
+non-orthogonal feed pairs, single-feed and multi-feed antennas, a frequency-
+or time-dependent receptor basis, and later simulator modes remain separate
+work.
 
 Quick example
 -------------

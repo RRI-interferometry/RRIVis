@@ -242,9 +242,11 @@ per-antenna ``assignment_fingerprint`` and therefore the beam state fingerprint
 and ``scientific_sha256``.
 
 What RadioSim does **not** model, and who owns it, is written out item by item
-in ``docs/development/beam_physics_scope.md``: full cross-polarization and the
-Ruze error-beam decomposition. SCI-005 Stage 2 removed beam squint from that
-list; see `Beam squint`_ below.
+in ``docs/development/beam_physics_scope.md``. SCI-005 Stage 2 removed beam
+squint from that list (see `Beam squint`_ below), and SCI-005 Stage 3 removed
+full cross-polarization for the accepted full-efield BeamFITS subset (see
+`Full-efield BeamFITS`_ below); the deterministic Ruze error-beam
+decomposition remains unmodeled.
 
 .. _stage1-aperture-physics:
 
