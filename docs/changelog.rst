@@ -6,6 +6,11 @@ All notable changes to RadioSim are documented here.
 [Unreleased]
 ------------
 
+Nothing yet.
+
+[0.4.0] - 2026-08-20
+--------------------
+
 Added
 ^^^^^
 
@@ -26,8 +31,9 @@ Added
   fixture is compared against, never validated against. Strict typed
   rejection throughout; absent-block and scalar-``peak`` results stay
   byte-identical. Independently accepted 2026-08-20; retained evidence and
-  acceptance certificates live in ``docs/development/``. The register row
-  stays ROADMAP until whole-row closure.
+  acceptance certificates live in ``docs/development/``. With all three
+  stages accepted, the ``SCI-005`` register row closed as DONE on
+  2026-08-20.
 - ``SCI-005`` Stage 2: beam squint. ``beams.squint`` (Cotton/Uson exact
   arcsine frequency law, mechanical-feed ``+pi/2`` squint direction, mount
   field rotation at the resolved boresight) with the two native feeds
@@ -36,15 +42,14 @@ Added
   a circular receptor ``E`` commutes exactly with every real rotation.
   Strict typed rejection throughout; absent-block results stay
   byte-identical. Independently accepted 2026-08-19; retained evidence and
-  acceptance certificates live in ``docs/development/``. The register row
-  stays ROADMAP until Stage 3.
+  acceptance certificates live in ``docs/development/``.
 - ``SCI-005`` Stage 1: scalar aperture physics. ``beams.aperture_physics``
   (central blockage, support-leg shadow masks, Noll real unit-RMS Zernike
   surface heights) and the nested ``error_beam_diagnostic`` (separation-domain
   Ruze ensemble-power diagnostic, ``poisson_paired_pupil_separation_v1``)
-  with strict typed rejection throughout. Independently accepted 2026-08-16;
+  with strict typed rejection throughout. Independently accepted 2026-08-18;
   retained evidence and acceptance certificates live in
-  ``docs/development/``. The register row stays ROADMAP until Stages 2-3.
+  ``docs/development/``.
 
 Fixed
 ^^^^^
@@ -104,6 +109,20 @@ Changed
   fallback. The inherited ``VisibilitySimulator.supports_gpu`` value is now
   ``False``; ``RIMESimulator`` remains explicitly false, and ``True`` requires
   an independently accepted end-to-end accelerator record.
+- **Both solvers schedule the compiled contraction in bounded baseline
+  chunks, and the JAX path buckets its source axis** (the ``PERF-001`` CPU
+  slice, independently accepted 2026-08-14). The single compiled
+  per-``(time, frequency)`` contraction leaf is dispatched over bounded
+  baseline chunks that never split or reorder the source axis, and the JAX
+  path pads the source axis with zero-signal dummy sources to the next power
+  of two so far fewer distinct source-axis shapes are compiled. NumPy and
+  Dask production paths remain unpadded and byte-identical to their accepted
+  values, and no scheduling choice enters ``scientific_sha256`` or public
+  configuration. The isolated Linux ``gpu`` pixi environment landed with the
+  same slice as readiness infrastructure only: it is not accelerator
+  evidence, and every measured JAX-CPU run remains slower than NumPy
+  (``output/benchmarks/reference/``). See
+  :doc:`development/perf001_runtime_mitigations`.
 - **The polarization-frame limitation is quantified and closed as a retained-
   fixture bound** (``SCI-007``, accepted 2026-08-11). RadioSim's operational
   apparent/equinox-of-date frame is a TETE-like ideal spherical construction,
@@ -119,6 +138,28 @@ Changed
   Production behavior is unchanged, ``PrecisionConfig.ultra()`` does not add
   frame transport, and no all-sky or cross-platform accuracy claim is made.
   See :doc:`development/sci007_frame_accuracy_bound`.
+
+Known limitations
+^^^^^^^^^^^^^^^^^
+
+Release notes that list capabilities without listing these would be
+incomplete. Each entry is an open row in the project's defect register. The
+other six rows the ``0.3.0`` notes listed here — ``SCI-005``, ``SCI-006``,
+``SCI-007``, ``CI-001``, ``API-001``, ``API-002`` — closed during this
+release, each through an entry above.
+
+- ``PERF-001`` (roadmap): accelerator performance is undemonstrated. The
+  accepted CPU slice covers scheduling, deterministic selection, and
+  readiness infrastructure only; the time and frequency axes remain
+  host-side Python loops, every gating pixi environment's JAX is CPU-only,
+  and every measured JAX-CPU run is slower than NumPy
+  (``output/benchmarks/reference/``). The accelerator leg is hardware-gated,
+  and RadioSim publishes no GPU or TPU performance number.
+- ``SCI-004`` (roadmap): there is no spherical-harmonic or m-mode solver.
+  ``execution.simulator`` accepts exactly the keys of the simulator
+  registry, which currently holds only ``rime``. A design candidate
+  (:doc:`development/sci004_mmode_design`) is drafted and has not been
+  independently reviewed.
 
 [0.3.0] - 2026-08-02
 --------------------
@@ -439,5 +480,6 @@ Added
 Migration
 ---------
 
-See :doc:`migration_guide` for upgrading to ``0.3.0``, and for the v0.1.x to
-v0.2.0 history it also records.
+See :doc:`migration_guide` for upgrading to ``0.4.0`` — it records each
+breaking change from ``0.2.0`` through ``0.4.0``, and the v0.1.x to v0.2.0
+history as well.
