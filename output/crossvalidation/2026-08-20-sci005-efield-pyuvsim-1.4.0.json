@@ -1,0 +1,156 @@
+{
+  "schema_version": "radiosim.sci005.stage3-crossvalidation.v1",
+  "generated_at_utc": "2026-08-20T07:23:47Z",
+  "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+  "target_path": "output/crossvalidation/2026-08-20-sci005-efield-pyuvsim-1.4.0.json",
+  "gating": false,
+  "reference_package": "pyuvsim",
+  "reference_version": "1.4.0",
+  "pyuvdata_version": "3.2.1",
+  "pyradiosky_version": "1.1.0",
+  "astropy_version": "7.1.0",
+  "radiosim_version": "0.3.0",
+  "output_basis": "linear_xy",
+  "input_hashes": [
+    {
+      "name": "antenna_layout",
+      "sha256": "7d3093cd025dcff51a954a22ace94cc8765eaa2038f777f8849fd56bef570b88"
+    },
+    {
+      "name": "observation_specification",
+      "sha256": "198ed7a0f495ff49e93c52182efc93ad284892d5a70a5870e20b4043b93cbe57"
+    },
+    {
+      "name": "sky_model",
+      "sha256": "881860e3886045e83f7de9b0cfd169c8fe5b4260d5597e7e4c21aea59a3015a2"
+    },
+    {
+      "name": "uvbeam_file",
+      "sha256": "613cd61de3a8b747be935fd024d62ead4e2f1f6db3d890644554b16bb9ab64e1"
+    }
+  ],
+  "convention_mappings": [
+    {
+      "radiosim_convention": "beam_normalization",
+      "reference_convention": "both codes read the same peak-normalized full-efield BeamFITS and neither renormalizes it: RadioSim's 'uvbeam_peak_common_v1' accepted subset requires a stored full-grid unit peak at every intrinsic frequency and never calls UVBeam.peak_normalize, and pyuvsim reads the same bytes through UVBeam.from_file",
+      "equivalent": true
+    },
+    {
+      "radiosim_convention": "chain_sky_tangent_basis",
+      "reference_convention": "RadioSim converts the native az_za components into the chain's own mixed-sign tangent pair (-e_theta, +e_az_uv) by the constant M = [[0, 1], [-1, 0]], which is the pair its P term delivers; pyuvsim contracts a correctly paired (theta, phi_uv) Jones at pyuvsim/antenna.py:146-149, verified against hand truth at 3.7e-5, so the two codes agree on the beam-side basis",
+      "equivalent": true
+    },
+    {
+      "radiosim_convention": "east_x_orientation",
+      "reference_convention": "both codes label linear receptors (X=east, Y=north), but the reference does not deliver raw Q and U in that frame: pyradiosky mirrors the linear polarization angle about the local frame, chi -> 2 psi - chi, through pyradiosky/utils.py:105-120 storing the coherency with U -> -U in the (South, East) frame pair and pyradiosky/skymodel.py:2667-2676 applying the passive transform as R^T C R where R C R^T is required; the composite is psi-dependent, so no static relabelling expresses it and the Q/U-carrying correlations are recorded as a mechanism-explained open disagreement rather than compared as equivalent",
+      "equivalent": false
+    },
+    {
+      "radiosim_convention": "fringe_sign",
+      "reference_convention": "RadioSim evaluates exp(-2j*pi*(u*l + v*m + w*(n-1))) and pyuvsim exp(+2j*pi*(u*l + v*m + w*n)); on the coplanar fixture array w is exactly zero, so the comparison applies the derived per-baseline Hermitian conjugate [XX, XY, YX, YY] -> conj([XX, YX, XY, YY])",
+      "equivalent": false
+    },
+    {
+      "radiosim_convention": "interpolation_order",
+      "reference_convention": "pyuvsim's BeamList is constructed with spline_interp_opts {'kx': 1, 'ky': 1, 's': 0}, matching RadioSim's pinned bilinear spline_opts exactly, so both codes read the one stored grid at the same polynomial order; without this equalization the order mismatch alone contributes 1.27e-1 to the J J^dagger comparison and the run is inadmissible as evidence",
+      "equivalent": true
+    },
+    {
+      "radiosim_convention": "stokes_to_coherency_factor",
+      "reference_convention": "RadioSim builds B = (1/2)[[I+Q, U+iV], [U-iV, I-Q]] (core/polarization.py, IAU Stokes V); pyradiosky writes 0.5*[[I+Q, U-iV],[U+iV, I-Q]] into the frame basis its own skymodel.py defines as (theta_frame, phi_frame) with theta_frame = pi/2 - dec -- the (South, East) pair -- where the IAU coherency is 0.5*[[I+Q, -(U+iV)], [-(U-iV), I-Q]], so the stored sky carries U -> -U exactly. The comparison reads the committed sky bytes unaltered: the reference's V is already consistent after the conjugating fringe mapping recorded above, so the superseded harness's Stokes-V input flip created a V error rather than removing one and is withdrawn",
+      "equivalent": false
+    }
+  ],
+  "correlation_residuals": [
+    {
+      "correlation": "XX",
+      "max_abs_residual": 0.09599810490810921,
+      "max_rel_residual": 0.10240159397731878,
+      "reference_max_abs": 0.937466900460281
+    },
+    {
+      "correlation": "XY",
+      "max_abs_residual": 0.05700747977085092,
+      "max_rel_residual": 0.041883432761118146,
+      "reference_max_abs": 1.3610985540748932
+    },
+    {
+      "correlation": "YX",
+      "max_abs_residual": 0.05700747977628912,
+      "max_rel_residual": 0.041649582677386186,
+      "reference_max_abs": 1.3687407198738049
+    },
+    {
+      "correlation": "YY",
+      "max_abs_residual": 0.09701037171027439,
+      "max_rel_residual": 0.046027419147232046,
+      "reference_max_abs": 2.1076648117062264
+    }
+  ],
+  "open_disagreements": [
+    "XX: max_rel_residual exceeds the declared per-correlation bound 0.01",
+    "XY: max_rel_residual exceeds the declared per-correlation bound 0.01",
+    "YX: max_rel_residual exceeds the declared per-correlation bound 0.01",
+    "YY: max_rel_residual exceeds the declared per-correlation bound 0.01"
+  ],
+  "commands": [
+    {
+      "argv": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "cwd": ".",
+      "pixi_environment": "crossval",
+      "started_at_utc": "2026-08-20T07:23:38Z",
+      "duration_seconds": 0.011232,
+      "exit_code": 0,
+      "stdout_sha256": "d19f3e3c27ab02c06e27c47f771bd234df4ac60d934fd55d913c84036efb110e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=all"
+      ],
+      "cwd": ".",
+      "pixi_environment": "crossval",
+      "started_at_utc": "2026-08-20T07:23:38Z",
+      "duration_seconds": 1.121203,
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "git",
+        "rev-parse",
+        "HEAD"
+      ],
+      "cwd": ".",
+      "pixi_environment": "crossval",
+      "started_at_utc": "2026-08-20T07:23:46Z",
+      "duration_seconds": 0.017604,
+      "exit_code": 0,
+      "stdout_sha256": "d19f3e3c27ab02c06e27c47f771bd234df4ac60d934fd55d913c84036efb110e",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=all"
+      ],
+      "cwd": ".",
+      "pixi_environment": "crossval",
+      "started_at_utc": "2026-08-20T07:23:46Z",
+      "duration_seconds": 1.083108,
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ]
+}
