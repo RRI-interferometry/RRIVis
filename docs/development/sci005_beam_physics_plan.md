@@ -950,6 +950,122 @@ delta resolved both together with a minor unbounded-field clarification, and
 both reviewers then issued their `ACCEPT` verdicts on exactly these pins —
 and landed with only this record sentence added.
 
+**Bounded Stage-3 evidence-projection correction — 2026-08-20.** The
+independent `A3` acceptance review of the retained Stage-3 evidence returned
+**REJECT** with one concrete blocker, and this correction records it, rules on
+the lesson, and reopens the slices it invalidates. The blocker is confined to
+the retained evidence; the production physics stands.
+
+The blocker: in the committed
+`docs/development/sci005_stage3_evidence.json`, all four
+`receptor_factorizations` rows carry `composed_e` — and the `e_matrix` beside
+it — byte-identical to `j_native`. The campaign's measurement script projected
+`C @ E`, which is `J_native` by the very identity the row exists to witness,
+into the two fields the envelope defines as holding `E`. The row therefore
+retained the same quantity twice and witnessed nothing about the
+factorization. Direct verification confirms it: `composed_e.c_order_sha256`
+equals `j_native.c_order_sha256` on every one of the four rows.
+
+The reviewer's method and its conclusion both belong in the record, because
+the two point in opposite directions. Recomputing from scratch through the
+production entry points, the reviewer obtained an independent `E` whose digest
+**differs** from the retained one, an independent `C @ E` that matches **both**
+retained fields exactly, `C E = J_native` and the `H` behaviour confirmed on
+both output bases, all five acceptance oracles passing, every other retained
+check passing, and the full gate battery green. So the production conversion,
+the factorization, and the chain are correct, and what failed is the
+measurement projection that filled two evidence fields. That distinction is
+the whole finding: an implementation defect and an evidence defect are not the
+same thing, and only the second occurred.
+
+The lesson is a validator gap, and Section 8.1 now closes it — but the first
+draft of this correction closed it with a false theorem, and that near-miss is
+itself worth recording. That draft argued the inequality
+`E != J_native` was *provable*, because `C` is never the identity. The premise
+is true and the conclusion does not follow. For a **linear** receptor
+`C(chi) = P_swap R(chi)` is real, symmetric, and orthogonal — a **reflection**,
+with trace `0`, determinant `-1`, and eigenvalues exactly `{+1, -1}` at every
+`chi`. Any `J_native` whose columns lie in `C^dagger`'s `+1` eigenspace
+therefore satisfies `E == J_native` exactly. The computational review built
+such a row and it is entirely legitimate: linear, `chi = 0`,
+`J_native = [[a, b], [a, b]]`, giving `max|E - J_native| = 0.0` while the
+`noncommuting_component` floor passes at `1.467` and the order control at
+`0.369`. Independent re-derivation confirms every part of it.
+
+The same overclaim class then caught this correction a **second** time, in the
+sentence that was supposed to bound the first, and recording that is worth more
+than tidying it away. That sentence asserted the circular `C^dagger` has no
+unit eigenvalue at any `chi`, so the coincidence family was "linear-only"; it
+cited a smallest `|lambda - 1|` of `0.08`. Both are wrong, and the figure was a
+grid-sampling artifact — the sampled `chi` values simply never landed on the
+degeneracy. The exact circular eigenstructure is derived in Section 8.1: the
+degeneracy is real, isolated, and sits at the entirely unremarkable
+`feed_rotation_deg` of `45.0`. Twice in one correction a bounding claim was
+asserted from a premise that had not been solved exactly, and twice the
+independent review caught it. The mechanism below is unchanged by either
+finding, because it never depended on the claim: the witness-adequacy
+obligation and the verify-before-retaining duty apply uniformly to every
+retained row in **both** bases.
+
+The guard is therefore reframed as a **witness-adequacy** obligation rather
+than a theorem, which is what it always should have been. A scenario in which
+`composed_e` equals `j_native` cannot witness the factorization at all: the
+very projection defect the guard exists to catch would be invisible there, and
+the row would prove nothing about `C^dagger` conjugation. So the envelope
+requires every *retained* `receptor_factorizations` scenario to satisfy the
+digest inequality — an obligation on the evidence author's choice of fixture,
+not a claim about physics, and applied uniformly in both bases because the
+coincidence family exists in both. Generic beam fixtures satisfy it
+comfortably; a coincident scenario is a deliberate selection rather than an
+accident. The duty is stated honestly:
+the guard catches this defect **class** mechanically and cheaply, while the
+acceptance reviewer's from-scratch recomputation remains the correctness
+authority and is what actually found this instance.
+
+The sweep behind the guard is scoped to what was actually checked, and its
+result is stated as such rather than as a completeness claim. Among rows
+carrying `numeric_projection` values, `basis_conversions` and Stage-2's
+`native_feed_factorizations` pair `expected` with `observed`, which are the
+**same** quantity computed two ways and are required to *agree* — guarding
+those would be exactly backwards, and none is added; `ixr_diagnostics` carries
+a single matrix; `efield_file_contracts` and `crossvalidation_comparisons`
+carry none; and `output_basis_max_abs_residual` is a residual rather than a
+second projection. That leaves `receptor_factorizations` as the only
+`numeric_projection` pair of different quantities, and it is the one guarded.
+One row type outside that class was examined and deliberately left unguarded:
+`solver_cases` carries up to four digests of different pipeline quantities,
+but the envelope freezes only that they are `sha256` and never pins the shape
+or dtype of the byte streams they cover, so no inequality among them follows
+from frozen law and no witness-adequacy argument applies either — the row's
+purpose is carried by `visibility_changed_element_count` and
+`visibility_change_expected`, not by digest distinctness. Imposing a guard
+there would be the same over-claim this correction has just had to withdraw.
+A later design may pin those streams and revisit it.
+
+This correction supersedes `3d2e07cfafc0884ad915009cc2d8d5742caa9e96` as the
+operative `D3` once its exact bytes are independently accepted. It defines
+Section 8.3's fifth interval kind, the superseded evidence commit; enumerates
+the fourteen-commit interval; and reopens the red slice
+(`997ee5ee48704d91b031e93b997817d0474064b7`) for a fifth governed re-cut and
+the implementation (`2fa9ce4e76f78fff74bf2e46d67601294bf7c173`) for a fourth
+`S3`, with their expected diffs frozen in Section 8.3 so the acceptance
+reviewer can hold them to it. It implements no beam physics, accepts no
+stage, and does not close the register row. Its exact pre-landing memo bytes
+(`sha256:7dc566433dd459ff3da16396336d824f6a708f6b89726797249b2462a1712c31`)
+and parent-relative diff
+(`sha256:b2b667711b55a2b281a7487b052599a5d0a0b8ffb3bfed0bd5b1bec0c5563e6f`)
+received separate fresh independent governance and computational reviews on
+2026-08-20 — both initial reviews rejected the first draft, the governance
+review on the unimplementable companion clause and the computational review
+with the reflection-eigenspace counterexample refuting the guard's claimed
+theorem; a combined delta reframed the guard as the witness-adequacy rule
+above, the reconfirmation round then refuted the delta's own circular
+no-unit-eigenvalue bound with the exact `chi = pi/4` degeneracy, a micro-delta
+froze the closed-form derivation, and both reviewers then issued their
+`ACCEPT` verdicts on exactly these pins, the computational review correcting
+its own earlier period statement in the process — and landed with only this
+record sentence added.
+
 **Status:** Stage 1 and Stage 2 are both accepted and closed as stages. The
 operative `D1` is `c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted
 Stage-1 succession is
@@ -969,7 +1085,7 @@ U2 f275e7538a19f713b99e07563a1c5a2a45e83a3d`. Both stages' retained evidence
 and acceptance artifacts are authenticated by their approved validator
 constants. The commit containing this amendment is the operative `D3` once
 its exact bytes are independently accepted per Section 7.1; it reaches `U2`
-through Section 8.3's starred edge `U2 ->* D3`, whose ten interval commits
+through Section 8.3's starred edge `U2 ->* D3`, whose fourteen interval commits
 this memo's header enumerates by SHA. Stage 3
 may begin `R3` only after that acceptance, with `R3^ == D3`, and must
 complete its own source, evidence, acceptance, and status succession through
@@ -4926,7 +5042,87 @@ is why Stage 3 needs no per-basis split: writing
 so a positive recomputed component certifies that the order control *must*
 be non-zero. Stage 2's circular-receptor vanishing does not recur here
 because it followed from `D_b` being diagonal with the circular `C`, which a
-general `J_native` is not. The array contains at least one row for each of
+general `J_native` is not.
+
+Cross-field validation additionally requires, on **every** row,
+
+```text
+composed_e.c_order_sha256 != j_native.c_order_sha256
+```
+
+This is a **witness-adequacy** rule, not a theorem, and the distinction is
+load-bearing. It is *not* true that `E` can never equal `J_native`, and the
+coincidence family exists in **both** receptor bases. Since
+`E = C^dagger J_native`, coincidence occurs exactly when `J_native`'s columns
+lie in the `+1` eigenspace of `C^dagger`, so the question is whether
+`C^dagger` has unit eigenvalue.
+
+For a **linear** receptor, `C(chi) = P_swap R(chi)` is real symmetric
+orthogonal — a reflection with trace `0`, determinant `-1`, and eigenvalues
+exactly `{+1, -1}` at **every** `chi`. The coincidence family is therefore
+available at every linear rotation.
+
+For a **circular** receptor the closed form settles it exactly. With
+`C(chi) = S R(chi)` and `S = (1/sqrt(2)) [[1, i], [1, -i]]`,
+
+```text
+C^dagger = (1/sqrt(2)) [[ e^{i chi},  e^{-i chi}],
+                        [-i e^{i chi}, i e^{-i chi}]]
+```
+
+whose determinant is the constant `i` and whose trace is
+`(1/sqrt(2))(e^{i chi} + i e^{-i chi})`, which factors as
+`(cos chi + sin chi)(1 + i)/sqrt(2)`. From the characteristic polynomial
+`lambda^2 - (trace) lambda + det = 0`, `lambda = 1` is a root exactly when
+`1 - trace + i = 0`, that is when `(cos chi + sin chi)(1 + i)/sqrt(2) = 1 + i`,
+that is when `cos chi + sin chi = sqrt(2)`. Writing that as
+`sqrt(2) sin(chi + pi/4) = sqrt(2)` gives the exact solution set
+
+```text
+chi = pi/4  (mod 2*pi)
+```
+
+— isolated, and unique within the accepted `feed_rotation_rad` interval
+`(-pi, pi]`. The period is `2*pi` and not `pi`: at `chi = pi/4 + pi` the
+eigenvalues are `{-1, -i}`. At the degeneracy the eigenvalues are `{1, i}`,
+the second following from `det = i`. This closed form reproduces the
+production receptor matrix exactly, and the degeneracy is not exotic — it is
+`feed_rotation_deg = 45.0`.
+
+Coincident rows in either basis are legitimate physics that satisfy every
+numeric floor in this contract; a circular row at `chi = pi/4` with columns
+along the unit eigenvector gives `max|E - J_native|` at rounding, `1.6e-16`,
+while clearing the `noncommuting_component` and order-control floors. Both
+bases are mandatory here, which is precisely why an unconditional inequality
+would be wrong, and why the obligation below is uniform across bases.
+
+What the rule says instead is that such a scenario **cannot serve as the
+retained witness**. Where `E` coincides with `J_native`, the row demonstrates
+nothing about `C^dagger` conjugation, and the mis-projection this rule exists
+to catch — retaining `C @ E`, which *is* `J_native`, in the field reserved for
+`E` — would be undetectable in it. The inequality is therefore an obligation
+on the **evidence author's choice of fixture**: retained scenarios must be
+adequate witnesses, and adequacy here is a choice rather than an automatic
+consequence. It binds every row in **both** bases, since the coincidence
+family exists in both. Generic beam fixtures satisfy it comfortably — the
+committed crossed-dipole and quadrupolar sciences do so at generic
+directions — while a coincident scenario requires either the linear
+`+1` eigenspace or the isolated circular `chi = pi/4`, both deliberate
+selections rather than accidents. The
+regenerating campaign must therefore verify the inequality for each row before
+retaining it, rather than discovering it at validation.
+
+The rule is exactly one digest comparison and nothing more. No companion rule
+is imposed on `e_matrix`: the envelope retains no raw `J_native` entries — a
+`numeric_projection` carries dtype, shape, digest, and extrema only — and no
+direction index against which `e_matrix` could be aligned, so any such
+comparison would be unimplementable. The digest inequality is the sole
+normative validator check for this defect class, and the acceptance reviewer's
+from-scratch recomputation through the production entry points remains the
+correctness authority; it is what found the instance that forced this rule,
+and no digest comparison substitutes for it.
+
+The array contains at least one row for each of
 the four `(receptor_basis, output_basis)` combinations, and at least one
 `linear` row with non-zero `feed_rotation_deg`. Rows are sorted by unique
 `case_id`.
@@ -5502,8 +5698,9 @@ corrections reopened, now sit between `U2` and the operative `D3`. History is
 never rewritten, so
 the exact edge is replaced by the starred one rather than repaired. Every
 commit in `U2..D3` other than `D3` itself is a single-parent non-merge of one
-of **four** header-recorded kinds — status-prose, superseded design,
-superseded red slice, and superseded implementation — each touching exactly
+of **five** header-recorded kinds — status-prose, superseded design,
+superseded red slice, superseded implementation, and superseded evidence —
+each touching exactly
 the paths its kind allows, and
 the validator requires every interval commit to be named by a header record
 with its kind. The fourth kind is added by the chain-basis and comparison
@@ -5515,7 +5712,23 @@ Section 7.4 list, and it carries no evidence artifact, no acceptance
 artifact, and no approved-constant change, because those live in the `E`, `A`,
 and `U` successors it never reached.
 
-The observed interval at this correction is exactly ten
+The fifth kind is added by the evidence-projection correction and stands to an
+`E`-of-record exactly as the fourth stands to an `S`-of-record. A **superseded
+evidence commit** is a stage evidence successor whose retained artifact a
+later, independently accepted, header-recorded correction invalidated before
+that evidence could be accepted. Its diff is bounded by Section 7.5's `Ei`
+rule and nothing wider: it adds only the stage evidence artifact — plus, at
+Stage 3 alone, the one dated cross-validation record — and flips only the two
+approved sentinels in `tests/unit/test_sci005_evidence.py` from `None` to
+their literals. What distinguishes it from an `E` of record is what it never
+acquired: no acceptance artifact at
+`docs/development/sci005_stage3_acceptance.json`, and no
+`APPROVED_EVIDENCE_SHA` or `APPROVED_ACCEPTANCE_ARTIFACT_SHA256` change in
+`tests/unit/test_sci005_stage3_acceptance.py`, because the `A3` that would
+have written them returned `REJECT`. A validator distinguishes the two by
+exactly that absence.
+
+The observed interval at this correction is exactly fourteen
 commits, in ancestry order.
 
 1. `2adc2acca8606b3a9774e14f28725a5687c0ecc8` — superseded design gate, the
@@ -5601,15 +5814,40 @@ commits, in ancestry order.
     `tools/sci005_stage3_crossvalidation.py`, and
     `tools/sci005_stage_evidence.py`.
 
-All ten entries above are interval commits. The count is ten rather than nine
-because entry 8, the chain-basis and comparison correction, was the operative
-`D3` until this correction superseded it and therefore joins the interval at
-the moment of supersession; a count that adds only the two new commits to the
-previous seven omits it. `git rev-list f275e75..c38f94b` returns exactly these
-ten in this order, and the operative `D3` — the commit containing this
-correction, touching only this memo — is the eleventh, outside the interval.
+11. `3d2e07cfafc0884ad915009cc2d8d5742caa9e96` — superseded design gate, the
+    carve-out and comparability correction; touches exactly
+    `docs/development/sci005_beam_physics_plan.md`.
+12. `997ee5ee48704d91b031e93b997817d0474064b7` — superseded red slice, reopened
+    by the evidence-projection correction; touches exactly the one Section 7.4
+    test path `tests/unit/test_core/test_sci005_full_efield.py`.
+13. `2fa9ce4e76f78fff74bf2e46d67601294bf7c173` — superseded **implementation**
+    commit, the third of that kind; touches exactly five Section 7.4 paths:
+    `docs/development/sci005_stage3_evidence.schema.json`,
+    `tests/unit/test_sci005_evidence.py`,
+    `tests/unit/test_sci005_stage3_acceptance.py`,
+    `tests/unit/test_tier1h_documentation.py`, and
+    `tools/sci005_stage3_acceptance.py`.
+14. `f09716a2808fe5693db31b65fa20d3c6ef0641b4` — superseded **evidence**
+    commit, the first of the fifth kind; touches exactly three paths, all
+    within Section 7.5's `Ei` allowance:
+    `docs/development/sci005_stage3_evidence.json`,
+    `output/crossvalidation/2026-08-20-sci005-efield-pyuvsim-1.4.0.json`, and
+    `tests/unit/test_sci005_evidence.py` for the two sentinel flips. It
+    carries no acceptance artifact and no approved acceptance constant,
+    because its `A3` returned `REJECT`.
 
-None of the ten carries a production, tool, schema, or documentation byte
+All fourteen entries above are interval commits. Two counting traps are worth
+naming, because both have caught this memo before: a design correction that is
+superseded **joins** the interval at the moment of supersession rather than
+staying outside it as the operative `D3`, and so entries 8 and 11 are both in
+the interval; and the count is therefore not "the previous total plus the new
+commits" but the whole walk.
+`git rev-list --count f275e75..f09716a` returns exactly `14`, and
+`git rev-list --reverse` returns these fourteen in this order. The operative
+`D3` — the commit containing this
+correction, touching only this memo — is the fifteenth, outside the interval.
+
+None of the fourteen carries a production, tool, schema, or documentation byte
 outside its own kind's allowance. Across the
 interval every Section 7.4 path marked `successor only` remains absent, and
 every path marked `new` remains absent except where a header-recorded
@@ -5626,28 +5864,47 @@ The operative `D3` — the commit containing the latest header-recorded
 correction — touches exactly
 `docs/development/sci005_beam_physics_plan.md` and no other path.
 
-The two reopened commits are expected to be small, and their expected diffs
-are stated here so the acceptance reviewer can hold them to it rather than
-accept whatever arrives. The fourth governed re-cut `R3` changes exactly one
-thing: it re-encodes the `tier1h` carve-out witness additively per Section
-7.4, replacing the `== 1` count assertion with the presence assertions for the
-Stage-3 schema literal and the dated-basename suffix together with the
-assertion that the pre-existing SCI-007 literal still occurs exactly three
-times. No other red assertion moves, because no other physics or contract
-changed at this correction. The third `S3` then contains, and should contain
-only: the reversion of the three constant-extraction hunks in
-`tests/unit/test_tier1h_documentation.py` to their byte-identical originals,
-leaving the carve-out as one contiguous insertion and no other byte of that
-module changed; and whatever the frozen transfer-solve construction of Section
-8.1 requires, which the implementer must check in two specific places — the
-`reference_frame_mirror` cross-field check in
-`tests/unit/test_sci005_evidence.py` and the corresponding object in
-`docs/development/sci005_stage3_evidence.schema.json`, both of which must
-carry the `construction` literal, the `reassembly_gap` field and its `1e-12`
-ceiling, and the `transfer_solve_max_rel_residual` field if they do not
-already. The `tools/sci005_stage3_acceptance.py` interval table and its
-validator, which the previous `S3` transcribed at the seven-commit form, must
-be updated to the **ten**-commit form frozen above. Any hunk outside that set
+The reopening the carve-out and comparability correction ordered is discharged
+by interval entries 12 through 14 and is not restated. The evidence-projection
+correction reopens two commits afresh, and their expected diffs are frozen
+here so the acceptance reviewer can hold them to it rather than accept
+whatever arrives.
+
+The fifth governed re-cut `R3` adds exactly one red and changes nothing else:
+a synthetic Stage-3 evidence document whose `receptor_factorizations` rows
+carry `composed_e.c_order_sha256` equal to `j_native.c_order_sha256` must be
+**rejected** by the evidence validator as an inadequate witness. The red is
+written in the witness-adequacy form Section 8.1 freezes — the document it
+rejects is a *legitimately computable* one, since the linear `C` is a
+reflection whose `+1` eigenspace admits `E == J_native`, and it is rejected
+because such a scenario cannot witness the factorization, not because it is
+unphysical. It fails against the inherited tree
+because no such rule exists there yet, which is what makes it a genuine red.
+It belongs with the synthetic-document tests in
+`tests/unit/test_sci005_evidence.py`, which Section 7.4 already grants for
+Stage 3 — that module carries shared red, source, and evidence authority on
+the stage list, so the re-cut needs no new grant. No physics red moves,
+because no physics changed at this correction.
+
+The fourth `S3` then contains, and should contain only: the cross-field guard
+itself in `tests/unit/test_sci005_evidence.py`; the corresponding
+documentation of it in
+`docs/development/sci005_stage3_evidence.schema.json`; and the interval-table
+update in `tools/sci005_stage3_acceptance.py` and its validator from the
+ten-commit form to the **fourteen**-commit form frozen above. Ownership of the
+guard is ruled explicitly, because the two artifacts cannot carry it equally:
+JSON Schema cannot express an inequality between two sibling field values, so
+the schema may only **document** the rule in its `description` text, and the
+stdlib validator in `tests/unit/test_sci005_evidence.py` is its sole normative
+enforcer. A schema that merely describes the rule is conforming; a validator
+that omits it is not.
+
+`E3` then regenerates from the new clean `S3`. The measurement scripts are
+scratchpad-side and need no repository grant, but the regenerated rows must
+carry the **true** composed `E` in `composed_e` and `e_matrix` — not `C @ E`,
+which is `J_native` — and the new guard makes retaining the old mistake
+impossible: a regenerated document that repeats it is rejected by the
+validator before it can be committed. Any hunk outside the sets above
 is outside the reopening and requires its own bounded correction.
 
 The Stage-3 acceptance validator authenticates that edge from Git objects
