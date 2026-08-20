@@ -6244,3 +6244,12 @@ The Stage-1 note deferred at `U1` is subsumed by the Section 8.3 chain this
 note completes through `A2`; Stage 1's succession is
 `D1 c6a5ce90 -> R1 e246c5d -> S1 881b1a9 -> E1 bbc2b1b -> A1 2281f2f ->
 U1 d6eb4b0`. `SCI-005` remains **ROADMAP**; Stage 3 is the remaining slice.
+
+**Stage 3 accepted — 2026-08-20.** The retained succession is operative `D3`
+`ef972af` (through the six accepted bounded corrections and the reopened
+slices this memo's header records) `-> R3 e22c917 -> S3 0b5d0da -> E3
+ec28836 -> A3 ac269cdd7269da359cf15eeb99930f232b3295e4`, independent
+reviewer verdict `ACCEPT`, acceptance artifact
+`sha256:40682a51f1dcf4a7d485f397702c439aa341f0565901d384cf48b33b9846b5c6`.
+`SCI-005` remains **ROADMAP**; the whole-row closure successor `C` is the
+remaining step.

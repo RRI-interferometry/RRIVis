@@ -277,8 +277,9 @@ canonical antenna identity, validates and loads the complete beam system before
 device, backend, network, or sky work, and uses that same system in both
 visibility solvers and observability planning. FITS failures never fall back to
 an analytic beam: there is no analytic fallback for a FITS declaration.
-FITS support is the documented scalar E-Jones subset, not arbitrary
-full-polarization BeamFITS.
+FITS support is the documented scalar E-Jones subset plus the accepted
+`uvbeam_peak_common_v1` full-efield subset (`SCI-005` Stage 3, accepted
+2026-08-20), not arbitrary full-polarization BeamFITS.
 
 The `receptors` section is a separate concern from `beams`: `beams` describes how
 each aperture is *illuminated*, `receptors` describes the *receiving* feeds and

@@ -96,14 +96,25 @@ physics beyond the accepted scalar-`E` subset**.
 
 ### Cross-polarization models
 
-Three related models, all requiring a non-scalar `E`.
+**Implemented (partial) — `SCI-005` Stage 3, independently accepted
+2026-08-20.** A full-efield UVBeam file accepted under the
+`uvbeam_peak_common_v1` normalization literal (mutually exclusive with
+`beams.squint`, which requires an analytic beam) now composes the generally
+full `E = C^dagger J_native`, so full cross-polarization is implemented for
+that accepted subset; RadioSim's accepted `E` is no longer scalar in every
+case. The three items below are disposed individually.
 
 - **Quadrupolar.** The dominant cross-polar pattern for linearly polarized
   feeds: `epsilon(theta) = epsilon_0 (theta / theta_HPBW)^2` with azimuthal
   dependence `cross_pol = epsilon(theta) sin(2 phi)`, vanishing on the principal
   planes (`phi = 0, pi/2`) and peaking at `phi = pi/4`. The Y feed's cross-polar
   response has the opposite parity to the X feed's, so the assembled Jones
-  matrix is `[[co, cross], [-cross, co]]` rather than `diag(co, co)`.
+  matrix is `[[co, cross], [-cross, co]]` rather than `diag(co, co)`. Retained
+  as a **test oracle**, not a production model: the synthetic quadrupolar
+  response in the Stage-3 red-test evidence fixes the principal-plane zeros
+  and the parity of the two feed rows that the chain-tangent conversion `M`
+  must reproduce, but it is never exposed as a public production beam
+  parametrization.
 - **IXR conversion.** The intrinsic cross-polarization ratio is a
   basis-independent polarimetric fidelity measure. For a leakage matrix
   `D = [[1, d], [-d*, 1]]` the singular values are `1 ± |d|`, so the condition
@@ -123,10 +134,27 @@ Three related models, all requiring a non-scalar `E`.
   completely depolarizing one — to `|d| = 0`. The corrected relation has the two
   limits the physics requires: `|d| → 0` as `IXR_dB → ∞`, and `|d| = 1` at
   `IXR_dB = 0`. It is the form the implemented `D` term uses
-  (`Tier7JonesSciencePlan.md` §20.3).
+  (`Tier7JonesSciencePlan.md` §20.3). Implemented as a **derived diagnostic
+  only**: singular values, `kappa`, and `IXR_J` are computed from the
+  accepted `J_native` per direction and frequency and retained in evidence,
+  with `|d|` cross-checked against the `D` term's leakage convention above.
+  Stage 3 adds no public production method, dataclass,
+  `core/beam/__init__.py` export, or configuration field — IXR never becomes
+  a second leakage configuration surface.
 - **Ludwig-3 decomposition.** The standard co/cross definition for linearly
   polarized antennas: `E_co = E_theta cos(phi) - E_phi sin(phi)`,
   `E_cross = E_theta sin(phi) + E_phi cos(phi)`, which preserves total power.
+  Retained exactly as a **derived diagnostic and oracle**, never the
+  production chain conversion: the proper rotation `S(phi)` right-multiplies
+  the chain-basis pair into the co/cross Ludwig-3 pair. The accepted chain
+  conversion from native efield samples into the chain's own sky tangent
+  basis is the fixed real orthogonal `uvbeam_theta_phi_chain_tangent_v1`
+  matrix `M`, not Ludwig-3.
+
+The governing design is `docs/development/sci005_beam_physics_plan.md`
+Sections 5.2, 5.2.1, and 5.3; the retained evidence and acceptance records
+are `docs/development/sci005_stage3_evidence.json` and
+`docs/development/sci005_stage3_acceptance.json`.
 
 **References.** Carozzi & Woan (2011) IEEE Trans. Antennas Propag. **59**, 2058;
 Ludwig (1973) IEEE Trans. Antennas Propag. **AP-21**, 116; Hamaker, Bregman &

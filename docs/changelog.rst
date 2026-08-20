@@ -9,6 +9,25 @@ All notable changes to RadioSim are documented here.
 Added
 ^^^^^
 
+- ``SCI-005`` Stage 3: full-efield Jones response. A full-efield UVBeam file
+  accepted under the ``uvbeam_peak_common_v1`` normalization literal
+  (mutually exclusive with ``beams.squint``, which requires an analytic
+  beam) composes the generally full ``E = C^dagger J_native`` via the fixed
+  real orthogonal chain-tangent conversion
+  ``uvbeam_theta_phi_chain_tangent_v1``; Ludwig-3 remains a derived
+  diagnostic, never the chain conversion, and IXR is a derived diagnostic
+  with no configuration surface. ``BeamFileProvenance`` widens with
+  ``None``-default fields so a scalar ``peak`` document stays
+  byte-identical. The optional ``crossval`` environment's non-gating
+  comparison against ``pyuvsim 1.4.0`` records agreement on the
+  mechanism-free total-intensity and Stokes-V classes and a structured,
+  mechanism-explained open disagreement on the ``Q``/``U``-carrying
+  correlations through a cited ``pyradiosky`` coherency-sign defect; the
+  fixture is compared against, never validated against. Strict typed
+  rejection throughout; absent-block and scalar-``peak`` results stay
+  byte-identical. Independently accepted 2026-08-20; retained evidence and
+  acceptance certificates live in ``docs/development/``. The register row
+  stays ROADMAP until whole-row closure.
 - ``SCI-005`` Stage 2: beam squint. ``beams.squint`` (Cotton/Uson exact
   arcsine frequency law, mechanical-feed ``+pi/2`` squint direction, mount
   field rotation at the resolved boresight) with the two native feeds
