@@ -1,6 +1,6 @@
 [workspace]
 name = "RadioSim"
-version = "0.3.0"
+version = "0.4.0"
 description = "A Python application for simulating and visualizing complex interferometric visibilities."
 authors = ["Kartik Mandar <kartik4321mandar@gmail.com>"]
 channels = ["conda-forge"]
