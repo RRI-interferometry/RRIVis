@@ -2831,9 +2831,32 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     # scalar ``E = e I_2`` is basis-free and Stage-2 squint is a receptor-space
     # sandwich, so no other workload in this table moved by a byte -- which the
     # rest of this suite passing unchanged is the measurement of.
+    # The five remaining cells were harvested from the first CI exposure (run
+    # 32391889909 at 52593c9, artifacts per cell): the py311 cells differ from
+    # the accepted osx-arm64-py311 cube at vectorized-dispatch scale
+    # (max rel ~3.3e-12), and all three py312 cells differ at ~5.2e-8 on the
+    # locked-stack axis (numpy 2.4.6 / astropy 8.0.1 / scipy 1.18.0 vs py311's
+    # 2.3.2 / 7.1.0 / 1.17.0) -- the same axis that gives every older workload
+    # distinct py312 digests.  The osx-arm64-py312 value was reproduced
+    # byte-identically on the acceptance host before recording.
     "point_full_efield_quadrupolar": {
+        "linux-64-py311": (
+            "6c50eabf45ed99284c594780502a32697a16ffac9ad1ec6afbbd426ddf782389",
+        ),
+        "linux-64-py312": (
+            "e495b43cfeb91e2d8fb1fb32625727321d0253cb55306437f081f9ad9da2f52e",
+        ),
+        "osx-64-py311": (
+            "229b7b7a9d92a1e0ce00f8810eb8057d152b7199004406b3cc3553525efdd393",
+        ),
+        "osx-64-py312": (
+            "1838208d00d4306e06d65074d5a860097096e5928a7d55fccd018843fc8ae53d",
+        ),
         "osx-arm64-py311": (
             "87ae1a927ffd6ae371979a9b2f11f5b6161acd3075f546e05c4c05f5a9a5e99d",
+        ),
+        "osx-arm64-py312": (
+            "fb4cba08e49e2df100144e3897efaf1d041fb16023f62efe41a7513cb8190eca",
         ),
     },
     "point_gaussian_morphology": {
@@ -2879,9 +2902,30 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     # SCI-005 Stage 2, Section 4.2: harvested only for the environment(s) this
     # slice's acceptance actually ran on; a later environment class is added
     # deliberately, exactly like every other row in this table.
+    # The five remaining cells were harvested from the same first CI exposure
+    # (run 32391889909 at 52593c9): py311 cells at dispatch scale
+    # (max rel ~1.1e-12) against the accepted osx-arm64-py311 cube, py312
+    # cells at ~1.4e-9 on the same locked-stack axis documented for the
+    # quadrupolar row above; the osx-arm64-py312 value was reproduced
+    # byte-identically on the acceptance host before recording.
     "point_squint_rotated_linear_receptor": {
+        "linux-64-py311": (
+            "b0bb910824ecbfba62f87a1885912a4c70e3b75f10134f459e81d79bdf3a9a8f",
+        ),
+        "linux-64-py312": (
+            "d4be455782ed07d09ec5b8f401efb1b72cc0f514a7e827feb3f11708d36ed79b",
+        ),
+        "osx-64-py311": (
+            "e80349aa1443464674151713900bd49a91a9388879ba645d1370d3edda3ce416",
+        ),
+        "osx-64-py312": (
+            "3536a08dd019fabdb09fbb2df07641cb820d33fe9b5b420583f70f105affaefe",
+        ),
         "osx-arm64-py311": (
             "2b42465f7a36b2cd6bbfbdc2a2a48fcad1510194ca61eda08d5dbc2e67ef630d",
+        ),
+        "osx-arm64-py312": (
+            "622b8a1a6eaf4d7a5d6d2b6b523588ec46dfd6f248af10fd73dff10f4447f93d",
         ),
     },
     "point_unpolarized_1time_2freq": {
