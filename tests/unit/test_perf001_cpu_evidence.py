@@ -647,6 +647,19 @@ def test_preflight_boundaries_are_injectable_and_default_only(
     dependencies, runner = _preflight_dependencies(tool)
     monkeypatch.setattr(tool, "_require_empty_reference_manifests", lambda _root: None)
     monkeypatch.setattr(tool, "_require_empty_reference_namespace", lambda _root: None)
+    # The injected dependencies bind to the live checkout; authorize its
+    # manifest and lock bytes so the test proves the boundary mechanics
+    # rather than pinning the live pixi.toml against the frozen digest.
+    monkeypatch.setattr(
+        tool,
+        "PIXI_MANIFEST_SHA256",
+        hashlib.sha256((REPOSITORY_ROOT / "pixi.toml").read_bytes()).hexdigest(),
+    )
+    monkeypatch.setattr(
+        tool,
+        "PIXI_LOCK_SHA256",
+        hashlib.sha256((REPOSITORY_ROOT / "pixi.lock").read_bytes()).hexdigest(),
+    )
 
     assert tool.preflight_generation("1" * 40, dependencies=dependencies) == "1" * 40
 
@@ -1279,10 +1292,25 @@ def test_generate_parent_only_preflights_exports_and_runs_snapshot_worker(
 def test_cli_evidence_edge_requires_clean_exact_direct_successor(
     tool: ModuleType,
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = tmp_path / "repository"
     repository.mkdir()
     source_sha = _commit_snapshot_fixture(repository)
+    # The snapshot fixture copies the live checkout's manifest and lock;
+    # authorize the scenario's own bytes so the test proves the evidence-edge
+    # mechanics rather than pinning the live pixi.toml against the frozen
+    # digest.
+    monkeypatch.setattr(
+        tool,
+        "PIXI_MANIFEST_SHA256",
+        hashlib.sha256((repository / "pixi.toml").read_bytes()).hexdigest(),
+    )
+    monkeypatch.setattr(
+        tool,
+        "PIXI_LOCK_SHA256",
+        hashlib.sha256((repository / "pixi.lock").read_bytes()).hexdigest(),
+    )
     relative = "output/benchmarks/reference/perf001/20260811T000000Z-darwin-arm64.json"
     artifact = repository / relative
     artifact.parent.mkdir(parents=True)
