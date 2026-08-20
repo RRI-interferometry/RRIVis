@@ -1,0 +1,456 @@
+{
+  "schema_version": "radiosim.sci005.stage3-acceptance.v1",
+  "stage": 3,
+  "verdict": "ACCEPT",
+  "generated_at_utc": "2026-08-20T07:58:00Z",
+  "implementation_identity": "sci005-stage3-implementation-opus",
+  "reviewer_identity": "sci005-stage3-acceptance-sonnet-independent",
+  "reviewer_independent": true,
+  "design_sha": "ef972af80c59ada7ec7eba4d6bb56e9422be20ae",
+  "red_test_sha": "e22c917730fe23144fbbd85349af3c5d943971b5",
+  "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+  "evidence_commit_sha": "ec28836d425a333be3adb6a487a090370899566d",
+  "evidence_artifact_path": "docs/development/sci005_stage3_evidence.json",
+  "evidence_artifact_sha256": "efddf46be03cb7fcd02e4ffa7295e55e07a4107b4f5eb619b752d98309c0d9c5",
+  "evidence_schema_path": "docs/development/sci005_stage3_evidence.schema.json",
+  "evidence_schema_sha256": "892f10b88e1a28256f77ec1041c954e9cb7830c2f9d2d38220e076e2d99f7e55",
+  "toolchain": {
+    "evidence_generator_path": "tools/sci005_stage_evidence.py",
+    "evidence_generator_git_blob": "b2907cdcb579350a13b88915ffc73b734bc8d927",
+    "evidence_validator_path": "tests/unit/test_sci005_evidence.py",
+    "evidence_validator_git_blob": "66c32fa276284a533b9b5796c4568acf9e5f2550",
+    "acceptance_generator_path": "tools/sci005_stage3_acceptance.py",
+    "acceptance_generator_git_blob": "b391aa71e4f1d6742c3a8b95149533f78662df60",
+    "acceptance_validator_path": "tests/unit/test_sci005_stage3_acceptance.py",
+    "acceptance_validator_pre_a_git_blob": "a581f0ed3d4075bbdebc27554354d9e43d956fcf",
+    "acceptance_schema_path": "docs/development/sci005_stage3_acceptance.schema.json",
+    "acceptance_schema_sha256": "e44c32132e3c5708ec60eb7157c219e4843fe22c79be9645a4daba845a3920d1"
+  },
+  "acceptance_commit_sha": null,
+  "acceptance_commit_sha_reason": "self-reference: U3 binds the containing A3 commit",
+  "successor_unlocks": [
+    "SCI005.U3"
+  ],
+  "reviewed_artifacts": [
+    {
+      "path": "docs/development/sci005_beam_physics_plan.md",
+      "sha256": "f203203a31bf69431facf6b54d6e8dba3d7a3556dbbd829f9e58784ab35e5b21",
+      "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+      "authenticated": true
+    },
+    {
+      "path": "docs/development/sci005_stage3_acceptance.schema.json",
+      "sha256": "e44c32132e3c5708ec60eb7157c219e4843fe22c79be9645a4daba845a3920d1",
+      "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+      "authenticated": true
+    },
+    {
+      "path": "docs/development/sci005_stage3_evidence.json",
+      "sha256": "efddf46be03cb7fcd02e4ffa7295e55e07a4107b4f5eb619b752d98309c0d9c5",
+      "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+      "authenticated": true
+    },
+    {
+      "path": "docs/development/sci005_stage3_evidence.schema.json",
+      "sha256": "892f10b88e1a28256f77ec1041c954e9cb7830c2f9d2d38220e076e2d99f7e55",
+      "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+      "authenticated": true
+    },
+    {
+      "path": "output/crossvalidation/2026-08-20-sci005-efield-pyuvsim-1.4.0.json",
+      "sha256": "1aa0ee2b62fa30b4db8f68c1e9dfbe61f0402d68d1fe7bc491fd74b5d42cd4c0",
+      "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+      "authenticated": true
+    },
+    {
+      "path": "src/radiosim/core/beam/fits.py",
+      "sha256": "1d91f474d1f3100788c9a5882714691c2d7864b4fda8c3366f88fccb0d36e3f9",
+      "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+      "authenticated": true
+    },
+    {
+      "path": "src/radiosim/core/beam/runtime.py",
+      "sha256": "98c4b85f5dfd4a35d60a493d9426f99485e761f7cab77facc4fc432f5dc4b698",
+      "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+      "authenticated": true
+    },
+    {
+      "path": "tools/sci005_stage3_crossvalidation.py",
+      "sha256": "9a49e890be69a4f5f432b5ff5530319f9cc15632583fb68690398aa257107475",
+      "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+      "authenticated": true
+    },
+    {
+      "path": "tools/sci005_stage_evidence.py",
+      "sha256": "876114b07bd2d7ec6b73e9ebb4839e0c245f7bf38f7db3c5c897e00b82c5c34f",
+      "source_sha": "0b5d0dad99bfc564757393f508a927861999e82a",
+      "authenticated": true
+    }
+  ],
+  "rederived_oracles": [
+    {
+      "oracle_id": "common_efield_normalization",
+      "method": "Re-ran, unchanged, against the new HEAD: built two independent az_za efield BeamFITS files directly with pyuvdata (full-stored-grid-unit-peak file and visible-only-unit-peak file), computed the full-stored-grid peak per frequency in pure NumPy on each file's raw data_array, and compared the accept/reject verdict and exact peak value against production's Simulator verdict. Production source is byte-identical to the previously reviewed chain (git diff --stat f09716a..ec28836 -- src/ is empty), so this result carries over and was re-confirmed fresh.",
+      "observed": 0.0,
+      "fixed_limit": 1e-12,
+      "units": "dimensionless (full-stored-grid peak amplitude residual; my independent rejected-file peak value, 3.5313989444850944, matched production's rejection message bit-for-bit)",
+      "passed": true
+    },
+    {
+      "oracle_id": "ludwig3_basis_conversion",
+      "method": "Re-ran, unchanged, against the new HEAD: astropy finite-difference re-derivation of the mixed-sign tangent geometry, independent verification of pyuvdata's ShortDipoleBeam axis convention, algebraic derivation of M by voltage-matching, algebraic re-derivation of S(phi), the hand-built J_native@M@S(phi)==J_L3 check, and a bit-for-bit read of production's literal _CHAIN_CONVERSION. All identical to the prior round because production source did not change.",
+      "observed": 7.55e-09,
+      "fixed_limit": 1.8e-05,
+      "units": "dimensionless (unit tangent-vector / matrix residual; the algebraic sub-checks were all at machine epsilon or exactly 0, and M-vs-production matched bit-for-bit)",
+      "passed": true
+    },
+    {
+      "oracle_id": "noncommuting_chain_order",
+      "method": "Hand-built Pauli-decomposition demonstration (own matrices) confirming a real rotation commutes with E iff its b,d Pauli components vanish. Independently recomputed noncommuting_component from each of the four NEW retained receptor_factorizations rows' e_matrix, and independently constructed C=M(basis)@R(chi) and P=R(psi) and computed C@E@P vs C@P@E by hand for all four rows against the regenerated artifact. Also independently re-derived, by a fresh closed-form eigenvalue solve and confirmed by a 20001-point numerical sweep over chi in (-pi, pi], the sixth correction's central physics claim: the circular C^dagger has an isolated unit eigenvalue exactly at chi = pi/4 (measured min|lambda-1| = 2.22e-16 at chi = 0.7853981633974483 rad = 45.0 deg, eigenvalues {1, i}), confirming the coincidence-family analysis the witness-adequacy guard's derivation depends on.",
+      "observed": 0.0,
+      "fixed_limit": 1e-12,
+      "units": "dimensionless (noncommuting_component recomputation residual against the regenerated artifact; hand-computed order_control also matched the retained order_control_max_abs_difference for all four rows)",
+      "passed": true
+    },
+    {
+      "oracle_id": "receptor_output_basis_factorization",
+      "method": "THE BLOCKER'S REMEDIATION CHECK, exact same independent sandwich apparatus as the prior round, re-run against the regenerated artifact: reproduced all four retained (receptor_basis, feed_rotation_deg, output_basis) combinations fresh via the public production entry points (radiosim.core.visibility._build_jones_chain + JonesChain.get_term), independently computing E, C, and H for each. RESULT, THE CHECK THAT FAILED LAST ROUND NOW PASSES: for all four rows, my independently-computed E's C-order sha256 now MATCHES evidence.composed_e exactly (previously it never matched), and my independently-computed C@E's digest matches evidence.j_native exactly (as before) -- composed_e and j_native no longer collide. Also re-verified H is exactly I2 on both same-basis rows and a genuine unitary non-identity change of basis on both cross-basis rows. MINOR NOTE for the record: byte-comparing e_matrix between the superseded f09716a artifact and the new one shows e_matrix was UNCHANGED by the fix and, checked directly against a fresh per-direction E computation, already held the true E (not J_native) in both versions -- the defect was confined to composed_e's separate full-batch numeric_projection construction. The sixth correction's own narrative ('composed_e -- and the e_matrix beside it -- byte-identical to j_native') therefore overstates which field was affected; this has zero functional consequence since the witness-adequacy guard only ever checked composed_e vs j_native digests, e_matrix carries no guard, and e_matrix was independently confirmed correct in both this review and the last.",
+      "observed": 0.0,
+      "fixed_limit": 1e-12,
+      "units": "dimensionless (composed_e now matches my independent E exactly on all four rows; j_native matches my independent C@E exactly on all four rows; both digest collisions from the prior round are gone)",
+      "passed": true
+    },
+    {
+      "oracle_id": "standard_output_roundtrip",
+      "method": "Re-ran, unchanged, against the new HEAD: full-efield workload through the public Simulator entry point, written to HDF5 via the production writer, read back entirely by hand with h5py (not radiosim.io.readers), comparing data/visibilities and scientific_sha256 bit-for-bit against the in-memory result.",
+      "observed": 0.0,
+      "fixed_limit": 1e-12,
+      "units": "dimensionless (bit-for-bit HDF5 visibility round-trip difference; scientific_sha256 matched exactly)",
+      "passed": true
+    }
+  ],
+  "review_checks": [
+    {
+      "check_id": "artifact_authentication",
+      "method": "Computed raw sha256 of every path in the new evidence JSON's artifacts array plus the evidence JSON itself, the evidence schema, and the acceptance schema -- all matched the recorded/approved digests exactly, including the two APPROVED_STAGE3_* sentinels. Went beyond file-level digesting to re-authenticate the INTERNAL content of the regenerated receptor_factorizations array the same way the prior review's blocker was found: reproduced the retained scenario fresh via production's public entry points for all four rows. RESULT: no discrepancy found this round -- composed_e and j_native now correctly represent E and C@E respectively in every row (see oracle receptor_output_basis_factorization for the full digest-level proof).",
+      "expected_outcome": "every artifact-array sha256 matches its recorded digest, and every receptor_factorizations row's composed_e/j_native faithfully represents the independently-computed E and C@E",
+      "observed_outcome": "every artifact-array sha256 matches its recorded digest, and every receptor_factorizations row's composed_e/j_native faithfully represents the independently-computed E and C@E",
+      "passed": true
+    },
+    {
+      "check_id": "default_disabled_fingerprints",
+      "method": "Read fingerprint_diff's two disabled/default control rows in the new artifact: both show changed_element_count=0, change_expected=false, and identical old/new scientific_sha256 and raw cube sha256. Re-ran the underlying disabled control myself at the new HEAD: pixi run test -- tests/integration/test_sci005_beam_physics.py::test_a_scalar_beamfits_workload_stays_byte_identical -v (both [point] and [healpix]).",
+      "expected_outcome": "scalar/default fingerprint_diff rows byte-identical old vs new, and the disabled control passes 2/2 when re-run",
+      "observed_outcome": "scalar/default fingerprint_diff rows byte-identical old vs new, and the disabled control passes 2/2 when re-run",
+      "passed": true
+    },
+    {
+      "check_id": "diff_authority",
+      "method": "Verified R3(e22c917)^==D3(ef972af), S3(0b5d0da)^==R3, E3(ec28836)^==S3 from Git objects. Confirmed git rev-list --count f275e75..7ad0931 == 17 and git rev-list --reverse returns the memo's exact 17 SHAs in the memo's order, matching tools/sci005_stage3_acceptance.py's INTERVAL_COMMITS table (also verified programmatically: 17 entries, identical SHA list). Spot-verified 5 interval commits with git show --stat against the header record (entries 11, 14, 15, 16, 17: 3d2e07c memo-only; f09716a exactly 3 Ei-allowance paths; 0601ddc memo-only; 5fd0f7f exactly 1 path; 7ad0931 exactly 4 paths) -- all matched exactly, on top of the 4 commits (2,7,9,10) already verified in the prior review. Directly invoked tools/sci005_stage3_acceptance.py's own authenticate_design_edge(D3) and authenticate_succession(D3,R3) against live Git: both passed. Verified R3's diff is exactly the one frozen state-coupled disposal-invariant red in test_sci005_evidence.py (56 insertions, 0 deletions, 1 file). Verified S3's diff is exactly the memo's frozen 5-file statement: deletion of sci005_stage3_evidence.json (confirmed byte-identical, via sha256, to the superseded f09716a blob -- genuine restoration, not an unrelated deletion), deletion of the dated crossvalidation record, the two-sentinel re-nulling in test_sci005_evidence.py, and the interval-table update in both tools/sci005_stage3_acceptance.py and its validator tests/unit/test_sci005_stage3_acceptance.py. Verified E3's diff is exactly the three allowed paths (regenerated evidence.json, regenerated dated crossvalidation artifact, and the two sentinel None->value flips). JUDGMENT on 7ad0931's known failing test: reproduced it independently in a throwaway detached worktree at 7ad0931 (1 failed / 308 passed = 309 total across the two Stage-3-constant-referencing modules), then applied the exact disposal fix (delete both artifacts, re-null both sentinels) in that same worktree and reproduced the memo's claimed 309 passed / 0 failed exactly -- a third independent reproduction beside the memo's own governance and computational reviews. RULING: acceptable under the memo's interval rules as written. The 'superseded implementation' kind's definition (Section 8.3) requires only bounded path-touching and the absence of evidence/acceptance artifacts -- it does not require green gates, which is expected since by definition such a commit was reopened before acceptance. The commit's own body transparently reports the red, correctly diagnoses it as a consequence of a genuinely unruled disposal question rather than sloppy work, and explicitly defers the fix to a bounded correction rather than expanding scope -- exactly the stop-and-report discipline this programme's other corrections also exhibit and value. The memo's own header (item 17) rules this same way; I independently agree with that ruling on the reproduced facts.",
+      "expected_outcome": "R3/S3/E3 diffs exactly match the memo's frozen expected-diff statements; all seventeen interval commits header-named with correct kind/touch-set (5 newly spot-checked, matching exactly); and the one known-red superseded-implementation commit (7ad0931) is acceptable under the interval rules as written, its reported 309-passed disposal figure independently reproduced twice in a throwaway worktree",
+      "observed_outcome": "R3/S3/E3 diffs exactly match the memo's frozen expected-diff statements; all seventeen interval commits header-named with correct kind/touch-set (5 newly spot-checked, matching exactly); and the one known-red superseded-implementation commit (7ad0931) is acceptable under the interval rules as written, its reported 309-passed disposal figure independently reproduced twice in a throwaway worktree",
+      "passed": true
+    },
+    {
+      "check_id": "gate_replay",
+      "method": "Re-ran the full Section 9 battery at the new HEAD=E3: stage-focused tests, tests/unit/, tests/integration/, -m 'not slow', doctest, lint, check-format, typecheck, Sphinx -W --keep-going, test_tier8_release_acceptance.py, git diff --check, plus the optional crossval pytest module and its standalone validate command, plus an explicit re-run of tests/unit/test_sci005_evidence.py.",
+      "expected_outcome": "every command exits 0: 524 stage-focused passed; unit 6423 passed/2 skipped; integration 88 passed; not-slow 6708 passed/4 skipped; doctest 41 passed; lint clean; check-format clean (417 files); typecheck 2581<=4600 ceiling; Sphinx build succeeded; tier8 18 passed; git diff --check clean; crossval 13 passed; crossval standalone validate passed:true; evidence validator 246 passed",
+      "observed_outcome": "every command exits 0: 524 stage-focused passed; unit 6423 passed/2 skipped; integration 88 passed; not-slow 6708 passed/4 skipped; doctest 41 passed; lint clean; check-format clean (417 files); typecheck 2581<=4600 ceiling; Sphinx build succeeded; tier8 18 passed; git diff --check clean; crossval 13 passed; crossval standalone validate passed:true; evidence validator 246 passed",
+      "passed": true
+    },
+    {
+      "check_id": "production_data_flow",
+      "method": "Re-ran, unchanged, against the new HEAD (production source is byte-identical to the prior round): public entry point radiosim.api.simulator.Simulator; final E composition site BeamSystem.evaluate_jones in src/radiosim/core/beam/runtime.py; shared adapter _ResolvedBeamJones / _build_jones_chain. Live spy: monkey-patched BeamSystem.evaluate_jones and ran one full-efield workload through both the point and healpix routes via the public Simulator entry point.",
+      "expected_outcome": "composed E reaches both solvers through the shared adapter and response-key identity: route=point evaluate_jones_calls=6, nonscalar_E_calls=6, cross_hands_nonzero=True; route=healpix evaluate_jones_calls=6, nonscalar_E_calls=6, cross_hands_nonzero=True",
+      "observed_outcome": "composed E reaches both solvers through the shared adapter and response-key identity: route=point evaluate_jones_calls=6, nonscalar_E_calls=6, cross_hands_nonzero=True; route=healpix evaluate_jones_calls=6, nonscalar_E_calls=6, cross_hands_nonzero=True",
+      "passed": true
+    },
+    {
+      "check_id": "typed_rejection",
+      "method": "Re-ran, unchanged, against the new HEAD: live probe (not a re-run of a committed test) building a minimal beams: shared_fits document with normalization: not_a_real_literal_xyz and resolving it through the actual document-stage resolver.",
+      "expected_outcome": "ConfigSchemaError carrying Pydantic's own literal_error issue code at path beams.beam.normalization (Section 5.1.1): exception_type=ConfigSchemaError; rows=[('beams.beam.normalization','literal_error')]; message=\"beams.beam.normalization: Input should be 'peak' or 'uvbeam_peak_common_v1'\"",
+      "observed_outcome": "ConfigSchemaError carrying Pydantic's own literal_error issue code at path beams.beam.normalization (Section 5.1.1): exception_type=ConfigSchemaError; rows=[('beams.beam.normalization','literal_error')]; message=\"beams.beam.normalization: Input should be 'peak' or 'uvbeam_peak_common_v1'\"",
+      "passed": true
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/integration/test_sci005_beam_physics.py::test_a_scalar_beamfits_workload_stays_byte_identical",
+        "-v"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:47:16Z",
+      "duration_seconds": 8.80556,
+      "exit_code": 0,
+      "stdout_sha256": "22c60db5e8a9941cf8281918239ac237682586590d456c1e842c7131012816f2",
+      "stderr_sha256": "48ba2b83f004ebb871961af6b06b25c800b858d21df3ae56f19402c7da1aa724"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/test_core/test_sci005_full_efield.py",
+        "tests/unit/test_core/test_beam_fits.py",
+        "tests/unit/test_jones/test_chain_order.py",
+        "tests/integration/test_sci005_beam_physics.py",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage3_acceptance.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:47:43Z",
+      "duration_seconds": 31.831175,
+      "exit_code": 0,
+      "stdout_sha256": "a18957eeff91b3a4dd2ffb28d6c6d55b3542c9bed755348d0bda0ca0af924cb6",
+      "stderr_sha256": "7ed0f2e94ee9fd1fd2a8e00fff3fa4f524ecbd95a32a4d7088859fc624500763"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:48:20Z",
+      "duration_seconds": 99.171947,
+      "exit_code": 0,
+      "stdout_sha256": "9488b055628b83407cae4c9297d17af95b324836a7e29761dcb8e42a5941dd06",
+      "stderr_sha256": "b87d6433c2cad286135065e50f61b45aeb0cd00353c0ca6323b1b9f1f2cab9cf"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/integration/",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:50:05Z",
+      "duration_seconds": 37.533456,
+      "exit_code": 0,
+      "stdout_sha256": "16ff0de12d9a33177ff4aa2f13052ac1bdb98d536fee22a348fa51f8d3852243",
+      "stderr_sha256": "04f8a8d4be40035e0c60dc78cb4dcd0c7a53c644ee713fe667dc0b4d7ef7afe5"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "-m",
+        "not",
+        "slow",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:50:48Z",
+      "duration_seconds": 213.284637,
+      "exit_code": 0,
+      "stdout_sha256": "d34c97883be7b6ccb653c548b18f3bedac2ce74c76c7de6b49d5218557034324",
+      "stderr_sha256": "382f1f1c47cddd6c49a320d21d962038e3a076ca328507ca515f81e5a0e275ae"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "doctest"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:54:28Z",
+      "duration_seconds": 7.37975,
+      "exit_code": 0,
+      "stdout_sha256": "283a96ea71a7d69a0983cca31d7ae64aeb8d7981cdf02423ba7b2a24a3938886",
+      "stderr_sha256": "1298f4700f18360e18c373d9d650551261d2d74a3e98725bf6552434eb633ebb"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "lint"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:54:35Z",
+      "duration_seconds": 0.205314,
+      "exit_code": 0,
+      "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "stderr_sha256": "a5ed82e076a36ad1de6d260555c1ed9189657fd19d36cc4059afd7c719d17c2e"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "check-format"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:54:36Z",
+      "duration_seconds": 0.16517,
+      "exit_code": 0,
+      "stdout_sha256": "f4f33fa87455d07653b5373ac0bebdaf1886b4e175cbcab3b6bfbc3c14ee189a",
+      "stderr_sha256": "171723592ebbb6edf36d0fd41fb6754cc61ae4f8d1afe9da7266f524aa5be57b"
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:54:36Z",
+      "duration_seconds": 0.549468,
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/test_tier8_release_acceptance.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:54:36Z",
+      "duration_seconds": 3.515055,
+      "exit_code": 0,
+      "stdout_sha256": "4b24ff5a32db8e561dd11e3c7c97b6ecc647ed601706dfcc0542e2fe09bbefda",
+      "stderr_sha256": "170eb8d1b330f73c756952cfadc183901e7da41164c00cd652d01c11e8d4da9e"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "typecheck"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:54:47Z",
+      "duration_seconds": 14.824034,
+      "exit_code": 0,
+      "stdout_sha256": "53e6e03a080cccea8238f1e94fe24b277c84f22e7e73ac6cb8f0a1aa894da216",
+      "stderr_sha256": "2b91e85eb3953e79fa026349e6675289ad42e10c572184871161bd992bf43ed5"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "--environment",
+        "crossval",
+        "--",
+        "python",
+        "-m",
+        "pytest",
+        "tests/crossvalidation/",
+        "-m",
+        "crossval",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "crossval",
+      "started_at_utc": "2026-08-20T07:54:59Z",
+      "duration_seconds": 19.991574,
+      "exit_code": 0,
+      "stdout_sha256": "a16d846500fb39bdc583e6f0032415c46c8536dc548c3c128a076afb6acd1928",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "python",
+        "tools/sci005_stage3_crossvalidation.py",
+        "validate",
+        "--approved-source-sha",
+        "0b5d0dad99bfc564757393f508a927861999e82a",
+        "--artifact-sha256",
+        "1aa0ee2b62fa30b4db8f68c1e9dfbe61f0402d68d1fe7bc491fd74b5d42cd4c0",
+        "--input",
+        "output/crossvalidation/2026-08-20-sci005-efield-pyuvsim-1.4.0.json"
+      ],
+      "cwd": ".",
+      "pixi_environment": "crossval",
+      "started_at_utc": "2026-08-20T07:55:26Z",
+      "duration_seconds": 0.204813,
+      "exit_code": 0,
+      "stdout_sha256": "58c44e06d3b8d28aab764c5d09fbc9ed39b1cd3f544197e29d66a99275f37fc5",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/test_sci005_evidence.py",
+        "-q"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:55:26Z",
+      "duration_seconds": 2.815464,
+      "exit_code": 0,
+      "stdout_sha256": "8d226b2c91218bef4296c24723f2e3107ad96246b4244e3e3a648b78ccd04657",
+      "stderr_sha256": "7a9a366d2cbea1aa0706b8d5fae3820417bf966ef5fe4c9213b9277cdbe9947e"
+    },
+    {
+      "argv": [
+        "make",
+        "-C",
+        "docs",
+        "clean",
+        "html",
+        "SPHINXOPTS=-W --keep-going"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T07:54:53Z",
+      "duration_seconds": 85.703662,
+      "exit_code": 0,
+      "stdout_sha256": "0171c3faecc609aa3fb2e43bcffaa62d5f82a5fbaf2f46f85c0db65cc8a00cd7",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "blockers": [],
+  "accepted_limitations": [
+    "Backend parity covers the CPU-only JAX build and Dask over NumPy; no accelerator device was exercised, consistent with PERF-001.",
+    "Config-case, rejection-probe, solver and backend-parity input digests are taken over the canonicalized document with the volatile temporary workspace prefix replaced by the literal <workspace>, so each digest names the scientific input rather than the host path.",
+    "Every full-efield load-stage exact_message embeds the resolved transport path of the measurement's own temporary fixture, because the accepted messages are named-fields and render that path; the path is host state and enters no fingerprint, digest or scientific identity.",
+    "Every receptor_factorizations row projects two distinct quantities (j_native = C @ E, composed_e = E); the superseded record collided them, the four regenerated rows carry four distinct digest pairs, verified independently by the reviewer through production's own entry points, not merely by the envelope's witness-adequacy guard.",
+    "The JAX backend-parity rows declare atol 1e-12, the repository's float64 absolute tolerance, beside the accepted backend rtol 1e-12: the measured JAX-CPU difference on these full-efield workloads is 2.2e-16 (point) and 1.2e-16 (HEALPix) rather than exactly zero; NumPy and Dask remain byte-identical at exactly zero.",
+    "The crossed-ideal-dipole oracle cannot carry the conjugation-observability control because it reproduces pyuvdata.analytic_beam.ShortDipoleBeam._efield_eval bit-for-bit and is purely real; the quadrupolar fixture is the carrier that fires all four sign/conjugation checks.",
+    "The e_matrix field in receptor_factorizations was, on direct byte-level inspection, unaffected by the composed_e defect in both the superseded and the regenerated artifact and already held the true composed E; the sixth correction's narrative describing e_matrix as also having been byte-identical to j_native is a minor overstatement with no functional consequence, since no schema guard is keyed on e_matrix and its correctness was independently confirmed in both review rounds.",
+    "The retained cross-validation comparison against pyuvsim 1.4.0 bounds only the mechanism-free total-intensity (3.325e-4) and Stokes-V (1.925e-10) classes, both well inside the accepted 1.9e-3 SCI-007 frame residual, and records the Q/U-carrying correlations (4.16-10.24 per cent) as a structured, mechanism-explained open disagreement (the pyradiosky local-linear-mirror) under the frozen parameter-free transfer-solve construction local_u_negation_in_reference_coherency_v1 (absolute residual 7.36e-4 <= 1e-3, reassembly_gap 5.03e-14 <= 1e-12), never as an unqualified validation claim.",
+    "The witness-adequacy guard (composed_e.c_order_sha256 != j_native.c_order_sha256) is a fixture-adequacy obligation on the evidence author, not a physics theorem: E can legitimately equal J_native when J_native's columns lie in the +1 eigenspace of C^dagger, which occurs at every chi for a linear receptor (a reflection with eigenvalues {+1,-1}) and at the isolated chi=pi/4 for a circular receptor -- independently re-derived and confirmed by the reviewer via closed-form eigenvalue analysis and a 20001-point numerical sweep.",
+    "The wrap-continuity witness recorded on every basis_conversions row uses production's own second-difference predicate (seam second difference against eight times the interior maximum plus the converted-matrix bound); the superseded first-difference form is not retained because it produced a sampling-symmetry false positive on the quadrupolar science."
+  ],
+  "claims_not_licensed": [
+    "SCI-005 Stage-3 acceptance",
+    "SCI-005 whole-row closure",
+    "a station, array-factor, or mutual-coupling response",
+    "an unqualified validation against pyuvsim",
+    "near-field or Fresnel-regime behavior"
+  ]
+}
