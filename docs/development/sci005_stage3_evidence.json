@@ -1,0 +1,2734 @@
+{
+  "schema_version": "radiosim.sci005.stage3.v1",
+  "stage": 3,
+  "status": "candidate",
+  "generated_at_utc": "2026-08-20T04:13:03Z",
+  "design_sha": "3d2e07cfafc0884ad915009cc2d8d5742caa9e96",
+  "red_test_sha": "997ee5ee48704d91b031e93b997817d0474064b7",
+  "source_sha": "2fa9ce4e76f78fff74bf2e46d67601294bf7c173",
+  "evidence_sha": null,
+  "working_tree_clean": true,
+  "radiosim_version": "0.3.0",
+  "python_version": "3.11.13",
+  "platform": "macOS-26.6.1-arm64-arm-64bit",
+  "machine": "arm64",
+  "pixi_environment": "default",
+  "pixi_lock_sha256": "3a8dc9136be95e9ccaff6cb03ad4d7aaf50e54eafa112cb24726a98b40b3fd17",
+  "scientific_conventions": {
+    "efield_normalization": "uvbeam_peak_common_v1",
+    "efield_basis_conversion": "uvbeam_theta_phi_chain_tangent_v1",
+    "efield_zenith_limit": "north_east_tangent_limit_v1",
+    "efield_factorization": "receptor_conjugated_native_efield_v1"
+  },
+  "config_cases": [
+    {
+      "case_id": "accepted_full_efield_literal_mixed",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_the_full_efield_literal_is_accepted_in_each_authorable_place[mixed]",
+      "input_sha256": "ba8724e66c9697dac85dc387de1efa946a3ea1af8bdaf5c057938e3686b1018a",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "c3a03d679fd7411d69673e269d5ba32bf4a35fd7979aed01d701aed423bedd32",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "accepted_full_efield_literal_per_antenna_fits",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_the_full_efield_literal_is_accepted_in_each_authorable_place[per_antenna_fits]",
+      "input_sha256": "9c54b0674e90a0f2596f3d40e6d9dd041bdd6f6e7699032907e609bad4f648a1",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "87c1115981f904129cb011970ed079a591dd093fdd9a623424c3c75d1eb3f102",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "accepted_full_efield_literal_shared_fits",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_the_full_efield_literal_is_accepted_in_each_authorable_place[shared_fits]",
+      "input_sha256": "d6daabc1ebb049c39d137bcb3f8416edb9d301110bdf3b0884255acdc4f4ac8d",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "c3a03d679fd7411d69673e269d5ba32bf4a35fd7979aed01d701aed423bedd32",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "accepted_scalar_peak_control",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_the_full_efield_literal_changes_the_resolved_definition_fingerprint",
+      "input_sha256": "8293f230942442fce02a7e78252b10ecd3a99bba9f6e133becf95af76f683444",
+      "expected_outcome": "accepted",
+      "observed_outcome": "accepted",
+      "resolved_scientific_sha256": "0b88e1855d87cee3f03f5819426a47556d009dac9b4d0d47b1ec770a39ab5d2d",
+      "exception_type": null,
+      "issue_code": null,
+      "exact_message": null,
+      "passed": true
+    },
+    {
+      "case_id": "rejected_full_efield_with_aperture_physics",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_a_full_efield_document_with_aperture_physics_is_the_stage1_rejection",
+      "input_sha256": "467d2e66131e67225741e033848e3ee7f618585e47ebaccf1d9d8c92b78738cb",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.aperture_physics.unsupported_beam_family",
+      "exact_message": "Stage-1 aperture physics does not support resolved beam family 'fits'.",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_full_efield_with_squint",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_a_full_efield_document_with_squint_is_the_stage2_family_rejection[shared_fits]",
+      "input_sha256": "ed9e61e79a645d78da59b672e45606fc18c7ce6e17fbc0d2e0357792280cd3f4",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.squint.unsupported_beam_family",
+      "exact_message": "Stage-2 beam squint supports only the analytic beams mode; resolved beams mode is 'shared_fits'.",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_normalization_on_an_analytic_model",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_the_literal_on_a_mixed_analytic_choice_is_extra_forbidden",
+      "input_sha256": "ad2bc34ad51b91917bd9cc595975680e356ff7ab4451a26dcdcf6f9c80c45124",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "ConfigSchemaError",
+      "issue_code": "extra_forbidden",
+      "exact_message": "unknown or removed field",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_unknown_normalization_literal",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_an_unknown_normalization_literal_is_a_schema_literal_error[solid_angle]",
+      "input_sha256": "e979cb66100f4cc21aab09b3bff17d0eeb277e91aa18d3da8cb175a8e9f90dc9",
+      "expected_outcome": "rejected",
+      "observed_outcome": "rejected",
+      "resolved_scientific_sha256": null,
+      "exception_type": "ConfigSchemaError",
+      "issue_code": "literal_error",
+      "exact_message": "Input should be 'peak' or 'uvbeam_peak_common_v1'",
+      "passed": true
+    }
+  ],
+  "analytic_invariants": [
+    {
+      "case_id": "chain_tangent_mapping_conversion",
+      "invariant_id": "chain_tangent_mapping",
+      "backend": "independent_oracle",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_production_conversion_is_the_frozen_chain_matrix",
+      "input_manifest_sha256": "4e80528f92b7fc07558605965354b1735f36c2b11424669427ad6951537bcc4d",
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "7b0601b5b9e80c9a0fab0cb7bd0386754445ff473a5b471c8c2f8c7db4608910",
+        "minimum_abs": 6.123233995736766e-17,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "7b0601b5b9e80c9a0fab0cb7bd0386754445ff473a5b471c8c2f8c7db4608910",
+        "minimum_abs": 6.123233995736766e-17,
+        "maximum_abs": 1.0
+      },
+      "max_abs_residual": 0.0,
+      "max_rel_residual": 0.0,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "crossed_ideal_dipole_conversion",
+      "invariant_id": "crossed_ideal_dipole",
+      "backend": "independent_oracle",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_frozen_conversion_reproduces_the_s_mapped_dipole_oracle",
+      "input_manifest_sha256": "4e80528f92b7fc07558605965354b1735f36c2b11424669427ad6951537bcc4d",
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "2d633d1ab6b639ec12f20a848af6d490cf41c6f57a32d4431746ee73d209b0d7",
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "7b0601b5b9e80c9a0fab0cb7bd0386754445ff473a5b471c8c2f8c7db4608910",
+        "minimum_abs": 6.123233995736766e-17,
+        "maximum_abs": 1.0
+      },
+      "max_abs_residual": 4.440892098500626e-16,
+      "max_rel_residual": 4.440892098500626e-16,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    },
+    {
+      "case_id": "frozen_conversion_orthogonality",
+      "invariant_id": "chain_conversion_is_real_orthogonal_det_plus_one",
+      "backend": "numpy",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ludwig3_map_is_a_proper_rotation_and_factors_the_shipped_matrix",
+      "input_manifest_sha256": "82184ba548ed5f52ea275d00f6f33dbfe2745ea38ce4bd7859aa922f043e3a77",
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          2,
+          2
+        ],
+        "c_order_sha256": "fbfcd8f81e798f2e4e04256375c0766e6166910440ffd3de2b9b37a88ab5aac7",
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          2,
+          2
+        ],
+        "c_order_sha256": "fbfcd8f81e798f2e4e04256375c0766e6166910440ffd3de2b9b37a88ab5aac7",
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0
+      },
+      "max_abs_residual": 0.0,
+      "max_rel_residual": 0.0,
+      "atol": 1e-12,
+      "rtol": 0.0,
+      "passed": true
+    },
+    {
+      "case_id": "quadrupolar_conversion",
+      "invariant_id": "quadrupolar",
+      "backend": "independent_oracle",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_quadrupolar_oracle_has_principal_plane_zeros_and_row_parity",
+      "input_manifest_sha256": "ee596662efc270602af984218b4e548282066b6e27cd27e65c742663b20e1809",
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "48bbbd03011270fd94b9dd380215dab349dd14f37834afe85488c5e8afac6881",
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "870daabc3410857e86e3a13a6867f281eef88dfb957ca49ccb5e023f74866842",
+        "minimum_abs": 2.2371143170757382e-17,
+        "maximum_abs": 0.9999999999999998
+      },
+      "max_abs_residual": 2.2247786310271853e-16,
+      "max_rel_residual": 2.2247786310271853e-16,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "passed": true
+    }
+  ],
+  "rejection_probes": [
+    {
+      "case_id": "rejected_full_efield_with_aperture_physics",
+      "config_path": "beams.aperture_physics",
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.aperture_physics.unsupported_beam_family",
+      "exact_message": "Stage-1 aperture physics does not support resolved beam family 'fits'.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_a_full_efield_document_with_aperture_physics_is_the_stage1_rejection",
+      "input_sha256": "467d2e66131e67225741e033848e3ee7f618585e47ebaccf1d9d8c92b78738cb",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_full_efield_with_squint",
+      "config_path": "beams.squint",
+      "exception_type": "UnsupportedConfigError",
+      "issue_code": "beam.squint.unsupported_beam_family",
+      "exact_message": "Stage-2 beam squint supports only the analytic beams mode; resolved beams mode is 'shared_fits'.",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_a_full_efield_document_with_squint_is_the_stage2_family_rejection[shared_fits]",
+      "input_sha256": "ed9e61e79a645d78da59b672e45606fc18c7ce6e17fbc0d2e0357792280cd3f4",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_normalization_on_an_analytic_model",
+      "config_path": "beams.model.normalization",
+      "exception_type": "ConfigSchemaError",
+      "issue_code": "extra_forbidden",
+      "exact_message": "unknown or removed field",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_the_literal_on_a_mixed_analytic_choice_is_extra_forbidden",
+      "input_sha256": "ad2bc34ad51b91917bd9cc595975680e356ff7ab4451a26dcdcf6f9c80c45124",
+      "passed": true
+    },
+    {
+      "case_id": "rejected_unknown_normalization_literal",
+      "config_path": "beams.beam.normalization",
+      "exception_type": "ConfigSchemaError",
+      "issue_code": "literal_error",
+      "exact_message": "Input should be 'peak' or 'uvbeam_peak_common_v1'",
+      "test_node_id": "tests/unit/test_io/test_sci005_beam_config.py::test_an_unknown_normalization_literal_is_a_schema_literal_error[solid_angle]",
+      "input_sha256": "e979cb66100f4cc21aab09b3bff17d0eeb277e91aa18d3da8cb175a8e9f90dc9",
+      "passed": true
+    }
+  ],
+  "backend_parity": [
+    {
+      "case_id": "efield_healpix",
+      "backend": "dask",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "2e05a5bd91320c523b5237704261bf5f6dcce71097cc65ab32c01054b8026e2b",
+      "reference_result_sha256": "854831cfee6c3f4c27c27a159058ec6d2a7e10930cebddfc298759536fc55ab1",
+      "observed_result_sha256": "854831cfee6c3f4c27c27a159058ec6d2a7e10930cebddfc298759536fc55ab1",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 0.0,
+      "rtol": 0.0,
+      "passed": true
+    },
+    {
+      "case_id": "efield_healpix",
+      "backend": "jax",
+      "actual_device": "cpu:0",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "2e05a5bd91320c523b5237704261bf5f6dcce71097cc65ab32c01054b8026e2b",
+      "reference_result_sha256": "854831cfee6c3f4c27c27a159058ec6d2a7e10930cebddfc298759536fc55ab1",
+      "observed_result_sha256": "e4be57b6b61c3acfc07134a82fdad9bfbdf211f0e5f2183e68b8bcf77ae7901e",
+      "max_abs_difference": 1.2412670766236366e-16,
+      "max_rel_difference": 1.5481666299012715e-16,
+      "atol": 1e-12,
+      "rtol": 1e-12,
+      "passed": true
+    },
+    {
+      "case_id": "efield_healpix",
+      "backend": "numpy",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "2e05a5bd91320c523b5237704261bf5f6dcce71097cc65ab32c01054b8026e2b",
+      "reference_result_sha256": "854831cfee6c3f4c27c27a159058ec6d2a7e10930cebddfc298759536fc55ab1",
+      "observed_result_sha256": "854831cfee6c3f4c27c27a159058ec6d2a7e10930cebddfc298759536fc55ab1",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 0.0,
+      "rtol": 0.0,
+      "passed": true
+    },
+    {
+      "case_id": "efield_point",
+      "backend": "dask",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "c27c65bb3fe79a34b1e4aea929b76229005655657c50d34ac9c952eb3efd394e",
+      "reference_result_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "observed_result_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 0.0,
+      "rtol": 0.0,
+      "passed": true
+    },
+    {
+      "case_id": "efield_point",
+      "backend": "jax",
+      "actual_device": "cpu:0",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "c27c65bb3fe79a34b1e4aea929b76229005655657c50d34ac9c952eb3efd394e",
+      "reference_result_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "observed_result_sha256": "e91537d5ba72dd252edb2a89c30b52c60a4e47acb668d53937a910073ac7fc31",
+      "max_abs_difference": 2.2247786310271853e-16,
+      "max_rel_difference": 1.2813964275464902e-16,
+      "atol": 1e-12,
+      "rtol": 1e-12,
+      "passed": true
+    },
+    {
+      "case_id": "efield_point",
+      "backend": "numpy",
+      "actual_device": "cpu",
+      "real_dtype": "float64",
+      "complex_dtype": "complex128",
+      "input_sha256": "c27c65bb3fe79a34b1e4aea929b76229005655657c50d34ac9c952eb3efd394e",
+      "reference_result_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "observed_result_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "max_abs_difference": 0.0,
+      "max_rel_difference": 0.0,
+      "atol": 0.0,
+      "rtol": 0.0,
+      "passed": true
+    }
+  ],
+  "solver_cases": [
+    {
+      "case_id": "efield_healpix_two_antenna_workload",
+      "effect": "efield_healpix",
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_a_full_efield_beam_changes_the_visibilities_and_fills_the_cross_hands[healpix]",
+      "input_sha256": "2e05a5bd91320c523b5237704261bf5f6dcce71097cc65ab32c01054b8026e2b",
+      "jones_sha256": "5c8e420f9c719c0d8712f6864c33e0938445f68e19dedde1251488879f449a5b",
+      "visibility_sha256": "854831cfee6c3f4c27c27a159058ec6d2a7e10930cebddfc298759536fc55ab1",
+      "diagnostic_sha256": null,
+      "jones_call_count": 6,
+      "visibility_changed_element_count": 72,
+      "visibility_change_expected": true,
+      "passed": true
+    },
+    {
+      "case_id": "efield_point_two_antenna_workload",
+      "effect": "efield_point",
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_a_full_efield_beam_changes_the_visibilities_and_fills_the_cross_hands[point]",
+      "input_sha256": "c27c65bb3fe79a34b1e4aea929b76229005655657c50d34ac9c952eb3efd394e",
+      "jones_sha256": "2b428cc4b57ed8887311d05d3fbfb4a2f17660bb23b9502f77b123d20cfae094",
+      "visibility_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "diagnostic_sha256": null,
+      "jones_call_count": 6,
+      "visibility_changed_element_count": 72,
+      "visibility_change_expected": true,
+      "passed": true
+    }
+  ],
+  "output_cases": [
+    {
+      "case_id": "efield_hdf5_circular_rl",
+      "format": "hdf5",
+      "writer_test_node_id": "tests/unit/test_io/test_hdf5_result.py::test_hdf5_round_trips_a_full_efield_run_with_exact_scientific_equality[circular]",
+      "reader_test_node_id": "tests/unit/test_io/test_hdf5_result.py::test_hdf5_round_trips_a_full_efield_run_with_exact_scientific_equality[circular]",
+      "artifact_sha256": "f4674adc0b581b50cb82620b37d6136005970ed882868b8a36e19613b5c792b7",
+      "in_memory_sha256": "63ab1aa3bf6061d13a9d929b4e2dcb75e7405fb0b5b9baebe5aca247a8ad08fd",
+      "observed_projection_sha256": "63ab1aa3bf6061d13a9d929b4e2dcb75e7405fb0b5b9baebe5aca247a8ad08fd",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 1e-12,
+      "passed": true
+    },
+    {
+      "case_id": "efield_hdf5_linear_xy",
+      "format": "hdf5",
+      "writer_test_node_id": "tests/unit/test_io/test_hdf5_result.py::test_hdf5_round_trips_a_full_efield_run_with_exact_scientific_equality[linear]",
+      "reader_test_node_id": "tests/unit/test_io/test_hdf5_result.py::test_hdf5_round_trips_a_full_efield_run_with_exact_scientific_equality[linear]",
+      "artifact_sha256": "d9ec445d2778a8997f7a1f56b8f01a9197ebb3ed11ca861da12c4d3091ecc49b",
+      "in_memory_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "observed_projection_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 1e-12,
+      "passed": true
+    },
+    {
+      "case_id": "efield_in_memory_circular_rl",
+      "format": "in_memory",
+      "writer_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_a_full_efield_result_reports_the_declared_output_basis[circular]",
+      "reader_test_node_id": null,
+      "artifact_sha256": null,
+      "in_memory_sha256": "63ab1aa3bf6061d13a9d929b4e2dcb75e7405fb0b5b9baebe5aca247a8ad08fd",
+      "observed_projection_sha256": "9c0ca5f287c3ed70609819c3e0ff6f2793ece53664ed37f5cc4be8a68a178364",
+      "roundtrip_max_abs_difference": null,
+      "tolerance": null,
+      "passed": true
+    },
+    {
+      "case_id": "efield_in_memory_linear_xy",
+      "format": "in_memory",
+      "writer_test_node_id": "tests/integration/test_sci005_beam_physics.py::test_a_full_efield_result_reports_the_declared_output_basis[linear]",
+      "reader_test_node_id": null,
+      "artifact_sha256": null,
+      "in_memory_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "observed_projection_sha256": "c6e5ce41a4a194a666b633f06b5e1c63c371e6c594691d21b65f29c0a5f8a4f1",
+      "roundtrip_max_abs_difference": null,
+      "tolerance": null,
+      "passed": true
+    },
+    {
+      "case_id": "efield_measurement_set_circular_rl",
+      "format": "measurement_set",
+      "writer_test_node_id": "tests/unit/test_io/test_measurement_set.py::test_measurement_set_serializes_a_full_efield_run_in_the_declared_basis[circular]",
+      "reader_test_node_id": "tests/unit/test_io/test_standard_visibility.py::test_the_projection_carries_a_full_efield_run_in_the_declared_basis[circular-ms]",
+      "artifact_sha256": "9e1bbde1dfd2ae6c5cb606d6f39a84132a747d7027a4091a6e4652cee5b40071",
+      "in_memory_sha256": "63ab1aa3bf6061d13a9d929b4e2dcb75e7405fb0b5b9baebe5aca247a8ad08fd",
+      "observed_projection_sha256": "40333f3138864ecd29193d304229ad229c4d4f768d201d8831de19b051f15efc",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 1e-07,
+      "passed": true
+    },
+    {
+      "case_id": "efield_measurement_set_linear_xy",
+      "format": "measurement_set",
+      "writer_test_node_id": "tests/unit/test_io/test_measurement_set.py::test_measurement_set_serializes_a_full_efield_run_in_the_declared_basis[linear]",
+      "reader_test_node_id": "tests/unit/test_io/test_standard_visibility.py::test_the_projection_carries_a_full_efield_run_in_the_declared_basis[linear-ms]",
+      "artifact_sha256": "a44f16c8d3c5e20a1d2272cab223060906490133b68a5c4d1232b1cadaf2ffb9",
+      "in_memory_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "observed_projection_sha256": "963b9f27b051dd85d7d8b5193514f5db962d51f769d99b600beda194ea8f81ba",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 1e-07,
+      "passed": true
+    },
+    {
+      "case_id": "efield_summary_json_circular_rl",
+      "format": "summary_json",
+      "writer_test_node_id": "tests/unit/test_io/test_result_summary.py::test_the_summary_beam_block_reports_the_full_efield_identity[circular]",
+      "reader_test_node_id": "tests/unit/test_io/test_result_summary.py::test_the_summary_beam_block_reports_the_full_efield_identity[circular]",
+      "artifact_sha256": "4297a165ea3ba235f16c5b9733eb2758d42c5c8599014682c474e0e4184903b4",
+      "in_memory_sha256": "63ab1aa3bf6061d13a9d929b4e2dcb75e7405fb0b5b9baebe5aca247a8ad08fd",
+      "observed_projection_sha256": "d70cb36c0d718e80ef0a334a5d75f06d5e06e9746d2439117ee523b1b0fbf212",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 1e-12,
+      "passed": true
+    },
+    {
+      "case_id": "efield_summary_json_linear_xy",
+      "format": "summary_json",
+      "writer_test_node_id": "tests/unit/test_io/test_result_summary.py::test_the_summary_beam_block_reports_the_full_efield_identity[linear]",
+      "reader_test_node_id": "tests/unit/test_io/test_result_summary.py::test_the_summary_beam_block_reports_the_full_efield_identity[linear]",
+      "artifact_sha256": "9740627a5263cb1b95941ce38549b80164d5bdd631829890a12e191fd7eeda9f",
+      "in_memory_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "observed_projection_sha256": "d70cb36c0d718e80ef0a334a5d75f06d5e06e9746d2439117ee523b1b0fbf212",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 1e-12,
+      "passed": true
+    },
+    {
+      "case_id": "efield_uvfits_circular_rl",
+      "format": "uvfits",
+      "writer_test_node_id": "tests/unit/test_io/test_uvfits.py::test_uvfits_serializes_a_full_efield_run_in_the_declared_basis[circular]",
+      "reader_test_node_id": "tests/unit/test_io/test_standard_visibility.py::test_the_projection_carries_a_full_efield_run_in_the_declared_basis[circular-uvfits]",
+      "artifact_sha256": "2a1896e879928318af474da91547e73a8db55406a13f56aa9aa7ec1b695eb44e",
+      "in_memory_sha256": "63ab1aa3bf6061d13a9d929b4e2dcb75e7405fb0b5b9baebe5aca247a8ad08fd",
+      "observed_projection_sha256": "6ae3c319284eba9d6b749bdbba43592272ba5ba65391279f2f3d3820586cf4a7",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 5e-13,
+      "passed": true
+    },
+    {
+      "case_id": "efield_uvfits_linear_xy",
+      "format": "uvfits",
+      "writer_test_node_id": "tests/unit/test_io/test_uvfits.py::test_uvfits_serializes_a_full_efield_run_in_the_declared_basis[linear]",
+      "reader_test_node_id": "tests/unit/test_io/test_standard_visibility.py::test_the_projection_carries_a_full_efield_run_in_the_declared_basis[linear-uvfits]",
+      "artifact_sha256": "c41a2e9c54c81d3b96d2cceb8a9683d350f7292a12a119058ed799be11a230ea",
+      "in_memory_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "observed_projection_sha256": "75353c36c7e99ac439fd1a10b8288ff22f275cb2303a5c97d81ba6682e7d6e55",
+      "roundtrip_max_abs_difference": 0.0,
+      "tolerance": 5e-13,
+      "passed": true
+    }
+  ],
+  "fingerprint_diff": [
+    {
+      "environment": "default",
+      "workload": "healpix_full_efield_quadrupolar",
+      "old_scientific_sha256": "47b4d32d3d5bf77db05a2d05a372b37a727a9ea79291965bf2c127072de024d8",
+      "new_scientific_sha256": "828a8afe7718762cde7a8954ee96deba4e5178770a00761ee895b7906a042bdb",
+      "old_raw_cube_sha256": "529fa42e72792360dac3a33feb059445b9e15471f52aead1278c8aadf3128b3e",
+      "new_raw_cube_sha256": "854831cfee6c3f4c27c27a159058ec6d2a7e10930cebddfc298759536fc55ab1",
+      "changed_element_count": 72,
+      "maximum_delta": 0.5595008641073178,
+      "change_expected": true,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_a_full_efield_beam_changes_the_visibilities_and_fills_the_cross_hands[healpix]",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "healpix_scalar_peak_beamfits",
+      "old_scientific_sha256": "47b4d32d3d5bf77db05a2d05a372b37a727a9ea79291965bf2c127072de024d8",
+      "new_scientific_sha256": "47b4d32d3d5bf77db05a2d05a372b37a727a9ea79291965bf2c127072de024d8",
+      "old_raw_cube_sha256": "529fa42e72792360dac3a33feb059445b9e15471f52aead1278c8aadf3128b3e",
+      "new_raw_cube_sha256": "529fa42e72792360dac3a33feb059445b9e15471f52aead1278c8aadf3128b3e",
+      "changed_element_count": 0,
+      "maximum_delta": 0.0,
+      "change_expected": false,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_a_scalar_beamfits_workload_stays_byte_identical[healpix]",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "point_full_efield_quadrupolar",
+      "old_scientific_sha256": "2854932e67b6d3145786d1941ad9a147d8018daf89c2b0f5309bedf5893f2ac8",
+      "new_scientific_sha256": "de01c76aa724188bd5e521b927bd997d686920b76b57a6e445259a63f7f56d78",
+      "old_raw_cube_sha256": "4e0504390f454269a61ca858a6efdad356efc75394083f6b7fa493a573657673",
+      "new_raw_cube_sha256": "efbde8cd8d78335681e5048ce12b28f36523f445a15578eee5ed74e3686ba70c",
+      "changed_element_count": 72,
+      "maximum_delta": 0.8090351556286671,
+      "change_expected": true,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_a_full_efield_beam_changes_the_visibilities_and_fills_the_cross_hands[point]",
+      "passed": true
+    },
+    {
+      "environment": "default",
+      "workload": "point_scalar_peak_beamfits",
+      "old_scientific_sha256": "2854932e67b6d3145786d1941ad9a147d8018daf89c2b0f5309bedf5893f2ac8",
+      "new_scientific_sha256": "2854932e67b6d3145786d1941ad9a147d8018daf89c2b0f5309bedf5893f2ac8",
+      "old_raw_cube_sha256": "4e0504390f454269a61ca858a6efdad356efc75394083f6b7fa493a573657673",
+      "new_raw_cube_sha256": "4e0504390f454269a61ca858a6efdad356efc75394083f6b7fa493a573657673",
+      "changed_element_count": 0,
+      "maximum_delta": 0.0,
+      "change_expected": false,
+      "test_node_id": "tests/integration/test_sci005_beam_physics.py::test_a_scalar_beamfits_workload_stays_byte_identical[point]",
+      "passed": true
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/test_core/test_sci005_full_efield.py",
+        "tests/unit/test_core/test_beam_pyuvdata_contract.py",
+        "tests/unit/test_io/test_sci005_beam_config.py",
+        "tests/unit/test_jones/test_chain_order.py"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:05:29Z",
+      "duration_seconds": 4.641158,
+      "exit_code": 0,
+      "stdout_sha256": "46850826d51460ea29fa7e06810dac5a6500f4e2ca21bc1fa9204ddc56582c28",
+      "stderr_sha256": "4f1eaaa40eee8fa98dc702dbb5753bc2966865917c63ea68ffdbee82af6e266a"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/test_sci005_evidence.py"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:05:33Z",
+      "duration_seconds": 2.776673,
+      "exit_code": 0,
+      "stdout_sha256": "3c4ae3d7a57f2d93990f2db23851c2d7d71a40f13e4779091288b3ab6cd7a85c",
+      "stderr_sha256": "92d34a34d19468d0cf81d23148544aa95b52a6445a0e6be07867202d1efc9eed"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/integration/test_sci005_beam_physics.py"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:05:36Z",
+      "duration_seconds": 20.096356,
+      "exit_code": 0,
+      "stdout_sha256": "c26cafc544216e369c26200a933e52f0408315397b0af3c266148b4451e2b9d5",
+      "stderr_sha256": "202bfc2db0dc3da9b60813a2704a711ffdb5886314771f5be0051c5271176565"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/unit/"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:05:56Z",
+      "duration_seconds": 99.960242,
+      "exit_code": 0,
+      "stdout_sha256": "699a6cf615b82097ec848b39dbc64ab50bb8deb716dfbcb45f18ae36c3efcc9c",
+      "stderr_sha256": "7b4a8689eb378d27ef9026b41a035e25e75e93d0e675714eedda3e23380e4bbe"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/integration/"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:07:36Z",
+      "duration_seconds": 37.764191,
+      "exit_code": 0,
+      "stdout_sha256": "3f228a1255212fb617b37f09be008e68c3f6e2b68a6e33c29a4c8d9b762ca7ed",
+      "stderr_sha256": "480b3c47f675fb7dd801bddd71e3b637e39146bcc48998239db71d53d119cc0b"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "tests/characterization/"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:08:14Z",
+      "duration_seconds": 17.896085,
+      "exit_code": 0,
+      "stdout_sha256": "778c9a623a37b0b8fca1cda792b72e3dbeaea31515f94dda77e7f5a92a94f44e",
+      "stderr_sha256": "ffdb9db2fef402a648e28855e7de4a0cdf06578c2dee903741653faf3f43cfc4"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "test",
+        "--",
+        "-m",
+        "not slow"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:08:32Z",
+      "duration_seconds": 214.643902,
+      "exit_code": 0,
+      "stdout_sha256": "717135a1f0df114eaa5458a23785b31bb5a2fd06cba0943ace06f8c8db4e9add",
+      "stderr_sha256": "f5d30580e97485023826e360f90bbc899100e166a79d76a155e1b8399ae6097f"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "doctest"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:12:07Z",
+      "duration_seconds": 7.418567,
+      "exit_code": 0,
+      "stdout_sha256": "b169099be6e5174f4c27c359977f3d1bbd451a430029b3fbc88e8a652673b1ba",
+      "stderr_sha256": "1298f4700f18360e18c373d9d650551261d2d74a3e98725bf6552434eb633ebb"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "lint"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:12:14Z",
+      "duration_seconds": 0.198452,
+      "exit_code": 0,
+      "stdout_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "stderr_sha256": "a5ed82e076a36ad1de6d260555c1ed9189657fd19d36cc4059afd7c719d17c2e"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "check-format"
+      ],
+      "cwd": ".",
+      "pixi_environment": "default",
+      "started_at_utc": "2026-08-20T04:12:14Z",
+      "duration_seconds": 0.156645,
+      "exit_code": 0,
+      "stdout_sha256": "f4f33fa87455d07653b5373ac0bebdaf1886b4e175cbcab3b6bfbc3c14ee189a",
+      "stderr_sha256": "171723592ebbb6edf36d0fd41fb6754cc61ae4f8d1afe9da7266f524aa5be57b"
+    },
+    {
+      "argv": [
+        "pixi",
+        "run",
+        "--environment",
+        "crossval",
+        "--",
+        "python",
+        "-m",
+        "pytest",
+        "tests/crossvalidation/",
+        "-m",
+        "crossval"
+      ],
+      "cwd": ".",
+      "pixi_environment": "crossval",
+      "started_at_utc": "2026-08-20T04:12:41Z",
+      "duration_seconds": 16.571363,
+      "exit_code": 0,
+      "stdout_sha256": "a13c516f5dbd752a576352adedc480461333090c7337d998caae88e947287723",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "docs/development/sci005_beam_physics_plan.md",
+      "sha256": "fd8f5f7b1acc4e300160a820e0913950c81c3cb3809e450e67d8761b812e4320",
+      "media_type": "text/markdown",
+      "role": "auxiliary"
+    },
+    {
+      "path": "docs/development/sci005_stage3_evidence.schema.json",
+      "sha256": "548cde16d50d371de30f85bbd7a99a4b4ba8fb0c45747821b1116732bf3f4333",
+      "media_type": "application/schema+json",
+      "role": "schema"
+    },
+    {
+      "path": "output/crossvalidation/2026-08-20-sci005-efield-pyuvsim-1.4.0.json",
+      "sha256": "019f6902cf23552ab6b0bac8fbf6fe193db3d1cc6d6758e663f35cc16976ae48",
+      "media_type": "application/json",
+      "role": "output"
+    },
+    {
+      "path": "src/radiosim/core/beam/fits.py",
+      "sha256": "1d91f474d1f3100788c9a5882714691c2d7864b4fda8c3366f88fccb0d36e3f9",
+      "media_type": "text/x-python",
+      "role": "auxiliary"
+    },
+    {
+      "path": "src/radiosim/core/beam/runtime.py",
+      "sha256": "98c4b85f5dfd4a35d60a493d9426f99485e761f7cab77facc4fc432f5dc4b698",
+      "media_type": "text/x-python",
+      "role": "auxiliary"
+    },
+    {
+      "path": "tools/sci005_stage3_crossvalidation.py",
+      "sha256": "9a49e890be69a4f5f432b5ff5530319f9cc15632583fb68690398aa257107475",
+      "media_type": "text/x-python",
+      "role": "auxiliary"
+    },
+    {
+      "path": "tools/sci005_stage_evidence.py",
+      "sha256": "876114b07bd2d7ec6b73e9ebb4839e0c245f7bf38f7db3c5c897e00b82c5c34f",
+      "media_type": "text/x-python",
+      "role": "auxiliary"
+    }
+  ],
+  "limitations": [
+    "Backend parity covers the CPU-only JAX build and Dask over NumPy; no accelerator device was exercised, consistent with PERF-001.",
+    "Config-case, rejection-probe, solver and backend-parity input digests are taken over the canonicalized document with the volatile temporary workspace prefix replaced by the literal <workspace>, so each digest names the scientific input rather than the host path.",
+    "Every full-efield load-stage exact_message embeds the resolved transport path of the measurement's own temporary fixture, because the accepted messages are named-fields and render that path; the path is host state and enters no fingerprint, digest or scientific identity.",
+    "The JAX backend-parity rows declare atol 1e-12, the repository's float64 absolute tolerance, beside the accepted backend rtol 1e-12: the measured JAX-CPU difference on these full-efield workloads is 2.2e-16 (point) and 1.2e-16 (HEALPix) rather than exactly zero, so a zero absolute tolerance would not express the accepted relative criterion. NumPy and Dask remain byte-identical at exactly zero.",
+    "The crossed-ideal-dipole oracle cannot carry the conjugation observability check: it reproduces pyuvdata.analytic_beam.ShortDipoleBeam._efield_eval bit-for-bit and that model is purely real, so conjugating its samples is exactly the identity. The quadrupolar fixture is the carrier that does fire it, and the re-cut red slice records that measurement as the control tests/unit/test_core/test_sci005_full_efield.py::test_the_crossed_dipole_oracle_cannot_carry_the_conjugation_check.",
+    "The data_non_finite efield_file_contracts row records the full-stored-grid maximum only at the three intrinsic frequencies whose maximum is finite: the fixture's first frequency is deliberately NaN, which JSON cannot carry under allow_nan=false, and the non-finiteness itself is that row's frozen NonFiniteBeamResponseError rejection.",
+    "The retained commands are the Stage-3 focused pytest modules, the whole unit, integration and characterization suites, the full not-slow suite, the docstring doctests, ruff lint, ruff format --check, and the optional crossval module in its own environment, which is green at 13 passed with the corrected law and the fixed harness against the superseded slice's 2 failed; the remaining Section 9 gates (Pyright ceiling, the strict Sphinx docs build and the Tier-8 release acceptance module) are not retained here.",
+    "The retained cross-validation comparison bounds only the two mechanism-free quantities and records the rest as a structured open disagreement: measured total intensity 3.33e-4 and Stokes-V class 1.93e-10 against the accepted 1.9e-3 SCI-007 frame residual, while all four correlations disagree at 4.16e-2 to 1.02e-1 through the recorded pyradiosky local linear mirror. Under the frozen parameter-free construction local_u_negation_in_reference_coherency_v1 the transfer solve reproduces that whole disagreement at 7.36e-4 absolute against the 1e-3 ceiling, with the substitution-disabled reassembly matching the comparison tool's own reference path to 5.03e-14 against the 1e-12 ceiling, which is what proves the substitution is the only difference between the two paths. The relative residual 3.52e-4 is recorded as informational only. The earlier adjudication's 6.8e-5 came from a different construction and is not comparable with these numbers. This record licenses only the sentence “compared against pyuvsim for the named fixture, with the recorded agreements and open disagreements”.",
+    "The wrap-continuity witness recorded on every basis_conversions row mirrors production's own second-difference predicate (seam second difference against eight times the interior maximum plus the converted-matrix bound). The superseded first-difference form was measured too and is not retained: on the quadrupolar science it reports 6.56e-1 against an interior bound of 6.36e-1 and would have produced a false row, which is the same sampling-symmetry accident the correction withdrew."
+  ],
+  "claims_not_licensed": [
+    "SCI-005 Stage-3 acceptance",
+    "SCI-005 whole-row closure",
+    "a station, array-factor, or mutual-coupling response",
+    "an unqualified validation against pyuvsim",
+    "near-field or Fresnel-regime behavior"
+  ],
+  "efield_file_contracts": [
+    {
+      "case_id": "accepted_circular_pair",
+      "probe_kind": "accepted_circular_pair",
+      "outcome": "accepted",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "r",
+        "l"
+      ],
+      "feed_angle_rad": [
+        0.0,
+        0.0
+      ],
+      "derived_x_orientation": "east",
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "circular",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": null,
+      "exact_message": null,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_a_full_efield_file_loads_and_records_the_accepted_subset_version",
+      "input_sha256": "c952b1a3180e67314fe6eaad0dbd17d9e56c520ffa05b5e6ec786274855ed6b7",
+      "passed": true
+    },
+    {
+      "case_id": "accepted_linear_pair",
+      "probe_kind": "accepted_linear_pair",
+      "outcome": "accepted",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": "east",
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": null,
+      "exact_message": null,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_a_full_efield_file_loads_and_records_the_accepted_subset_version",
+      "input_sha256": "82c1b4c64f5bbdb252cc70e4e20bd4355177341a93a84004abcb4d1998d27f1e",
+      "passed": true
+    },
+    {
+      "case_id": "bandpass",
+      "probe_kind": "bandpass",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "BeamNormalizationError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-bandpass/efield.beamfits: peak beam has non-unit bandpass_array; the accepted full-efield subset requires unit bandpass and defers direction-independent spectral gain to the configured B term.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[bandpass]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "basis_vector_complex",
+      "probe_kind": "basis_vector_complex",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "complex128",
+      "stored_basis_is_identity": false,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamBasisError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-basis_vector_complex/efield.beamfits: basis_vector_array has dtype kind 'c'; pyuvdata declares this parameter real valued, so RadioSim requires a real floating stored array.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[basis_vector_complex]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "basis_vector_non_finite",
+      "probe_kind": "basis_vector_non_finite",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": false,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "NonFiniteBeamResponseError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-basis_vector_non_finite/efield.beamfits: basis_vector_array contains NaN or Inf; regenerate finite BeamFITS science and metadata.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[basis_vector_non_finite]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "basis_vector_not_identity",
+      "probe_kind": "basis_vector_not_identity",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": false,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamBasisError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-basis_vector_not_identity/efield.beamfits: basis_vector_array is not exactly the native identity at every stored grid point; entries [0, 0] and [1, 1] must be exactly 1.0 and entries [0, 1] and [1, 0] exactly 0.0, because pyuvdata either refuses or silently discards any other stored basis.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[basis_vector_not_identity]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "data_dtype",
+      "probe_kind": "data_dtype",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "object",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamPrecisionError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-data_dtype/efield.beamfits: native data dtype 'object' is unsupported; write complex64 or complex128 E-field samples.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[data_dtype]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "data_non_finite",
+      "probe_kind": "data_non_finite",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "NonFiniteBeamResponseError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-data_non_finite/efield.beamfits: native E-field data contains NaN or Inf.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[data_non_finite]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "data_normalization",
+      "probe_kind": "data_normalization",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "physical",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "BeamNormalizationError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-data_normalization/efield.beamfits: data_normalization='physical' is unsupported; provide an already normalized 'peak' beam.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[data_normalization]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "derived_orientation",
+      "probe_kind": "derived_orientation",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        7.853981633974483,
+        6.283185307179586
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamFeedError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-derived_orientation/efield.beamfits: the derived x_orientation of the file's own feed_array=('x', 'y') and feed_angle=(7.853981633974483, 6.283185307179586) is None, but canonical antenna number=0, name='ANT0' implies 'east'; it is consistency metadata and is never applied as a second rotation.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[derived_orientation]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "extended_precision",
+      "probe_kind": "extended_precision",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamPrecisionError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/extended/efield-crossed_ideal_dipole-xy-complex128.beamfits: beam precision 'float128' would require complex256, but accepted files and pyuvdata interpolation provide at most complex128; select beam float32 or float64.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_extended_precision_keeps_its_existing_byte_frozen_rejection",
+      "input_sha256": "82c1b4c64f5bbdb252cc70e4e20bd4355177341a93a84004abcb4d1998d27f1e",
+      "passed": true
+    },
+    {
+      "case_id": "feed_angle",
+      "probe_kind": "feed_angle",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5717963267948964,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamFeedError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-feed_angle/efield.beamfits: feed_angle=(1.5717963267948964, 0.0) does not equal the resolved receptor feed angles (1.5707963267948966, 0.0) of canonical antenna number=0, name='ANT0' modulo 2*pi within 1e-12 radians; the 'linear' receptor with feed_rotation_rad=0.0 implies those angles.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[feed_angle]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "feed_pair",
+      "probe_kind": "feed_pair",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "y",
+        "x"
+      ],
+      "feed_angle_rad": [
+        0.0,
+        1.5707963267948966
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamFeedError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-feed_pair/efield.beamfits: feed_array=('y', 'x') is unsupported; the accepted full-efield subset requires exactly the ordered pair ('x', 'y') or ('r', 'l').",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[feed_pair]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "feed_pair_receptor_mismatch",
+      "probe_kind": "feed_pair_receptor_mismatch",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "circular",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamFeedError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/mismatch/efield-crossed_ideal_dipole-xy-complex128.beamfits: feed_array=('x', 'y') does not equal the resolved receptor feed pair ('r', 'l') of canonical antenna number=1, name='ANT1'; the accepted full-efield subset requires the file row labels to be exactly that antenna's own.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_a_file_whose_feed_pair_matches_one_antenna_and_not_another_is_rejected",
+      "input_sha256": "82c1b4c64f5bbdb252cc70e4e20bd4355177341a93a84004abcb4d1998d27f1e",
+      "passed": true
+    },
+    {
+      "case_id": "grid_coverage",
+      "probe_kind": "grid_coverage",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "BeamAngularDomainError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-grid_coverage/efield.beamfits: zenith-angle maximum np.float64(1.0) does not reach the horizon; provide complete visible-hemisphere coverage.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[grid_coverage]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "healpix_pixels",
+      "probe_kind": "healpix_pixels",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "healpix",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamCoordinateError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-healpix_pixels/efield.beamfits: pixel_coordinate_system='healpix' is unsupported; Tier 3 requires a regular full-horizon 'az_za' grid.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[healpix_pixels]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "mount",
+      "probe_kind": "mount",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "alt-az",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamFeedError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-mount/efield.beamfits: mount_type='alt-az' is unsupported; exact 'fixed' declares that the stored az_za pattern is intrinsic to the antenna beam frame, and RadioSim's instrument plus the P term remain the sole owners of field rotation.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[mount]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "phased_array_antenna",
+      "probe_kind": "phased_array_antenna",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "phased_array",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "phased",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamTypeError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-phased_array_antenna/efield.beamfits: antenna_type='phased_array' is unsupported; Tier 3 requires antenna_type='simple' without phased-array coupling.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[phased_array_antenna]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "power_beam",
+      "probe_kind": "power_beam",
+      "outcome": "rejected",
+      "beam_type": "power",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "absent",
+      "stored_basis_is_identity": false,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamTypeError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-power_beam/efield.beamfits: beam_type='power' is unsupported; Tier 3 requires beam_type='efield', antenna_type='simple', scalar X/Y identity-basis response.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[power_beam]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "vector_dimension",
+      "probe_kind": "vector_dimension",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": false,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamBasisError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-vector_dimension/efield.beamfits: Naxes_vec=3, Ncomponents_vec=2 is unsupported; a three-component field has no two-column tangent image and no frozen conversion in the accepted full-efield subset.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[vector_dimension]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "visible_only_peak",
+      "probe_kind": "visible_only_peak",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 4.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 4.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 4.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 4.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "BeamNormalizationError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-visible_only_peak/efield.beamfits: data_normalization='peak' but the full-stored-grid maximum over both vector axes and both feeds at frequency np.float64(100000000.0) Hz is 4.0; the accepted full-efield subset requires one common unit maximum including any stored below-horizon rows.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[visible_only_peak]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "wrap_continuity",
+      "probe_kind": "wrap_continuity",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 3.8311925015751185
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 3.8311925015751185
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 3.8311925015751185
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 3.8311925015751185
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamCoordinateError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/probe-wrap_continuity/efield.beamfits: the converted matrix is discontinuous across the endpoint-excluded azimuth wrap at frequency 100000000.0 Hz and zenith-angle row 1: the seam second difference 2.9039264020161517 exceeds 8.0 times the interior maximum 0.1360439362234307 by more than the accepted bound 3.8411925015751187e-10.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ordered_load_contract_rejects_each_probe_with_its_frozen_type[wrap_continuity]",
+      "input_sha256": "3615e907b7560c376ceeca5e21b926b1fa6ce88cb74e8b5ec734e2af8294bd37",
+      "passed": true
+    },
+    {
+      "case_id": "zenith_single_valued",
+      "probe_kind": "zenith_single_valued",
+      "outcome": "rejected",
+      "beam_type": "efield",
+      "antenna_type": "simple",
+      "pixel_coordinate_system": "az_za",
+      "feed_array": [
+        "x",
+        "y"
+      ],
+      "feed_angle_rad": [
+        1.5707963267948966,
+        0.0
+      ],
+      "derived_x_orientation": null,
+      "mount_type": "fixed",
+      "data_normalization": "peak",
+      "basis_vector_dtype": "float64",
+      "stored_basis_is_identity": true,
+      "native_data_dtype": "complex128",
+      "receptor_basis": "linear",
+      "receptor_feed_rotation_rad": 0.0,
+      "common_peak_by_frequency": [
+        {
+          "frequency_hz": 100000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 110000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 120000000.0,
+          "observed_peak": 1.0
+        },
+        {
+          "frequency_hz": 130000000.0,
+          "observed_peak": 1.0
+        }
+      ],
+      "normalization_tolerance": 1e-12,
+      "exception_type": "UnsupportedBeamCoordinateError",
+      "exact_message": "BeamFITS /private/var/folders/tm/frkssqjj4rjgwqnprvxxkddh0000gn/T/sci005-e3-a-q1udajha/zenith/canonical-complex128.beamfits: the de-spun zenith-angle row at frequency 100000000.0 Hz is not constant; its 8 azimuth samples of J(az_uv) R(az_uv)^T spread by 2.0 against the accepted bound 1.01e-10. The first row is one physical direction whose azimuth is arbitrary, so a file whose physical matrix depends on it is rejected rather than averaged.",
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_scalar_subset_file_is_rejected_under_the_full_efield_literal",
+      "input_sha256": "f34aa9e72a1e11d722068eab58a797deba8ee6273279dd69a187438655055ce3",
+      "passed": true
+    }
+  ],
+  "basis_conversions": [
+    {
+      "case_id": "chain_tangent_mapping",
+      "oracle_kind": "chain_tangent_mapping",
+      "receptor_basis": "linear",
+      "frequency_hz": 100000000.0,
+      "probe_azimuth_rad": {
+        "dtype": "float64",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "2ae5b4bc9e1b86f8927f23bc78c02e234c0e8e91fbe1bab13e49bf5b32ff6107",
+        "minimum": 0.0,
+        "maximum": 5.497787143782138
+      },
+      "probe_zenith_angle_rad": {
+        "dtype": "float64",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "bf7d6709492b82ecde43a2beb42b5d681294cab6f54680858652d40e5727c53c",
+        "minimum": 0.0,
+        "maximum": 1.1780972450961724
+      },
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "7b0601b5b9e80c9a0fab0cb7bd0386754445ff473a5b471c8c2f8c7db4608910",
+        "minimum_abs": 6.123233995736766e-17,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "7b0601b5b9e80c9a0fab0cb7bd0386754445ff473a5b471c8c2f8c7db4608910",
+        "minimum_abs": 6.123233995736766e-17,
+        "maximum_abs": 1.0
+      },
+      "max_abs_residual": 0.0,
+      "power_preservation_max_abs_residual": 0.0,
+      "orthogonality_max_abs_residual": 0.0,
+      "wrap_continuity_max_abs_delta": 0.5857864376269052,
+      "wrap_continuity_bound": 4.686291501116241,
+      "zenith_limit_max_abs_delta": 2.220446049250313e-16,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_production_conversion_is_the_frozen_chain_matrix",
+      "passed": true
+    },
+    {
+      "case_id": "crossed_ideal_dipole",
+      "oracle_kind": "crossed_ideal_dipole",
+      "receptor_basis": "linear",
+      "frequency_hz": 100000000.0,
+      "probe_azimuth_rad": {
+        "dtype": "float64",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "2ae5b4bc9e1b86f8927f23bc78c02e234c0e8e91fbe1bab13e49bf5b32ff6107",
+        "minimum": 0.0,
+        "maximum": 5.497787143782138
+      },
+      "probe_zenith_angle_rad": {
+        "dtype": "float64",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "bf7d6709492b82ecde43a2beb42b5d681294cab6f54680858652d40e5727c53c",
+        "minimum": 0.0,
+        "maximum": 1.1780972450961724
+      },
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "2d633d1ab6b639ec12f20a848af6d490cf41c6f57a32d4431746ee73d209b0d7",
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "7b0601b5b9e80c9a0fab0cb7bd0386754445ff473a5b471c8c2f8c7db4608910",
+        "minimum_abs": 6.123233995736766e-17,
+        "maximum_abs": 1.0
+      },
+      "max_abs_residual": 4.440892098500626e-16,
+      "power_preservation_max_abs_residual": 0.0,
+      "orthogonality_max_abs_residual": 0.0,
+      "wrap_continuity_max_abs_delta": 0.5857864376269052,
+      "wrap_continuity_bound": 4.686291501116241,
+      "zenith_limit_max_abs_delta": 2.220446049250313e-16,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_frozen_conversion_reproduces_the_s_mapped_dipole_oracle",
+      "passed": true
+    },
+    {
+      "case_id": "quadrupolar",
+      "oracle_kind": "quadrupolar",
+      "receptor_basis": "circular",
+      "frequency_hz": 100000000.0,
+      "probe_azimuth_rad": {
+        "dtype": "float64",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "2ae5b4bc9e1b86f8927f23bc78c02e234c0e8e91fbe1bab13e49bf5b32ff6107",
+        "minimum": 0.0,
+        "maximum": 5.497787143782138
+      },
+      "probe_zenith_angle_rad": {
+        "dtype": "float64",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "bf7d6709492b82ecde43a2beb42b5d681294cab6f54680858652d40e5727c53c",
+        "minimum": 0.0,
+        "maximum": 1.1780972450961724
+      },
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "48bbbd03011270fd94b9dd380215dab349dd14f37834afe85488c5e8afac6881",
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "870daabc3410857e86e3a13a6867f281eef88dfb957ca49ccb5e023f74866842",
+        "minimum_abs": 2.2371143170757382e-17,
+        "maximum_abs": 0.9999999999999998
+      },
+      "max_abs_residual": 2.2247786310271853e-16,
+      "power_preservation_max_abs_residual": 0.0,
+      "orthogonality_max_abs_residual": 0.0,
+      "wrap_continuity_max_abs_delta": 0.2828427124746191,
+      "wrap_continuity_bound": 2.2627416998120955,
+      "zenith_limit_max_abs_delta": 2.220446049250313e-16,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_quadrupolar_oracle_has_principal_plane_zeros_and_row_parity",
+      "passed": true
+    },
+    {
+      "case_id": "scalar_subset_control",
+      "oracle_kind": "scalar_subset_control",
+      "receptor_basis": "linear",
+      "frequency_hz": 100000000.0,
+      "probe_azimuth_rad": {
+        "dtype": "float64",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "2ae5b4bc9e1b86f8927f23bc78c02e234c0e8e91fbe1bab13e49bf5b32ff6107",
+        "minimum": 0.0,
+        "maximum": 5.497787143782138
+      },
+      "probe_zenith_angle_rad": {
+        "dtype": "float64",
+        "shape": [
+          5
+        ],
+        "c_order_sha256": "bf7d6709492b82ecde43a2beb42b5d681294cab6f54680858652d40e5727c53c",
+        "minimum": 0.0,
+        "maximum": 1.1780972450961724
+      },
+      "expected": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "29487ba1ebf4e6454f51f8c39833af15aadc777e5c766e47bc1e8e01a6c8e45b",
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0
+      },
+      "observed": {
+        "dtype": "complex128",
+        "shape": [
+          5,
+          2,
+          2
+        ],
+        "c_order_sha256": "9dc4afa19da0d6af3fde08cea78b369277a0be81a2cd0110e07e62f529e3f63b",
+        "minimum_abs": 0.0,
+        "maximum_abs": 1.0
+      },
+      "max_abs_residual": 1.0,
+      "power_preservation_max_abs_residual": 0.0,
+      "orthogonality_max_abs_residual": 0.0,
+      "wrap_continuity_max_abs_delta": 0.5857864376269052,
+      "wrap_continuity_bound": 4.686291501116241,
+      "zenith_limit_max_abs_delta": 2.0,
+      "atol": 1e-12,
+      "rtol": 1e-10,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_scalar_reading_and_the_full_efield_conversion_of_one_file_diverge",
+      "passed": true
+    }
+  ],
+  "receptor_factorizations": [
+    {
+      "case_id": "circular_receptor_circular_output",
+      "receptor_basis": "circular",
+      "feed_rotation_deg": 0.0,
+      "output_basis": "circular_rl",
+      "parallactic_angle_rad": 0.61,
+      "frequency_hz": 100000000.0,
+      "e_matrix": [
+        [
+          {
+            "real": -0.7988067931048838,
+            "imag": -0.09526181369498218
+          },
+          {
+            "real": -0.32597005235166293,
+            "imag": -0.054351889994451334
+          }
+        ],
+        [
+          {
+            "real": -0.028610471334000565,
+            "imag": 0.33030655965182143
+          },
+          {
+            "real": 0.105485604017079,
+            "imag": -0.7970844505272705
+          }
+        ]
+      ],
+      "noncommuting_component": 1.593991976266527,
+      "j_native": {
+        "dtype": "complex128",
+        "shape": [
+          3,
+          2,
+          2
+        ],
+        "c_order_sha256": "b368f5d98357196c22562313efa3c3dccf024694de0efb3b55422aebfb168cf7",
+        "minimum_abs": 0.33461535393948566,
+        "maximum_abs": 0.8031940320905617
+      },
+      "composed_e": {
+        "dtype": "complex128",
+        "shape": [
+          3,
+          2,
+          2
+        ],
+        "c_order_sha256": "b368f5d98357196c22562313efa3c3dccf024694de0efb3b55422aebfb168cf7",
+        "minimum_abs": 0.33461535393948566,
+        "maximum_abs": 0.8031940320905617
+      },
+      "factorization_max_abs_residual": 0.0,
+      "chain_order_max_abs_residual": 0.0,
+      "order_control_max_abs_difference": 0.4983552174622289,
+      "output_basis_max_abs_residual": 0.0,
+      "atol": 1e-12,
+      "test_node_id": "tests/unit/test_jones/test_chain_order.py::test_a_full_efield_chain_makes_the_h_c_e_order_observable[circular-0.0-circular]",
+      "passed": true
+    },
+    {
+      "case_id": "circular_receptor_linear_output",
+      "receptor_basis": "circular",
+      "feed_rotation_deg": 17.0,
+      "output_basis": "linear_xy",
+      "parallactic_angle_rad": 0.61,
+      "frequency_hz": 100000000.0,
+      "e_matrix": [
+        [
+          {
+            "real": -0.7555378430649382,
+            "imag": -0.18767161742468144
+          },
+          {
+            "real": -0.34256771723559587,
+            "imag": 0.18106796871137046
+          }
+        ],
+        [
+          {
+            "real": -0.2609088336512262,
+            "imag": 0.28802187505584326
+          },
+          {
+            "real": 0.005571964912550662,
+            "imag": -0.778146605675992
+          }
+        ]
+      ],
+      "noncommuting_component": 1.72764991033262,
+      "j_native": {
+        "dtype": "complex128",
+        "shape": [
+          3,
+          2,
+          2
+        ],
+        "c_order_sha256": "af939048ac4c2e3c32216dbee884be7bb1407d9e74bce8e115af314a4934796f",
+        "minimum_abs": 0.3346153539394857,
+        "maximum_abs": 0.8031940320905618
+      },
+      "composed_e": {
+        "dtype": "complex128",
+        "shape": [
+          3,
+          2,
+          2
+        ],
+        "c_order_sha256": "af939048ac4c2e3c32216dbee884be7bb1407d9e74bce8e115af314a4934796f",
+        "minimum_abs": 0.3346153539394857,
+        "maximum_abs": 0.8031940320905618
+      },
+      "factorization_max_abs_residual": 0.0,
+      "chain_order_max_abs_residual": 0.0,
+      "order_control_max_abs_difference": 0.4983552174622289,
+      "output_basis_max_abs_residual": 1.1102886958934118e-16,
+      "atol": 1e-12,
+      "test_node_id": "tests/unit/test_jones/test_chain_order.py::test_a_full_efield_chain_makes_the_h_c_e_order_observable[circular-17.0-linear]",
+      "passed": true
+    },
+    {
+      "case_id": "linear_receptor_circular_output",
+      "receptor_basis": "linear",
+      "feed_rotation_deg": 31.0,
+      "output_basis": "circular_rl",
+      "parallactic_angle_rad": 0.61,
+      "frequency_hz": 100000000.0,
+      "e_matrix": [
+        [
+          {
+            "real": 0.12724618958526474,
+            "imag": 0.004714699514770175
+          },
+          {
+            "real": -0.8522669288012988,
+            "imag": -0.11550114301829613
+          }
+        ],
+        [
+          {
+            "real": -0.8549872065098764,
+            "imag": -0.09935363016466278
+          },
+          {
+            "real": -0.12345516746620447,
+            "imag": -0.02721812929435154
+          }
+        ]
+      ],
+      "noncommuting_component": 1.9734474432630993,
+      "j_native": {
+        "dtype": "complex128",
+        "shape": [
+          3,
+          2,
+          2
+        ],
+        "c_order_sha256": "ad480c3e96d9f16d5048f240ad2f5ffa925f4d8a4ab43e1a888f3af1f1ac086b",
+        "minimum_abs": 0.33461535393948577,
+        "maximum_abs": 0.803194032090562
+      },
+      "composed_e": {
+        "dtype": "complex128",
+        "shape": [
+          3,
+          2,
+          2
+        ],
+        "c_order_sha256": "ad480c3e96d9f16d5048f240ad2f5ffa925f4d8a4ab43e1a888f3af1f1ac086b",
+        "minimum_abs": 0.33461535393948577,
+        "maximum_abs": 0.803194032090562
+      },
+      "factorization_max_abs_residual": 0.0,
+      "chain_order_max_abs_residual": 0.0,
+      "order_control_max_abs_difference": 0.9195148485073082,
+      "output_basis_max_abs_residual": 1.6657311260978074e-16,
+      "atol": 1e-12,
+      "test_node_id": "tests/unit/test_jones/test_chain_order.py::test_a_full_efield_chain_makes_the_h_c_e_order_observable[linear-31.0-circular]",
+      "passed": true
+    },
+    {
+      "case_id": "linear_receptor_linear_output",
+      "receptor_basis": "linear",
+      "feed_rotation_deg": 0.0,
+      "output_basis": "linear_xy",
+      "parallactic_angle_rad": 0.61,
+      "frequency_hz": 100000000.0,
+      "e_matrix": [
+        [
+          {
+            "real": -0.33127969206214103,
+            "imag": -0.0471296161586363
+          },
+          {
+            "real": -0.794119454627781,
+            "imag": -0.11302217590341729
+          }
+        ],
+        [
+          {
+            "real": -0.7984037084625447,
+            "imag": -0.08759093274506656
+          },
+          {
+            "real": 0.3331281856645914,
+            "imag": 0.03615699593265368
+          }
+        ]
+      ],
+      "noncommuting_component": 2.2747169431077654,
+      "j_native": {
+        "dtype": "complex128",
+        "shape": [
+          3,
+          2,
+          2
+        ],
+        "c_order_sha256": "baab4cac5ad5ccbbdc645fde44dcad4561aca7bae5f5dfe1e693a5c72fbc697d",
+        "minimum_abs": 0.33461535393948577,
+        "maximum_abs": 0.803194032090562
+      },
+      "composed_e": {
+        "dtype": "complex128",
+        "shape": [
+          3,
+          2,
+          2
+        ],
+        "c_order_sha256": "baab4cac5ad5ccbbdc645fde44dcad4561aca7bae5f5dfe1e693a5c72fbc697d",
+        "minimum_abs": 0.33461535393948577,
+        "maximum_abs": 0.803194032090562
+      },
+      "factorization_max_abs_residual": 0.0,
+      "chain_order_max_abs_residual": 0.0,
+      "order_control_max_abs_difference": 0.9195148485073082,
+      "output_basis_max_abs_residual": 0.0,
+      "atol": 1e-12,
+      "test_node_id": "tests/unit/test_jones/test_chain_order.py::test_a_full_efield_chain_makes_the_h_c_e_order_observable[linear-0.0-linear]",
+      "passed": true
+    }
+  ],
+  "ixr_diagnostics": [
+    {
+      "case_id": "ixr_nonsingular_generic",
+      "state": "nonsingular",
+      "receptor_basis": "linear",
+      "frequency_hz": 100000000.0,
+      "probe_altitude_rad": 1.5707963267948966,
+      "probe_azimuth_rad": 0.0,
+      "j_matrix": [
+        [
+          {
+            "real": 1.0,
+            "imag": 0.0
+          },
+          {
+            "real": 0.0,
+            "imag": 0.25
+          }
+        ],
+        [
+          {
+            "real": -0.1,
+            "imag": 0.0
+          },
+          {
+            "real": 0.6,
+            "imag": 0.0
+          }
+        ]
+      ],
+      "sigma_max": 1.0519602735084728,
+      "sigma_min": 0.5708586365817538,
+      "condition_number": 1.8427684300398937,
+      "ixr_linear": 11.378013646519959,
+      "ixr_db": 10.560664503145759,
+      "leakage_magnitude": 0.29646045774754387,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ixr_classification_rule_assigns_each_state_by_precedence[nonsingular_generic]",
+      "passed": true
+    },
+    {
+      "case_id": "ixr_production_accepted_matrix",
+      "state": "nonsingular",
+      "receptor_basis": "linear",
+      "frequency_hz": 100000000.0,
+      "probe_altitude_rad": 0.7707963267948965,
+      "probe_azimuth_rad": 0.7853981633974483,
+      "j_matrix": [
+        [
+          {
+            "real": -0.5044928782083528,
+            "imag": -0.1562997537396345
+          },
+          {
+            "real": 0.4361974773049278,
+            "imag": 0.1280674539745055
+          }
+        ],
+        [
+          {
+            "real": -0.4208027623644727,
+            "imag": -0.1716071811503105
+          },
+          {
+            "real": -0.4913923756166335,
+            "imag": -0.1936119755171978
+          }
+        ]
+      ],
+      "sigma_max": 0.6973279256166447,
+      "sigma_min": 0.6962916103369748,
+      "condition_number": 1.0014883351519464,
+      "ixr_linear": 1808442.2649333267,
+      "ixr_db": 62.57304648336172,
+      "leakage_magnitude": 0.0007436142023947205,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_ixr_from_the_production_accepted_matrix_is_nonsingular_and_consistent",
+      "passed": true
+    },
+    {
+      "case_id": "ixr_singular_all_zero",
+      "state": "singular",
+      "receptor_basis": "linear",
+      "frequency_hz": 100000000.0,
+      "probe_altitude_rad": 1.5707963267948966,
+      "probe_azimuth_rad": 0.0,
+      "j_matrix": [
+        [
+          {
+            "real": 0.0,
+            "imag": 0.0
+          },
+          {
+            "real": 0.0,
+            "imag": 0.0
+          }
+        ],
+        [
+          {
+            "real": 0.0,
+            "imag": 0.0
+          },
+          {
+            "real": 0.0,
+            "imag": 0.0
+          }
+        ]
+      ],
+      "sigma_max": 0.0,
+      "sigma_min": 0.0,
+      "condition_number": null,
+      "ixr_linear": null,
+      "ixr_db": null,
+      "leakage_magnitude": null,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ixr_classification_rule_assigns_each_state_by_precedence[singular_all_zero]",
+      "passed": true
+    },
+    {
+      "case_id": "ixr_singular_rank_one",
+      "state": "singular",
+      "receptor_basis": "linear",
+      "frequency_hz": 100000000.0,
+      "probe_altitude_rad": 1.5707963267948966,
+      "probe_azimuth_rad": 0.0,
+      "j_matrix": [
+        [
+          {
+            "real": 1.0,
+            "imag": 0.0
+          },
+          {
+            "real": 2.0,
+            "imag": 0.0
+          }
+        ],
+        [
+          {
+            "real": 0.5,
+            "imag": 0.0
+          },
+          {
+            "real": 1.0,
+            "imag": 0.0
+          }
+        ]
+      ],
+      "sigma_max": 2.5,
+      "sigma_min": 6.96093955489366e-18,
+      "condition_number": null,
+      "ixr_linear": null,
+      "ixr_db": null,
+      "leakage_magnitude": null,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ixr_classification_rule_assigns_each_state_by_precedence[singular_rank_one]",
+      "passed": true
+    },
+    {
+      "case_id": "ixr_unitary_scaled_identity",
+      "state": "unitary_scaled",
+      "receptor_basis": "linear",
+      "frequency_hz": 100000000.0,
+      "probe_altitude_rad": 1.5707963267948966,
+      "probe_azimuth_rad": 0.0,
+      "j_matrix": [
+        [
+          {
+            "real": 0.37,
+            "imag": 0.0
+          },
+          {
+            "real": 0.0,
+            "imag": 0.0
+          }
+        ],
+        [
+          {
+            "real": 0.0,
+            "imag": 0.0
+          },
+          {
+            "real": 0.37,
+            "imag": 0.0
+          }
+        ]
+      ],
+      "sigma_max": 0.37,
+      "sigma_min": 0.37,
+      "condition_number": 1.0,
+      "ixr_linear": null,
+      "ixr_db": null,
+      "leakage_magnitude": null,
+      "test_node_id": "tests/unit/test_core/test_sci005_full_efield.py::test_the_ixr_classification_rule_assigns_each_state_by_precedence[unitary_scaled_identity]",
+      "passed": true
+    }
+  ],
+  "crossvalidation_comparisons": [
+    {
+      "case_id": "efield_pyuvsim_linear_xy",
+      "artifact_path": "output/crossvalidation/2026-08-20-sci005-efield-pyuvsim-1.4.0.json",
+      "artifact_sha256": "019f6902cf23552ab6b0bac8fbf6fe193db3d1cc6d6758e663f35cc16976ae48",
+      "artifact_generated_at_utc": "2026-08-20T04:05:07Z",
+      "reference_package": "pyuvsim",
+      "reference_version": "1.4.0",
+      "pyuvdata_version": "3.2.1",
+      "pyradiosky_version": "1.1.0",
+      "astropy_version": "7.1.0",
+      "radiosim_source_sha": "2fa9ce4e76f78fff74bf2e46d67601294bf7c173",
+      "input_hashes": [
+        {
+          "name": "antenna_layout",
+          "sha256": "a51563978bf3b25009ace86c2dee9c03be251248b288e2ed1515b410a64bfb49"
+        },
+        {
+          "name": "observation_specification",
+          "sha256": "198ed7a0f495ff49e93c52182efc93ad284892d5a70a5870e20b4043b93cbe57"
+        },
+        {
+          "name": "sky_model",
+          "sha256": "881860e3886045e83f7de9b0cfd169c8fe5b4260d5597e7e4c21aea59a3015a2"
+        },
+        {
+          "name": "uvbeam_file",
+          "sha256": "a0f071990c982021364c3b3c0f69f65c2b615ddd4bcebc6fe8cc70aded13a9b1"
+        }
+      ],
+      "convention_mappings": [
+        {
+          "radiosim_convention": "beam_normalization",
+          "reference_convention": "both codes read the same peak-normalized full-efield BeamFITS and neither renormalizes it: RadioSim's 'uvbeam_peak_common_v1' accepted subset requires a stored full-grid unit peak at every intrinsic frequency and never calls UVBeam.peak_normalize, and pyuvsim reads the same bytes through UVBeam.from_file",
+          "equivalent": true
+        },
+        {
+          "radiosim_convention": "chain_sky_tangent_basis",
+          "reference_convention": "RadioSim converts the native az_za components into the chain's own mixed-sign tangent pair (-e_theta, +e_az_uv) by the constant M = [[0, 1], [-1, 0]], which is the pair its P term delivers; pyuvsim contracts a correctly paired (theta, phi_uv) Jones at pyuvsim/antenna.py:146-149, verified against hand truth at 3.7e-5, so the two codes agree on the beam-side basis",
+          "equivalent": true
+        },
+        {
+          "radiosim_convention": "east_x_orientation",
+          "reference_convention": "both codes label linear receptors (X=east, Y=north), but the reference does not deliver raw Q and U in that frame: pyradiosky mirrors the linear polarization angle about the local frame, chi -> 2 psi - chi, through pyradiosky/utils.py:105-120 storing the coherency with U -> -U in the (South, East) frame pair and pyradiosky/skymodel.py:2667-2676 applying the passive transform as R^T C R where R C R^T is required; the composite is psi-dependent, so no static relabelling expresses it and the Q/U-carrying correlations are recorded as a mechanism-explained open disagreement rather than compared as equivalent",
+          "equivalent": false
+        },
+        {
+          "radiosim_convention": "fringe_sign",
+          "reference_convention": "RadioSim evaluates exp(-2j*pi*(u*l + v*m + w*(n-1))) and pyuvsim exp(+2j*pi*(u*l + v*m + w*n)); on the coplanar fixture array w is exactly zero, so the comparison applies the derived per-baseline Hermitian conjugate [XX, XY, YX, YY] -> conj([XX, YX, XY, YY])",
+          "equivalent": false
+        },
+        {
+          "radiosim_convention": "interpolation_order",
+          "reference_convention": "pyuvsim's BeamList is constructed with spline_interp_opts {'kx': 1, 'ky': 1, 's': 0}, matching RadioSim's pinned bilinear spline_opts exactly, so both codes read the one stored grid at the same polynomial order; without this equalization the order mismatch alone contributes 1.27e-1 to the J J^dagger comparison and the run is inadmissible as evidence",
+          "equivalent": true
+        },
+        {
+          "radiosim_convention": "stokes_to_coherency_factor",
+          "reference_convention": "RadioSim builds B = (1/2)[[I+Q, U+iV], [U-iV, I-Q]] (core/polarization.py, IAU Stokes V); pyradiosky writes 0.5*[[I+Q, U-iV],[U+iV, I-Q]] into the frame basis its own skymodel.py defines as (theta_frame, phi_frame) with theta_frame = pi/2 - dec -- the (South, East) pair -- where the IAU coherency is 0.5*[[I+Q, -(U+iV)], [-(U-iV), I-Q]], so the stored sky carries U -> -U exactly. The comparison reads the committed sky bytes unaltered: the reference's V is already consistent after the conjugating fringe mapping recorded above, so the superseded harness's Stokes-V input flip created a V error rather than removing one and is withdrawn",
+          "equivalent": false
+        }
+      ],
+      "correlation_residuals": [
+        {
+          "correlation": "XX",
+          "max_abs_residual": 0.09599810490810921,
+          "max_rel_residual": 0.10240159397731878,
+          "reference_max_abs": 0.937466900460281
+        },
+        {
+          "correlation": "XY",
+          "max_abs_residual": 0.05700747977085092,
+          "max_rel_residual": 0.041883432761118146,
+          "reference_max_abs": 1.3610985540748932
+        },
+        {
+          "correlation": "YX",
+          "max_abs_residual": 0.05700747977628912,
+          "max_rel_residual": 0.041649582677386186,
+          "reference_max_abs": 1.3687407198738049
+        },
+        {
+          "correlation": "YY",
+          "max_abs_residual": 0.09701037171027439,
+          "max_rel_residual": 0.046027419147232046,
+          "reference_max_abs": 2.1076648117062264
+        }
+      ],
+      "bounded_quantities": [
+        {
+          "quantity": "stokes_v_class",
+          "max_rel_residual": 1.9250634636339814e-10,
+          "bound": 0.0019,
+          "passed": true
+        },
+        {
+          "quantity": "total_intensity",
+          "max_rel_residual": 0.00033250583096866137,
+          "bound": 0.0019,
+          "passed": true
+        }
+      ],
+      "reference_frame_mirror": {
+        "mechanism": "pyradiosky_local_linear_mirror_v1",
+        "construction": "local_u_negation_in_reference_coherency_v1",
+        "citations": [
+          "pyradiosky/skymodel.py:2667-2676",
+          "pyradiosky/utils.py:105-120"
+        ],
+        "transfer_solve_max_abs_residual": 0.0007360386649430819,
+        "transfer_solve_max_rel_residual": 0.00035172364114277995,
+        "reassembly_gap": 5.029837200994045e-14,
+        "affected_correlations": [
+          "XX",
+          "XY",
+          "YX",
+          "YY"
+        ],
+        "observed_rel_residual_min": 0.041649582677386186,
+        "observed_rel_residual_max": 0.10240159397731878
+      },
+      "output_basis": "linear_xy",
+      "gating": false,
+      "open_disagreements": [
+        "XX: max_rel_residual exceeds the declared per-correlation bound 0.01",
+        "XY: max_rel_residual exceeds the declared per-correlation bound 0.01",
+        "YX: max_rel_residual exceeds the declared per-correlation bound 0.01",
+        "YY: max_rel_residual exceeds the declared per-correlation bound 0.01"
+      ],
+      "test_node_id": "tests/crossvalidation/test_sci005_efield_pyuvsim.py::test_the_measured_comparison_builds_an_artifact_its_validator_accepts",
+      "passed": true
+    }
+  ]
+}
