@@ -38,7 +38,7 @@ constants; ``U2`` located as the unique commit on ``D3``'s first-parent ancestry
 whose direct parent is ``A2``, satisfying the committed Stage-2
 ``verify-status`` form; ``A2`` an ancestor of ``D3`` through the committed
 Stage-2 ``verify`` form; and every commit in ``U2..D3`` other than ``D3``
-matched against the header-enumerated four-kind interval rule with its own
+matched against the header-enumerated five-kind interval rule with its own
 recorded touch set. Unlike the Stage-2 edge, the four header-recorded
 superseded red slices have *different* touch sets, so each commit's recorded set
 is what :func:`require_interval_kind` compares against and
@@ -191,7 +191,7 @@ REQUIRED_CHECKS = frozenset(
     }
 )
 
-#: Section 8.3's four header-recorded interval-commit kinds.  The fourth was
+#: Section 8.3's five header-recorded interval-commit kinds.  The fourth was
 #: added by the chain-basis and comparison correction and is what a reopened
 #: ``S3`` requires: a **superseded implementation commit** is a stage
 #: implementation whose design a later, independently accepted,
@@ -204,6 +204,18 @@ STATUS_PROSE_KIND = "status-prose"
 SUPERSEDED_DESIGN_KIND = "superseded-design"
 SUPERSEDED_RED_SLICE_KIND = "superseded-red-slice"
 SUPERSEDED_IMPLEMENTATION_KIND = "superseded-implementation"
+
+#: The fifth kind, added by the evidence-projection correction, stands to an
+#: ``E`` of record exactly as the fourth stands to an ``S`` of record: a
+#: **superseded evidence commit** is a stage evidence successor whose retained
+#: artifact a later, independently accepted, header-recorded correction
+#: invalidated before that evidence could be accepted.  Its diff is bounded by
+#: Section 7.5's ``Ei`` rule and nothing wider, and what distinguishes it from
+#: an accepted ``E`` is what it never acquired: no acceptance artifact and no
+#: approved acceptance constant, because the ``A3`` that would have written
+#: them returned ``REJECT``.  A validator distinguishes the two by exactly that
+#: absence.
+SUPERSEDED_EVIDENCE_KIND = "superseded-evidence"
 
 #: The Section 7.4 test paths the header-recorded superseded *first* Stage-3 red
 #: slice cut, reopened by the basis-vector and provenance correction.
@@ -247,6 +259,12 @@ FOURTH_SUPERSEDED_RED_SLICE_PATHS = frozenset(
         "tests/fixtures/beamfits.py",
         "tests/unit/test_core/test_sci005_full_efield.py",
     }
+)
+
+#: And the one the *fourth re-cut* slice touched, reopened by the
+#: evidence-projection correction for a fifth governed re-cut.
+FIFTH_SUPERSEDED_RED_SLICE_PATHS = frozenset(
+    {"tests/unit/test_core/test_sci005_full_efield.py"}
 )
 
 #: The twenty-eight Section 7.4 paths the header-recorded superseded Stage-3
@@ -316,11 +334,48 @@ SECOND_SUPERSEDED_IMPLEMENTATION_PATHS = frozenset(
     }
 )
 
+#: The five Section 7.4 paths the header-recorded superseded *second re-cut*
+#: implementation commit touched, reopened by the evidence-projection
+#: correction for a fourth ``S3``.
+THIRD_SUPERSEDED_IMPLEMENTATION_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_evidence.schema.json",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage3_acceptance.py",
+        "tests/unit/test_tier1h_documentation.py",
+        "tools/sci005_stage3_acceptance.py",
+    }
+)
+
 #: Every Section 7.4 path a superseded implementation commit may touch, and the
 #: only bound this kind carries; the per-commit recorded set above is the
 #: authority for each instance, exactly as it is for the red slices.
 STAGE3_IMPLEMENTATION_PATHS = (
-    FIRST_SUPERSEDED_IMPLEMENTATION_PATHS | SECOND_SUPERSEDED_IMPLEMENTATION_PATHS
+    FIRST_SUPERSEDED_IMPLEMENTATION_PATHS
+    | SECOND_SUPERSEDED_IMPLEMENTATION_PATHS
+    | THIRD_SUPERSEDED_IMPLEMENTATION_PATHS
+)
+
+#: Section 7.5's ``Ei`` allowance, which is the whole bound on the fifth kind:
+#: the stage evidence artifact, the one dated cross-validation record Stage 3
+#: alone adds, and the two sentinel flips in the shared evidence validator.
+FIRST_SUPERSEDED_EVIDENCE_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_evidence.json",
+        "output/crossvalidation/2026-08-20-sci005-efield-pyuvsim-1.4.0.json",
+        "tests/unit/test_sci005_evidence.py",
+    }
+)
+STAGE3_EVIDENCE_PATHS = FIRST_SUPERSEDED_EVIDENCE_PATHS
+
+#: The two surfaces an accepted ``A3`` would have written and a superseded
+#: evidence commit therefore never carries.  Their absence is exactly how a
+#: validator tells the two apart.
+STAGE3_ACCEPTANCE_SURFACES = frozenset(
+    {
+        "docs/development/sci005_stage3_acceptance.json",
+        "tests/unit/test_sci005_stage3_acceptance.py",
+    }
 )
 
 #: The two Section 7.4 ``successor only`` paths a superseded implementation
@@ -343,6 +398,7 @@ STAGE3_RED_SLICE_PATHS = (
     | SECOND_SUPERSEDED_RED_SLICE_PATHS
     | THIRD_SUPERSEDED_RED_SLICE_PATHS
     | FOURTH_SUPERSEDED_RED_SLICE_PATHS
+    | FIFTH_SUPERSEDED_RED_SLICE_PATHS
 )
 
 #: Section 8.3's observed ``U2..D3`` interval, transcribed in ancestry order
@@ -350,11 +406,10 @@ STAGE3_RED_SLICE_PATHS = (
 #: exact paths its header record names. A commit in the interval that this table
 #: does not name invalidates the starred edge.
 #:
-#: The count is **ten** rather than the nine a "previous seven plus two" count
-#: suggests, because a superseding correction puts the design gate it supersedes
-#: into the interval at the moment of supersession: entry 8 was itself the
-#: operative ``D3`` until the carve-out and comparability correction replaced
-#: it. ``git rev-list f275e75..c38f94b`` returns exactly these ten.
+#: The count is the whole walk, never "the previous total plus the new
+#: commits": a superseding correction puts the design gate it supersedes into
+#: the interval at the moment of supersession, so entries 8 and 11 are both in
+#: it. ``git rev-list --count f275e75..f09716a`` returns exactly ``14``.
 INTERVAL_COMMITS: dict[str, tuple[str, frozenset[str]]] = {
     # The superseded original Stage-3 design gate: memo only.
     "2adc2acca8606b3a9774e14f28725a5687c0ecc8": (
@@ -413,6 +468,29 @@ INTERVAL_COMMITS: dict[str, tuple[str, frozenset[str]]] = {
     "c38f94b481226fbb0731cdaaecb2d76515881f86": (
         SUPERSEDED_IMPLEMENTATION_KIND,
         SECOND_SUPERSEDED_IMPLEMENTATION_PATHS,
+    ),
+    # The superseded carve-out and comparability correction, itself the
+    # operative D3 until the evidence-projection correction superseded it.
+    "3d2e07cfafc0884ad915009cc2d8d5742caa9e96": (
+        SUPERSEDED_DESIGN_KIND,
+        frozenset({DESIGN_MEMO}),
+    ),
+    # The superseded fourth re-cut Stage-3 red slice.
+    "997ee5ee48704d91b031e93b997817d0474064b7": (
+        SUPERSEDED_RED_SLICE_KIND,
+        FIFTH_SUPERSEDED_RED_SLICE_PATHS,
+    ),
+    # The superseded second re-cut Stage-3 implementation commit, the third of
+    # the fourth kind.
+    "2fa9ce4e76f78fff74bf2e46d67601294bf7c173": (
+        SUPERSEDED_IMPLEMENTATION_KIND,
+        THIRD_SUPERSEDED_IMPLEMENTATION_PATHS,
+    ),
+    # The superseded Stage-3 evidence commit, the first of the fifth kind: its
+    # A3 returned REJECT on the retained receptor_factorizations projection.
+    "f09716a2808fe5693db31b65fa20d3c6ef0641b4": (
+        SUPERSEDED_EVIDENCE_KIND,
+        FIRST_SUPERSEDED_EVIDENCE_PATHS,
     ),
 }
 
@@ -885,6 +963,23 @@ def require_interval_kind(commit: str, kind: str, recorded: frozenset[str]) -> N
                 f"superseded red-slice commit {commit} touches {outside}, which is "
                 "not a Section 7.4 test path",
             )
+    elif kind == SUPERSEDED_EVIDENCE_KIND:
+        outside = sorted(touched - STAGE3_EVIDENCE_PATHS)
+        if outside:
+            raise AcceptanceError(
+                DIFF_AUTHORITY,
+                f"superseded evidence commit {commit} touches {outside}, which "
+                "is outside Section 7.5's Ei allowance",
+            )
+        acceptance = sorted(touched & STAGE3_ACCEPTANCE_SURFACES)
+        if acceptance:
+            raise AcceptanceError(
+                DIFF_AUTHORITY,
+                f"superseded evidence commit {commit} carries the acceptance "
+                f"surfaces {acceptance}; a superseded evidence commit never "
+                "acquired them, because the A3 that would have written them "
+                "returned REJECT",
+            )
     elif kind == SUPERSEDED_IMPLEMENTATION_KIND:
         outside = sorted(touched - STAGE3_IMPLEMENTATION_PATHS)
         if outside:
@@ -901,7 +996,7 @@ def require_interval_kind(commit: str, kind: str, recorded: frozenset[str]) -> N
                 f"only artifacts {successors}; those live in the E, A and U "
                 "successors it never reached",
             )
-    else:  # pragma: no cover - the table only carries the four frozen kinds
+    else:  # pragma: no cover - the table only carries the five frozen kinds
         raise AcceptanceError(ANCESTRY, f"{kind!r} is not a header-recorded kind")
 
 

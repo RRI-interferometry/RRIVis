@@ -4860,6 +4860,26 @@ def _receptor_factorization(value: Any, path: str) -> dict[str, Any]:
     composed = _jones_projection(row["composed_e"], f"{path}.composed_e")
     if native["dtype"] != composed["dtype"] or native["shape"] != composed["shape"]:
         _fail(path, "j_native and composed_e need identical dtype and shape")
+    # Section 8.1's witness-adequacy guard. This is an obligation on the
+    # evidence author's choice of fixture, **not** a theorem: since
+    # ``E = C^dagger J_native``, coincidence occurs exactly when J_native's
+    # columns lie in the ``+1`` eigenspace of ``C^dagger``, and that eigenspace
+    # exists in both bases -- the linear ``C(chi) = P_swap R(chi)`` is a
+    # reflection with eigenvalues exactly ``{+1, -1}`` at every chi, and the
+    # circular ``C^dagger`` has an isolated unit eigenvalue at ``chi = pi/4``
+    # modulo ``2*pi``, an unremarkable ``feed_rotation_deg`` of 45.0. Such a row
+    # is legitimate physics; what it cannot be is the retained *witness*, since
+    # the mis-projection this rule exists to catch -- retaining ``C @ E``, which
+    # *is* J_native, in the field reserved for E -- would be undetectable there.
+    if composed["c_order_sha256"] == native["c_order_sha256"]:
+        _fail(
+            f"{path}.composed_e",
+            "repeats j_native byte for byte, so the row is an inadequate "
+            "witness rather than an unphysical one: a scenario in which E "
+            "coincides with J_native demonstrates nothing about C^dagger "
+            "conjugation, and a projection that retained C @ E in the field "
+            "reserved for E would be undetectable in it",
+        )
     factorization = _number(
         row["factorization_max_abs_residual"], f"{path}.factorization_max_abs_residual"
     )
@@ -5715,11 +5735,11 @@ STAGE3_CROSSVALIDATION_ARTIFACT = (
 )
 
 
-def _stage3_projection(shape: list[int]) -> dict[str, Any]:
+def _stage3_projection(shape: list[int], digest: str = "0" * 64) -> dict[str, Any]:
     return {
         "dtype": "complex128",
         "shape": shape,
-        "c_order_sha256": "0" * 64,
+        "c_order_sha256": digest,
         "minimum_abs": 0.0,
         "maximum_abs": 1.0,
     }
@@ -5828,8 +5848,13 @@ def _receptor_factorization_row(
         "frequency_hz": 1.5e8,
         "e_matrix": _stage3_matrix(),
         "noncommuting_component": _stage3_noncommuting_component(),
-        "j_native": _stage3_projection([2, 2]),
-        "composed_e": _stage3_projection([2, 2]),
+        # Distinct placeholder digests: the two fields hold *different*
+        # quantities, and Section 8.1's witness-adequacy guard now requires a
+        # retained row to say so. The shared ``"0" * 64`` placeholder this
+        # builder used would make every synthetic document an inadequate
+        # witness, which is the consequence the fifth re-cut recorded.
+        "j_native": _stage3_projection([2, 2], digest="1" * 64),
+        "composed_e": _stage3_projection([2, 2], digest="2" * 64),
         "factorization_max_abs_residual": 0.0,
         "chain_order_max_abs_residual": 0.0,
         "order_control_max_abs_difference": 0.5,

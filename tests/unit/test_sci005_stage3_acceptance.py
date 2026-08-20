@@ -150,11 +150,15 @@ INTERVAL_KINDS: dict[str, str] = {
     "41b3a8ed1687526651e109cd2da8cc86d0579010": "superseded-design",
     "76e162cfee5570910a4196baae60ed5b61e36eae": "superseded-red-slice",
     "c38f94b481226fbb0731cdaaecb2d76515881f86": "superseded-implementation",
+    "3d2e07cfafc0884ad915009cc2d8d5742caa9e96": "superseded-design",
+    "997ee5ee48704d91b031e93b997817d0474064b7": "superseded-red-slice",
+    "2fa9ce4e76f78fff74bf2e46d67601294bf7c173": "superseded-implementation",
+    "f09716a2808fe5693db31b65fa20d3c6ef0641b4": "superseded-evidence",
 }
 
 #: The last commit of that interval; the operative ``D3`` is its single
 #: first-parent child.
-LAST_INTERVAL_COMMIT = "c38f94b481226fbb0731cdaaecb2d76515881f86"
+LAST_INTERVAL_COMMIT = "f09716a2808fe5693db31b65fa20d3c6ef0641b4"
 
 #: The six Section 7.4 test paths the first superseded red slice cut, which are
 #: also the union bounding the kind.
@@ -191,6 +195,8 @@ FOURTH_RED_SLICE_PATHS = frozenset(
         "tests/unit/test_core/test_sci005_full_efield.py",
     }
 )
+#: And the one the fourth re-cut slice touched.
+FIFTH_RED_SLICE_PATHS = frozenset({"tests/unit/test_core/test_sci005_full_efield.py"})
 
 #: The twenty-eight Section 7.4 paths the header-recorded superseded Stage-3
 #: implementation commit touched. The chain-basis and comparison correction
@@ -257,6 +263,35 @@ SECOND_IMPLEMENTATION_PATHS = frozenset(
     }
 )
 
+#: The five Section 7.4 paths the second re-cut implementation commit touched.
+THIRD_IMPLEMENTATION_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_evidence.schema.json",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage3_acceptance.py",
+        "tests/unit/test_tier1h_documentation.py",
+        "tools/sci005_stage3_acceptance.py",
+    }
+)
+
+#: Section 7.5's ``Ei`` allowance, the whole bound on the fifth interval kind.
+EVIDENCE_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_evidence.json",
+        "output/crossvalidation/2026-08-20-sci005-efield-pyuvsim-1.4.0.json",
+        "tests/unit/test_sci005_evidence.py",
+    }
+)
+
+#: The two surfaces an accepted ``A3`` would have written, whose absence is how
+#: a validator tells a superseded evidence commit from an accepted one.
+ACCEPTANCE_SURFACES = frozenset(
+    {
+        "docs/development/sci005_stage3_acceptance.json",
+        "tests/unit/test_sci005_stage3_acceptance.py",
+    }
+)
+
 #: The two ``successor only`` paths that kind may never introduce.
 SUCCESSOR_ONLY_PATHS = frozenset(
     {
@@ -293,8 +328,10 @@ SHARED_EVIDENCE_PATHS: tuple[str, ...] = (
     "tools/sci005_stage_evidence.py",
 )
 
-#: The four earlier-stage approved constants those shared surfaces carry, plus
-#: the two Stage-3 sentinels that stay ``None`` until ``U3``.
+#: The four **earlier-stage** approved constants those shared surfaces carry.
+#: Section 8.3 requires exactly these to remain byte-identical to ``U2``; the
+#: two Stage-3 sentinels are not earlier-stage surface, and Section 8.3's fifth
+#: interval kind flips them by design, which the test below pins separately.
 APPROVED_CONSTANT_LINES: tuple[str, ...] = (
     "APPROVED_STAGE1_SOURCE_SHA: str | None = "
     '"881b1a963b4f3b250b38989335c2ee0ea2a491bd"',
@@ -304,8 +341,13 @@ APPROVED_CONSTANT_LINES: tuple[str, ...] = (
     '"5c94d925352b389768e0476079e04e811db996e1"',
     "APPROVED_STAGE2_EVIDENCE_ARTIFACT_SHA256: str | None = "
     '"5e3c57eb93c634649e535b02386e1d4211345f23fd851a8a3529480b7c7f1171"',
-    "APPROVED_STAGE3_SOURCE_SHA: str | None = None",
-    "APPROVED_STAGE3_EVIDENCE_ARTIFACT_SHA256: str | None = None",
+)
+
+#: The two Stage-3 sentinels, ``None`` at ``U2``, which exactly one interval
+#: commit -- the superseded evidence commit -- flips.
+STAGE3_SENTINEL_NAMES: tuple[str, ...] = (
+    "APPROVED_STAGE3_SOURCE_SHA",
+    "APPROVED_STAGE3_EVIDENCE_ARTIFACT_SHA256",
 )
 
 #: ``U2`` itself, named once for the interval-boundary reads below.
@@ -994,17 +1036,17 @@ def test_the_tool_anchors_the_edge_on_the_stage2_retained_surface() -> None:
 
 
 def test_the_interval_table_is_the_header_enumerated_one() -> None:
-    """Exactly ten commits, their kinds, and their exact recorded path sets.
+    """Exactly fourteen commits, their kinds, and their exact recorded path sets.
 
-    The chain-basis and comparison correction grew the interval from four to
-    seven and its kind vocabulary from three to four. The carve-out and
-    comparability correction then grew it to **ten**, not to nine: a
-    superseding correction puts the design gate it supersedes into the interval
-    at the moment of supersession, so the chain-basis correction itself joins
-    beside the red slice and the implementation commit it reopened.
+    The evidence-projection correction grew the interval to **fourteen** and its
+    kind vocabulary from four to five. Two counting traps the memo names apply:
+    a superseding correction puts the design gate it supersedes into the
+    interval at the moment of supersession, so entries 8 and 11 are both in it,
+    and the count is therefore the whole walk rather than "the previous total
+    plus the new commits".
     """
     module = _tool()
-    assert len(module.INTERVAL_COMMITS) == 10
+    assert len(module.INTERVAL_COMMITS) == 14
     assert {sha: kind for sha, (kind, _paths) in module.INTERVAL_COMMITS.items()} == (
         INTERVAL_KINDS
     )
@@ -1039,16 +1081,29 @@ def test_the_interval_table_is_the_header_enumerated_one() -> None:
     assert module.INTERVAL_COMMITS["c38f94b481226fbb0731cdaaecb2d76515881f86"][1] == (
         SECOND_IMPLEMENTATION_PATHS
     )
+    assert module.INTERVAL_COMMITS["3d2e07cfafc0884ad915009cc2d8d5742caa9e96"][1] == (
+        memo
+    )
+    assert module.INTERVAL_COMMITS["997ee5ee48704d91b031e93b997817d0474064b7"][1] == (
+        FIFTH_RED_SLICE_PATHS
+    )
+    assert module.INTERVAL_COMMITS["2fa9ce4e76f78fff74bf2e46d67601294bf7c173"][1] == (
+        THIRD_IMPLEMENTATION_PATHS
+    )
+    assert module.INTERVAL_COMMITS["f09716a2808fe5693db31b65fa20d3c6ef0641b4"][1] == (
+        EVIDENCE_PATHS
+    )
 
 
 def test_the_interval_is_exactly_the_observed_rev_list() -> None:
-    """Section 8.3: "``git rev-list f275e75..c38f94b`` returns exactly these ten"."""
+    """Section 8.3: "``git rev-list --count f275e75..f09716a`` returns exactly
+    ``14``"."""
     module = _tool()
     observed = module.run_git(
         "rev-list", f"{STATUS_SUCCESSOR}..{LAST_INTERVAL_COMMIT}"
     ).split()
     assert sorted(observed) == sorted(module.INTERVAL_COMMITS)
-    assert len(observed) == 10
+    assert len(observed) == 14
 
 
 def test_the_four_red_slices_differ_and_the_union_bounds_the_kind() -> None:
@@ -1058,10 +1113,12 @@ def test_the_four_red_slices_differ_and_the_union_bounds_the_kind() -> None:
     assert module.SECOND_SUPERSEDED_RED_SLICE_PATHS == SECOND_RED_SLICE_PATHS
     assert module.THIRD_SUPERSEDED_RED_SLICE_PATHS == THIRD_RED_SLICE_PATHS
     assert module.FOURTH_SUPERSEDED_RED_SLICE_PATHS == FOURTH_RED_SLICE_PATHS
+    assert module.FIFTH_SUPERSEDED_RED_SLICE_PATHS == FIFTH_RED_SLICE_PATHS
     for recorded in (
         module.SECOND_SUPERSEDED_RED_SLICE_PATHS,
         module.THIRD_SUPERSEDED_RED_SLICE_PATHS,
         module.FOURTH_SUPERSEDED_RED_SLICE_PATHS,
+        module.FIFTH_SUPERSEDED_RED_SLICE_PATHS,
     ):
         assert recorded < module.FIRST_SUPERSEDED_RED_SLICE_PATHS
     assert module.SECOND_SUPERSEDED_RED_SLICE_PATHS != (
@@ -1075,6 +1132,7 @@ def test_the_four_red_slices_differ_and_the_union_bounds_the_kind() -> None:
         | SECOND_RED_SLICE_PATHS
         | THIRD_RED_SLICE_PATHS
         | FOURTH_RED_SLICE_PATHS
+        | FIFTH_RED_SLICE_PATHS
     )
     assert len(module.STAGE3_RED_SLICE_PATHS) == 6
 
@@ -1091,8 +1149,10 @@ def test_the_superseded_implementation_kind_carries_no_successor_artifact() -> N
     assert module.SUPERSEDED_IMPLEMENTATION_KIND == "superseded-implementation"
     assert module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS == FIRST_IMPLEMENTATION_PATHS
     assert module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS == SECOND_IMPLEMENTATION_PATHS
+    assert module.THIRD_SUPERSEDED_IMPLEMENTATION_PATHS == THIRD_IMPLEMENTATION_PATHS
     assert len(module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS) == 28
     assert len(module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS) == 20
+    assert len(module.THIRD_SUPERSEDED_IMPLEMENTATION_PATHS) == 5
     # Neither contains the other, so this kind is per-commit recorded too.
     assert not module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS <= (
         module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS
@@ -1101,10 +1161,56 @@ def test_the_superseded_implementation_kind_carries_no_successor_artifact() -> N
         module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS
     )
     assert module.STAGE3_IMPLEMENTATION_PATHS == (
-        FIRST_IMPLEMENTATION_PATHS | SECOND_IMPLEMENTATION_PATHS
+        FIRST_IMPLEMENTATION_PATHS
+        | SECOND_IMPLEMENTATION_PATHS
+        | THIRD_IMPLEMENTATION_PATHS
     )
     assert module.STAGE3_SUCCESSOR_ONLY_PATHS == SUCCESSOR_ONLY_PATHS
     assert not (module.STAGE3_IMPLEMENTATION_PATHS & SUCCESSOR_ONLY_PATHS)
+
+
+def test_the_superseded_evidence_kind_is_bounded_by_the_ei_rule() -> None:
+    """Section 8.3's fifth kind, added by the evidence-projection correction.
+
+    It "stands to an ``E``-of-record exactly as the fourth stands to an
+    ``S``-of-record": its diff is bounded by Section 7.5's ``Ei`` rule and
+    nothing wider, and what distinguishes it from an accepted ``E`` is what it
+    never acquired -- no acceptance artifact and no approved acceptance
+    constant, "because the ``A3`` that would have written them returned
+    ``REJECT``. A validator distinguishes the two by exactly that absence."
+    """
+    module = _tool()
+    assert module.SUPERSEDED_EVIDENCE_KIND == "superseded-evidence"
+    assert module.FIRST_SUPERSEDED_EVIDENCE_PATHS == EVIDENCE_PATHS
+    assert module.STAGE3_EVIDENCE_PATHS == EVIDENCE_PATHS
+    assert module.STAGE3_ACCEPTANCE_SURFACES == ACCEPTANCE_SURFACES
+    assert not (module.STAGE3_EVIDENCE_PATHS & ACCEPTANCE_SURFACES)
+
+
+def test_a_superseded_evidence_commit_carrying_an_acceptance_surface_is_refused() -> (
+    None
+):
+    """A commit that also wrote an acceptance surface is an ``A``, not this."""
+    module = _tool()
+    with pytest.raises(module.AcceptanceError) as error:
+        module.require_interval_kind(
+            "f09716a2808fe5693db31b65fa20d3c6ef0641b4",
+            "superseded-evidence",
+            EVIDENCE_PATHS | {"docs/development/sci005_stage3_acceptance.json"},
+        )
+    assert error.value.prefix == "SCI005_ACCEPTANCE_DIFF_AUTHORITY"
+
+
+def test_a_superseded_evidence_commit_reaching_outside_the_ei_rule_is_refused() -> None:
+    """``STAGE3_EVIDENCE_PATHS`` bounds the kind even against its own record."""
+    module = _tool()
+    with pytest.raises(module.AcceptanceError) as error:
+        module.require_interval_kind(
+            "2fa9ce4e76f78fff74bf2e46d67601294bf7c173",
+            "superseded-evidence",
+            THIRD_IMPLEMENTATION_PATHS,
+        )
+    assert error.value.prefix == "SCI005_ACCEPTANCE_DIFF_AUTHORITY"
 
 
 def test_a_superseded_implementation_carrying_a_successor_artifact_is_refused() -> None:
@@ -1152,9 +1258,10 @@ def test_the_shared_evidence_surfaces_keep_every_approved_constant() -> None:
     ``tools/sci005_stage_evidence.py`` and ``tests/unit/test_sci005_evidence.py``
     are on Section 7.4's Stage-3 list, so the header-recorded superseded
     implementation commit legitimately extends them and byte identity is the
-    wrong predicate.  What must not move is "every approved digest constant",
-    and the two Stage-3 sentinels must still be ``None``: a stage that has not
-    been accepted cannot carry its own approved constants.
+    wrong predicate.  What Section 8.3 requires of them is that the retained
+    **Stage-1 and Stage-2** approved digest constants remain byte-identical to
+    ``U2``; the Stage-3 sentinels are the fifth interval kind's own allowance
+    and are pinned by the test below instead.
     """
     module = _tool()
     design = _operative_design_commit(module)
@@ -1164,6 +1271,38 @@ def test_the_shared_evidence_surfaces_keep_every_approved_constant() -> None:
         for line in APPROVED_CONSTANT_LINES:
             if line in before:
                 assert line in after, (path, line)
+
+
+def test_exactly_the_superseded_evidence_commit_flips_the_stage3_sentinels() -> None:
+    """The Stage-3 sentinels are the fifth kind's own allowance, and only its.
+
+    They are ``None`` at ``U2``; Section 7.5's ``Ei`` rule lets an evidence
+    successor flip them from ``None`` to their literals, and Section 8.3's
+    fifth kind inherits exactly that allowance.  This reads the objects to
+    prove that exactly one interval commit exercised it, and that the commit
+    acquired neither acceptance surface -- which is how the memo says a
+    validator tells a superseded evidence commit from an accepted one.
+    """
+    module = _tool()
+    validator = "tests/unit/test_sci005_evidence.py"
+    at_status = module.git_show(STATUS_SUCCESSOR, validator).decode("utf-8")
+    for name in STAGE3_SENTINEL_NAMES:
+        assert f"{name}: str | None = None" in at_status
+
+    flipping = [
+        commit
+        for commit, (_kind, recorded) in module.INTERVAL_COMMITS.items()
+        if validator in recorded
+        and any(
+            f"{name}: str | None = None"
+            not in module.git_show(commit, validator).decode("utf-8")
+            for name in STAGE3_SENTINEL_NAMES
+        )
+    ]
+    assert flipping == ["f09716a2808fe5693db31b65fa20d3c6ef0641b4"]
+    kind, recorded = module.INTERVAL_COMMITS[flipping[0]]
+    assert kind == module.SUPERSEDED_EVIDENCE_KIND
+    assert not (recorded & ACCEPTANCE_SURFACES)
 
 
 def test_the_operative_design_edge_authenticates_against_real_history() -> None:

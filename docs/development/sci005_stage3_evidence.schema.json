@@ -211,6 +211,7 @@
     },
     "receptor_factorizations": {
       "type": "array",
+      "description": "Section 8.1's witness-adequacy rule additionally requires composed_e.c_order_sha256 != j_native.c_order_sha256 on every row. JSON Schema cannot express an inequality between two sibling field values, so this description documents the rule and never enforces it: the stdlib validator in tests/unit/test_sci005_evidence.py is its sole normative enforcer. The rule is an obligation on the evidence author's choice of fixture rather than a theorem -- E == J_native is legitimately computable in both receptor bases, since J_native's columns may lie in the +1 eigenspace of C^dagger, which the linear reflection C(chi) = P_swap R(chi) carries at every chi and the circular C^dagger carries at the isolated chi = pi/4 -- but such a scenario cannot serve as the retained witness, because a projection that retained C @ E in the field reserved for E would be undetectable in it.",
       "minItems": 1,
       "items": {
         "$ref": "#/$defs/receptor_factorization"
