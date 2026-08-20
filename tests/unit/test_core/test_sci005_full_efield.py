@@ -138,7 +138,7 @@ FULL_EFIELD_SUBSET_VERSION = "sci005-stage3-full-efield-v1"
 
 #: Section 8.1's four Stage-3 ``scientific_conventions`` literals.
 EFIELD_NORMALIZATION_CONVENTION = "uvbeam_peak_common_v1"
-BASIS_CONVERSION_CONVENTION = "ludwig3_az_za_to_north_east_v1"
+BASIS_CONVERSION_CONVENTION = "uvbeam_theta_phi_chain_tangent_v1"
 ZENITH_LIMIT_CONVENTION = "north_east_tangent_limit_v1"
 FACTORIZATION_CONVENTION = "receptor_conjugated_native_efield_v1"
 
@@ -238,14 +238,55 @@ PROBE_AZIMUTH_RAD = (np.pi / 2.0 - _PROBE_AZIMUTH_UV_RAD) % (2.0 * np.pi)
 # --- memo-derived oracles, written here rather than imported -------------------
 
 
-def tangent_conversion(phi_rad: Any) -> np.ndarray:
-    """Return Section 5.2.1's frozen ``T(phi)``, shape ``(..., 2, 2)``."""
+#: Corrected Section 5.2.1's frozen conversion, the **constant** real
+#: orthogonal ``M`` with ``det M = +1`` and ``M^T = -M``. It carries the native
+#: ``(azimuth, zenith-angle)`` components into the chain's own sky tangent
+#: pair, the mixed-sign ``(-e_theta, +e_az_uv)`` that the accepted ``P`` term
+#: delivers, giving ``J_native[f,0] = -E_theta`` and
+#: ``J_native[f,1] = +E_az_uv``.
+CHAIN_CONVERSION = np.array([[0.0, 1.0], [-1.0, 0.0]], dtype=np.float64)
+
+#: Corrected Section 5.2.1's frozen wrap-continuity margin factor.
+WRAP_SECOND_DIFFERENCE_FACTOR = 8.0
+
+
+def chain_conversion() -> np.ndarray:
+    """Return corrected Section 5.2.1's frozen ``M``, a constant ``(2, 2)``."""
+    return np.array(CHAIN_CONVERSION, copy=True)
+
+
+def ludwig3_map(phi_rad: Any) -> np.ndarray:
+    """Return the chain-basis-to-Ludwig-3 map ``S(phi)``, shape ``(..., 2, 2)``.
+
+    Corrected Section 5.2.1: "Ludwig's third definition remains the memo's
+    language for **diagnostics and oracles**, and only there ... which in
+    matrix form is right-multiplication of the chain-basis pair by
+    ``S(phi) = [[-cos phi, -sin phi], [sin phi, -cos phi]]``", a **proper**
+    rotation with ``det S = +1``. The shipped ``T(phi)`` was exactly
+    ``M @ S(phi)``, which is why it computed the Ludwig-3 matrix rather than
+    the chain one.
+    """
     phi = np.asarray(phi_rad, dtype=np.float64)
     matrix = np.empty(phi.shape + (2, 2), dtype=np.float64)
-    matrix[..., 0, 0] = np.sin(phi)
-    matrix[..., 0, 1] = -np.cos(phi)
-    matrix[..., 1, 0] = np.cos(phi)
-    matrix[..., 1, 1] = np.sin(phi)
+    matrix[..., 0, 0] = -np.cos(phi)
+    matrix[..., 0, 1] = -np.sin(phi)
+    matrix[..., 1, 0] = np.sin(phi)
+    matrix[..., 1, 1] = -np.cos(phi)
+    return matrix
+
+
+def despin_rotation(angle_rad: Any) -> np.ndarray:
+    """Return corrected Section 5.2.1's zenith de-spin ``R(x)``.
+
+    ``R(x) = [[cos x, sin x], [-sin x, cos x]]``, the rotation the frozen
+    zenith predicate ``J(az_uv) = J(az_ref) R(az_uv - az_ref)`` is stated with.
+    """
+    angle = np.asarray(angle_rad, dtype=np.float64)
+    matrix = np.empty(angle.shape + (2, 2), dtype=np.float64)
+    matrix[..., 0, 0] = np.cos(angle)
+    matrix[..., 0, 1] = np.sin(angle)
+    matrix[..., 1, 0] = -np.sin(angle)
+    matrix[..., 1, 1] = np.cos(angle)
     return matrix
 
 
@@ -254,21 +295,36 @@ def radiosim_azimuth_rad(azimuth_uv_rad: Any) -> np.ndarray:
     return np.asarray((np.pi / 2.0 - np.asarray(azimuth_uv_rad)) % (2.0 * np.pi))
 
 
-def convert_native_jones(data: np.ndarray, phi_rad: float) -> np.ndarray:
+def convert_native_jones(
+    data: np.ndarray,
+    matrix: np.ndarray | None = None,
+) -> np.ndarray:
     """Return corrected Section 5.2.1's ``J_native`` for one direction.
 
-    ``J_native[f,c] = sum_a data[a,f] T(phi)[a,c]``, "with no conjugation and
-    no implicit transpose anywhere, and with no intermediate composed basis:
-    the stored array contributes no factor, because it is required to be the
-    identity and is discarded by the interpolator in any case". ``data`` is
-    indexed ``[vector_axis, feed]``, vector axis ``0`` being the azimuth
-    component and ``1`` the zenith-angle component.
+    ``J_native[f,c] = sum_a data[a,f] M[a,c]``, "with no conjugation and no
+    implicit transpose anywhere, and with no intermediate composed basis".
+    ``data`` is indexed ``[vector_axis, feed]``, vector axis ``0`` being the
+    azimuth component and ``1`` the zenith-angle component. ``matrix``
+    defaults to the frozen ``M`` and is a parameter only so the observability
+    control can substitute a deliberately corrupted one.
     """
+    conversion = chain_conversion() if matrix is None else matrix
     return np.einsum(
         "af,ac->fc",
         np.asarray(data, dtype=np.complex128),
-        tangent_conversion(phi_rad),
+        np.asarray(conversion, dtype=np.float64),
     )
+
+
+def chain_from_ludwig3(jones_l3: np.ndarray, phi_rad: float) -> np.ndarray:
+    """Map a Ludwig-3-stated oracle into the chain basis.
+
+    Section 5.6 requires each analytic oracle to be "stated in Ludwig-3
+    co/cross terms and mapped into the chain basis by ``S(phi)`` before
+    comparison with production". Since ``J_chain S(phi) = J_L3`` and ``S`` is
+    orthogonal, the map is right-multiplication by ``S(phi)^T``.
+    """
+    return np.asarray(jones_l3, dtype=np.complex128) @ ludwig3_map(phi_rad).T
 
 
 def receptor_matrix(basis: str, chi_rad: float) -> np.ndarray:
@@ -620,47 +676,77 @@ def test_the_crossed_dipole_fixture_reproduces_pyuvdatas_short_dipole_beam() -> 
     np.testing.assert_array_equal(evaluated[:, :, 0, :], fixture)
 
 
-def test_the_frozen_conversion_matrix_is_real_orthogonal_and_power_preserving() -> None:
-    """Section 5.2.1: ``det T = 1`` and ``T^T T = I_2`` by construction.
+def test_the_frozen_conversion_matrix_is_constant_orthogonal_and_antisymmetric() -> (
+    None
+):
+    """Corrected Section 5.2.1's frozen ``M``.
 
-    Both residuals are judged at the fixed ``_BASIS_TOLERANCE`` of ``1e-12``,
-    which Section 8.1 also requires of every ``basis_conversions`` row's
-    ``power_preservation_max_abs_residual`` and
-    ``orthogonality_max_abs_residual``, "those two being predicates on the real
-    ``float64`` conversion matrix".
+    "``M`` is real, constant, orthogonal with ``M^T M = I_2``, and
+    **antisymmetric** with ``M^T = -M``; it preserves total field power
+    exactly, by construction rather than by measurement, and being a proper
+    rotation it introduces no reflection into the chain." Its realized
+    orthogonality residual "is exactly zero, ``M`` being a constant
+    permutation", so the fixed ``_BASIS_TOLERANCE`` bounds it with room to
+    spare.
     """
-    phi = np.linspace(-3.0 * np.pi, 3.0 * np.pi, 97, dtype=np.float64)
-    matrices = tangent_conversion(phi)
+    matrix = chain_conversion()
 
-    assert matrices.dtype == np.dtype(np.float64)
-    determinants = np.linalg.det(matrices)
-    assert float(np.max(np.abs(determinants - 1.0))) <= BASIS_TOLERANCE
-    products = np.einsum("nac,nab->ncb", matrices, matrices)
-    residual = float(np.max(np.abs(products - np.eye(2))))
-    assert residual <= BASIS_TOLERANCE
+    assert matrix.dtype == np.dtype(np.float64)
+    np.testing.assert_array_equal(matrix, np.array([[0.0, 1.0], [-1.0, 0.0]]))
+    assert float(np.linalg.det(matrix)) == 1.0
+    np.testing.assert_array_equal(matrix.T @ matrix, np.eye(2))
+    assert float(np.max(np.abs(matrix.T @ matrix - np.eye(2)))) <= BASIS_TOLERANCE
+    # Antisymmetry is what makes the orientation of ``M`` directly observable.
+    np.testing.assert_array_equal(matrix.T, -matrix)
     # Power preservation is then a corollary rather than a second measurement.
     vectors = np.array([[0.3, -0.8], [1.4, 0.2], [-0.5, -0.5]], dtype=np.float64)
-    for matrix in matrices:
-        rotated = vectors @ matrix
-        assert (
-            float(
-                np.max(
-                    np.abs(np.sum(rotated**2, axis=-1) - np.sum(vectors**2, axis=-1))
-                )
-            )
-            <= BASIS_TOLERANCE
-        )
+    rotated = vectors @ matrix
+    assert (
+        float(np.max(np.abs(np.sum(rotated**2, axis=-1) - np.sum(vectors**2, axis=-1))))
+        <= BASIS_TOLERANCE
+    )
 
 
-def test_the_frozen_conversion_reproduces_the_ludwig3_dipole_oracle() -> None:
-    """Section 5.2: the crossed-ideal-dipole case "fixes signs, row/column
-    order, and zenith limits".
+def test_the_ludwig3_map_is_a_proper_rotation_and_factors_the_shipped_matrix() -> None:
+    """Corrected Section 5.2.1: ``S(phi)`` is **proper**, and ``T = M S``.
+
+    "The superseded first draft of this correction recorded an improper ``S``
+    with ``det = -1`` and built a repair argument on it; that improperness was
+    an artifact of its own mislabelled basis." The shipped conversion was
+    ``T(phi) = M S(phi)``, "which is a correct statement *about the beam* ...
+    but the wrong statement about the chain"; because ``S`` is proper, the two
+    differ by a rotation rather than a reflection, so the shipped law's
+    Stokes-``V`` physics was right and only its ``Q`` and ``U`` were wrong.
+    """
+    phi = np.linspace(-3.0 * np.pi, 3.0 * np.pi, 97, dtype=np.float64)
+    maps = ludwig3_map(phi)
+
+    assert maps.dtype == np.dtype(np.float64)
+    assert float(np.max(np.abs(np.linalg.det(maps) - 1.0))) <= BASIS_TOLERANCE
+    products = np.einsum("nac,nab->ncb", maps, maps)
+    assert float(np.max(np.abs(products - np.eye(2)))) <= BASIS_TOLERANCE
+
+    shipped = np.empty(phi.shape + (2, 2), dtype=np.float64)
+    shipped[..., 0, 0] = np.sin(phi)
+    shipped[..., 0, 1] = -np.cos(phi)
+    shipped[..., 1, 0] = np.cos(phi)
+    shipped[..., 1, 1] = np.sin(phi)
+    np.testing.assert_allclose(
+        chain_conversion() @ maps, shipped, rtol=0.0, atol=BASIS_TOLERANCE
+    )
+
+
+def test_the_frozen_conversion_reproduces_the_s_mapped_dipole_oracle() -> None:
+    """Section 5.2 and Section 5.6: the crossed-ideal-dipole case "fixes signs,
+    row/column order, and zenith limits", "stated in Ludwig-3 co/cross terms
+    and mapped into the chain basis by ``S(phi)`` before comparison with
+    production".
 
     The two sides are written in different coordinates: the stored components
     live in ``(azimuth, zenith angle)`` and the expectation in the
-    ``(East, North, Up)`` triad through ``e_co`` and ``e_cross``. A transposed
-    or sign-flipped ``T`` fails here even though both sides describe the same
-    two dipoles.
+    ``(East, North, Up)`` triad through ``e_co`` and ``e_cross``, carried into
+    the chain basis by ``S(phi)^T``. A transposed or sign-flipped ``M`` fails
+    here even though both sides describe the same two dipoles.
     """
     azimuth = canonical_azimuth_grid()
     zenith_angle = canonical_zenith_angle_grid()
@@ -672,25 +758,28 @@ def test_the_frozen_conversion_reproduces_the_ludwig3_dipole_oracle() -> None:
                 azimuth_uv_rad=az_value,
                 zenith_angle_rad=za_value,
             )
-            observed = convert_native_jones(
-                data,
+            observed = convert_native_jones(data)
+            expected = chain_from_ludwig3(
+                crossed_dipole_expected_jones(float(az_value), float(za_value)),
                 float(radiosim_azimuth_rad(az_value)),
             )
-            expected = crossed_dipole_expected_jones(float(az_value), float(za_value))
             worst = max(worst, float(np.max(np.abs(observed - expected))))
     assert worst <= ATOL + RTOL * 1.0
 
 
-def test_the_crossed_dipole_zenith_row_is_single_valued_at_the_north_east_pair() -> (
-    None
-):
-    """Section 5.2.1: the zenith row is one physical direction sampled at
-    ``Naxes1`` arbitrary azimuths, and the ``theta -> 0`` limit at ``phi = 0``
-    is exactly ``(North, East)``.
+def test_the_crossed_dipole_zenith_row_satisfies_the_de_spin_predicate() -> None:
+    """Corrected Section 5.2.1's zenith rule.
 
-    An East-aligned dipole at the zenith responds only to the East tangent
-    component and a North-aligned one only to the North component, so the
-    converted zenith matrix is exactly the exchange matrix at every azimuth.
+    "Requiring the converted matrices of that row to be **equal** is wrong and
+    is withdrawn: the chain tangent pair spins with the azimuth coordinate at
+    the pole while the physical response is one fixed map, so under any
+    constant ``M`` the converted ``za = 0`` row spreads by the full response
+    scale -- measured at exactly ``2.0`` -- and a perfectly valid file would be
+    rejected. What is single-valued is the **de-spun** matrix", equivalently
+    that ``J(az_uv) R(az_uv)^T`` is constant across the row.
+
+    Both halves are asserted here, because the withdrawn form's failure is what
+    makes the replacement necessary rather than stylistic.
     """
     azimuth = canonical_azimuth_grid()
     matrices = np.stack(
@@ -700,16 +789,43 @@ def test_the_crossed_dipole_zenith_row_is_single_valued_at_the_north_east_pair()
                     azimuth_uv_rad=value,
                     zenith_angle_rad=0.0,
                 ),
-                float(radiosim_azimuth_rad(value)),
             )
             for value in azimuth
         ]
     )
+    de_spun = np.stack(
+        [
+            matrices[index] @ despin_rotation(float(azimuth[index])).T
+            for index in range(azimuth.size)
+        ]
+    )
 
-    spread = float(np.max(np.abs(matrices - matrices[0])))
-    assert spread <= combined_bound(matrices)
-    exchange = np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
-    assert float(np.max(np.abs(matrices[0] - exchange))) <= combined_bound(matrices)
+    assert float(np.max(np.abs(de_spun - de_spun[0]))) <= combined_bound(de_spun)
+    # The withdrawn equality form fails on exactly this valid file.
+    assert float(np.max(np.abs(matrices - matrices[0]))) >= SEPARATION_BOUND
+
+
+def test_the_zenith_value_is_the_az_radiosim_zero_member_of_the_de_spun_row() -> None:
+    """Corrected Section 5.2.1: "RadioSim then uses the ``az_radiosim = 0``
+    member as the zenith value, where the chain pair is exactly
+    ``-(N_hat, E_hat)`` -- a genuinely common sign at that one point,
+    cancelling in ``V = J_p B J_q^dagger`` -- so the North/East tangent limit
+    survives there."
+
+    An East-aligned dipole at the zenith responds only along ``E_hat`` and a
+    North-aligned one only along ``N_hat``, so against the ``-(N_hat, E_hat)``
+    pair the converted matrix is exactly the negated exchange matrix.
+    """
+    azimuth_uv = float((np.pi / 2.0 - 0.0) % (2.0 * np.pi))
+    matrix = convert_native_jones(
+        crossed_ideal_dipole_components(
+            azimuth_uv_rad=azimuth_uv,
+            zenith_angle_rad=0.0,
+        ),
+    )
+
+    negated_exchange = -np.array([[0.0, 1.0], [1.0, 0.0]], dtype=np.complex128)
+    assert float(np.max(np.abs(matrix - negated_exchange))) <= combined_bound(matrix)
 
 
 def test_the_quadrupolar_oracle_has_principal_plane_zeros_and_row_parity() -> None:
@@ -779,7 +895,6 @@ def test_the_frozen_conversion_is_continuous_across_the_azimuth_wrap() -> None:
                 azimuth_uv_rad=value,
                 zenith_angle_rad=zenith_angle,
             ),
-            float(radiosim_azimuth_rad(value)),
         )
 
     matrices = [converted(index) for index in range(azimuth.size)]
@@ -814,9 +929,16 @@ def test_the_scalar_subset_file_is_not_zenith_single_valued_under_the_conversion
         data = np.zeros((2, 2), dtype=np.complex128)
         data[0, 0] = scalar
         data[1, 1] = scalar
-        matrices.append(convert_native_jones(data, float(radiosim_azimuth_rad(value))))
+        matrices.append(convert_native_jones(data))
 
-    spread = float(np.max(np.abs(np.stack(matrices) - matrices[0])))
+    stacked = np.stack(matrices)
+    de_spun = np.stack(
+        [
+            stacked[index] @ despin_rotation(float(azimuth[index])).T
+            for index in range(azimuth.size)
+        ]
+    )
+    spread = float(np.max(np.abs(de_spun - de_spun[0])))
     assert spread >= max(1e-3, 1024.0 * ATOL)
 
 
@@ -841,10 +963,7 @@ def test_the_scalar_reading_and_the_full_efield_conversion_of_one_file_diverge()
     data[1, 1] = scalar
 
     scalar_reading = scalar * np.eye(2, dtype=np.complex128)
-    full_efield_reading = convert_native_jones(
-        data,
-        float(radiosim_azimuth_rad(azimuth_uv)),
-    )
+    full_efield_reading = convert_native_jones(data)
     residual = float(np.max(np.abs(scalar_reading - full_efield_reading)))
     assert residual >= max(1e-3, 1024.0 * ATOL)
 
@@ -1218,7 +1337,10 @@ def test_the_composed_e_equals_the_independent_receptor_conjugated_oracle(
     for index in range(PROBE_ALTITUDE_RAD.size):
         zenith_angle = float(np.pi / 2.0 - PROBE_ALTITUDE_RAD[index])
         azimuth_uv = float((np.pi / 2.0 - PROBE_AZIMUTH_RAD[index]) % (2.0 * np.pi))
-        native = crossed_dipole_expected_jones(azimuth_uv, zenith_angle)
+        native = chain_from_ludwig3(
+            crossed_dipole_expected_jones(azimuth_uv, zenith_angle),
+            float(radiosim_azimuth_rad(azimuth_uv)),
+        )
         expected = composed_receptor.conj().T @ native
         bound = combined_bound(expected, response[index])
         assert float(np.max(np.abs(response[index] - expected))) <= bound
@@ -1267,12 +1389,15 @@ def test_the_factorization_holds_for_a_rotated_linear_and_a_circular_receptor(
             # ``E = C^dagger J_native`` makes ``C E`` the file's own native
             # matrix, which is the physical model itself and is therefore the
             # same for every receptor built on the one file.
-            native = np.asarray(
-                quadrupolar_native_jones(
-                    azimuth_uv_rad=azimuth_uv,
-                    zenith_angle_rad=zenith_angle,
+            native = chain_from_ludwig3(
+                np.asarray(
+                    quadrupolar_native_jones(
+                        azimuth_uv_rad=azimuth_uv,
+                        zenith_angle_rad=zenith_angle,
+                    ),
+                    dtype=np.complex128,
                 ),
-                dtype=np.complex128,
+                float(radiosim_azimuth_rad(azimuth_uv)),
             )
             expected = composed_receptor.conj().T @ native
             bound = combined_bound(expected, response[probe])
@@ -1300,12 +1425,11 @@ def test_the_zenith_limit_is_the_phi_zero_north_east_member(tmp_path: Path) -> N
 
     zenith = evaluate(
         system,
-        altitude_rad=np.full(3, np.pi / 2.0),
-        azimuth_rad=np.array([0.0, 1.3, 4.9], dtype=np.float64),
+        altitude_rad=np.full(1, np.pi / 2.0),
+        azimuth_rad=np.zeros(1, dtype=np.float64),
     )
     bound = combined_bound(zenith)
-    assert float(np.max(np.abs(zenith - zenith[0]))) <= bound
-    assert float(np.max(np.abs(zenith[0] - np.eye(2)))) <= bound
+    assert float(np.max(np.abs(zenith[0] + np.eye(2)))) <= bound
 
 
 def test_the_full_efield_subset_requires_the_resolved_receptor_set(
@@ -1669,54 +1793,6 @@ OBSERVABLE_AZIMUTH_UV_RAD = np.pi / 4.0
 OBSERVABLE_ZENITH_ANGLE_RAD = np.pi / 4.0
 
 
-def test_t_of_phi_is_non_identity_and_non_symmetric_where_it_is_exercised() -> None:
-    """Corrected Section 5.2.1: the retired stored-non-identity fixture is
-    replaced by ``T(phi)`` itself, "real, non-identity, non-symmetric, and
-    direction-dependent", so a transpose mistake cannot be absorbed into a
-    constant relabelling.
-
-    This green control proves the probe azimuth actually has that property
-    before any test relies on it.
-    """
-    matrix = tangent_conversion(float(radiosim_azimuth_rad(OBSERVABLE_AZIMUTH_UV_RAD)))
-
-    assert float(np.max(np.abs(matrix - np.eye(2)))) >= SEPARATION_BOUND
-    assert float(np.max(np.abs(matrix - matrix.T))) >= SEPARATION_BOUND
-    # Direction dependence: a second azimuth gives a genuinely different matrix.
-    other = tangent_conversion(
-        float(radiosim_azimuth_rad(OBSERVABLE_AZIMUTH_UV_RAD + 1.0))
-    )
-    assert float(np.max(np.abs(matrix - other))) >= SEPARATION_BOUND
-
-
-def test_the_conversion_is_observable_under_transpose_and_conjugation() -> None:
-    """Corrected Section 5.2 and 5.2.1's replacement observability control.
-
-    The frozen sum uses ``T(phi)`` with "no conjugation and no implicit
-    transpose". Substituting ``T(phi).T`` or conjugating the complex efield
-    samples must both change ``J_native`` by more than the frozen separation
-    bound, which is what makes the production comparison below a real test of
-    the mapping rather than of a symmetric coincidence.
-    """
-    phi = float(radiosim_azimuth_rad(OBSERVABLE_AZIMUTH_UV_RAD))
-    data = np.asarray(
-        quadrupolar_components_at(
-            OBSERVABLE_AZIMUTH_UV_RAD, OBSERVABLE_ZENITH_ANGLE_RAD
-        ),
-        dtype=np.complex128,
-    )
-    assert float(np.max(np.abs(data.imag))) >= SEPARATION_BOUND
-
-    frozen = convert_native_jones(data, phi)
-    transposed = np.einsum("af,ca->fc", data, tangent_conversion(phi))
-    conjugated = convert_native_jones(np.conj(data), phi)
-    swapped_rows = np.einsum("fa,ac->fc", data, tangent_conversion(phi))
-
-    assert float(np.max(np.abs(frozen - transposed))) >= SEPARATION_BOUND
-    assert float(np.max(np.abs(frozen - conjugated))) >= SEPARATION_BOUND
-    assert float(np.max(np.abs(frozen - swapped_rows))) >= SEPARATION_BOUND
-
-
 def quadrupolar_components_at(
     azimuth_uv_rad: float,
     zenith_angle_rad: float,
@@ -1733,14 +1809,111 @@ def quadrupolar_components_at(
     )
 
 
-def test_the_production_conversion_uses_t_of_phi_untransposed_and_unconjugated(
+def corrupted_conversions() -> dict[str, np.ndarray]:
+    """Return corrected Section 5.2.1's three frozen corrupted matrices.
+
+    "Three distinct corruptions each change the result measurably: replacing
+    ``M`` by ``-M`` -- which is simultaneously the transposed and the negated
+    matrix, since ``M^T = -M`` exactly, so those two are one corruption and not
+    two; replacing ``M`` by ``|M|``, the superseded symmetric swap; and
+    transposing the feed and component indices to compute ``J[c,f]``."
+    """
+    matrix = chain_conversion()
+    return {
+        "negated_which_is_also_transposed": -matrix,
+        "superseded_symmetric_swap": np.abs(matrix),
+    }
+
+
+def test_the_negated_and_transposed_conversions_are_one_corruption() -> None:
+    """Corrected Section 5.2.1: ``M^T = -M`` "exactly, so those two are one
+    corruption and not two", and ``|M|`` is the superseded symmetric swap the
+    first draft of the correction wrongly froze."""
+    matrix = chain_conversion()
+
+    np.testing.assert_array_equal(matrix.T, -matrix)
+    np.testing.assert_array_equal(np.abs(matrix), np.array([[0.0, 1.0], [1.0, 0.0]]))
+    assert float(np.linalg.det(np.abs(matrix))) == -1.0
+
+
+def test_the_conversion_is_observable_under_all_four_frozen_corruptions() -> None:
+    """Corrected Section 5.2.1's frozen observability control.
+
+    "The frozen requirement is a fixture with distinct feed rows, distinct
+    native components, and complex efield samples, on which each of those four
+    corruptions is separately asserted to change ``J_native``", "evaluated at
+    directions where neither the co-polar nor the cross-polar content
+    vanishes".
+
+    The carrier is the **quadrupolar** fixture rather than the crossed-ideal
+    dipole: the dipole oracle reproduces pyuvdata's own ``ShortDipoleBeam``
+    bit-for-bit and is therefore purely real, so a stray conjugation is a
+    no-op on it and the fourth check cannot fire there. The quadrupolar
+    fixture carries a deterministic zenith-angle-only row phase and satisfies
+    every clause of the frozen requirement.
+    """
+    data = quadrupolar_components_at(
+        OBSERVABLE_AZIMUTH_UV_RAD, OBSERVABLE_ZENITH_ANGLE_RAD
+    )
+    assert float(np.max(np.abs(data.imag))) >= SEPARATION_BOUND
+
+    frozen = convert_native_jones(data)
+    # Neither the co-polar nor the cross-polar content vanishes here.
+    ludwig3 = frozen @ ludwig3_map(
+        float(radiosim_azimuth_rad(OBSERVABLE_AZIMUTH_UV_RAD))
+    )
+    assert float(np.min(np.abs(np.diagonal(ludwig3)))) >= SEPARATION_BOUND
+    assert float(np.min(np.abs([ludwig3[0, 1], ludwig3[1, 0]]))) >= SEPARATION_BOUND
+
+    for label, corrupted in corrupted_conversions().items():
+        observed = convert_native_jones(data, corrupted)
+        assert float(np.max(np.abs(frozen - observed))) >= SEPARATION_BOUND, label
+    index_transposed = np.einsum("fa,ac->fc", data, chain_conversion())
+    assert float(np.max(np.abs(frozen - index_transposed))) >= SEPARATION_BOUND
+    conjugated = convert_native_jones(np.conj(data))
+    assert float(np.max(np.abs(frozen - conjugated))) >= SEPARATION_BOUND
+
+
+def test_the_crossed_dipole_oracle_cannot_carry_the_conjugation_check() -> None:
+    """The honest reason the carrier above is the quadrupolar fixture.
+
+    Corrected Section 5.2.1 names the crossed-ideal-dipole oracle as "the
+    natural carrier" of all four checks. Three of the four do fire on it, but
+    the conjugation check cannot: the oracle reproduces
+    ``pyuvdata.analytic_beam.ShortDipoleBeam._efield_eval`` bit-for-bit and
+    that model is purely real, so conjugating its samples is exactly the
+    identity. This control records that measurement rather than leaving the
+    gap to be rediscovered.
+    """
+    data = np.asarray(
+        crossed_ideal_dipole_components(
+            azimuth_uv_rad=OBSERVABLE_AZIMUTH_UV_RAD,
+            zenith_angle_rad=OBSERVABLE_ZENITH_ANGLE_RAD,
+        ),
+        dtype=np.complex128,
+    )
+    np.testing.assert_array_equal(data.imag, np.zeros_like(data.imag))
+
+    frozen = convert_native_jones(data)
+    np.testing.assert_array_equal(frozen, convert_native_jones(np.conj(data)))
+    for corrupted in corrupted_conversions().values():
+        assert (
+            float(np.max(np.abs(frozen - convert_native_jones(data, corrupted))))
+            >= SEPARATION_BOUND
+        )
+    index_transposed = np.einsum("fa,ac->fc", data, chain_conversion())
+    assert float(np.max(np.abs(frozen - index_transposed))) >= SEPARATION_BOUND
+
+
+def test_the_production_conversion_is_the_frozen_chain_matrix(
     tmp_path: Path,
 ) -> None:
     """The production side of the same control.
 
-    ``C @ E`` recovers ``J_native``, which must equal the frozen ``T(phi)``
-    mapping of the file's own stored components and must differ from both the
-    transposed and the conjugated variants by more than the separation bound.
+    ``C @ E`` recovers ``J_native``, which must equal the frozen ``M`` mapping
+    of the file's own stored components and must differ from every corrupted
+    variant, from the shipped ``T(phi) = M S(phi)``, and from the conjugated
+    samples by more than the separation bound.
     """
     written = write_efield_beamfits(tmp_path, science=EfieldScienceVariant.QUADRUPOLAR)
     system, receptor_set, _state = load_efield_system(
@@ -1761,12 +1934,16 @@ def test_the_production_conversion_uses_t_of_phi_untransposed_and_unconjugated(
     native = receptor_matrix(receptor.basis, receptor.feed_rotation_rad) @ response[0]
 
     data = quadrupolar_components_at(azimuth_uv, zenith_angle)
-    expected = convert_native_jones(data, phi)
-    transposed = np.einsum("af,ca->fc", data, tangent_conversion(phi))
-    conjugated = convert_native_jones(np.conj(data), phi)
+    expected = convert_native_jones(data)
 
     assert float(np.max(np.abs(native - expected))) <= combined_bound(expected, native)
-    assert float(np.max(np.abs(native - transposed))) >= SEPARATION_BOUND
+    for label, corrupted in corrupted_conversions().items():
+        observed = convert_native_jones(data, corrupted)
+        assert float(np.max(np.abs(native - observed))) >= SEPARATION_BOUND, label
+    # The shipped conversion computed the Ludwig-3 matrix instead.
+    shipped = expected @ ludwig3_map(phi)
+    assert float(np.max(np.abs(native - shipped))) >= SEPARATION_BOUND
+    conjugated = convert_native_jones(np.conj(data))
     assert float(np.max(np.abs(native - conjugated))) >= SEPARATION_BOUND
 
 
@@ -2002,3 +2179,297 @@ def test_a_rotated_linear_receptor_records_the_none_orientation_verdict(
     provenance = system.state.handlers[0].file
     assert provenance is not None
     assert provenance.derived_x_orientation_verdict == "none"
+
+
+# ==============================================================================
+# Red: the corrected zenith de-spin, wrap second difference, and carve-out
+# ==============================================================================
+#
+# The accepted bounded chain-basis and comparison correction replaced the frozen
+# conversion with the constant ``M``, withdrew the zenith equality form for the
+# de-spin predicate, replaced the first-difference wrap witness with a
+# second-difference one compared against the interior **maximum**, and granted
+# ``tests/unit/test_tier1h_documentation.py`` exactly one foreign-schema
+# carve-out for the Stage-3 comparison artifact.
+
+#: Section 7.4's frozen Stage-3 comparison-artifact schema literal and the
+#: dated basename the carve-out must assert.
+STAGE3_CROSSVALIDATION_SCHEMA = "radiosim.sci005.stage3-crossvalidation.v1"
+STAGE3_CROSSVALIDATION_BASENAME_SUFFIX = "-sci005-efield-pyuvsim-1.4.0.json"
+
+#: The densities corrected Section 5.2.1 records the second-difference ratio as
+#: exactly ``1.000000`` at, "which is the density independence the derivation
+#: predicts".
+SECOND_DIFFERENCE_DENSITIES: tuple[int, ...] = (8, 32, 180, 360)
+
+
+def second_difference_ratio(matrices: np.ndarray) -> tuple[float, float]:
+    """Return ``(seam, interior_max)`` of corrected Section 5.2.1's predicate.
+
+    ``Delta^2_k = J_{k+1} - 2 J_k + J_{k-1}`` entrywise on a cyclically indexed
+    azimuth row; ``Delta^2_0`` is centred on the seam sample and "the interior
+    maximum excludes the two samples adjacent to the seam".
+    """
+    stacked = np.asarray(matrices)
+    count = stacked.shape[0]
+    second = np.stack(
+        [
+            stacked[(k + 1) % count] - 2.0 * stacked[k] + stacked[k - 1]
+            for k in range(count)
+        ]
+    )
+    seam = float(np.max(np.abs(second[0])))
+    interior = float(np.max(np.abs(second[2 : count - 1])))
+    return seam, interior
+
+
+def converted_azimuth_row(
+    science: EfieldScienceVariant,
+    zenith_angle_rad: float,
+    azimuth_count: int,
+) -> np.ndarray:
+    """Return one converted azimuth row of a science at that sampling."""
+    from tests.fixtures.beamfits import efield_grid_axes, quadrupolar_components
+
+    azimuth, _zenith = efield_grid_axes(azimuth_count, 5)
+    component = (
+        crossed_ideal_dipole_components
+        if science is EfieldScienceVariant.CROSSED_IDEAL_DIPOLE
+        else quadrupolar_components
+    )
+    return np.stack(
+        [
+            convert_native_jones(
+                component(azimuth_uv_rad=value, zenith_angle_rad=zenith_angle_rad)
+            )
+            for value in azimuth
+        ]
+    )
+
+
+@pytest.mark.parametrize("science", list(EfieldScienceVariant))
+@pytest.mark.parametrize("azimuth_count", SECOND_DIFFERENCE_DENSITIES)
+def test_the_second_difference_wrap_ratio_is_density_independent(
+    science: EfieldScienceVariant,
+    azimuth_count: int,
+) -> None:
+    """Corrected Section 5.2.1: "on the committed crossed-dipole and
+    quadrupolar fixtures the ratio is exactly ``1.000000`` at 8, 32, 180, and
+    360 azimuth samples, which is the density independence the derivation
+    predicts".
+
+    That is the property the replacement rests on: "For a twice-differentiable
+    periodic row sampled at step ``h``, every ``Delta^2_k`` equals
+    ``h^2 J''(xi_k)`` ... so seam and interior second differences are the same
+    order for *every* sampling density and their ratio is bounded independently
+    of ``h``."
+    """
+    for zenith_angle in (0.2, 0.8, 1.3):
+        row = converted_azimuth_row(science, zenith_angle, azimuth_count)
+        seam, interior = second_difference_ratio(row)
+        assert interior > 0.0
+        ratio = seam / interior
+        assert abs(ratio - 1.0) <= 1e-6
+        assert ratio <= WRAP_SECOND_DIFFERENCE_FACTOR
+
+
+def test_the_first_difference_witness_is_not_density_independent() -> None:
+    """The defect the replacement removes, measured rather than asserted.
+
+    Corrected Section 5.2.1: the superseded witness "is mathematically valid
+    only when sampling symmetry makes those two equal -- true on the
+    eight-azimuth fixture and false in general". The header records the exact
+    pair the shipped predicate rejected at 32 by 17, ``0.19134`` against
+    ``0.16221``; the same smooth beam is reproduced here.
+    """
+    coarse = converted_azimuth_row(EfieldScienceVariant.CROSSED_IDEAL_DIPOLE, 0.8, 8)
+    fine = converted_azimuth_row(EfieldScienceVariant.CROSSED_IDEAL_DIPOLE, 0.8, 32)
+
+    def first_difference(row: np.ndarray) -> tuple[float, float]:
+        return (
+            float(np.max(np.abs(row[-1] - row[0]))),
+            float(np.max(np.abs(row[-2] - row[-1]))),
+        )
+
+    coarse_seam, coarse_adjacent = first_difference(coarse)
+    fine_seam, fine_adjacent = first_difference(fine)
+
+    # Symmetric at eight samples -- which is why the fixture never exposed it.
+    assert abs(coarse_seam - coarse_adjacent) <= combined_bound(coarse)
+    # And genuinely asymmetric once the same beam is sampled more finely.
+    assert fine_seam - fine_adjacent >= max(1e-3, 1024.0 * ATOL)
+
+
+@pytest.mark.parametrize(
+    ("azimuth_count", "zenith_count"),
+    [(32, 17), (180, 91)],
+)
+def test_a_finer_sampling_of_the_same_smooth_beam_is_accepted(
+    tmp_path: Path,
+    azimuth_count: int,
+    zenith_count: int,
+) -> None:
+    """Corrected Section 5.2.1: the shipped predicate "rejected finer samplings
+    of the *same smooth beam*: ``0.19134`` against ``0.16221`` at 32 by 17, and
+    ``0.034878`` against ``0.034708`` at 180 by 91".
+
+    Nothing about these files is different in kind from the committed
+    eight-azimuth fixture; only the sampling density changes. A predicate that
+    rejects them is rejecting arithmetic, not physics.
+    """
+    from tests.fixtures.beamfits import efield_grid_axes
+
+    azimuth, zenith_angle = efield_grid_axes(azimuth_count, zenith_count)
+    root = tmp_path / f"{azimuth_count}x{zenith_count}"
+    written = write_efield_beamfits(
+        root,
+        zenith_angle_rad=zenith_angle,
+        azimuth_uv_rad=azimuth,
+    )
+    system, _receptors, _state = load_efield_system(
+        root,
+        path=written.path,
+        receptors=receptors_block(),
+    )
+
+    response = evaluate(system)
+    assert response.shape == (PROBE_ALTITUDE_RAD.size, 2, 2)
+    assert np.all(np.isfinite(response))
+
+
+def test_a_genuine_seam_discontinuity_is_still_rejected(tmp_path: Path) -> None:
+    """The other half of the continuity contract, unchanged in outcome.
+
+    The fixture carries a sawtooth azimuth ramp on every zenith-angle row but
+    the first, so its zenith row still satisfies the de-spin predicate and the
+    rejection is the wrap predicate's alone. Both halves are measured here from
+    the frozen definitions before the load is attempted, so the control cannot
+    silently become a zenith rejection wearing a wrap label.
+    """
+    from tests.fixtures.beamfits import build_seam_discontinuous_efield_uvbeam
+
+    beam = build_seam_discontinuous_efield_uvbeam()
+    stored = np.asarray(beam.data_array)
+    azimuth = np.asarray(beam.axis1_array, dtype=np.float64)
+
+    zenith_row = np.stack(
+        [
+            convert_native_jones(stored[:, :, 0, 0, index])
+            for index in range(azimuth.size)
+        ]
+    )
+    de_spun = np.stack(
+        [
+            zenith_row[index] @ despin_rotation(float(azimuth[index])).T
+            for index in range(azimuth.size)
+        ]
+    )
+    assert float(np.max(np.abs(de_spun - de_spun[0]))) <= combined_bound(de_spun)
+
+    broken_row = np.stack(
+        [
+            convert_native_jones(stored[:, :, 0, 3, index])
+            for index in range(azimuth.size)
+        ]
+    )
+    seam, interior = second_difference_ratio(broken_row)
+    assert seam > WRAP_SECOND_DIFFERENCE_FACTOR * interior + combined_bound(broken_row)
+
+    with pytest.raises(_beam_error("UnsupportedBeamCoordinateError")):
+        load_efield_system(tmp_path, beam=beam, receptors=receptors_block())
+
+
+def test_the_production_zenith_row_satisfies_the_de_spin_predicate(
+    tmp_path: Path,
+) -> None:
+    """Corrected Section 5.2.1's zenith predicate, through production.
+
+    The solver is evaluated at the zenith from several azimuths, which is the
+    same physical direction sampled at arbitrary ``az_uv``. Under the corrected
+    conversion the recovered ``J_native`` spins with the coordinate and its
+    de-spun form is constant; the withdrawn equality form is the one that
+    fails there, and both halves are asserted so the replacement is a
+    measurement rather than a restatement.
+    """
+    written = write_efield_beamfits(tmp_path)
+    system, receptor_set, _state = load_efield_system(
+        tmp_path,
+        path=written.path,
+        receptors=receptors_block(),
+    )
+
+    radiosim_azimuth = np.array([0.0, 0.9, 2.4, 4.1], dtype=np.float64)
+    azimuth_uv = (np.pi / 2.0 - radiosim_azimuth) % (2.0 * np.pi)
+    response = evaluate(
+        system,
+        altitude_rad=np.full(radiosim_azimuth.size, np.pi / 2.0),
+        azimuth_rad=radiosim_azimuth,
+    )
+    receptor = receptor_set.receptor_by_antenna[ANT0]
+    composed_receptor = receptor_matrix(receptor.basis, receptor.feed_rotation_rad)
+    native = composed_receptor @ response
+
+    de_spun = np.stack(
+        [
+            native[index] @ despin_rotation(float(azimuth_uv[index])).T
+            for index in range(azimuth_uv.size)
+        ]
+    )
+    assert float(np.max(np.abs(de_spun - de_spun[0]))) <= combined_bound(de_spun)
+    assert float(np.max(np.abs(native - native[0]))) >= SEPARATION_BOUND
+
+
+# --- the granted documentation carve-out --------------------------------------
+
+
+def _documentation_walker_source() -> str:
+    from tests.support.repo_scan import REPO_ROOT
+
+    return (REPO_ROOT / "tests" / "unit" / "test_tier1h_documentation.py").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_the_wp6_record_shape_rejects_a_stage_three_artifact() -> None:
+    """The writable-list gap, measured rather than asserted.
+
+    The correction's header: the walker "walks every
+    ``output/crossvalidation/*.json`` with a single foreign-schema carve-out
+    for SCI-007, so the ``D3``-frozen seventeen-key Stage-3 artifact turns the
+    not-slow suite red at one failure in 6667". The WP-6 shape assertions are
+    transcribed here and driven over a synthetic Stage-3 record, so the blocker
+    is a demonstrated fact rather than a claim about a file this module may not
+    edit.
+    """
+    record: dict[str, Any] = {
+        "schema_version": STAGE3_CROSSVALIDATION_SCHEMA,
+        "gating": False,
+    }
+
+    # The SCI-007 carve-out does not catch it: that one keys on ``schema``.
+    assert record.get("schema") != "radiosim-crossvalidation-1.2.0"
+    # And the WP-6 record shape is simply absent from a Stage-3 document.
+    with pytest.raises(KeyError):
+        _ = record["reference"]["version"]
+    assert "cases" not in record
+    assert "claims_not_licensed_by_this_record" not in record
+
+
+def test_the_documentation_walker_carries_the_stage_three_carve_out() -> None:
+    """Section 7.4's granted bounded carve-out.
+
+    "The grant is bounded to exactly one added carve-out mirroring the existing
+    SCI-007 pattern: records whose ``schema_version`` equals the frozen Stage-3
+    literal are skipped by the WP-6 shape assertions and are instead asserted
+    to carry the frozen dated basename of Section 7.4."
+
+    The edit itself belongs to the re-cut ``S3``; this is the red that proves
+    the walker does not carry it yet, and it is authored here rather than in
+    that module because Section 7.4 forbids any other change to it.
+    """
+    source = _documentation_walker_source()
+
+    assert STAGE3_CROSSVALIDATION_SCHEMA in source
+    assert STAGE3_CROSSVALIDATION_BASENAME_SUFFIX in source
+    # Exactly one carve-out is added: the SCI-007 one keeps its own literal.
+    assert source.count("radiosim-crossvalidation-1.2.0") == 1

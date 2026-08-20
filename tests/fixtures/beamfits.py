@@ -617,6 +617,81 @@ class ForgedInterpolationBasisUVBeam(UVBeam):
         return result
 
 
+#: The finer samplings of the *same smooth beam* that corrected Section 5.2.1's
+#: header records the shipped first-difference predicate as wrongly rejecting,
+#: as ``(Naxes1, Naxes2)`` pairs.
+FINER_EFIELD_GRIDS: tuple[tuple[int, int], ...] = ((32, 17), (180, 91))
+
+
+def efield_grid_axes(
+    azimuth_count: int, zenith_count: int
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Return one ``(azimuth_uv, zenith_angle)`` axis pair of that density.
+
+    The azimuth axis stays endpoint-excluded and zero-origin and the
+    zenith-angle axis still reaches exactly the horizon, so only the sampling
+    density changes: every accepted grid predicate of Section 5.1.1 item 9 is
+    satisfied at every density.
+    """
+    if azimuth_count < 4 or zenith_count < 2:
+        raise ValueError("azimuth_count must be >= 4 and zenith_count >= 2")
+    azimuth = np.linspace(0.0, 2.0 * np.pi, azimuth_count, endpoint=False)
+    zenith_angle = np.linspace(0.0, np.pi / 2.0, zenith_count)
+    return np.asarray(azimuth, dtype=np.float64), np.asarray(
+        zenith_angle, dtype=np.float64
+    )
+
+
+#: The sawtooth amplitude of :func:`build_seam_discontinuous_efield_uvbeam`.
+#: Large enough that the seam second difference clears eight times the interior
+#: maximum on the sampling below, which corrected Section 5.2.1 requires of a
+#: detectable jump: "the predicate is deliberately not claimed to detect a seam
+#: jump smaller than the row's own local curvature scale".
+SEAM_DISCONTINUITY_AMPLITUDE = 3.0
+
+
+def build_seam_discontinuous_efield_uvbeam(
+    *,
+    science: EfieldScienceVariant = EfieldScienceVariant.CROSSED_IDEAL_DIPOLE,
+    dtype: Any = np.complex128,
+    azimuth_count: int = 32,
+    zenith_count: int = 17,
+    amplitude: float = SEAM_DISCONTINUITY_AMPLITUDE,
+) -> UVBeam:
+    """Build a file with a genuine azimuth-seam discontinuity and nothing else.
+
+    A sawtooth ramp ``1 + amplitude * az_uv / (2 pi)`` multiplies the smooth
+    science on every zenith-angle row **except the first**. The ramp is linear,
+    so interior second differences stay of the smooth row's own order while the
+    seam second difference gains the whole jump; leaving the ``za = 0`` row
+    untouched keeps Section 5.2.1's zenith predicate satisfied, so the file
+    fails the wrap-continuity predicate and that predicate alone.
+
+    That exclusion matters: the superseded fixture perturbed the last azimuth
+    column of *every* row, which broke the zenith row too. Because the zenith
+    predicate is evaluated first and raises the same
+    ``UnsupportedBeamCoordinateError``, the probe passed while never exercising
+    the predicate it is named for.
+    """
+    science = _require_efield_science(science)
+    azimuth, zenith_angle = efield_grid_axes(azimuth_count, zenith_count)
+    data = efield_grid_data(
+        science=science,
+        dtype=dtype,
+        zenith_angle_rad=zenith_angle,
+        azimuth_uv_rad=azimuth,
+    )
+    ramp = 1.0 + float(amplitude) * (azimuth / (2.0 * np.pi))
+    data[:, :, :, 1:, :] = data[:, :, :, 1:, :] * ramp[np.newaxis, np.newaxis, :]
+    return build_efield_uvbeam(
+        science=science,
+        dtype=dtype,
+        zenith_angle_rad=zenith_angle,
+        azimuth_uv_rad=azimuth,
+        data_array=data,
+    )
+
+
 def forge_interpolation_basis(beam: UVBeam) -> UVBeam:
     """Return ``beam`` re-typed so its interpolation violates the contract."""
     if not isinstance(beam, UVBeam):
@@ -791,6 +866,7 @@ def build_efield_uvbeam(
     mount_type: str = "fixed",
     data_normalization: str = "peak",
     zenith_angle_rad: NDArray[np.float64] | None = None,
+    azimuth_uv_rad: NDArray[np.float64] | None = None,
     basis_vector_array: NDArray[Any] | None = None,
     bandpass_array: NDArray[np.float64] | None = None,
     data_array: NDArray[Any] | None = None,
@@ -807,7 +883,7 @@ def build_efield_uvbeam(
     if feeds not in _EFIELD_FEED_ANGLES:
         raise ValueError("feed_array must be exactly ('x', 'y') or ('r', 'l')")
     frequencies = canonical_frequency_grid()
-    azimuth = canonical_azimuth_grid()
+    azimuth = canonical_azimuth_grid() if azimuth_uv_rad is None else azimuth_uv_rad
     zenith_angle = (
         canonical_zenith_angle_grid() if zenith_angle_rad is None else zenith_angle_rad
     )
@@ -1054,11 +1130,11 @@ def build_efield_variant(
             ),
         )
     if variant is UnsupportedEfieldVariant.WRAP_CONTINUITY:
-        beam = build_efield_uvbeam(science=science, dtype=dtype)
-        data = np.array(beam.data_array, copy=True)
-        data[..., -1] = data[..., -1] + 0.5
-        beam.data_array = data
-        return EfieldVariantFixture(variant, classification, beam)
+        return EfieldVariantFixture(
+            variant,
+            classification,
+            build_seam_discontinuous_efield_uvbeam(science=science, dtype=dtype),
+        )
     if variant is UnsupportedEfieldVariant.BASIS_VECTOR_NOT_IDENTITY:
         return EfieldVariantFixture(
             variant,
