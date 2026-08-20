@@ -1066,6 +1066,90 @@ froze the closed-form derivation, and both reviewers then issued their
 its own earlier period statement in the process — and landed with only this
 record sentence added.
 
+**Bounded Stage-3 evidence-disposal correction — 2026-08-20.** The fourth
+`S3` (`7ad0931adacd7f5555b5572c54a746a58880ee9b`) landed the witness-adequacy
+guard, the builder-digest fix, the schema description, and the fourteen-commit
+interval table exactly as the evidence-projection correction froze them, and
+then **stopped and reported** a genuine gap that correction did not rule: what
+becomes of a superseded evidence commit's bytes. The stop was correct, the
+report is adopted here, and everything that `S3` landed is inherited unchanged.
+
+Its two measured consequences are the finding. First, `f09716a` left three
+things in the tree — `docs/development/sci005_stage3_evidence.json`, whose
+four `receptor_factorizations` rows carry the coincident digests that *are*
+the `A3` blocker; the dated cross-validation record beside it; and the two
+flipped sentinels. The newly mandated guard now rejects that stale artifact,
+so `test_the_stage3_artifact_and_its_null_sentinels_agree` fails and the suite
+at `7ad0931` stands at 6706 passed, 1 failed. That red is the direct
+consequence of the unruled mechanics, is recorded in full in that commit's own
+body, and is **not** an implementation defect. Second, and independent of the
+guard, Section 7.5's `S`-state — official evidence JSON absent, both sentinels
+the literal `None` — is simply false at `7ad0931`; and its `Ei` rule, which
+permits only *adding* the artifact and flipping sentinels *from* `None` and
+declares an artifact replacement invalid, together with Section 5.5's "no
+existing cross-validation artifact is overwritten", make a regenerating `E3`
+illegal for as long as the stale bytes remain. And were the regeneration to
+run on the same UTC day, the new dated record would collide with the stale one
+at the identical basename.
+
+The ruling restores the frozen invariants rather than amending them, which is
+the only disposal that leaves `Ei` untouched. Section 7.5 now states that when
+a header-recorded correction supersedes an evidence commit, the reopened
+slice's `S` commit must re-establish the `Ei` preconditions: delete the
+superseded stage evidence artifact, delete the superseded dated
+cross-validation record, and return both stage sentinels to the literal
+`None`. The regenerating `Ei` then runs under the **unchanged** rule, adding
+an artifact to a path that is absent and flipping sentinels that are `None`,
+with no replacement semantics needed anywhere. Two adjacent prohibitions are
+ruled inapplicable and the reason is the same for both: Section 7.5's ban on
+artifact replacement and Section 5.5's ban on overwriting protect **accepted**
+records, and a header-recorded superseded artifact was never accepted — its
+`A3` returned `REJECT`. Removing it is disposal of a rejected draft, not
+replacement of a record. The dated-basename question follows immediately: with
+the stale record deleted at the `S` commit, the regenerated record may lawfully
+take the same dated path even on the same UTC day, because the path is absent
+when `Ei` writes it.
+
+The implementer probed the fix before reporting and reverted it byte-exactly:
+deleting the two superseded artifacts and re-nulling the two sentinels — which
+is precisely Section 7.5's `S`-state — turns green the two modules that
+reference the approved Stage-3 constants,
+`tests/unit/test_sci005_evidence.py` and
+`tests/unit/test_sci005_stage3_acceptance.py`, at **309 passed, 0 failed**
+(245 and 64 respectively). That measurement is what makes this a bounded
+bookkeeping ruling rather than an open question, which is exactly why the
+number had to be right: this correction's first draft carried the implementer's
+reported `440`, the pre-landing computational review could not reproduce it in
+a rebuilt `S`-state worktree, and re-measurement here in a throwaway worktree
+at `7ad0931` returns `309` — the reviewer's figure, reproduced independently.
+No scoping of "the affected modules" yields `440`; the two named modules are
+the only ones referencing those constants, and the two further modules that
+carry the dated basename as a literal do not branch on the `S`-state at all.
+This is the third time a bounding or supporting figure asserted without exact
+re-derivation has been caught by this programme's independent reviews, after
+the linear-reflection theorem and the circular unit-eigenvalue bound; the
+pattern is recorded rather than tidied away, because it is the reason the
+review discipline exists.
+
+This correction supersedes `0601ddc710d954fb76849ee95fba5cacbb5ba5b0` as the
+operative `D3` once its exact bytes are independently accepted. It reopens the
+red slice (`5fd0f7ff653b7be4856a6a0646559a5875435521`) for a sixth governed
+re-cut and the implementation (`7ad0931adacd7f5555b5572c54a746a58880ee9b`) for
+a fifth `S3`, with expected diffs frozen in Section 8.3. It implements no beam
+physics, accepts no stage, and does not close the register row. Its exact
+pre-landing memo bytes
+(`sha256:c4f9c49bf5d7b3067f95d7562c857c6c33f6803c2d959caed326be1f18cacfc5`)
+and parent-relative diff
+(`sha256:1ee3a93643900edeffac905dfdce5c35edf3145cfb0c4b9aec8d4b9de5063fab`)
+received separate fresh independent governance and computational reviews on
+2026-08-20 — the governance review accepted the first draft with one minor
+clause finding, the computational review refuted its inherited `440` probe
+figure and measured the true `309`, a micro-delta corrected both after the
+drafter re-measured the figure itself, and both reviewers then issued their
+`ACCEPT` verdicts on exactly these pins, each having rebuilt the disposal
+`S`-state in its own throwaway worktree and reproduced `309` independently —
+and landed with only this record sentence added.
+
 **Status:** Stage 1 and Stage 2 are both accepted and closed as stages. The
 operative `D1` is `c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted
 Stage-1 succession is
@@ -1085,7 +1169,7 @@ U2 f275e7538a19f713b99e07563a1c5a2a45e83a3d`. Both stages' retained evidence
 and acceptance artifacts are authenticated by their approved validator
 constants. The commit containing this amendment is the operative `D3` once
 its exact bytes are independently accepted per Section 7.1; it reaches `U2`
-through Section 8.3's starred edge `U2 ->* D3`, whose fourteen interval commits
+through Section 8.3's starred edge `U2 ->* D3`, whose seventeen interval commits
 this memo's header enumerates by SHA. Stage 3
 may begin `R3` only after that acceptance, with `R3^ == D3`, and must
 complete its own source, evidence, acceptance, and status succession through
@@ -3859,7 +3943,10 @@ superseded Stokes-`V`-flip reasoning.
 
 The retained artifact lives under `output/crossvalidation/`, is generated from
 a clean source SHA before it exists, and is authenticated by a standard-suite
-schema/digest test. No existing cross-validation artifact is overwritten. The
+schema/digest test. No existing cross-validation artifact is overwritten —
+a prohibition that protects **accepted** records, and which Section 7.5's
+disposal rule therefore leaves untouched when a header-recorded superseded,
+never-accepted record is deleted at a reopened `S` commit. The
 standalone `validate` command Section 8.1 freezes is recorded in
 `output/crossvalidation/README.md` by `S3`; the superseded `S3` omitted that
 already-writable path, and the re-cut `S3` owes it.
@@ -4279,6 +4366,27 @@ following successor authority is exhaustive:
   `output/crossvalidation/<date>-sci005-efield-pyuvsim-1.4.0.json` generated
   from clean `S3`; that file is authenticated by the Stage-3 evidence artifact
   and is the sole phase-specific addition to this `E` rule.
+- **Disposal of a superseded evidence commit.** When a header-recorded
+  correction supersedes an evidence commit, the reopened slice's `S` commit
+  must **restore the `Ei` preconditions**: it deletes the superseded stage
+  evidence artifact `docs/development/sci005_stage{i}_evidence.json`, deletes
+  the superseded dated cross-validation record where the stage has one, and
+  returns `APPROVED_STAGE{i}_SOURCE_SHA` and
+  `APPROVED_STAGE{i}_EVIDENCE_ARTIFACT_SHA256` to the literal `None`. That
+  re-establishes the `S`-state described above exactly, so the regenerating
+  `Ei` then runs under the **unchanged** rule immediately preceding: it adds an
+  artifact to an absent path and flips sentinels that are `None`, and no
+  replacement semantics are introduced anywhere. Two adjacent prohibitions do
+  not apply, for one reason: the ban on artifact replacement in this section
+  and the ban on overwriting a cross-validation artifact in Section 5.5 both
+  protect **accepted** records, and a header-recorded superseded artifact was
+  never accepted — the `A` that would have accepted it returned `REJECT`.
+  Deleting it is disposal of a rejected draft, not replacement of a record.
+  It follows that the regenerated dated record may lawfully take the same
+  dated basename even when regenerated on the same UTC day, because the path
+  is absent at the moment `Ei` writes it. This disposal is authorized only for
+  an artifact the memo header records as superseded; an accepted evidence
+  artifact is immutable, and no `S` commit may touch one.
 - `Ai` adds only `docs/development/sci005_stage{i}_acceptance.json`, changes
   only `APPROVED_EVIDENCE_SHA` and
   `APPROVED_ACCEPTANCE_ARTIFACT_SHA256` in
@@ -5728,7 +5836,7 @@ acquired: no acceptance artifact at
 have written them returned `REJECT`. A validator distinguishes the two by
 exactly that absence.
 
-The observed interval at this correction is exactly fourteen
+The observed interval at this correction is exactly seventeen
 commits, in ancestry order.
 
 1. `2adc2acca8606b3a9774e14f28725a5687c0ecc8` — superseded design gate, the
@@ -5835,19 +5943,33 @@ commits, in ancestry order.
     `tests/unit/test_sci005_evidence.py` for the two sentinel flips. It
     carries no acceptance artifact and no approved acceptance constant,
     because its `A3` returned `REJECT`.
+15. `0601ddc710d954fb76849ee95fba5cacbb5ba5b0` — superseded design gate, the
+    evidence-projection correction; touches exactly
+    `docs/development/sci005_beam_physics_plan.md`.
+16. `5fd0f7ff653b7be4856a6a0646559a5875435521` — superseded red slice, reopened
+    by the evidence-disposal correction; touches exactly the one Section 7.4
+    test path `tests/unit/test_sci005_evidence.py`.
+17. `7ad0931adacd7f5555b5572c54a746a58880ee9b` — superseded **implementation**
+    commit, the fourth of that kind; touches exactly four Section 7.4 paths:
+    `docs/development/sci005_stage3_evidence.schema.json`,
+    `tests/unit/test_sci005_evidence.py`,
+    `tests/unit/test_sci005_stage3_acceptance.py`, and
+    `tools/sci005_stage3_acceptance.py`. It carries one known failing test,
+    recorded in its own commit body, which is the consequence of the disposal
+    mechanics this correction rules and not an implementation defect.
 
-All fourteen entries above are interval commits. Two counting traps are worth
+All seventeen entries above are interval commits. Two counting traps are worth
 naming, because both have caught this memo before: a design correction that is
 superseded **joins** the interval at the moment of supersession rather than
-staying outside it as the operative `D3`, and so entries 8 and 11 are both in
-the interval; and the count is therefore not "the previous total plus the new
-commits" but the whole walk.
-`git rev-list --count f275e75..f09716a` returns exactly `14`, and
-`git rev-list --reverse` returns these fourteen in this order. The operative
+staying outside it as the operative `D3`, and so entries 8, 11, and 15 are all
+in the interval; and the count is therefore not "the previous total plus the
+new commits" but the whole walk.
+`git rev-list --count f275e75..7ad0931` returns exactly `17`, and
+`git rev-list --reverse` returns these seventeen in this order. The operative
 `D3` — the commit containing this
-correction, touching only this memo — is the fifteenth, outside the interval.
+correction, touching only this memo — is the eighteenth, outside the interval.
 
-None of the fourteen carries a production, tool, schema, or documentation byte
+None of the seventeen carries a production, tool, schema, or documentation byte
 outside its own kind's allowance. Across the
 interval every Section 7.4 path marked `successor only` remains absent, and
 every path marked `new` remains absent except where a header-recorded
@@ -5864,47 +5986,57 @@ The operative `D3` — the commit containing the latest header-recorded
 correction — touches exactly
 `docs/development/sci005_beam_physics_plan.md` and no other path.
 
-The reopening the carve-out and comparability correction ordered is discharged
-by interval entries 12 through 14 and is not restated. The evidence-projection
-correction reopens two commits afresh, and their expected diffs are frozen
-here so the acceptance reviewer can hold them to it rather than accept
-whatever arrives.
+The reopenings ordered by the carve-out, comparability, and
+evidence-projection corrections are discharged by interval entries 12 through
+17 and are not restated. The evidence-disposal correction reopens two commits
+afresh, and their expected diffs are frozen here.
 
-The fifth governed re-cut `R3` adds exactly one red and changes nothing else:
-a synthetic Stage-3 evidence document whose `receptor_factorizations` rows
-carry `composed_e.c_order_sha256` equal to `j_native.c_order_sha256` must be
-**rejected** by the evidence validator as an inadequate witness. The red is
-written in the witness-adequacy form Section 8.1 freezes — the document it
-rejects is a *legitimately computable* one, since the linear `C` is a
-reflection whose `+1` eigenspace admits `E == J_native`, and it is rejected
-because such a scenario cannot witness the factorization, not because it is
-unphysical. It fails against the inherited tree
-because no such rule exists there yet, which is what makes it a genuine red.
-It belongs with the synthetic-document tests in
-`tests/unit/test_sci005_evidence.py`, which Section 7.4 already grants for
-Stage 3 — that module carries shared red, source, and evidence authority on
-the stage list, so the re-cut needs no new grant. No physics red moves,
-because no physics changed at this correction.
+The sixth governed re-cut `R3` adds exactly one red in
+`tests/unit/test_sci005_evidence.py`, and its **form is frozen as carefully as
+its content**, because the obvious phrasing would be a trap. That module's
+`S`/`E`-state tests are deliberately *state-agnostic*: each branches on the
+sentinel pair, asserting the artifact absent when both are `None` and
+validating it fully when both are set. An unconditional assertion that the
+artifact is absent and the sentinels are `None` would therefore pass after the
+`S3` and then **fail forever after `E3`**, making the regeneration this
+correction exists to enable permanently impossible. The red is instead a
+**state-coupled disposal invariant**: whenever the Stage-3 sentinels are the
+literal `None`, both the official Stage-3 evidence artifact and the dated
+Stage-3 cross-validation record are absent; and whenever they are set, both
+are present and the evidence artifact validates completely under the
+witness-adequacy guard. That fails at the re-cut, where the sentinels are set
+and the retained artifact violates the guard; passes after the `S3`, where
+both are `None` and both files are gone; and passes after `E3`, where both are
+set and the regenerated artifact validates. It adds the coupling the existing
+tests lack — none of them says anything about the dated cross-validation
+record — without duplicating `test_the_stage3_artifact_and_its_null_sentinels_agree`,
+whose failure at the superseded implementation is the consequence this
+correction rules rather than a second defect.
 
-The fourth `S3` then contains, and should contain only: the cross-field guard
-itself in `tests/unit/test_sci005_evidence.py`; the corresponding
-documentation of it in
-`docs/development/sci005_stage3_evidence.schema.json`; and the interval-table
-update in `tools/sci005_stage3_acceptance.py` and its validator from the
-ten-commit form to the **fourteen**-commit form frozen above. Ownership of the
-guard is ruled explicitly, because the two artifacts cannot carry it equally:
-JSON Schema cannot express an inequality between two sibling field values, so
-the schema may only **document** the rule in its `description` text, and the
-stdlib validator in `tests/unit/test_sci005_evidence.py` is its sole normative
-enforcer. A schema that merely describes the rule is conforming; a validator
-that omits it is not.
+The fifth `S3` then contains, and should contain only: the deletion of
+`docs/development/sci005_stage3_evidence.json`; the deletion of the superseded
+dated `output/crossvalidation/<date>-sci005-efield-pyuvsim-1.4.0.json`; the
+re-nulling of `APPROVED_STAGE3_SOURCE_SHA` and
+`APPROVED_STAGE3_EVIDENCE_ARTIFACT_SHA256` to the literal `None` in
+`tests/unit/test_sci005_evidence.py`; and the interval-table update in
+`tools/sci005_stage3_acceptance.py` and its validator from the fourteen-commit
+form to the **seventeen**-commit form frozen above. That last item is not
+optional bookkeeping: the table transcribes the `U2 ->* D3` interval, the
+interval grew with this correction, and a tooling pin that disagrees with the
+memo fails the edge it is meant to authenticate — the fourth `S3` carried the
+same obligation for the same reason.
 
-`E3` then regenerates from the new clean `S3`. The measurement scripts are
+`E3` then regenerates from the new clean `S3` under the **unchanged** frozen
+transaction, which is the whole point of restoring the `S`-state rather than
+amending `Ei`: it writes to an absent path and flips sentinels that are
+`None`. The measurement scripts are
 scratchpad-side and need no repository grant, but the regenerated rows must
 carry the **true** composed `E` in `composed_e` and `e_matrix` — not `C @ E`,
-which is `J_native` — and the new guard makes retaining the old mistake
-impossible: a regenerated document that repeats it is rejected by the
-validator before it can be committed. Any hunk outside the sets above
+which is `J_native` — and the witness-adequacy guard makes retaining the old
+mistake impossible: a regenerated document that repeats it is rejected by the
+validator before it can be committed. The regenerated dated record may reuse
+the same basename even on the same UTC day, because Section 7.5's disposal
+rule leaves that path absent. Any hunk outside the sets above
 is outside the reopening and requires its own bounded correction.
 
 The Stage-3 acceptance validator authenticates that edge from Git objects
