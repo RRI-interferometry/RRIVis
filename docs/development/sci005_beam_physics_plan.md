@@ -840,6 +840,116 @@ findings, a final micro-delta resolved those, and both reviewers then issued
 their `ACCEPT` verdicts on exactly these pins — and landed with only this
 record sentence added.
 
+**Bounded Stage-3 carve-out and comparability correction — 2026-08-20.** An
+advisory governance pre-check of the re-cut succession and a complete `E3`
+dry-run campaign against the re-implemented stage
+(`c38f94b481226fbb0731cdaaecb2d76515881f86`) surfaced six items.
+
+Every number in this block is a **pre-landing dry-run measurement**, recorded
+here as this correction's motivating finding exactly as each prior correction
+block records the measurements that forced it. They were independently
+reproduced by both pre-landing reviews on these pinned bytes. They are **not**
+retained evidence and they establish nothing beyond the rulings this
+correction makes: the citable record for any comparison claim is the retained
+Stage-3 evidence artifact and the dated cross-validation record that `E3`
+will commit, and until those exist no sentence anywhere may cite these numbers
+as a comparison result. Nothing here is a validation of anything.
+
+With that framing, the campaign result belongs first because it is the reason
+the remaining items are small: the corrected physics behaved as the previous
+correction's rulings predicted, end to end. The bounded quantities measured
+`3.325e-4` for the
+total-intensity class and `1.925e-10` for the Stokes-`V` class, both far
+inside the accepted `1.9e-3` frame residual; the reference-frame mirror's
+transfer solve closed at `7.36e-4` absolute and `3.52e-4` relative against a
+per-correlation disagreement measured at `4.16` to `10.24` per cent; and the
+`tier1h` documentation blocker the previous correction granted a carve-out for
+is resolved. Nothing in the chain-basis ruling moved.
+
+The driver is a governance finding against this memo's own grant wording. The
+previous correction bounded the `tests/unit/test_tier1h_documentation.py`
+grant with "no other assertion, record, or carve-out in that module may
+change", and the landed `S3` violated that bound in the letter. The re-cut red
+asserted `source.count("radiosim-crossvalidation-1.2.0") == 1`, but that
+literal appears **three** times at `R3` — once in the walker carve-out and
+twice more in the SCI-007 deep-validator sites — so `S3` satisfied the red by
+extracting a module constant and referencing it from all three, producing
+three diff hunks outside the granted carve-out. The change is behaviourally
+inert, and that was verified; it is nonetheless outside the grant as written.
+Two readings were available and the stricter one is the more defensible: the
+red's `== 1` was an over-encoding this memo never required, and Section 7.5
+nearby already speaks in explicit "byte" and "token" vocabulary. This
+correction therefore restates the bound **byte-scoped** and freezes an
+**additive** encoding for the witness, so that the carve-out is a pure
+insertion and the pre-existing SCI-007 literal count of three is itself
+asserted to be unchanged. The landed constant extraction is recorded here as
+the finding that forced the ruling rather than being quietly normalised.
+
+The second item is comparability. The envelope froze the
+`reference_frame_mirror` ceiling of `1e-3` but never froze the **construction**
+that produces the number, so two regenerations need not be comparable — and
+were not: the adjudication measured `6.8e-5` with one construction while the
+campaign measured `7.36e-4` with a different, parameter-free one. Section 8.1
+now freezes the parameter-free construction as the operative definition. It is
+reproducible from the artifact's own inputs, carries no fitted parameter, and
+collapsed a four-to-ten per cent disagreement to `7.4e-4`; its reassembly
+reproduces the comparison tool's own reference path to `5.03e-14`, so the
+substitution it makes is demonstrably the only difference between them. The
+`1e-3` ceiling is unchanged, and the adjudication's `6.8e-5` is explicitly
+recorded as *not* comparable, the frozen construction governing instead.
+
+Three smaller corrections follow. Section 5.5 said the bounded quantities
+"agree at about `4e-4`", which understates the `V` class by six orders of
+magnitude and blurs exactly the distinction the mechanism predicts — the
+mirror leaves `V` intact — so the expectation is now stated per quantity.
+Section 5.2.1 named the crossed-ideal-dipole oracle "the natural carrier" for
+the transpose and conjugation control, which is false and was confirmed false
+twice: those components are exactly real, bit for bit against
+`ShortDipoleBeam._efield_eval`, so the conjugation check cannot fire on them
+at all, while the quadrupolar fixture carries complex samples and fires all
+four checks. The frozen requirement already said "complex samples" and so
+already pointed at the right carrier; only the naming sentence was wrong.
+Finally, one confirmatory record: the campaign measured that the **superseded**
+first-difference wrap witness would have produced a false `basis_conversions`
+row on the quadrupolar science, `6.56e-1` against an interior bound of
+`6.36e-1`, independently corroborating the sampling-symmetry defect the
+previous correction withdrew; the evidence rows now mirror the
+second-difference predicate.
+
+The edits are confined to Sections 5.2.1 and 5.5, the Stage-3 envelope's
+`reference_frame_mirror` contract, Section 7.4's grant bound, Section 8.3's
+interval enumeration, and the Status block. No physics ruling, tolerance,
+literal, error class, or writable path changes; the chain-basis law, the
+zenith de-spin predicate, the second-difference wrap predicate, the trace
+retirement, the spline equalization, the fourth interval kind, and the Stages
+1-2 exemption all stand exactly as accepted. This correction reopens the
+committed red slice (`76e162cfee5570910a4196baae60ed5b61e36eae`) for a fourth
+governed re-cut and the implementation commit
+(`c38f94b481226fbb0731cdaaecb2d76515881f86`) for a third `S3`; both are
+expected to be very small, and Section 8.3 states their exact expected diffs
+so the acceptance reviewer can hold them to it. One arithmetic correction goes
+with them: the interval is **ten** commits, not the nine a count of "the
+previous seven plus two" suggests, because the superseded chain-basis
+correction itself joins the interval the moment this correction supersedes it.
+`git rev-list f275e75..c38f94b` returns exactly ten, and the
+`tools/sci005_stage3_acceptance.py` interval table must be updated to that
+form rather than to a nine-commit one. The commit containing this
+correction supersedes `41b3a8ed1687526651e109cd2da8cc86d0579010` as the
+operative `D3` once its exact bytes are independently accepted. It implements
+no beam physics, accepts no stage, and does not close the register row. Its
+exact pre-landing memo bytes
+(`sha256:fbad776eef2d88e41229cec6b9f99879a66147c7cf6e951b0ec89e0311f24be5`)
+and parent-relative diff
+(`sha256:eeec48d050ad30dfa8365bf63e89873820203f270807c0d3247732384c1fea9d`)
+received separate fresh independent governance and computational reviews on
+2026-08-20 — both initial reviews returned the same major finding, a stale
+Section 5.5 bullet contradicting the new construction ruling, and the
+governance review additionally required the pre-landing campaign numbers to
+be framed as motivating findings rather than citable evidence; one combined
+delta resolved both together with a minor unbounded-field clarification, and
+both reviewers then issued their `ACCEPT` verdicts on exactly these pins —
+and landed with only this record sentence added.
+
 **Status:** Stage 1 and Stage 2 are both accepted and closed as stages. The
 operative `D1` is `c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted
 Stage-1 succession is
@@ -859,7 +969,7 @@ U2 f275e7538a19f713b99e07563a1c5a2a45e83a3d`. Both stages' retained evidence
 and acceptance artifacts are authenticated by their approved validator
 constants. The commit containing this amendment is the operative `D3` once
 its exact bytes are independently accepted per Section 7.1; it reaches `U2`
-through Section 8.3's starred edge `U2 ->* D3`, whose seven interval commits
+through Section 8.3's starred edge `U2 ->* D3`, whose ten interval commits
 this memo's header enumerates by SHA. Stage 3
 may begin `R3` only after that acceptance, with `R3^ == D3`, and must
 complete its own source, evidence, acceptance, and status succession through
@@ -2998,8 +3108,12 @@ $J[c,f]$. Complex samples make a stray conjugation observable as well, giving
 four checks over three corrupted matrices. The
 frozen requirement is that all four be separately asserted on such a fixture,
 evaluated at directions where neither the co-polar nor the cross-polar content
-vanishes. The crossed-ideal-dipole
-oracle satisfies all of this by construction and is the natural carrier.
+vanishes. The natural carrier is the **quadrupolar** fixture, whose samples are
+genuinely complex and on which all four checks fire. The crossed-ideal-dipole
+oracle cannot serve: its components are exactly real, bit for bit against
+`ShortDipoleBeam._efield_eval`, so a stray conjugation changes nothing there
+and that one check would silently pass. It remains the carrier for the three
+matrix corruptions, which do fire on it.
 
 Interpolation requests the basis vectors explicitly. In pyuvdata 3.2.1
 `UVBeam.interp` takes the keyword-only `return_basis_vector: bool | None`,
@@ -3595,14 +3709,25 @@ relabelling of input Stokes expresses it. The retained expectations therefore
 split, and the split is frozen:
 
 - **Bounds are asserted only on the mechanism-free quantities** — the
-  total-intensity class, `I` and `V` — which agree at about `4e-4`, inside the
-  accepted `1.9e-3` SCI-007 frame residual.
+  total-intensity class and the Stokes-`V` class — stated per quantity because
+  they differ by six orders of magnitude and the difference is a prediction of
+  the mechanism, which leaves `V` intact: the total-intensity class agrees at
+  `3.325e-4` and the `V` class at `1.925e-10`. Both are bounded at the accepted
+  `1.9e-3` SCI-007 frame residual.
 - **The `Q`/`U`-carrying correlations disagree through the recorded mirror**,
-  at four to eleven per cent, and that disagreement is retained as a
-  *structured, mechanism-explained open disagreement* rather than as a
+  measured at `4.16` to `10.24` per cent, and that disagreement is retained as
+  a *structured, mechanism-explained open disagreement* rather than as a
   tolerance failure or a widened bound. It must carry the two `pyradiosky`
-  citations and the measured transfer-solve residual, `6.8e-5`, which is the
-  quantitative claim that the mechanism is complete and sufficient.
+  citations and the transfer-solve residual computed by the **frozen
+  parameter-free construction** of Section 8.1,
+  `local_u_negation_in_reference_coherency_v1`, which is the quantitative
+  claim that the mechanism is complete and sufficient: the absolute residual
+  is ceilinged at `1e-3` and the construction's `reassembly_gap` at `1e-12`,
+  and the pre-landing campaign measured `7.36e-4` absolute and `3.52e-4`
+  relative with a gap of `5.03e-14`. The earlier adjudication's `6.8e-5` came
+  from a *different* construction, is **not comparable** with these numbers,
+  and is superseded: it survives in this memo's header as history only, and
+  the frozen construction governs every retained row.
 
 Nothing here licenses the bare sentence "pyuvsim is wrong": what is retained is
 a mechanism, its line citations, and a measured residual. The comparison
@@ -3956,8 +4081,25 @@ turns the not-slow suite red at one failure in 6667 — a writable-list gap, not
 a defect in either file. The grant is bounded to exactly one added carve-out
 mirroring the existing SCI-007 pattern: records whose `schema_version` equals
 the frozen Stage-3 literal are skipped by the WP-6 shape assertions and are
-instead asserted to carry the frozen dated basename of Section 7.4. No other
-assertion, record, or carve-out in that module may change.
+instead asserted to carry the frozen dated basename of Section 7.4. The bound
+is **byte-scoped**: apart from that one insertion, **no other byte of that
+module changes**. This wording replaces the earlier "no other assertion,
+record, or carve-out in that module may change", which a landed `S3` violated
+in the letter while remaining behaviourally inert, and it is byte-scoped for
+the same reason Section 7.5 speaks in "byte" and "token" vocabulary — an
+inert refactor is still outside a grant, and a bound that has to be argued is
+not a bound.
+
+The witness encoding is frozen **additive** so that the insertion can stay
+pure. The red witness asserts that the Stage-3 `schema_version` literal and
+the dated-basename suffix are both present in the module, **and** that the
+pre-existing SCI-007 literal `radiosim-crossvalidation-1.2.0` still occurs
+exactly three times — once in the walker carve-out and twice in the SCI-007
+deep-validator sites. It must never assert that any literal occurs exactly
+once: that over-encoding is what forced the landed `S3` to hoist a shared
+module constant and touch three sites outside the carve-out, and this memo
+never required it. Under the additive encoding the `S3` diff on this module is
+one contiguous insertion and nothing else.
 `tools/sci005_stage3_crossvalidation.py` is granted because Section 8.1's
 evidence transaction requires the generator to authenticate the imported
 artifact's strict schema, `source_sha == S3`, reference package versions,
@@ -4875,15 +5017,46 @@ mechanism leaves untouched; every `bound` must be at or below the accepted
 
 `reference_frame_mirror` is the structured record of the open disagreement and
 is an exact object
-`{mechanism, citations, transfer_solve_max_abs_residual, affected_correlations,
+`{mechanism, construction, citations, transfer_solve_max_abs_residual,
+transfer_solve_max_rel_residual, reassembly_gap, affected_correlations,
 observed_rel_residual_min, observed_rel_residual_max}`. `mechanism` is exactly
 the literal `pyradiosky_local_linear_mirror_v1`; `citations` is a sorted array
 of at least the two non-empty strings naming `pyradiosky/utils.py:105-120` and
-`pyradiosky/skymodel.py:2667-2676`;
-`transfer_solve_max_abs_residual` is a non-negative number that must not exceed
+`pyradiosky/skymodel.py:2667-2676`.
+
+`construction` is exactly the literal
+`local_u_negation_in_reference_coherency_v1`, and it names a **frozen,
+parameter-free** procedure, because a ceiling without a construction makes two
+regenerations incomparable. The adjudicated mirror `chi -> 2 psi - chi` is, in
+the local frame, simply `chi_loc -> -chi_loc`, that is `U_loc -> -U_loc`, that
+is the substitution `C[0,1] -> -C[1,0]` and `C[1,0] -> -C[0,1]`. The operative
+construction applies exactly that substitution to **pyuvsim's own**
+`local_coherency` and propagates the result through **pyuvsim's own** beam
+Jones and fringe, reassembling by the same path the comparison tool already
+uses. It fits nothing: there is no free parameter to tune, and everything it
+needs is reproducible from the artifact's own recorded inputs.
+`reassembly_gap` is the non-negative residual between that reassembly with the
+substitution **disabled** and the comparison tool's own reference path, and it
+must not exceed `1e-12`; it is what proves the substitution is the only
+difference between the two, and the campaign measured it at `5.03e-14`.
+`transfer_solve_max_abs_residual` and `transfer_solve_max_rel_residual` are
+non-negative numbers; the absolute one must not exceed
 `1e-3`, and it is the quantitative claim that the mechanism is complete —
 a validator checks it directly, so an unexplained residual cannot hide behind
-prose; `affected_correlations` is a sorted non-empty subset of the row's
+prose. `transfer_solve_max_rel_residual` is deliberately
+**informational-only**: it is recorded and type-checked but carries no
+ceiling, and the absolute `1e-3` governs. Freezing a relative ceiling would
+freeze a fixture-dependent bound, because the denominator is a per-correlation
+scale that moves with the fixture's Stokes content and with which correlations
+the mirror touches; the absolute residual is anchored to the comparison's own
+cube scale and is therefore the meaningful gate. A future design may add a
+relative ceiling once more than one fixture has been retained; this one does
+not invent it from a single campaign. Under the frozen construction the campaign measured `7.36e-4` absolute
+and `3.52e-4` relative, collapsing a four-to-ten per cent disagreement. The
+earlier adjudication's `6.8e-5` was produced by a **different** construction
+and is therefore **not comparable** with these numbers; it is retained in this
+memo's header as history only, and the frozen construction above governs every
+retained row. `affected_correlations` is a sorted non-empty subset of the row's
 correlation labels; and the two observed extrema are non-negative numbers with
 `observed_rel_residual_min <= observed_rel_residual_max`. Cross-field
 validation requires every `affected_correlations` member to appear in
@@ -5342,7 +5515,7 @@ Section 7.4 list, and it carries no evidence artifact, no acceptance
 artifact, and no approved-constant change, because those live in the `E`, `A`,
 and `U` successors it never reached.
 
-The observed interval at this correction is exactly seven
+The observed interval at this correction is exactly ten
 commits, in ancestry order.
 
 1. `2adc2acca8606b3a9774e14f28725a5687c0ecc8` — superseded design gate, the
@@ -5400,8 +5573,43 @@ commits, in ancestry order.
    `tools/sci005_stage3_acceptance.py`,
    `tools/sci005_stage3_crossvalidation.py`, and
    `tools/sci005_stage_evidence.py`.
+8. `41b3a8ed1687526651e109cd2da8cc86d0579010` — superseded design gate, the
+   chain-basis and comparison correction; touches exactly
+   `docs/development/sci005_beam_physics_plan.md`.
+9. `76e162cfee5570910a4196baae60ed5b61e36eae` — superseded red slice, reopened
+   by the carve-out and comparability correction; touches exactly the two
+   Section 7.4 test paths `tests/fixtures/beamfits.py` and
+   `tests/unit/test_core/test_sci005_full_efield.py`.
+10. `c38f94b481226fbb0731cdaaecb2d76515881f86` — superseded **implementation**
+    commit, the second of that kind; touches exactly twenty Section 7.4 paths:
+    `docs/development/sci005_stage3_evidence.schema.json`,
+    `docs/migration_guide.md`, `docs/user_guide/beam_models.rst`,
+    `docs/user_guide/configuration.rst`,
+    `docs/user_guide/configuration_support.rst`,
+    `docs/user_guide/jones_matrices.rst`,
+    `output/crossvalidation/README.md`,
+    `src/radiosim/core/beam/fits.py`, `src/radiosim/core/beam/models.py`,
+    `src/radiosim/core/beam/runtime.py`,
+    `tests/characterization/test_tier6_current_behavior.py`,
+    `tests/crossvalidation/test_sci005_efield_pyuvsim.py`,
+    `tests/fixtures/beamfits.py`,
+    `tests/unit/test_core/test_beam_pyuvdata_contract.py`,
+    `tests/unit/test_sci005_evidence.py`,
+    `tests/unit/test_sci005_stage3_acceptance.py`,
+    `tests/unit/test_tier1h_documentation.py`,
+    `tools/sci005_stage3_acceptance.py`,
+    `tools/sci005_stage3_crossvalidation.py`, and
+    `tools/sci005_stage_evidence.py`.
 
-None of the seven carries a production, tool, schema, or documentation byte
+All ten entries above are interval commits. The count is ten rather than nine
+because entry 8, the chain-basis and comparison correction, was the operative
+`D3` until this correction superseded it and therefore joins the interval at
+the moment of supersession; a count that adds only the two new commits to the
+previous seven omits it. `git rev-list f275e75..c38f94b` returns exactly these
+ten in this order, and the operative `D3` — the commit containing this
+correction, touching only this memo — is the eleventh, outside the interval.
+
+None of the ten carries a production, tool, schema, or documentation byte
 outside its own kind's allowance. Across the
 interval every Section 7.4 path marked `successor only` remains absent, and
 every path marked `new` remains absent except where a header-recorded
@@ -5417,6 +5625,30 @@ their tools, and every approved digest constant remain byte-identical to `U2`.
 The operative `D3` — the commit containing the latest header-recorded
 correction — touches exactly
 `docs/development/sci005_beam_physics_plan.md` and no other path.
+
+The two reopened commits are expected to be small, and their expected diffs
+are stated here so the acceptance reviewer can hold them to it rather than
+accept whatever arrives. The fourth governed re-cut `R3` changes exactly one
+thing: it re-encodes the `tier1h` carve-out witness additively per Section
+7.4, replacing the `== 1` count assertion with the presence assertions for the
+Stage-3 schema literal and the dated-basename suffix together with the
+assertion that the pre-existing SCI-007 literal still occurs exactly three
+times. No other red assertion moves, because no other physics or contract
+changed at this correction. The third `S3` then contains, and should contain
+only: the reversion of the three constant-extraction hunks in
+`tests/unit/test_tier1h_documentation.py` to their byte-identical originals,
+leaving the carve-out as one contiguous insertion and no other byte of that
+module changed; and whatever the frozen transfer-solve construction of Section
+8.1 requires, which the implementer must check in two specific places — the
+`reference_frame_mirror` cross-field check in
+`tests/unit/test_sci005_evidence.py` and the corresponding object in
+`docs/development/sci005_stage3_evidence.schema.json`, both of which must
+carry the `construction` literal, the `reassembly_gap` field and its `1e-12`
+ceiling, and the `transfer_solve_max_rel_residual` field if they do not
+already. The `tools/sci005_stage3_acceptance.py` interval table and its
+validator, which the previous `S3` transcribed at the seven-commit form, must
+be updated to the **ten**-commit form frozen above. Any hunk outside that set
+is outside the reopening and requires its own bounded correction.
 
 The Stage-3 acceptance validator authenticates that edge from Git objects
 alone, mirroring the Stage-2 validator paragraph above. It locates `A2` as
