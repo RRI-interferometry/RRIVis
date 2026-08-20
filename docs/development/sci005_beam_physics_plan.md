@@ -627,6 +627,219 @@ the on-grid/off-grid residual separation, all four interval touch sets, and
 every authoring-slip claim, returning one non-blocking narrative-range note
 — and landed with only this record sentence added.
 
+**Bounded Stage-3 chain-basis and comparison correction — 2026-08-20.** The
+`E3` evidence campaign against the shipped Stage-3 implementation
+(`9bcfcbcb762edbbfd0bcfd170674f59ebcebfc84`) stopped honestly on structural
+blockers rather than manufacturing a passing artifact, and the commissioned
+diagnosis that followed proved a genuine physics defect in the shipped model.
+This correction reached its final form only after its own first draft froze the
+**wrong matrix**, and that history is recorded here because it is the reason
+the present text can be trusted.
+
+The shipped defect is a basis mismatch inside the composed chain: production
+converts the beam into the Ludwig-3 co/cross pair by the frozen `T(phi)` and
+hands that to `P`, whose output pair is not Ludwig-3's. The first draft of this
+correction identified the mismatch correctly but resolved it against the
+two-code `pyuvsim` comparison, and froze `M = [[0,1],[1,0]]`. Both independent
+reviews rejected that matrix, deriving the same defect two different ways, and
+a third adjudication against **hand-computed ground truth independent of both
+codes** settled it. The adjudicated verdict is that the isolation derivations
+were right and the two-code arbiter was not a truth criterion at all, because
+the reference it compared against carries its own defect. The corrected
+conversion is `M = [[0,1],[-1,0]]`, `det +1`.
+
+The geometry is now pinned by identities that were derived twice — through
+astropy's own `ICRS -> AltAz` transform by finite differences, and analytically
+in the `(E,N,U)` parametrization — and agree over 349 directions to `1.8e-5`:
+
+- `theta_hat = -(cos psi N_hat + sin psi E_hat)`;
+- `e_az_uv_hat = -sin psi N_hat + cos psi E_hat`, **unnegated**.
+
+So `P = R(psi)` applied to `(N_hat, E_hat)` delivers the **mixed-sign** pair
+`(-theta_hat, +e_az_uv_hat)`. There is no common sign and nothing cancels; the
+first draft's `-(theta_hat, e_az_uv_hat)` claim fails by at least `sqrt(2)` at
+every direction on the sky. The mixed sign is structurally necessary rather
+than accidental: `N_hat x E_hat = -r_hat` and `theta_hat x e_az_uv_hat =
++r_hat`, so the two frames have opposite handedness, and a proper rotation like
+`P` cannot map one onto a common-sign copy of the other. The pairing of stored
+components to those vectors is fixed by pyuvdata's own Rosetta stone,
+`ShortDipoleBeam._efield_eval`, whose four lines are exactly
+`d_hat . phi_uv_hat` and `d_hat . theta_hat`: `data[0]` pairs with
+`+phi_uv_hat` and `data[1]` with `+theta_hat`. Matching the physical voltage
+`data[0,f] w_phi_uv + data[1,f] w_theta` against the chain contraction then
+yields `J_native[f,0] = -E_theta` and `J_native[f,1] = +E_az_uv`, which is
+`M = [[0,1],[-1,0]]`.
+
+Against hand truth — a crossed short dipole's voltage is the incident field
+along its axis, so no beam formalism is needed — RadioSim under the corrected
+`M` reproduces IAU truth in `I`, `Q`, `U`, and `V` at both adjudication
+geometries, with residuals at or below `5.6e-3` that are grid-limited
+(bilinear interpolation plus the known SCI-007-class apparent-place offset),
+and `V` exact at `1e-4`. The superseded candidates fail by two to four orders
+of magnitude on the polarized cases. One nuance belongs in the record because
+it corrects this memo's earlier narrative: the shipped `T(phi)` equals the
+corrected `M` times a **proper** `phi`-dependent rotation, so its Stokes-`V`
+physics was in fact right and only its `Q`/`U` were wrong, whereas the first
+draft's `M = [[0,1],[1,0]]` is `M` times a constant reflection and therefore
+*flipped* `V`. The earlier claim that `Q`, `U`, and `V` all failed against the
+reference was itself manufactured by a defect in that reference, described
+next.
+
+Ludwig-3 survives as diagnostic and oracle language only. The chain-to-Ludwig-3
+map is the **proper** rotation `S(phi) = [[-cos phi, -sin phi],
+[sin phi, -cos phi]]`, `det +1`; the improperness the first draft attributed to
+the physics belonged to its own mislabelled basis.
+
+Stages 1 and 2 are unaffected, and this is a statement about the algebra
+rather than a hope. A scalar `E = e I_2` is basis-free: any orthogonal change
+of the sky tangent basis leaves it invariant, so every accepted scalar
+result — analytic and FITS alike — is untouched. Stage-2 squint composes
+`E = C^dagger D_b C`, a receptor-space sandwich whose two factors are built
+from the same receptor matrix, so it is consistent by construction under any
+tangent-basis convention and its accepted evidence stands. The correction
+therefore moves only full-efield workloads, exactly as the fingerprint rules
+already require; the enabled-effect characterization pin harvested at the
+superseded `S3` will be re-harvested at the re-cut `S3`, and no scalar or
+default pin moves.
+
+The reference the first draft trusted is itself defective, and the mechanism is
+now line-level rather than asserted. `pyuvsim 1.4.0` with `pyradiosky 1.1.0`
+reproduces IAU truth for `I` and `V` but delivers the linear polarization angle
+**mirrored about the local frame**, `chi -> 2 psi - chi`, through two
+independent defects that do not cancel. First,
+`pyradiosky/utils.py:105-120` writes `0.5[[I+Q, U-iV],[U+iV, I-Q]]` into the
+frame basis its own `skymodel.py` defines as `(theta_frame, phi_frame)` with
+`theta_frame = pi/2 - dec` — the `(South, East)` pair — where the IAU coherency
+is `0.5[[I+Q, -(U+iV)],[-(U-iV), I-Q]]`; the stored sky therefore carries
+`U -> -U` exactly, verified at `0.0`. Second,
+`pyradiosky/skymodel.py:2667-2676` applies the passive frame transform as
+`R^T C R` where `R C R^T` is required. The composite is a `psi`-dependent
+mirror with `V` intact, and pyuvsim's own Jones pairing is correct
+(`antenna.py:146-149` contracts a correctly paired `(theta, phi_uv)` Jones,
+verified `3.7e-5`). A transfer solve reproduces the whole mechanism at
+`6.8e-5`. This is stated as a mechanism with citations and a measured residual,
+never as a bare claim that pyuvsim is wrong; because the composite is
+`psi`-dependent, no static relabelling of input Stokes can express it, so the
+disagreement is structural rather than a convention choice. Two consequences
+are frozen below: the crossval tool's Stokes-`V` flip at
+`tools/sci005_stage3_crossvalidation.py:1101` is wrong, as is the content of
+both of its affected mapping rows — `east_x_orientation` at `:1200-1208`,
+which asserts `equivalent: true` and must not, and
+`stokes_to_coherency_factor` at `:1220-1229`, which already records
+`equivalent: false` but whose `reference_convention` prose still encodes the
+superseded Stokes-`V`-flip reasoning — and the re-cut `S3` must
+correct all three, and the retained comparison expectations are rewritten so
+that
+bounds are asserted only on the mechanism-free quantities while the mirror is
+recorded as a structured, mechanism-explained open disagreement. That is
+precisely what Section 5.5's "recorded agreements and open disagreements"
+language exists for, and the comparison stays non-gating.
+
+Three further defects were measured and are ruled on here. The shipped
+`_validate_converted_continuity` compares the wrap-seam difference to the one
+adjacent interior difference under a `1.01e-10` absolute bound, which is
+mathematically valid only when sampling symmetry makes those two equal — true
+on the eight-azimuth fixture and false in general. It rejected finer samplings
+of the *same smooth beam*: `0.19134` against `0.16221` at 32 by 17, and
+`0.034878` against `0.034708` at 180 by 91. The correction replaces it with a
+second-difference predicate compared against the interior **maximum**, which is
+scale-consistent by derivation; on the committed crossed-dipole and quadrupolar
+fixtures its ratio is exactly `1.000000` at 8, 32, 180, and 360 azimuth
+samples. The earlier draft's "near `0.90`" figure is withdrawn: it came from a
+two-harmonic synthetic row of this author's own construction and does not
+reproduce on the committed fixtures, whose azimuth rows are single-harmonic and
+give exactly `1.000000` for both the first- and second-difference ratios. The
+defect the replacement removes is therefore the comparison against *one
+adjacent* interior difference rather than the difference order alone. Next, the
+comparison
+harness did not equalize interpolation order: pyuvsim's `BeamList` must be
+built with `spline_interp_opts` `{"kx": 1, "ky": 1, "s": 0}` to match
+RadioSim's pinned bilinear, and that mismatch alone contributes `1.27e-1` in
+`J J^H`, while equalizing it closes the beam seam to `1.11e-16`. Finally the
+harness's `TRACE_RELATIVE_BOUND` of `1e-6` rests on an invariance argument
+that is simply wrong for a residual between two codes with non-scalar `E`: the
+trace cancels only when `B` is proportional to the identity or `J` is
+proportional to a unitary, neither of which holds here. Both harness rulings
+are frozen below, and the comparison remains non-gating with its open
+disagreements recorded.
+
+One structural blocker is a writable-list gap rather than a defect.
+`tests/unit/test_tier1h_documentation.py::test_tier7j_crossvalidation_evidence_is_committed_and_bounded`
+walks every `output/crossvalidation/*.json` with a single foreign-schema
+carve-out for SCI-007, so the `D3`-frozen seventeen-key Stage-3 artifact turns
+the not-slow suite red at one failure in 6667. That file appears on no
+writable list in this memo, so Section 7.4 now grants it, bounded to exactly
+one carve-out mirroring the SCI-007 pattern. Separately, Section 8.1 assigns
+`S3` the recording of the standalone `validate` command in
+`output/crossvalidation/README.md`, and the superseded `S3` did not touch that
+already-writable path; it is recorded below as a re-cut obligation.
+
+The edits are confined to Sections 5.2, 5.2.1, 5.5, and 5.6, the Stage-3
+envelope's `scientific_conventions`, `basis_conversions`, and
+`crossvalidation_comparisons` contracts, Section 7.4's granted list, Section
+8.3's interval-kind form and enumeration, and the Status block. No tolerance is
+weakened and no error class is added. The zenith rule, however, is **not**
+unchanged: measurement shows the frozen single-valuedness form cannot survive
+any constant `M`, because the chain pair spins with the azimuth coordinate at
+the pole while the physical response is one fixed map, and the converted
+`za = 0` row therefore spreads by the full response scale of `2.0`. Section
+5.2.1 replaces it with the de-spun predicate that is actually satisfied,
+verified at `2.2e-16`. The factorization `E = C^dagger J_native`, the
+normalization contract, the
+provenance tuple, and the response-identity ruling are unchanged. Section
+8.3's header-recorded interval-kind form generalizes from three kinds to
+**four** by adding the superseded implementation commit, which is what a
+reopened `S3` requires.
+
+This correction reopens the committed red slice
+(`e3205d60977153857941f1a485ec81eac7340335`) for a third governed re-cut and
+records the superseded implementation commit
+(`9bcfcbcb762edbbfd0bcfd170674f59ebcebfc84`) as an interval commit of the new
+kind. The re-cut `R3` must contain the corrected-law red tests, which
+genuinely fail against the inherited tree because production implements the
+superseded conversion; the corrected continuity-predicate reds, including
+finer-grid acceptance controls that the shipped predicate wrongly rejects; the
+zenith de-spin reds; the
+carve-out red witness; and the rewrites of every committed test the corrected
+law moves — the crossed-dipole and quadrupolar oracle expectations, any
+assertion written against the Ludwig-3 column ordering, and the zenith
+single-valuedness assertions. The re-cut `S3` must
+contain the production conversion fix, the continuity-predicate fix, the zenith
+de-spin predicate, the
+documentation carve-out, both harness fixes, the removal of the crossval
+tool's Stokes-`V` input flip at
+`tools/sci005_stage3_crossvalidation.py:1101` together with the correction of
+its `east_x_orientation` mapping row at `:1200-1208`, whose `equivalent: true`
+is false, and of its `stokes_to_coherency_factor` row at `:1220-1229`, whose
+`equivalent: false` already stands but whose `reference_convention` prose still
+encodes the superseded Stokes-`V`-flip reasoning, the
+`output/crossvalidation/README.md` addendum, the re-harvested efield
+characterization pin, and the interval-table updates in
+`tools/sci005_stage3_acceptance.py` and its validator: that tooling landed at
+the superseded `S3` transcribing the old four-commit interval, and it must be
+updated to the seven-commit form frozen in Section 8.3. The commit containing
+this correction supersedes
+`5856587c49ac6a6134265be11954c2b9bcedf76f` as the operative `D3` once its
+exact bytes are independently accepted. It implements no beam physics,
+accepts no stage, and does not close the register row. Its exact pre-landing
+memo bytes
+(`sha256:9e318f43c542e6442b543f658085201bcdab2b9f21efe678feff98481dbfc484`)
+and parent-relative diff
+(`sha256:63b9772abfc011aa483e7b9eddb537f7ce9354c7725c72fcb08d05ceb2772f91`)
+received separate fresh independent governance/physics and computational
+reviews on 2026-08-20 — both initial reviews rejected the first draft's
+frozen matrix, one by re-deriving the target basis end-to-end and one by the
+handedness invariant; the drafter's own verification of the reviewer-proposed
+matrix then stopped on a genuine contradiction between the isolation tests
+and the two-code arbiter; an independent adjudication built hand-computed
+IAU ground truth, settled the matrix frozen above, vindicated the isolation
+tests, and mechanized the reference simulator's frame mirror and the
+comparison tool's compensating input flip; one combined delta froze the
+adjudicated law, both reviewers reconfirmed it with three minor prose
+findings, a final micro-delta resolved those, and both reviewers then issued
+their `ACCEPT` verdicts on exactly these pins — and landed with only this
+record sentence added.
+
 **Status:** Stage 1 and Stage 2 are both accepted and closed as stages. The
 operative `D1` is `c6a5ce90ae3160150b1699f97b45bb693d4ed886`, and the accepted
 Stage-1 succession is
@@ -646,7 +859,7 @@ U2 f275e7538a19f713b99e07563a1c5a2a45e83a3d`. Both stages' retained evidence
 and acceptance artifacts are authenticated by their approved validator
 constants. The commit containing this amendment is the operative `D3` once
 its exact bytes are independently accepted per Section 7.1; it reaches `U2`
-through Section 8.3's starred edge `U2 ->* D3`, whose four interval commits
+through Section 8.3's starred edge `U2 ->* D3`, whose seven interval commits
 this memo's header enumerates by SHA. Stage 3
 may begin `R3` only after that acceptance, with `R3^ == D3`, and must
 complete its own source, evidence, acceptance, and status succession through
@@ -2351,8 +2564,10 @@ conversion of Section 5.2.1 and therefore reads the stored vector components
 as the physical azimuth/zenith-angle field components they are declared to be.
 The two populations are very nearly disjoint, and Section 5.2.1's zenith rule
 makes that explicit rather than leaving it to be discovered: a file whose
-converted zenith row is not single-valued is rejected, which an identity-basis
-scalar file generally is. Neither literal is a repair of the other, this gate
+converted zenith row does not satisfy the de-spin predicate is rejected, which
+an identity-basis scalar file does — its converted zenith row is the constant
+`e M`, whose de-spin residual is the full response scale (measured `1.7` for a
+unit-scale sample). Neither literal is a repair of the other, this gate
 changes no byte of the accepted `peak` path, and the Stage-3 envelope retains
 the measured comparison as a control rather than as a claim. The internal
 accepted-subset version
@@ -2470,7 +2685,7 @@ order so that the first recorded rejection is deterministic:
     basis than the file declares. Rejecting it at load is the only outcome
     that is both typed and truthful. Accordingly Stage 3 accepts no general
     stored basis and performs no `B = basis · T` composition; RadioSim applies
-    its own $T(\varphi)$ to the native components, as Section 5.2.1 sets out.
+    its own constant $M$ to the native components, as Section 5.2.1 sets out.
 
     Dtype is judged by **kind and width**, never by a byte-order-qualified
     comparison: BeamFITS round-trips this array as big-endian `>f8` or `>f4`,
@@ -2539,29 +2754,32 @@ composed into the physics: pyuvdata rebuilds that identity per interpolation
 point and Section 5.1.1 item 10 accordingly requires the stored array to be
 exactly the native identity as committed. For each direction RadioSim
 therefore converts the **native azimuth/zenith-angle components themselves**
-into its `(north,east)` tangent-field basis, by the fixed real orthogonal
-$T(\varphi)$ of Section 5.2.1. The already
+into the chain's own sky tangent basis — the **mixed-sign** pair
+$(-\hat{\mathbf e}_\theta,+\hat{\mathbf e}_{\mathrm{az_{uv}}})$ that the
+accepted `P` term delivers — by the fixed real orthogonal $M$ of Section
+5.2.1. The already
 accepted direction-coordinate mapping remains
 `az_uv = (pi/2 - az_radiosim) mod 2*pi`.
 
-With UVBeam vector index `a`, native feed row `f`, and RadioSim tangent-field
+With UVBeam vector index `a`, native feed row `f`, and chain-basis
 column `c`, the mapping is explicitly
 
 $$
 J_{\rm native}[f,c]=\sum_a
-\operatorname{data}[a,f]\,T(\varphi)[a,c],
+\operatorname{data}[a,f]\,M[a,c],
 $$
 
-with no conjugation and no implicit transpose. $T(\varphi)$ is real by
-construction; complex phase lives in `data`. Tests therefore exercise this
-mapping at azimuths where $T(\varphi)$ is non-identity and non-symmetric —
-which it is at every $\varphi$ outside a measure-zero set — together with
-complex efield samples, so that a transpose or conjugation mistake is
-independently observable. That is a stronger control than the retired
-stored-non-identity fixture, because $T(\varphi)$ also varies with direction
-and so cannot be absorbed into a constant relabelling.
+with no conjugation and no implicit transpose. $M$ is real and constant;
+complex phase lives in `data`. $M$ is **antisymmetric**,
+$M^{\mathsf T}=-M$, so its orientation is directly observable and the control
+must exercise it: transposing $M$, negating it, or dropping either sign all
+change the result, as does transposing the feed and component indices. The
+frozen requirement is a fixture with distinct feed rows, distinct native
+components, and complex efield samples, on which each of those four
+corruptions is separately asserted to change $J_{\rm native}$.
 
-For a linearly polarized reference, Ludwig's third definition is applied with
+For a linearly polarized reference, Ludwig's third definition remains
+available as a **derived diagnostic** — not as the chain conversion — with
 $\varphi=0$ north and increasing east:
 
 $$
@@ -2641,54 +2859,147 @@ rebuilds that identity regardless, the native components are the data axes
 themselves:
 $E_{\mathrm{az_{uv}}}=\operatorname{data}[0,f]$
 and $E_\theta=\operatorname{data}[1,f]$, so
-that $E_\varphi=-E_{\mathrm{az_{uv}}}$. Ludwig's third definition with
-$\varphi=0$ north and increasing east then gives
+that $E_\varphi=-E_{\mathrm{az_{uv}}}$.
+
+**The target basis is the chain's, not Ludwig-3's.** `E` sits between `C` and
+`P` in the canonical product, so its columns must be whatever tangent basis
+`P` delivers the sky coherency into, and that basis is fixed by the accepted
+`P` term rather than chosen here. `P` is the rotation
+$R(\psi)=\bigl[[\cos\psi,\ \sin\psi],[-\sin\psi,\ \cos\psi]\bigr]$ whose
+$\psi$ is, by its own accepted definition, the position angle of the zenith as
+seen from the direction, measured North through East. Its two output
+components therefore lie along the toward-zenith direction and that
+direction's `N`-through-`E` perpendicular. Those two vectors are fixed by
+measurement, not by inspection, and the identities were derived twice — by
+finite differences through astropy's own `ICRS -> AltAz` transform and
+analytically in the $(E,N,U)$ parametrization — agreeing over 349 directions
+to $1.8\times10^{-5}$:
 
 $$
-E_{\rm co}=E_\theta\cos\varphi-E_\varphi\sin\varphi
-=E_\theta\cos\varphi+E_{\mathrm{az_{uv}}}\sin\varphi,
+\hat{\mathbf e}_\theta=-\bigl(\cos\psi\,\hat{\mathbf N}
++\sin\psi\,\hat{\mathbf E}\bigr),
 \qquad
-E_{\rm cross}=E_\theta\sin\varphi+E_\varphi\cos\varphi
-=E_\theta\sin\varphi-E_{\mathrm{az_{uv}}}\cos\varphi .
+\hat{\mathbf e}_{\mathrm{az_{uv}}}
+=-\sin\psi\,\hat{\mathbf N}+\cos\psi\,\hat{\mathbf E}.
 $$
 
-Collecting those two lines, the frozen conversion is exactly
+The second is **unnegated**. `P` therefore delivers the **mixed-sign** pair
+$(-\hat{\mathbf e}_\theta,+\hat{\mathbf e}_{\mathrm{az_{uv}}})$, which is
+exactly $R(\psi)$ applied to $(\hat{\mathbf N},\hat{\mathbf E})$. There is no
+common sign and nothing cancels in $V=J_p B J_q^\dagger$. The mixed sign is
+structurally necessary: $\hat{\mathbf N}\times\hat{\mathbf E}=-\hat{\mathbf r}$
+while
+$\hat{\mathbf e}_\theta\times\hat{\mathbf e}_{\mathrm{az_{uv}}}
+=+\hat{\mathbf r}$, so the two frames carry opposite handedness and a proper
+rotation cannot deliver a common-sign copy of one from the other; the mixed
+pair restores the left-handed sense, since
+$(-\hat{\mathbf e}_\theta)\times(+\hat{\mathbf e}_{\mathrm{az_{uv}}})
+=-\hat{\mathbf r}$. **The chain's sky-side tangent basis is the mixed-sign
+pair $(-\hat{\mathbf e}_\theta,+\hat{\mathbf e}_{\mathrm{az_{uv}}})$.**
+
+Which stored component pairs with which vector is fixed by pyuvdata's own
+Rosetta stone. `pyuvdata.analytic_beam.ShortDipoleBeam._efield_eval` writes,
+for its East and North dipoles, exactly
+$\hat{\mathbf d}\cdot\hat{\mathbf e}_{\mathrm{az_{uv}}}$ into `data[0]` and
+$\hat{\mathbf d}\cdot\hat{\mathbf e}_\theta$ into `data[1]`, so `data[0]`
+pairs with $+\hat{\mathbf e}_{\mathrm{az_{uv}}}$ and `data[1]` with
+$+\hat{\mathbf e}_\theta$. Matching the physical voltage
+$\operatorname{data}[0,f]\,w_{\mathrm{az_{uv}}}
++\operatorname{data}[1,f]\,w_\theta$ against the chain contraction
+$\sum_c J[f,c]\,c_c$ with $c_0=-w_\theta$ and
+$c_1=+w_{\mathrm{az_{uv}}}$ determines every entry, and the frozen conversion
+is exactly
 
 $$
-T(\varphi)=
+M=
 \begin{pmatrix}
-\sin\varphi & -\cos\varphi\\
-\cos\varphi & \ \ \sin\varphi
+0 & 1\\
+-1 & 0
+\end{pmatrix},
+\qquad \det M=+1,
+\qquad
+J_{\rm native}[f,c]=\sum_a \operatorname{data}[a,f]\,M[a,c],
+$$
+
+so that $J_{\rm native}[f,0]=-E_\theta$ and
+$J_{\rm native}[f,1]=+E_{\mathrm{az_{uv}}}$, with the accepted direction
+mapping
+`az_uv = (pi/2 - az_radiosim) mod 2*pi` unchanged and still applied to *where*
+the pattern is sampled. There is no conjugation and no implicit transpose
+anywhere, and no intermediate composed basis: the stored array contributes no
+factor, because it is required to be the identity and is discarded by the
+interpolator in any case. Section 5.2's frozen sum is this same expression.
+$M$ is real, constant, orthogonal with $M^{\mathsf T}M=I_2$, and
+**antisymmetric** with $M^{\mathsf T}=-M$; it preserves total field power
+exactly, by construction rather than by measurement, and being a proper
+rotation it introduces no reflection into the chain. The convention literal
+keeps its name, `uvbeam_theta_phi_chain_tangent_v1`, because it still names
+the conversion from the native `az_za` components into the chain's spherical
+tangent pair; its frozen definition is the displayed $M$ and the mixed-sign
+basis above, and any implementation that reads the name without those bytes is
+reading it wrongly.
+
+Ludwig's third definition remains the memo's language for **diagnostics and
+oracles**, and only there. With $\varphi=0$ north and increasing east it gives
+
+$$
+E_{\rm co}=E_\theta\cos\varphi+E_{\mathrm{az_{uv}}}\sin\varphi,
+\qquad
+E_{\rm cross}=E_\theta\sin\varphi-E_{\mathrm{az_{uv}}}\cos\varphi ,
+$$
+
+which in matrix form is right-multiplication of the chain-basis pair by
+
+$$
+S(\varphi)=
+\begin{pmatrix}
+-\cos\varphi & -\sin\varphi\\
+\ \ \sin\varphi & -\cos\varphi
 \end{pmatrix},
 \qquad
-J_{\rm native}[f,c]=\sum_a \operatorname{data}[a,f]\,T(\varphi)[a,c],
+\det S=+1,
+\qquad
+S^{\mathsf T}S=I_2 .
 $$
 
-with no conjugation and no implicit transpose anywhere, and with no
-intermediate composed basis: the stored array contributes no factor, because
-it is required to be the identity and is discarded by the interpolator in any
-case. Section 5.2's frozen sum is this same expression. $T$ is real with
-$\det T=\sin^2\varphi+\cos^2\varphi=1$ and $T^{\mathsf T}T=I_2$, so the
-conversion preserves total field power exactly, by construction rather than by
-measurement. The two RadioSim tangent-field columns are therefore
-$c=0$ co-polar and $c=1$ cross-polar, whose $\theta\to0$ limit at
-$\varphi=0$ is exactly $(\hat{\mathbf N},\hat{\mathbf E})$: at
-$\varphi=0$ the matrix $T(0)$ has rows `(0, -1)` and `(1, 0)`, while
-$\hat{\mathbf e}_\theta\to\hat{\mathbf N}$ and
-$\hat{\mathbf e}_{\mathrm{az_{uv}}}\to-\hat{\mathbf E}$. This is what makes
-Section 5.2's North/East tangent limit and its Ludwig-3 pair the same
-statement rather than two conventions that must be reconciled. The
-convention literal is `ludwig3_az_za_to_north_east_v1`, whose wording survives
-this correction unchanged: the literal names the conversion from the native
-`az_za` components to the North/East Ludwig-3 pair, which is exactly what
-$T(\varphi)$ still performs. Because $T$ is real, every complex phase stays in
-`data`; a test therefore evaluates the mapping at azimuths where $T(\varphi)$
-is non-identity and non-symmetric, together with complex efield samples, so
-that a transpose or a conjugation mistake is independently observable and
-cannot hide behind a symmetric fixture. $T(\varphi)$ is a strictly stronger
-control than the stored-basis fixture this correction retires, because it is
-direction-dependent and therefore cannot be absorbed into any constant
-relabelling of rows or columns.
+$S(\varphi)$ is the chain-basis-to-Ludwig-3 map, and it is a **proper**
+rotation. The superseded first draft of this correction recorded an improper
+$S$ with $\det=-1$ and built a repair argument on it; that improperness was an
+artifact of its own mislabelled basis, not a property of the physics, and both
+statements are withdrawn. Verified against the committed fixtures, the
+quadrupolar Jones satisfies
+$J_{\rm chain}\,S(\varphi)=J_{\rm L3}$ to $2.2\times10^{-16}$.
+The shipped conversion was $T(\varphi)=M\,S(\varphi)$, that is
+$T(\varphi)=\bigl[[\sin\varphi,\,-\cos\varphi],[\cos\varphi,\,\sin\varphi]\bigr]$,
+which is a correct statement *about the beam* — $J J^\dagger$ still matched
+the geometric Ludwig-3 oracle exactly — but the wrong statement about the
+chain. Because $S$ is proper, $T(\varphi)$ differs from $M$ by a
+$\varphi$-dependent **rotation**, so the shipped law's Stokes-`V` physics was
+right and only its `Q` and `U` were wrong; a constant *reflection* of $M$, by
+contrast, flips `V`. Cross-polar and IXR diagnostics, the crossed-dipole
+oracle, and the
+quadrupolar oracle may all still be written in co/cross terms provided they
+are mapped into the chain basis by $S(\varphi)$ before comparison with
+production. Because $M$ is real, every complex phase stays in
+`data`.
+
+The transpose and conjugation control is strengthened by the corrected $M$
+rather than weakened, because $M$ is **antisymmetric**,
+$M^{\mathsf T}=-M$, so a mistake in $M$'s own orientation is directly
+observable. The mapping is
+$J[f,c]=\sum_a \operatorname{data}[a,f]M[a,c]$, and on a fixture whose two
+feed rows are distinct and whose two native components are distinct, three
+distinct corruptions each change the result measurably: replacing $M$ by
+$-M$ — which is simultaneously the transposed and the negated matrix, since
+$M^{\mathsf T}=-M$ exactly, so those two are one corruption and not two;
+replacing $M$ by $|M|$, the superseded symmetric swap; and transposing the
+feed and component indices to compute
+$J[c,f]$. Complex samples make a stray conjugation observable as well, giving
+four checks over three corrupted matrices. The
+frozen requirement is that all four be separately asserted on such a fixture,
+evaluated at directions where neither the co-polar nor the cross-polar content
+vanishes. The crossed-ideal-dipole
+oracle satisfies all of this by construction and is the natural carrier.
 
 Interpolation requests the basis vectors explicitly. In pyuvdata 3.2.1
 `UVBeam.interp` takes the keyword-only `return_basis_vector: bool | None`,
@@ -2747,11 +3058,11 @@ tolerance the accepted code already fixes and already retains in
   interpolator builds the returned array from `numpy.ones` and `numpy.zeros`.
   Non-degeneracy needs no separate predicate: the identity is non-degenerate
   by inspection;
-- the conversion predicates on $T(\varphi)$ — the orthogonality residual
-  $\|T^{\mathsf T}T-I_2\|_{\max}$ and the power-preservation residual — use
+- the conversion predicates on $M$ — the orthogonality residual
+  $\|M^{\mathsf T}M-I_2\|_{\max}$ and the power-preservation residual — use
   the existing fixed `_BASIS_TOLERANCE` of `1e-12`, which is the appropriate
-  bound because RadioSim constructs $T$ itself in binary64 and its realized
-  residual is of order `1e-16`;
+  bound because RadioSim constructs $M$ itself in binary64 and its realized
+  residual is exactly zero, $M$ being a constant permutation;
 - feed-angle agreement uses the existing `_FEED_ANGLE_TOLERANCE_RAD` of
   `1e-12`, applied element-wise modulo `2*pi`;
 - normalization predicates use the existing dtype-derived
@@ -2808,24 +3119,90 @@ Two continuity predicates are frozen against the file grid itself, evaluated
 at every intrinsic frequency before any frequency interpolation. **Zenith
 limit:** `axis2_array` begins at exactly zero, so the entire first
 zenith-angle row is the single physical direction at the zenith while its
-`Naxes1` azimuth samples carry arbitrary $\varphi$. After conversion, all
-`Naxes1` converted matrices of that row must be equal within the converted-
-matrix tolerance above; RadioSim then uses the $\varphi=0$ member as the
-zenith value. A file whose converted zenith row is not single-valued declares
+`Naxes1` azimuth samples carry arbitrary $\varphi$. Requiring the converted
+matrices of that row to be **equal** is wrong and is withdrawn: the chain
+tangent pair spins with the azimuth coordinate at the pole while the physical
+response is one fixed map, so under any constant $M$ the converted `za = 0`
+row spreads by the full response scale — measured at exactly `2.0` — and a
+perfectly valid file would be rejected. What is single-valued is the
+**de-spun** matrix. The frozen predicate is
+
+$$
+J(\mathrm{az_{uv}})=J(\mathrm{az_{ref}})\,
+R(\mathrm{az_{uv}}-\mathrm{az_{ref}}),
+\qquad
+R(x)=
+\begin{pmatrix}
+\ \ \cos x & \sin x\\
+-\sin x & \cos x
+\end{pmatrix},
+$$
+
+equivalently that $J(\mathrm{az_{uv}})\,R(\mathrm{az_{uv}})^{\mathsf T}$ is
+constant across the row, which the committed crossed-dipole and quadrupolar
+fixtures satisfy to `0.0` and $6.9\times10^{-16}$ respectively against the
+`2.0` spread of the withdrawn form. Each feed row equivalently satisfies
+$(J_0+iJ_1)(\mathrm{az_{uv}})
+=(J_0+iJ_1)(\mathrm{ref})\,e^{+i(\mathrm{az_{uv}}-\mathrm{ref})}$. The de-spin
+sense is tied to the conversion's orientation: under a $\det=-1$ conversion it
+reverses to $R(-x)$, which is one more reason the sign of $M$ is not a matter
+of taste. RadioSim then uses the `az_radiosim = 0` member as the zenith value,
+where the chain pair is exactly $-(\hat{\mathbf N},\hat{\mathbf E})$ — a
+genuinely common sign at that one point, cancelling in
+$V=J_p B J_q^\dagger$ — so the North/East tangent limit survives there. A file
+whose de-spun zenith row is not constant within the converted-matrix tolerance
+declares
 a physical matrix that depends on an arbitrary coordinate and is rejected as
 `UnsupportedBeamCoordinateError` — the coordinate class rather than the basis
 class, because the failure is a degenerate row of the native `az_za` grid and
 not a defect of the Jones structure — and it is never averaged, extrapolated,
-or silently repaired. An identity-basis scalar file generally fails exactly
-this predicate, which is the honest boundary between the two accepted
-subsets. **Wrap continuity:** the azimuth axis is endpoint-excluded and
-closes `2*pi`, so the converted matrix at the last azimuth sample and at the
-first must be continuous across the seam; the retained witness is the
-converted-matrix difference across the wrap compared against the difference
-across the interior sample pair adjacent to it, and a discontinuity larger
-than the interior comparison plus the converted-matrix tolerance is
-`UnsupportedBeamCoordinateError`. Neither predicate touches the accepted
-`peak` path.
+or silently repaired. The convention literal
+`north_east_tangent_limit_v1` keeps its name and now names exactly this
+pair of statements — the de-spin predicate above and the `az_radiosim = 0`
+selection whose limit is $-(\hat{\mathbf N},\hat{\mathbf E})$ — rather than
+the withdrawn equality form. **Wrap continuity:** the azimuth axis is endpoint-excluded and closes
+`2*pi`, so the converted matrix must be continuous across the seam. The
+predicate is a **second difference**, not a first difference, and the reason
+is that only the second difference is scale-consistent. Index the `Naxes1`
+azimuth samples of one zenith-angle row cyclically and write
+$\Delta^2_k = J_{k+1} - 2J_k + J_{k-1}$ entrywise. For a twice-differentiable
+periodic row sampled at step $h$, every $\Delta^2_k$ equals $h^2 J''(\xi_k)$
+for some $\xi_k$, so seam and interior second differences are the same order
+for *every* sampling density and their ratio is bounded independently of $h$.
+A first-difference comparison has no such property: it holds only when the
+sampling is symmetric about the seam, which is an accident of a particular
+grid. The frozen predicate is therefore
+
+$$
+\bigl|\Delta^2_0\bigr|_{\max}\;\leq\;
+8\max_{k\ \rm interior}\bigl|\Delta^2_k\bigr|_{\max}
+\;+\;\bigl(\mathrm{atol}+\mathrm{rtol}\cdot\mathrm{scale}\bigr),
+$$
+
+evaluated per intrinsic frequency and per zenith-angle row, where
+$\Delta^2_0$ is the second difference centred on the seam sample, the maximum
+is entrywise over the $2\times2$ matrix, the interior maximum excludes the two
+samples adjacent to the seam, and `atol`, `rtol`, and `scale` are the
+converted-matrix triple above. The additive term is what keeps an
+azimuthally constant row — whose interior second differences vanish
+identically — from being judged against zero. The fixed factor `8` is a
+margin over the measured behaviour of smooth rows: on the committed
+crossed-dipole and quadrupolar fixtures the ratio is exactly `1.000000` at 8,
+32, 180, and 360 azimuth samples, which is the density independence the
+derivation predicts. A failure larger
+than this is `UnsupportedBeamCoordinateError`. Two honesty notes belong with
+it. First, the predicate is deliberately
+not claimed to detect a seam jump smaller than the row's own local curvature
+scale: on a coarse grid such a jump is genuinely indistinguishable from smooth
+variation, and asserting otherwise would be a claim the mathematics does not
+support. Second, the defect this replaces is not the difference *order* on its
+own but the comparison against a **single adjacent** interior difference; on
+these particular fixtures, whose azimuth rows are single-harmonic, the
+first-difference ratio is also exactly `1.000000` at every density, so the
+fixtures alone do not exhibit the failure. The failure is exhibited by the
+finer samplings recorded in this correction's header, and the replacement is
+justified by the derivation rather than by those fixtures. Neither predicate
+touches the accepted `peak` path.
 
 The beam runtime owns the factorization, exactly as Section 4.2.1 gives it
 `D_b` assembly and the squint `E` composition. `core/beam/fits.py` validates
@@ -2854,7 +3231,7 @@ keywords remain `None` for it and the accepted two-sided rule is unchanged.
 
 Precision is split exactly as Stage 2 splits it. Direction geometry — the
 accepted `az_uv` mapping, $\varphi$, $\theta$, the horizon gate, and every
-entry of $T(\varphi)$ — is binary64 throughout, matching the accepted
+entry of $M$ — is binary64 throughout, matching the accepted
 `DirectionBatch` and pointing-rotation contract. Matrix data — `data`, $B$,
 $J_{\rm native}$, `C`, and the composition — is evaluated at the resolved
 beam dtype, which for this path is exactly `complex64` or `complex128`. There
@@ -2915,7 +3292,7 @@ tolerances already live. Stage 3 therefore adds no new fingerprint path and
 no new payload function. It extends the handler fingerprint's existing
 `validated_metadata` and `contracts` blocks with the resolved feed pair, the
 derived orientation, the mount, the basis-vector convention literal
-`ludwig3_az_za_to_north_east_v1`, the factorization literal
+`uvbeam_theta_phi_chain_tangent_v1`, the factorization literal
 `receptor_conjugated_native_efield_v1`, the zenith-limit literal
 `north_east_tangent_limit_v1`, and the realized per-frequency common maxima,
 and it extends `BeamFileProvenance` with fields recording the same facts.
@@ -2951,7 +3328,7 @@ a single byte. On the full-efield path `accepted_subset_version` is exactly
 rendering item 7's agreed `None` as the lower-case string `none` so the field
 stays a `str | None` whose `None` means "scalar path" rather than "circular
 receptor"; `basis_vector_convention` is exactly
-`ludwig3_az_za_to_north_east_v1`; `factorization_convention` is exactly
+`uvbeam_theta_phi_chain_tangent_v1`; `factorization_convention` is exactly
 `receptor_conjugated_native_efield_v1`; and
 `stored_grid_peak_by_frequency` is the ordered tuple of
 `(frequency_hz, observed_full_stored_grid_maximum)` pairs from item 12,
@@ -3178,9 +3555,73 @@ every convention mapping. It is non-gating and may license only the sentence
 "compared against pyuvsim for the named fixture, with the recorded agreements
 and open disagreements". It never licenses an unqualified "validated" claim.
 
+Two properties of that comparison are frozen here, because measurement showed
+the harness could otherwise report a difference it had itself created.
+
+**Equalized interpolation order.** The comparison must construct pyuvsim's
+`BeamList` with `spline_interp_opts` `{"kx": 1, "ky": 1, "s": 0}`, matching
+RadioSim's pinned bilinear `spline_opts` exactly. The two simulators otherwise
+interpolate the same stored grid at different polynomial order, and that
+mismatch alone contributes `1.27e-1` to the `J J^dagger` comparison — an order
+of magnitude larger than every physical residual under test, and entirely an
+artifact of the harness. With the orders equalized the beam seam closes to
+`1.11e-16`, which is the honest statement that the two codes read the same
+file identically. A comparison run without this equalization is not evidence
+and may not be retained.
+
+**No trace-invariance shortcut.** A retained expectation of the form
+"the trace of the residual vanishes to a fixed relative bound" is **not**
+licensed, and the superseded harness's `1e-6` trace bound is retired. The
+invariance it rested on holds only when the coherency `B` is proportional to
+the identity or the Jones matrix `J` is proportional to a unitary; a
+full-efield `E` is neither, so the trace of a residual between two codes does
+not cancel and no bound on it follows from invariance. The retained
+expectations are instead the **per-correlation** absolute and relative
+residuals the rows already carry, compared against bounds the comparison's own
+derivation supports and the artifact records. Adjudication against hand truth
+independently supports the retirement from the other side: both codes' traces
+matched truth to `4e-4` while their correlations disagreed at ten per cent, so
+the trace is insensitive to exactly the defect class under test.
+
+**The reference is not truth, and the contract says so.** `pyuvsim 1.4.0` with
+`pyradiosky 1.1.0` reproduces IAU truth for `I` and `V` but delivers the linear
+polarization angle mirrored about the local frame, `chi -> 2 psi - chi`,
+through the two composed defects the header cites by line —
+`pyradiosky/utils.py:105-120` storing the coherency with `U -> -U` in the
+`(South, East)` frame pair, and `pyradiosky/skymodel.py:2667-2676` applying the
+passive transform as `R^T C R` where `R C R^T` is required. pyuvsim's own Jones
+pairing is correct. Because the composite is `psi`-dependent, no static
+relabelling of input Stokes expresses it. The retained expectations therefore
+split, and the split is frozen:
+
+- **Bounds are asserted only on the mechanism-free quantities** — the
+  total-intensity class, `I` and `V` — which agree at about `4e-4`, inside the
+  accepted `1.9e-3` SCI-007 frame residual.
+- **The `Q`/`U`-carrying correlations disagree through the recorded mirror**,
+  at four to eleven per cent, and that disagreement is retained as a
+  *structured, mechanism-explained open disagreement* rather than as a
+  tolerance failure or a widened bound. It must carry the two `pyradiosky`
+  citations and the measured transfer-solve residual, `6.8e-5`, which is the
+  quantitative claim that the mechanism is complete and sufficient.
+
+Nothing here licenses the bare sentence "pyuvsim is wrong": what is retained is
+a mechanism, its line citations, and a measured residual. The comparison
+remains non-gating throughout. Three harness defects follow from the same
+adjudication and are the re-cut `S3`'s to fix: the Stokes-`V` input flip at
+`tools/sci005_stage3_crossvalidation.py:1101`, which *creates* a `V` error
+because pyuvsim's `V` is already consistent after the tool's own conjugating
+fringe mapping; the `east_x_orientation` mapping row at `:1200-1208`, whose
+`equivalent: true` is false as written; and the
+`stokes_to_coherency_factor` row at `:1220-1229`, whose `equivalent: false`
+already stands but whose `reference_convention` prose still encodes the
+superseded Stokes-`V`-flip reasoning.
+
 The retained artifact lives under `output/crossvalidation/`, is generated from
 a clean source SHA before it exists, and is authenticated by a standard-suite
-schema/digest test. No existing cross-validation artifact is overwritten.
+schema/digest test. No existing cross-validation artifact is overwritten. The
+standalone `validate` command Section 8.1 freezes is recorded in
+`output/crossvalidation/README.md` by `S3`; the superseded `S3` omitted that
+already-writable path, and the re-cut `S3` owes it.
 
 Section 8.1's evidence-generation transaction freezes the exact command that
 produces it, the generator that Section 7.4 grants for the purpose, its
@@ -3198,8 +3639,12 @@ Acceptance requires:
   pairs, inconsistent feed-angle/x-orientation/receptor metadata, non-fixed file
   mounts, unsafe normalization, and complex-valued basis vectors;
 - full-stored-grid (not visible-only) unit peak at every intrinsic frequency;
-- crossed-ideal-dipole and quadrupolar analytic oracles;
-- Ludwig-3 power preservation, zenith limit, wrap continuity, and sign controls;
+- crossed-ideal-dipole and quadrupolar analytic oracles, each stated in
+  Ludwig-3 co/cross terms and mapped into the chain basis by `S(phi)` before
+  comparison with production;
+- power preservation, the zenith limit, the second-difference wrap-continuity
+  predicate, and sign controls, with Ludwig-3 retained as diagnostic and
+  oracle language rather than as the chain conversion;
 - exact `C E = J_native` and an output-basis conversion control, the latter
   evaluated as a residual on same-basis parametrizations and as an
   observability control only on cross-basis ones, per Section 5.2.1's `H`
@@ -3468,6 +3913,8 @@ authenticates it through Section 8.2.
 - `tests/crossvalidation/test_sci005_efield_pyuvsim.py` (new, optional)
 - `tools/sci005_stage3_crossvalidation.py` (new; the non-gating cross-validation
   artifact generator and standalone validator of Section 8.1, and nothing else)
+- `tests/unit/test_tier1h_documentation.py` (only the one bounded
+  foreign-schema carve-out described below)
 - `tests/characterization/test_h5py_output_contract.py`
 - `tests/characterization/test_pyuvdata_321_output_contract.py`
 - `tests/characterization/test_pyuvdata_321_polarization_contract.py`
@@ -3496,8 +3943,21 @@ authenticates it through Section 8.2.
 - `docs/development/sci005_stage3_acceptance.json` (new acceptance successor
   only)
 
-The accepted `D3` adds exactly one path to the list this memo previously
-carried, bounded above and grounded in a verified repository fact.
+The accepted `D3` adds exactly two paths to the list this memo previously
+carried, each bounded above and grounded in a verified repository fact.
+
+`tests/unit/test_tier1h_documentation.py` is granted because its
+`test_tier7j_crossvalidation_evidence_is_committed_and_bounded` walks every
+`output/crossvalidation/*.json` and validates each against the WP-6 record
+shape, carrying exactly one foreign-schema carve-out for the SCI-007 artifact.
+The `D3`-frozen Stage-3 artifact is a different, seventeen-key document with
+`schema_version` `radiosim.sci005.stage3-crossvalidation.v1`, so committing it
+turns the not-slow suite red at one failure in 6667 — a writable-list gap, not
+a defect in either file. The grant is bounded to exactly one added carve-out
+mirroring the existing SCI-007 pattern: records whose `schema_version` equals
+the frozen Stage-3 literal are skipped by the WP-6 shape assertions and are
+instead asserted to carry the frozen dated basename of Section 7.4. No other
+assertion, record, or carve-out in that module may change.
 `tools/sci005_stage3_crossvalidation.py` is granted because Section 8.1's
 evidence transaction requires the generator to authenticate the imported
 artifact's strict schema, `source_sha == S3`, reference package versions,
@@ -4117,7 +4577,7 @@ Stage 3's `scientific_conventions` has exactly:
 
 ```text
 efield_normalization: uvbeam_peak_common_v1
-efield_basis_conversion: ludwig3_az_za_to_north_east_v1
+efield_basis_conversion: uvbeam_theta_phi_chain_tangent_v1
 efield_zenith_limit: north_east_tangent_limit_v1
 efield_factorization: receptor_conjugated_native_efield_v1
 ```
@@ -4254,7 +4714,7 @@ power_preservation_max_abs_residual, orthogonality_max_abs_residual,
 wrap_continuity_max_abs_delta, wrap_continuity_bound,
 zenith_limit_max_abs_delta, atol, rtol, test_node_id, passed}`.
 `oracle_kind` is one of exactly `crossed_ideal_dipole`, `quadrupolar`,
-`ludwig3_rotation`, or `scalar_subset_control`, and each appears at least
+`chain_tangent_mapping`, or `scalar_subset_control`, and each appears at least
 once; `receptor_basis` is `linear` or `circular`; `frequency_hz` is a
 positive number; `probe_azimuth_rad` and `probe_zenith_angle_rad` are
 `array_projection` values of identical `float64` shape `[S]` with `S >= 1`;
@@ -4278,8 +4738,8 @@ row instead requires
 `zenith_limit_max_abs_delta >= max(1e-3, 1024 * atol)`: it records the
 measured divergence between the accepted scalar subset's reading of one
 identity-basis file and the full-efield subset's conversion of the same
-bytes, and that divergence — together with the zenith row's failure to be
-single-valued — is the retained witness that the two literals name two
+bytes, and that divergence — together with the zenith row's failure of the
+de-spin predicate — is the retained witness that the two literals name two
 interpretations rather than a repair. The `quadrupolar` oracle fixes the
 principal-plane zeros and the opposite parity of the two feed rows and never
 becomes a public production model. Rows are sorted by unique `case_id`.
@@ -4375,7 +4835,8 @@ Each `crossvalidation_comparisons` row has exactly
 `{case_id, artifact_path, artifact_sha256, artifact_generated_at_utc,
 reference_package, reference_version, pyuvdata_version, pyradiosky_version,
 astropy_version, radiosim_source_sha, input_hashes, convention_mappings,
-correlation_residuals, output_basis, gating, open_disagreements,
+correlation_residuals, bounded_quantities, reference_frame_mirror,
+output_basis, gating, open_disagreements,
 test_node_id, passed}`. `artifact_path` is a `canonical_path`;
 `artifact_sha256` is a `sha256`; `artifact_generated_at_utc` is a timestamp;
 `reference_package` is exactly `pyuvsim`, `reference_version` exactly
@@ -4390,7 +4851,45 @@ the observation specification. `convention_mappings` is a non-empty array of
 exact objects `{radiosim_convention, reference_convention, equivalent}`
 sorted by unique `radiosim_convention`, the last field boolean, covering at
 minimum the east-X orientation, the fringe sign, the Stokes-to-coherency
-factor, and the beam normalization. `correlation_residuals` is an array of
+factor, the beam normalization, the chain sky tangent basis, and the
+**interpolation order**, the last recording that pyuvsim's `BeamList` was
+built with `spline_interp_opts` `{"kx": 1, "ky": 1, "s": 0}` to match
+RadioSim's pinned bilinear, with `equivalent` true. A row whose interpolation
+mapping is absent or not equivalent fails validation, because Section 5.5
+makes an unequalized comparison inadmissible as evidence. The east-X and
+Stokes-to-coherency rows may **not** be recorded `equivalent: true`: Section
+5.5's adjudicated mechanism makes both false as written in the superseded
+tool, and a row asserting either equivalence fails validation. No row records
+a trace-invariance expectation: Section 5.5 retires it, and the retained
+expectations are the per-correlation residuals alone.
+
+`bounded_quantities` is a non-empty array of exact objects
+`{quantity, max_rel_residual, bound, passed}` sorted by unique `quantity`,
+whose `quantity` values are drawn from exactly `total_intensity` and
+`stokes_v_class`, both of which must appear; the two numeric fields are
+non-negative numbers and a row's `passed` equals
+`max_rel_residual <= bound`. These are the **only** quantities on which this
+comparison asserts a bound, because they are the only ones the Section-5.5
+mechanism leaves untouched; every `bound` must be at or below the accepted
+`1.9e-3` SCI-007 frame residual.
+
+`reference_frame_mirror` is the structured record of the open disagreement and
+is an exact object
+`{mechanism, citations, transfer_solve_max_abs_residual, affected_correlations,
+observed_rel_residual_min, observed_rel_residual_max}`. `mechanism` is exactly
+the literal `pyradiosky_local_linear_mirror_v1`; `citations` is a sorted array
+of at least the two non-empty strings naming `pyradiosky/utils.py:105-120` and
+`pyradiosky/skymodel.py:2667-2676`;
+`transfer_solve_max_abs_residual` is a non-negative number that must not exceed
+`1e-3`, and it is the quantitative claim that the mechanism is complete —
+a validator checks it directly, so an unexplained residual cannot hide behind
+prose; `affected_correlations` is a sorted non-empty subset of the row's
+correlation labels; and the two observed extrema are non-negative numbers with
+`observed_rel_residual_min <= observed_rel_residual_max`. Cross-field
+validation requires every `affected_correlations` member to appear in
+`open_disagreements` and requires no member to appear in `bounded_quantities`,
+so a mirrored correlation can never be silently counted as an agreement.
+`correlation_residuals` is an array of
 exactly four exact objects
 `{correlation, max_abs_residual, max_rel_residual, reference_max_abs}` sorted
 by unique `correlation`, whose four `correlation` values are exactly the
@@ -4830,36 +5329,89 @@ corrections reopened, now sit between `U2` and the operative `D3`. History is
 never rewritten, so
 the exact edge is replaced by the starred one rather than repaired. Every
 commit in `U2..D3` other than `D3` itself is a single-parent non-merge of one
-of the same three header-recorded kinds — status-prose, superseded design,
-superseded red slice — each touching exactly the paths its kind allows, and
+of **four** header-recorded kinds — status-prose, superseded design,
+superseded red slice, and superseded implementation — each touching exactly
+the paths its kind allows, and
 the validator requires every interval commit to be named by a header record
-with its kind. The observed interval at this correction is exactly four
-commits, in ancestry order. The superseded original Stage-3 design gate
-(`2adc2acca8606b3a9774e14f28725a5687c0ecc8`) touches exactly
-`docs/development/sci005_beam_physics_plan.md`. The superseded first
-Stage-3 red slice (`139a8e411da1f50be29cee94ee351009437e10bc`), reopened by
-the basis-vector and provenance correction, touches exactly the Section
-7.4 test paths `tests/fixtures/beamfits.py`,
-`tests/integration/test_sci005_beam_physics.py`,
-`tests/unit/test_core/test_beam_pyuvdata_contract.py`,
-`tests/unit/test_core/test_sci005_full_efield.py`,
-`tests/unit/test_io/test_sci005_beam_config.py`, and
-`tests/unit/test_jones/test_chain_order.py` — six paths. The superseded
-basis-vector and provenance correction
-(`9956e77477b0597129e71b38a183c8dcd3cb761e`) is itself a superseded design
-commit and touches exactly
-`docs/development/sci005_beam_physics_plan.md`. The superseded re-cut
-Stage-3 red slice (`ea06bc649ae9987253c8002150e21b03a842cb45`), reopened by
-the response-identity and oracle-domain correction for a second governed
-re-cut, touches exactly the Section 7.4 test paths
-`tests/fixtures/beamfits.py`,
-`tests/unit/test_core/test_beam_pyuvdata_contract.py`, and
-`tests/unit/test_core/test_sci005_full_efield.py` — three paths. All four
-carry no production, tool, schema, or documentation byte beyond the two
-design commits' memo edits. Across the
-interval every Section 7.4 path marked `new` or `successor only` remains
-absent, except that the header-recorded superseded red slice may introduce the
-`new`-marked test paths its re-cut supersedes; and the retained Stage-1 and
+with its kind. The fourth kind is added by the chain-basis and comparison
+correction and is what a reopened `S3` requires: a **superseded
+implementation commit** is a stage implementation whose design a later,
+independently accepted, header-recorded correction superseded before that
+implementation could be accepted; it touches only paths on that stage's
+Section 7.4 list, and it carries no evidence artifact, no acceptance
+artifact, and no approved-constant change, because those live in the `E`, `A`,
+and `U` successors it never reached.
+
+The observed interval at this correction is exactly seven
+commits, in ancestry order.
+
+1. `2adc2acca8606b3a9774e14f28725a5687c0ecc8` — superseded design gate, the
+   original Stage-3 gate; touches exactly
+   `docs/development/sci005_beam_physics_plan.md`.
+2. `139a8e411da1f50be29cee94ee351009437e10bc` — superseded red slice, reopened
+   by the basis-vector and provenance correction; touches exactly the six
+   Section 7.4 test paths `tests/fixtures/beamfits.py`,
+   `tests/integration/test_sci005_beam_physics.py`,
+   `tests/unit/test_core/test_beam_pyuvdata_contract.py`,
+   `tests/unit/test_core/test_sci005_full_efield.py`,
+   `tests/unit/test_io/test_sci005_beam_config.py`, and
+   `tests/unit/test_jones/test_chain_order.py`.
+3. `9956e77477b0597129e71b38a183c8dcd3cb761e` — superseded design gate, the
+   basis-vector and provenance correction; touches exactly
+   `docs/development/sci005_beam_physics_plan.md`.
+4. `ea06bc649ae9987253c8002150e21b03a842cb45` — superseded red slice, reopened
+   by the response-identity and oracle-domain correction; touches exactly the
+   three Section 7.4 test paths `tests/fixtures/beamfits.py`,
+   `tests/unit/test_core/test_beam_pyuvdata_contract.py`, and
+   `tests/unit/test_core/test_sci005_full_efield.py`.
+5. `5856587c49ac6a6134265be11954c2b9bcedf76f` — superseded design gate, the
+   response-identity and oracle-domain correction; touches exactly
+   `docs/development/sci005_beam_physics_plan.md`.
+6. `e3205d60977153857941f1a485ec81eac7340335` — superseded red slice, reopened
+   by the chain-basis and comparison correction; touches exactly the three
+   Section 7.4 test paths `tests/fixtures/beamfits.py`,
+   `tests/unit/test_core/test_sci005_full_efield.py`, and
+   `tests/unit/test_jones/test_chain_order.py`.
+7. `9bcfcbcb762edbbfd0bcfd170674f59ebcebfc84` — superseded **implementation**
+   commit, the first kind of its type in this programme; touches exactly
+   twenty-eight Section 7.4 paths:
+   `docs/development/sci005_stage3_acceptance.schema.json`,
+   `docs/development/sci005_stage3_evidence.schema.json`,
+   `docs/migration_guide.md`, `docs/user_guide/beam_models.rst`,
+   `docs/user_guide/configuration.rst`,
+   `docs/user_guide/configuration_support.rst`,
+   `docs/user_guide/jones_matrices.rst`,
+   `src/radiosim/core/beam/fits.py`, `src/radiosim/core/beam/models.py`,
+   `src/radiosim/core/beam/runtime.py`, `src/radiosim/io/beam_config.py`,
+   `tests/characterization/test_tier6_current_behavior.py`,
+   `tests/crossvalidation/test_sci005_efield_pyuvsim.py`,
+   `tests/fixtures/beamfits.py`,
+   `tests/unit/test_core/test_beam_fits.py`,
+   `tests/unit/test_core/test_beam_solver_integration.py`,
+   `tests/unit/test_core/test_result.py`,
+   `tests/unit/test_io/test_hdf5_result.py`,
+   `tests/unit/test_io/test_measurement_set.py`,
+   `tests/unit/test_io/test_result_summary.py`,
+   `tests/unit/test_io/test_standard_visibility.py`,
+   `tests/unit/test_io/test_uvfits.py`,
+   `tests/unit/test_jones/test_backend_parity.py`,
+   `tests/unit/test_sci005_evidence.py`,
+   `tests/unit/test_sci005_stage3_acceptance.py`,
+   `tools/sci005_stage3_acceptance.py`,
+   `tools/sci005_stage3_crossvalidation.py`, and
+   `tools/sci005_stage_evidence.py`.
+
+None of the seven carries a production, tool, schema, or documentation byte
+outside its own kind's allowance. Across the
+interval every Section 7.4 path marked `successor only` remains absent, and
+every path marked `new` remains absent except where a header-recorded
+superseded commit legitimately introduces it: a superseded red slice may
+introduce the `new`-marked test paths its re-cut supersedes, and the
+superseded implementation commit may introduce the `new`-marked schema, tool,
+and test paths its own re-cut supersedes. The two evidence and acceptance
+successors' paths are `successor only` and are absent throughout, which is
+what distinguishes a superseded implementation from an accepted one. The
+retained Stage-1 and
 Stage-2 evidence and acceptance artifacts, their schemas, their validators,
 their tools, and every approved digest constant remain byte-identical to `U2`.
 The operative `D3` — the commit containing the latest header-recorded
