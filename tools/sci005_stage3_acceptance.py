@@ -267,6 +267,12 @@ FIFTH_SUPERSEDED_RED_SLICE_PATHS = frozenset(
     {"tests/unit/test_core/test_sci005_full_efield.py"}
 )
 
+#: And the one the *fifth re-cut* slice touched, reopened by the
+#: evidence-disposal correction for a sixth governed re-cut.  It is the first
+#: Stage-3 red slice to sit outside ``tests/unit/test_core/``: the disposal
+#: invariant it adds belongs with the evidence validator's own state tests.
+SIXTH_SUPERSEDED_RED_SLICE_PATHS = frozenset({"tests/unit/test_sci005_evidence.py"})
+
 #: The twenty-eight Section 7.4 paths the header-recorded superseded Stage-3
 #: implementation commit touched, transcribed from Section 8.3's enumeration.
 #: None of them is an evidence or acceptance successor, which is exactly what
@@ -347,6 +353,20 @@ THIRD_SUPERSEDED_IMPLEMENTATION_PATHS = frozenset(
     }
 )
 
+#: The four Section 7.4 paths the header-recorded superseded *third re-cut*
+#: implementation commit touched, reopened by the evidence-disposal correction
+#: for a fifth ``S3``.  It carries one known failing test, recorded in its own
+#: commit body, which is the consequence of the disposal mechanics that
+#: correction rules rather than an implementation defect.
+FOURTH_SUPERSEDED_IMPLEMENTATION_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_evidence.schema.json",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage3_acceptance.py",
+        "tools/sci005_stage3_acceptance.py",
+    }
+)
+
 #: Every Section 7.4 path a superseded implementation commit may touch, and the
 #: only bound this kind carries; the per-commit recorded set above is the
 #: authority for each instance, exactly as it is for the red slices.
@@ -354,6 +374,7 @@ STAGE3_IMPLEMENTATION_PATHS = (
     FIRST_SUPERSEDED_IMPLEMENTATION_PATHS
     | SECOND_SUPERSEDED_IMPLEMENTATION_PATHS
     | THIRD_SUPERSEDED_IMPLEMENTATION_PATHS
+    | FOURTH_SUPERSEDED_IMPLEMENTATION_PATHS
 )
 
 #: Section 7.5's ``Ei`` allowance, which is the whole bound on the fifth kind:
@@ -399,6 +420,7 @@ STAGE3_RED_SLICE_PATHS = (
     | THIRD_SUPERSEDED_RED_SLICE_PATHS
     | FOURTH_SUPERSEDED_RED_SLICE_PATHS
     | FIFTH_SUPERSEDED_RED_SLICE_PATHS
+    | SIXTH_SUPERSEDED_RED_SLICE_PATHS
 )
 
 #: Section 8.3's observed ``U2..D3`` interval, transcribed in ancestry order
@@ -408,8 +430,8 @@ STAGE3_RED_SLICE_PATHS = (
 #:
 #: The count is the whole walk, never "the previous total plus the new
 #: commits": a superseding correction puts the design gate it supersedes into
-#: the interval at the moment of supersession, so entries 8 and 11 are both in
-#: it. ``git rev-list --count f275e75..f09716a`` returns exactly ``14``.
+#: the interval at the moment of supersession, so entries 8, 11, and 15 are all
+#: in it. ``git rev-list --count f275e75..7ad0931`` returns exactly ``17``.
 INTERVAL_COMMITS: dict[str, tuple[str, frozenset[str]]] = {
     # The superseded original Stage-3 design gate: memo only.
     "2adc2acca8606b3a9774e14f28725a5687c0ecc8": (
@@ -491,6 +513,23 @@ INTERVAL_COMMITS: dict[str, tuple[str, frozenset[str]]] = {
     "f09716a2808fe5693db31b65fa20d3c6ef0641b4": (
         SUPERSEDED_EVIDENCE_KIND,
         FIRST_SUPERSEDED_EVIDENCE_PATHS,
+    ),
+    # The superseded evidence-projection correction, itself the operative D3
+    # until the evidence-disposal correction superseded it.
+    "0601ddc710d954fb76849ee95fba5cacbb5ba5b0": (
+        SUPERSEDED_DESIGN_KIND,
+        frozenset({DESIGN_MEMO}),
+    ),
+    # The superseded fifth re-cut Stage-3 red slice.
+    "5fd0f7ff653b7be4856a6a0646559a5875435521": (
+        SUPERSEDED_RED_SLICE_KIND,
+        SIXTH_SUPERSEDED_RED_SLICE_PATHS,
+    ),
+    # The superseded third re-cut Stage-3 implementation commit, the fourth of
+    # the fourth kind.
+    "7ad0931adacd7f5555b5572c54a746a58880ee9b": (
+        SUPERSEDED_IMPLEMENTATION_KIND,
+        FOURTH_SUPERSEDED_IMPLEMENTATION_PATHS,
     ),
 }
 

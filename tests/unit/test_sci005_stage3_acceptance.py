@@ -154,11 +154,14 @@ INTERVAL_KINDS: dict[str, str] = {
     "997ee5ee48704d91b031e93b997817d0474064b7": "superseded-red-slice",
     "2fa9ce4e76f78fff74bf2e46d67601294bf7c173": "superseded-implementation",
     "f09716a2808fe5693db31b65fa20d3c6ef0641b4": "superseded-evidence",
+    "0601ddc710d954fb76849ee95fba5cacbb5ba5b0": "superseded-design",
+    "5fd0f7ff653b7be4856a6a0646559a5875435521": "superseded-red-slice",
+    "7ad0931adacd7f5555b5572c54a746a58880ee9b": "superseded-implementation",
 }
 
 #: The last commit of that interval; the operative ``D3`` is its single
 #: first-parent child.
-LAST_INTERVAL_COMMIT = "f09716a2808fe5693db31b65fa20d3c6ef0641b4"
+LAST_INTERVAL_COMMIT = "7ad0931adacd7f5555b5572c54a746a58880ee9b"
 
 #: The six Section 7.4 test paths the first superseded red slice cut, which are
 #: also the union bounding the kind.
@@ -197,6 +200,10 @@ FOURTH_RED_SLICE_PATHS = frozenset(
 )
 #: And the one the fourth re-cut slice touched.
 FIFTH_RED_SLICE_PATHS = frozenset({"tests/unit/test_core/test_sci005_full_efield.py"})
+#: And the one the fifth re-cut slice touched -- the first Stage-3 red slice
+#: outside ``tests/unit/test_core/``, because the disposal invariant it adds
+#: belongs with the evidence validator's own state tests.
+SIXTH_RED_SLICE_PATHS = frozenset({"tests/unit/test_sci005_evidence.py"})
 
 #: The twenty-eight Section 7.4 paths the header-recorded superseded Stage-3
 #: implementation commit touched. The chain-basis and comparison correction
@@ -270,6 +277,16 @@ THIRD_IMPLEMENTATION_PATHS = frozenset(
         "tests/unit/test_sci005_evidence.py",
         "tests/unit/test_sci005_stage3_acceptance.py",
         "tests/unit/test_tier1h_documentation.py",
+        "tools/sci005_stage3_acceptance.py",
+    }
+)
+
+#: The four Section 7.4 paths the third re-cut implementation commit touched.
+FOURTH_IMPLEMENTATION_PATHS = frozenset(
+    {
+        "docs/development/sci005_stage3_evidence.schema.json",
+        "tests/unit/test_sci005_evidence.py",
+        "tests/unit/test_sci005_stage3_acceptance.py",
         "tools/sci005_stage3_acceptance.py",
     }
 )
@@ -1036,17 +1053,17 @@ def test_the_tool_anchors_the_edge_on_the_stage2_retained_surface() -> None:
 
 
 def test_the_interval_table_is_the_header_enumerated_one() -> None:
-    """Exactly fourteen commits, their kinds, and their exact recorded path sets.
+    """Exactly seventeen commits, their kinds, and their exact recorded path sets.
 
-    The evidence-projection correction grew the interval to **fourteen** and its
-    kind vocabulary from four to five. Two counting traps the memo names apply:
-    a superseding correction puts the design gate it supersedes into the
-    interval at the moment of supersession, so entries 8 and 11 are both in it,
-    and the count is therefore the whole walk rather than "the previous total
-    plus the new commits".
+    The evidence-disposal correction grew the interval to **seventeen**, adding
+    no new kind. Two counting traps the memo names apply: a superseding
+    correction puts the design gate it supersedes into the interval at the
+    moment of supersession, so entries 8, 11, and 15 are all in it, and the
+    count is therefore the whole walk rather than "the previous total plus the
+    new commits".
     """
     module = _tool()
-    assert len(module.INTERVAL_COMMITS) == 14
+    assert len(module.INTERVAL_COMMITS) == 17
     assert {sha: kind for sha, (kind, _paths) in module.INTERVAL_COMMITS.items()} == (
         INTERVAL_KINDS
     )
@@ -1093,17 +1110,26 @@ def test_the_interval_table_is_the_header_enumerated_one() -> None:
     assert module.INTERVAL_COMMITS["f09716a2808fe5693db31b65fa20d3c6ef0641b4"][1] == (
         EVIDENCE_PATHS
     )
+    assert module.INTERVAL_COMMITS["0601ddc710d954fb76849ee95fba5cacbb5ba5b0"][1] == (
+        memo
+    )
+    assert module.INTERVAL_COMMITS["5fd0f7ff653b7be4856a6a0646559a5875435521"][1] == (
+        SIXTH_RED_SLICE_PATHS
+    )
+    assert module.INTERVAL_COMMITS["7ad0931adacd7f5555b5572c54a746a58880ee9b"][1] == (
+        FOURTH_IMPLEMENTATION_PATHS
+    )
 
 
 def test_the_interval_is_exactly_the_observed_rev_list() -> None:
-    """Section 8.3: "``git rev-list --count f275e75..f09716a`` returns exactly
-    ``14``"."""
+    """Section 8.3: "``git rev-list --count f275e75..7ad0931`` returns exactly
+    ``17``"."""
     module = _tool()
     observed = module.run_git(
         "rev-list", f"{STATUS_SUCCESSOR}..{LAST_INTERVAL_COMMIT}"
     ).split()
     assert sorted(observed) == sorted(module.INTERVAL_COMMITS)
-    assert len(observed) == 14
+    assert len(observed) == 17
 
 
 def test_the_four_red_slices_differ_and_the_union_bounds_the_kind() -> None:
@@ -1114,6 +1140,7 @@ def test_the_four_red_slices_differ_and_the_union_bounds_the_kind() -> None:
     assert module.THIRD_SUPERSEDED_RED_SLICE_PATHS == THIRD_RED_SLICE_PATHS
     assert module.FOURTH_SUPERSEDED_RED_SLICE_PATHS == FOURTH_RED_SLICE_PATHS
     assert module.FIFTH_SUPERSEDED_RED_SLICE_PATHS == FIFTH_RED_SLICE_PATHS
+    assert module.SIXTH_SUPERSEDED_RED_SLICE_PATHS == SIXTH_RED_SLICE_PATHS
     for recorded in (
         module.SECOND_SUPERSEDED_RED_SLICE_PATHS,
         module.THIRD_SUPERSEDED_RED_SLICE_PATHS,
@@ -1121,6 +1148,10 @@ def test_the_four_red_slices_differ_and_the_union_bounds_the_kind() -> None:
         module.FIFTH_SUPERSEDED_RED_SLICE_PATHS,
     ):
         assert recorded < module.FIRST_SUPERSEDED_RED_SLICE_PATHS
+    # The sixth is the first slice to reach outside the original six-path union.
+    assert not module.SIXTH_SUPERSEDED_RED_SLICE_PATHS <= (
+        module.FIRST_SUPERSEDED_RED_SLICE_PATHS
+    )
     assert module.SECOND_SUPERSEDED_RED_SLICE_PATHS != (
         module.THIRD_SUPERSEDED_RED_SLICE_PATHS
     )
@@ -1133,8 +1164,9 @@ def test_the_four_red_slices_differ_and_the_union_bounds_the_kind() -> None:
         | THIRD_RED_SLICE_PATHS
         | FOURTH_RED_SLICE_PATHS
         | FIFTH_RED_SLICE_PATHS
+        | SIXTH_RED_SLICE_PATHS
     )
-    assert len(module.STAGE3_RED_SLICE_PATHS) == 6
+    assert len(module.STAGE3_RED_SLICE_PATHS) == 7
 
 
 def test_the_superseded_implementation_kind_carries_no_successor_artifact() -> None:
@@ -1150,9 +1182,11 @@ def test_the_superseded_implementation_kind_carries_no_successor_artifact() -> N
     assert module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS == FIRST_IMPLEMENTATION_PATHS
     assert module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS == SECOND_IMPLEMENTATION_PATHS
     assert module.THIRD_SUPERSEDED_IMPLEMENTATION_PATHS == THIRD_IMPLEMENTATION_PATHS
+    assert module.FOURTH_SUPERSEDED_IMPLEMENTATION_PATHS == FOURTH_IMPLEMENTATION_PATHS
     assert len(module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS) == 28
     assert len(module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS) == 20
     assert len(module.THIRD_SUPERSEDED_IMPLEMENTATION_PATHS) == 5
+    assert len(module.FOURTH_SUPERSEDED_IMPLEMENTATION_PATHS) == 4
     # Neither contains the other, so this kind is per-commit recorded too.
     assert not module.SECOND_SUPERSEDED_IMPLEMENTATION_PATHS <= (
         module.FIRST_SUPERSEDED_IMPLEMENTATION_PATHS
@@ -1164,6 +1198,7 @@ def test_the_superseded_implementation_kind_carries_no_successor_artifact() -> N
         FIRST_IMPLEMENTATION_PATHS
         | SECOND_IMPLEMENTATION_PATHS
         | THIRD_IMPLEMENTATION_PATHS
+        | FOURTH_IMPLEMENTATION_PATHS
     )
     assert module.STAGE3_SUCCESSOR_ONLY_PATHS == SUCCESSOR_ONLY_PATHS
     assert not (module.STAGE3_IMPLEMENTATION_PATHS & SUCCESSOR_ONLY_PATHS)
@@ -1289,15 +1324,19 @@ def test_exactly_the_superseded_evidence_commit_flips_the_stage3_sentinels() -> 
     for name in STAGE3_SENTINEL_NAMES:
         assert f"{name}: str | None = None" in at_status
 
+    def _nulled(commit: str) -> bool:
+        source = module.git_show(commit, validator).decode("utf-8")
+        return all(
+            f"{name}: str | None = None" in source for name in STAGE3_SENTINEL_NAMES
+        )
+
+    # A *transition*, not a state: every interval commit after the flip also
+    # carries non-``None`` sentinels, so the predicate compares each commit
+    # against its own parent.
     flipping = [
         commit
         for commit, (_kind, recorded) in module.INTERVAL_COMMITS.items()
-        if validator in recorded
-        and any(
-            f"{name}: str | None = None"
-            not in module.git_show(commit, validator).decode("utf-8")
-            for name in STAGE3_SENTINEL_NAMES
-        )
+        if validator in recorded and _nulled(f"{commit}^") and not _nulled(commit)
     ]
     assert flipping == ["f09716a2808fe5693db31b65fa20d3c6ef0641b4"]
     kind, recorded = module.INTERVAL_COMMITS[flipping[0]]
