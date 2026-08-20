@@ -2197,6 +2197,10 @@ def test_a_rotated_linear_receptor_records_the_none_orientation_verdict(
 STAGE3_CROSSVALIDATION_SCHEMA = "radiosim.sci005.stage3-crossvalidation.v1"
 STAGE3_CROSSVALIDATION_BASENAME_SUFFIX = "-sci005-efield-pyuvsim-1.4.0.json"
 
+#: The pre-existing SCI-007 walker literal, which the byte-scoped carve-out
+#: grant leaves at all three of its occurrences.
+SCI007_CROSSVALIDATION_SCHEMA = "radiosim-crossvalidation-1.2.0"
+
 #: The densities corrected Section 5.2.1 records the second-difference ratio as
 #: exactly ``1.000000`` at, "which is the density independence the derivation
 #: predicts".
@@ -2456,12 +2460,25 @@ def test_the_wp6_record_shape_rejects_a_stage_three_artifact() -> None:
 
 
 def test_the_documentation_walker_carries_the_stage_three_carve_out() -> None:
-    """Section 7.4's granted bounded carve-out.
+    """Section 7.4's granted bounded carve-out, in its frozen **additive**
+    encoding.
 
     "The grant is bounded to exactly one added carve-out mirroring the existing
     SCI-007 pattern: records whose ``schema_version`` equals the frozen Stage-3
     literal are skipped by the WP-6 shape assertions and are instead asserted
-    to carry the frozen dated basename of Section 7.4."
+    to carry the frozen dated basename of Section 7.4. The bound is
+    **byte-scoped**: apart from that one insertion, **no other byte of that
+    module changes**."
+
+    The encoding below is the one Section 7.4 freezes: the two presence
+    assertions "**and** that the pre-existing SCI-007 literal
+    ``radiosim-crossvalidation-1.2.0`` still occurs exactly three times -- once
+    in the walker carve-out and twice in the SCI-007 deep-validator sites. It
+    must never assert that any literal occurs exactly once: that over-encoding
+    is what forced the landed ``S3`` to hoist a shared module constant and
+    touch three sites outside the carve-out, and this memo never required it."
+    The count clause is therefore a guard *against* refactoring the granted
+    module rather than a count of the carve-out itself.
 
     The edit itself belongs to the re-cut ``S3``; this is the red that proves
     the walker does not carry it yet, and it is authored here rather than in
@@ -2471,5 +2488,6 @@ def test_the_documentation_walker_carries_the_stage_three_carve_out() -> None:
 
     assert STAGE3_CROSSVALIDATION_SCHEMA in source
     assert STAGE3_CROSSVALIDATION_BASENAME_SUFFIX in source
-    # Exactly one carve-out is added: the SCI-007 one keeps its own literal.
-    assert source.count("radiosim-crossvalidation-1.2.0") == 1
+    # The carve-out is a pure insertion, so the pre-existing SCI-007 literal
+    # keeps all three of its occurrences.
+    assert source.count(SCI007_CROSSVALIDATION_SCHEMA) == 3
