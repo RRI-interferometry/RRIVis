@@ -2,6 +2,36 @@
 
 **WP-9 design-gate candidate — 2026-08-11**
 
+**Phase-0 bounded correction — 2026-08-21.** The candidate introduced at
+`978fef6ddd885355dd06f1deeb04aa2927626d71` received its two required fresh
+independent Phase-0 reviews on 2026-08-21 — physics/governance and
+computational, both `REJECT` — against pinned candidate bytes
+`sha256:01f8c56a32e3f649c576393d53b3ad29967b9c4b69bc2ba82c33ff17312a5591`.
+The reviews confirmed the Section 5–6 polarization, rotation-sign, and
+harmonic algebra by independent re-derivation and confirmed every Section 2
+live-source claim against `257056b`; the recorded blockers were bounded.
+This correction resolves every recorded blocker and advisory: it makes the
+Section 1/4.2 admissible-scale envelope explicit; replaces the Section 13.2
+M1 live-tip WP-7 replay — unsatisfiable for every descendant of the
+accepted `v0.4.0` release commit — with the frozen-historical-descendant
+replay; adds the Section 13.7 bounded-correction, supersession, and
+disposal protocol with the `D0`/operative-`D` authentication in
+Section 14.0; and lands the recorded exact-literal repairs (Sections 5.3,
+11, 12.1, 13.5, 14.2, 14.3, 15). It is design-only: it implements no
+solver, accepts no phase, and does not close the register row. Its exact
+pre-landing file bytes
+(`sha256:7beb148eda543f21e56c8720f11b51e6e7cfd3f593c013609f0136200437a6aa`)
+and parent-relative diff
+(`sha256:7d4dc4af03f384ac04deb29411a1c32a1b1916251bd9d903b6bb5e528b3f86c7`)
+received separate independent reconfirmation reviews on 2026-08-21 —
+physics/governance and computational, both `ACCEPT`, each independently
+reproducing the frozen-descendant WP-7 replay byte-for-byte — with one
+deferred non-blocking advisory recorded for a future correction: Section
+13.1's opening sentences still carry the pre-correction single-fixed-`D`
+phrasing and should cross-reference Section 13.7's operative-`D`
+definition. This correction's landing commit is the operative `D` of
+Section 13.7.
+
 **Source reviewed:** `42a1f27e5f6078ce72960f7d200e8b1e94d399c2`.
 Concurrent WP-7 working-tree changes are outside this design and are not
 evidence for it.
@@ -38,6 +68,21 @@ The observing regime is deliberately narrow:
   map making, pseudo-inverses, KL filtering, power-spectrum estimation,
   calibration, tracking, drift-and-shift, missing samples, and partial-day
   windows are not part of `SCI-004`.
+
+The driver's "HERA-like" label names the compact drift-scan core regime; it
+is not itself an admission rule. The sole admission authority for any
+specific site, array, frequency, and sky combination is the Section 4.2
+`FrameApplicabilityCertificate` with its fixed budgets. Because the
+certificate's wrapped-phase gate amplifies the frozen-vs-operational
+direction discrepancy by `2*pi*b*nu/c`, those fixed budgets imply a bounded
+admissible scale: at the canonical site the Phase-0 review measured a
+full-cycle frozen-vs-operational direction discrepancy of order `3e-6 rad`,
+so the fixed `5e-3 rad` phase budget admits roughly
+`b_max*nu_max <~ 8e10 m Hz` (about `400 m` at `200 MHz`). A configuration
+beyond that envelope is expected to fail certification and is outside the
+resolved Q5 scope. The estimate is descriptive and the certificate is
+normative; widening the frame budgets or the operational-frame model for a
+larger array is a design successor, never a tolerance change.
 
 Shaw et al.'s `v_m=B_m a_m` relation is the scientific starting point, but
 RadioSim retains its own Jy normalization, east-X receptor binding, IAU Stokes
@@ -514,7 +559,10 @@ The exact run dimensions and `b_max*nu_max`, rather than a generic "HERA-like"
 label, are certificate fields. Any incomplete count, unresolved root interval,
 outside-slab sign mismatch, phase failure, horizon failure, or cube failure
 rejects the run with no YAML waiver. M1 evidence must include a passing
-retained bounded-driver certificate; expansion to a different site, array,
+retained bounded-driver certificate, and at least one retained certificate
+case must have `b_max*nu_max` within a factor of two of the Section 1
+admissible envelope, so the phase budget is exercised rather than assumed by
+the smallest fixture; expansion to a different site, array,
 frequency range, sky, beam, or IERS identity requires a new certificate and
 independent frame review.
 
@@ -633,6 +681,10 @@ packed table with rows `(m,l_start,l_stop,value_start,value_stop)`, again
 signed-m-major and ascending `l`, and values shaped
 `(antenna, frequency, feed, sky_vector, packed_value)`. Feed order is the
 resolved receptor-label order and `sky_vector` is exactly `("theta","phi")`.
+Those two components are defined in exactly the Section 5.2 bridge basis
+`e_thetaphi = D e_NE`, and any receptor-side factor entering the cache uses
+the accepted chain-tangent receptor conventions; the cache introduces no
+third tangent convention.
 It is an audit intermediate only; the normative baseline transfer is built
 from the full RIME kernel. The two packed-table SHA-256 values enter scientific
 provenance. A rectangular `(...,l,m)` array, padded invalid cell, field reorder,
@@ -1210,8 +1262,13 @@ backend tolerance.
 Non-gating performance records live under
 `output/benchmarks/reference/sci004/<UTC>-<host>.json`. They use the exact
 top-level schema literal `radiosim.benchmark.sci004.v1` and Section 14's
-canonical JSON and typed-array digest rules. The top-level object has exactly
-`schema_version`, `provenance`, and `workloads`.
+canonical JSON and typed-array digest rules. The record deliberately defines
+its own schema rather than extending the accepted
+`radiosim.benchmark.perf001.v1` inventory: every SCI-004 row must join a
+frame certificate, scientific identity, deterministic block schedule, and
+direct/backend comparison that the PERF-001 record has no analogue for, and
+each schema remains governed by its own strict validator. The top-level
+object has exactly `schema_version`, `provenance`, and `workloads`.
 
 `provenance` has exactly:
 
@@ -1506,7 +1563,16 @@ each binary64 input and ERFA constant by its exact integer ratio, uses
 outward-rounded rational/polynomial bounds and range-reduced trigonometric
 bounds with a proved remainder, and rounds outward to binary64 only after that
 proof. Applying `numpy.nextafter` to an arbitrary platform `libm` result is
-explicitly insufficient. The implementation, constants, and canonical leaf
+explicitly insufficient. The enclosure's target is the exact real-arithmetic
+value of the same expression graph the installed ERFA/IERS implementation
+evaluates — with every constant taken by its exact integer ratio — not an
+abstract celestial-mechanics function; outward interval evaluation of that
+graph contains every correctly rounded intermediate, which is why certified
+soundness and the fixed public-Astropy probe agreement can jointly hold. The
+companion is written from scratch against the Python standard library and
+NumPy alone; no interval-arithmetic dependency may be added or relied on
+transitively, matching Section 13.6's frozen dependency surface, and its
+implementation cost is owned by phase M1. The implementation, constants, and canonical leaf
 partition each have a normalized SHA-256 in the frame certificate. Public
 `SkyCoord.transform_to(AltAz(obstime=..., location=..., pressure=0))` values at
 every initial endpoint, every bisection midpoint, and every retained root must
@@ -2014,18 +2080,40 @@ Two clean programme tips admit dependencies that necessarily land after `D`
 or an earlier SCI-004 phase. They are ancestry points, not SCI-004 source or
 evidence commits.
 
-For M1, `D` and the independently accepted WP-7 CPU acceptance commit must be
-ancestors of globally clean `G1`; ancestry is inclusive, so `G1` may equal the
-later dependency commit. The first-parent range `D..G1` contains no merge. At
-`HEAD == G1`, before any SCI-004 red byte exists, run exactly:
+For M1, `D` and the independently accepted WP-7 CPU acceptance commit
+`7e5f469c835c1137a3a3a870d27c5d9f5e8f3520` must be ancestors of globally
+clean `G1`; ancestry is inclusive, so `G1` may equal the later dependency
+commit. The first-parent range `D..G1` contains no merge. The upstream
+verifier cannot run against `G1` itself: it requires clean
+`HEAD == --descendant` and re-diffs the WP-7-frozen `pixi.toml`/`pixi.lock`
+bytes at its accepted source against the descendant, and the independently
+accepted `v0.4.0` release commit (`ae2650f`) changed `pixi.toml` after that
+freeze, so the protected-source rule rejects every descendant of `ae2650f`
+— every legally constructible `G1` — by design. The accepted v0.4.0
+release review adjudicated that ending of the WP-7 live-tree freeze
+invariant; the WP-7 acceptance itself remains authentic at its own frozen
+chain. The M1 gate therefore replays the certificate at the frozen
+historical replay descendant
+`c6a5ce90ae3160150b1699f97b45bb693d4ed886` — the `descendant_commit`
+recorded inside the retained, already-authenticated SCI-005 Stage-1
+dependency artifact `docs/development/sci005_stage1_wp7_dependency.json` —
+and proves the `G1` ancestry facts from Git objects directly.
+
+At `HEAD == G1`, before any SCI-004 red byte exists, the gate creates a
+fresh temporary detached worktree at exactly that replay descendant,
+requires `git status --porcelain=v1 --untracked-files=all` to be empty
+there, authenticates the invoked tool blob from that tip against the
+certificate's `cpu_evidence_tool_sha256`, and runs exactly:
 
 ```text
 pixi run python tools/wp7_perf001_cpu_evidence.py verify-accepted \
-  --acceptance-commit <40hex-WP7-A> --descendant <40hex-G1>
+  --acceptance-commit 7e5f469c835c1137a3a3a870d27c5d9f5e8f3520 \
+  --descendant c6a5ce90ae3160150b1699f97b45bb693d4ed886
 ```
 
 It must exit zero with empty stderr and emit the upstream canonical one-line
-JSON certificate, including one final LF, with schema
+JSON certificate, including one final LF, byte-identical to the retained
+SCI-005 Stage-1 dependency artifact, with schema
 `radiosim.perf001.cpu_acceptance_certificate.v1` and exactly:
 
 ```text
@@ -2036,14 +2124,15 @@ production_harness_sha256, pixi_manifest_sha256, pixi_lock_sha256,
 evidence_diff_paths, acceptance_diff_paths, verdict, passed
 ```
 
-The values require the named accepted WP-7 `A`, `descendant_commit==G1`,
-`verdict=="CPU_ACCEPTED_P_E_HARDWARE_GATED"`, and `passed==true`.
-`R1^==G1`. R1 retains those exact stdout bytes at
+The values require the named accepted WP-7 `A`, `descendant_commit` equal to
+the frozen replay descendant, `verdict=="CPU_ACCEPTED_P_E_HARDWARE_GATED"`,
+and `passed==true`. The worktree and its temporary directory are removed on
+success or failure. `R1^==G1`. R1 retains those exact stdout bytes at
 `docs/development/sci004_mmode_phase1_wp7_dependency.json` and freezes in
 `tests/unit/test_sci004_phase1_dependency.py` exactly
-`APPROVED_SCI004_D_SHA`, `APPROVED_SCI004_G1_SHA`, and
-`APPROVED_WP7_CPU_A_SHA`. No later phase may change those constants or the
-retained certificate.
+`APPROVED_SCI004_D_SHA`, `APPROVED_SCI004_G1_SHA`,
+`APPROVED_WP7_CPU_A_SHA`, and `APPROVED_WP7_REPLAY_DESCENDANT_SHA`. No
+later phase may change those constants or the retained certificate.
 
 For M3, accepted SCI-004 `A2` and the independently accepted SCI-005 Stage-2
 `A2` must both be ancestors of globally clean `G3`; ancestry is inclusive and
@@ -2073,11 +2162,15 @@ The line requires `stage==2`, the named accepted SCI-005 `A2`,
 `APPROVED_SCI004_D_SHA`, `APPROVED_SCI004_G3_SHA`, and
 `APPROVED_SCI005_STAGE2_A_SHA`.
 
-Every dependency validator creates a fresh temporary detached worktree at its
-exact `G1` or `G3`, requires `git status --porcelain=v1
+Every dependency validator creates a fresh temporary detached worktree at
+its replay anchor — the frozen WP-7 replay descendant for M1, exact `G3`
+for M3 — requires `git status --porcelain=v1
 --untracked-files=all` to be empty, authenticates the invoked tool blob from
 that tip, runs the exact command there, and compares stdout byte-for-byte,
-including the final LF, with the retained file. The M3 validator additionally
+including the final LF, with the retained file. The M1 validator
+additionally proves, from Git objects at the caller's checkout, that `D` and
+the WP-7 acceptance commit are ancestors of `G1` and that the first-parent
+range `D..G1` contains no merge. The M3 validator additionally
 creates a clean detached worktree at exact `R3`, runs the Stage-2 verifier with
 `--descendant <R3>`, and requires the stdout bytes to be identical to the
 retained G3 line; the verifier output is descendant-independent while both
@@ -2282,7 +2375,7 @@ wrapper leaves every direct path byte-identical before M2 starts.
 - `docs/user_guide/configuration_support.rst`
 - `docs/user_guide/backends.rst`
 - `docs/api/io.rst`
-- `output/benchmarks/reference/README.md`
+- `output/benchmarks/reference/README.md` (new)
 
 `E3` may write only:
 
@@ -2335,6 +2428,51 @@ on `simulators/`, make a benchmark gate CI, or regenerate an unrelated pin.
 design uses already required Astropy, SciPy, and healpy. A proved dependency
 gap requires a design successor before those files change.
 
+### 13.7 Bounded design corrections, supersession, and disposal
+
+`D0 = 978fef6ddd885355dd06f1deeb04aa2927626d71` is the commit that
+introduced this memo; its parent-relative diff touches exactly the three
+Section 13.1 design-authority paths. The **operative design commit** `D` is
+the latest independently accepted, header-recorded design-gate commit: the
+Phase-0 acceptance landing, or a later accepted bounded correction. Every
+frozen `design_sha` binding names the operative `D` current at its own
+phase's `R`.
+
+A bounded design correction is drafted as edits to
+`docs/development/sci004_mmode_design.md` alone — plus
+`PostTier8RemediationPlan.md` WP-9/Q5/dependency/ledger wording when the
+correction changes a fact that ledger states. Its exact pre-landing file
+bytes and parent-relative diff are pinned by SHA-256 and receive two fresh
+independent reviews (physics/governance and computational). On dual
+`ACCEPT` it lands unchanged as one single-parent non-merge commit touching
+only those paths, with a dated header record naming what it supersedes, the
+pinned SHA-256 values, both verdicts, and any phase slice it reopens. That
+landing commit becomes the operative `D`. A correction may reopen a red,
+source, or evidence slice; it may not rewrite history, edit a retained
+accepted artifact, weaken a tolerance, or accept a production phase.
+
+When an accepted correction intervenes at a Section 14.4 edge, the exact
+direct-parent edge it displaces is replaced by a starred edge whose
+interval commits this memo's header must enumerate exhaustively by SHA.
+Every interval commit is a single-parent non-merge of exactly one
+header-recorded kind — status-prose, superseded design, superseded red
+slice, superseded implementation, or superseded evidence — touching
+exactly the paths its kind allows, mirroring the accepted SCI-005
+Section 8.3 machinery; the reopened phase's `R` then directly parents the
+operative correction commit. A commit the header does not name invalidates
+the edge.
+
+Disposal follows the accepted SCI-005 Section 7.5 rule exactly: when a
+header-recorded correction supersedes an evidence commit, the reopened
+slice's `S` restores that phase's Section 13 `S`-state — it deletes the
+superseded phase evidence artifact and its reproduction record and returns
+the approved evidence constants to the null sentinels — so the
+regenerating `E` runs under the unchanged rule against absent paths and
+null sentinels. This disposal is authorized only for an artifact the memo
+header records as superseded; the `A` that would have accepted it returned
+`REJECT`, so removing it is disposal of a rejected draft, not replacement
+of a record. An accepted artifact is immutable and no commit may touch one.
+
 ## 14. Evidence schema and commit succession
 
 All phase records are UTF-8 canonical JSON. Serialization sorts object keys
@@ -2351,27 +2489,36 @@ arrays, never sets or maps.
 
 ### 14.0 Canonical digest vocabulary and identity joins
 
-The accepted design identity is one Git commit, `D`. R1's dependency
-validator, `tests/unit/test_sci004_phase2_red_failures.py` at R2, and R3's
-dependency validator each freeze the same exact assignment
-`APPROVED_SCI004_D_SHA="<40hex-D>"`; the later two values must byte-match the
-R1 binding. Every SCI-004 red, evidence, acceptance, dependency, and
-performance generator and validator reads the phase-appropriate frozen
-binding and requires every `design_sha` field to equal it.
+The accepted design identity is the operative commit `D` defined in
+Section 13.7. R1's dependency validator,
+`tests/unit/test_sci004_phase2_red_failures.py` at R2, and R3's dependency
+validator each freeze the exact assignment
+`APPROVED_SCI004_D_SHA="<40hex-D>"`, naming the operative `D` current at
+that phase's `R`. The later bindings byte-match the R1 binding unless a
+Section 13.7 accepted correction intervened, in which case the later
+binding names the newer operative `D` and its validator authenticates the
+header-enumerated correction chain between the two bindings. Every SCI-004
+red, evidence, acceptance, dependency, and performance generator and
+validator reads the phase-appropriate frozen binding and requires every
+`design_sha` field to equal it.
 
-Before trusting that value, each tool resolves `D^{commit}`, requires D to
-have exactly one parent and to be an ancestor of the phase's R/S/E/A commit,
-and reads the three Section 13.1 paths with `git ls-tree`/`git cat-file` from
-the D object rather than the checkout. The `D^..D` diff must contain exactly
-those three design-authority paths, the memo must be introduced at D, and its
-raw blob, the exact SCI-004 index entry, and the PostTier WP-9/Q5/dependency/
-ledger hunks must match the independently accepted D tree. The verifier also
-authenticates the D-tree `Fix.md` SCI-004 row as ROADMAP without claiming it
-was writable at D. Later append-only A notes do not change `design_sha`; tools
-continue to authenticate the original D blob plus the separately authorized
-A diffs. Selecting the first history commit with matching prose/blob, using
-the current memo tip, accepting an annotated tag, or trusting a 40-hex string
-without these Git-object/diff/ancestry checks is forbidden.
+Before trusting that value, each tool resolves the bound commit with
+`^{commit}` peeling, requires it to be a single-parent non-merge ancestor of
+the phase's R/S/E/A commit, and reads the Section 13.1 paths with
+`git ls-tree`/`git cat-file` from Git objects rather than the checkout. The
+memo must be introduced at `D0` with the exact three-path parent-relative
+diff Section 13.7 records; each commit in the header-enumerated chain from
+`D0` to the operative `D` must match its recorded kind and touch exactly
+the paths its kind allows; and the operative `D` memo blob, the exact
+SCI-004 index entry, and the PostTier WP-9/Q5/dependency/ledger hunks must
+match the independently accepted correction record. The verifier also
+authenticates the operative-`D`-tree `Fix.md` SCI-004 row as ROADMAP without
+claiming it was writable at `D`. Later append-only A notes do not change
+`design_sha`; tools continue to authenticate the operative `D` blob plus the
+separately authorized A diffs. Selecting the first history commit with
+matching prose/blob, using the current memo tip, accepting an annotated tag,
+or trusting a 40-hex string without these Git-object/diff/ancestry checks is
+forbidden.
 
 The M1 G1 and M3 G3 validators additionally require the same accepted D object
 and bindings while applying Section 13.2's immutable-byte checks. Thus a
@@ -2871,9 +3018,10 @@ M1 `results` has exactly `dependency_certificate`, `time_grid_cases`, `frame_cer
 M1 `dependency_certificate` has exactly `path`, `raw_sha256`, and
 `certificate`. `path` is the fixed R1 path in Section 13.2; `raw_sha256` hashes
 the complete retained line including its final LF; and `certificate` is the
-parsed exact 17-field WP-7 object in Section 13.2. The evidence generator and
-validator replay the clean detached-G1 command, require exact bytes and
-bindings, and set no independent pass flag that could contradict the replay.
+parsed exact 16-field WP-7 object in Section 13.2. The evidence generator
+and validator replay the clean detached-worktree command at the frozen
+replay descendant, require exact bytes and bindings, and set no independent
+pass flag that could contradict the replay.
 
 M1 `capability_cases` is an exact six-row discriminated array. Property rows
 have exactly `case_kind`, `case_id`, `simulator`, `property`,
@@ -2903,7 +3051,7 @@ The Q/U/V rejection rows respectively use exact node IDs
 and
 `tests/unit/test_simulator/test_sci004_strategy.py::test_mmode_m1_rejects_nonzero_stokes[V]`.
 Each sets one named Stokes value to binary64 one and requires
-`radiosim.errors.UnsupportedConfigError`, issue
+`radiosim.io.config_resolution.UnsupportedConfigError`, issue
 `mmode_m1_scalar_only`, and the exact Section 8 message. Every expected value
 equals observed and all six `pass` values are true; missing, duplicate,
 reordered, inherited-base, or M2-flipped evidence fails M1.
@@ -3263,7 +3411,7 @@ direct/m-mode maximum and L2 gate with exact direct/shell/transfer-sample
 coverage, and all six exact M1 scalar-capability rows.
 Its required `m1.wp7-dependency-gate` oracle authenticates D/G1/WP-7 ancestry,
 nonmerge and immutable-byte predicates, the raw retained certificate, and the
-clean detached-G1 replay.
+clean detached-worktree replay at the frozen replay descendant.
 `A2` must rederive
 the North/East-to-theta/phi V bridge, one polarized `B_lm` equation, one
 horizon-split exposure, its phase-local frame certificate and four direct/error
@@ -3296,7 +3444,11 @@ commits; every unstarred edge is the sole direct-parent edge. No commit in
 either starred first-parent range is a merge. `G1` also has accepted WP-7 CPU
 `A` as an authenticated ancestor; `G3` also has accepted SCI-005 Stage-2 `A2`
 as an authenticated ancestor. Exact bindings and immutable-byte rules are
-Section 13.2's.
+Section 13.2's. A Section 13.7 accepted bounded correction that intervenes
+at any edge replaces that exact direct-parent edge with a starred edge whose
+interval commits the memo header enumerates exhaustively under
+Section 13.7's recorded kinds; the reopened phase's `R` then directly
+parents the operative correction commit.
 
 Thus `R1^==G1`, `R2^==A1`, and `R3^==G3`. Each `S` directly parents its phase `R` and
 contains production plus the already tracked evidence/acceptance tools and
@@ -3320,7 +3472,8 @@ The design can be accepted now because Q5 is resolved. Production remains
 ordered:
 
 - M1 starts only at authenticated clean `G1` after WP-7 P-a through P-d are
-  independently accepted and its exact certificate is replayed;
+  independently accepted and its exact certificate is replayed at the frozen
+  historical descendant;
 - M2 starts only after accepted M1;
 - M3 starts only at authenticated clean `G3` after accepted M2 and accepted
   SCI-005 Stage 2, with both exact Stage-2 verifier replays passing; and
