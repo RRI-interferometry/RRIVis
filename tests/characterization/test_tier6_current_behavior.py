@@ -2843,8 +2843,17 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
         "linux-64-py311": (
             "6c50eabf45ed99284c594780502a32697a16ffac9ad1ec6afbbd426ddf782389",
         ),
+        # Second linux-64-py312 class adjudicated 2026-08-21 from run
+        # 32409481776 (job 96556299885): AMD EPYC 9V45 dispatching the full
+        # AVX-512 set, where the recorded class ran on EPYC 9V74 with
+        # AVX/AVX2 only.  The mechanized failure-path verdict measured
+        # max|dV| = 4.44e-16, max rel = 9.42e-16 against the recorded cube --
+        # Section 13.5 WITHIN at tolerance ratio 1.7e-4 -- so the class is
+        # admitted under the pre-authorized ULP-scale conditional with its
+        # discriminator named.
         "linux-64-py312": (
             "e495b43cfeb91e2d8fb1fb32625727321d0253cb55306437f081f9ad9da2f52e",
+            "da4ef790e9b96deb6e9f92c059d3c7c613e07a30a11d647fe0c606def2fe907d",
         ),
         "osx-64-py311": (
             "229b7b7a9d92a1e0ce00f8810eb8057d152b7199004406b3cc3553525efdd393",
@@ -2912,8 +2921,13 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
         "linux-64-py311": (
             "b0bb910824ecbfba62f87a1885912a4c70e3b75f10134f459e81d79bdf3a9a8f",
         ),
+        # Second linux-64-py312 class from the same 2026-08-21 adjudication
+        # (run 32409481776): EPYC 9V45 full-AVX-512 dispatch, measured
+        # max|dV| = 1.26e-16, max rel = 1.14e-14 against the recorded cube --
+        # Section 13.5 WITHIN at tolerance ratio 1.2e-4.
         "linux-64-py312": (
             "d4be455782ed07d09ec5b8f401efb1b72cc0f514a7e827feb3f11708d36ed79b",
+            "2ca8ca37e8b508ecc7c180497c3b6d70ed68725f8147d12672d2fe00fa538043",
         ),
         "osx-64-py311": (
             "e80349aa1443464674151713900bd49a91a9388879ba645d1370d3edda3ce416",
