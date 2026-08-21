@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="RadioSim">
+  <style>
+    .ink { stroke: #123f35; }
+    @media (prefers-color-scheme: dark) {
+      .ink { stroke: #efe6d4; }
+    }
+  </style>
+  <g transform="translate(4 0)" fill="none" stroke-linecap="round">
+    <path class="ink" d="M 66,36 L 66,164" stroke-width="20"/>
+    <path class="ink" d="M 66,44 A 30,30 0 0 1 66,104" stroke-width="20"/>
+    <path class="ink" d="M 70,100 L 116,164" stroke-width="20"/>
+    <path d="M 94.7,33 A 50,50 0 0 1 107,102.7" stroke-width="12" stroke="#d9a62e"/>
+  </g>
+</svg>

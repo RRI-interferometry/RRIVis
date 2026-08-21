@@ -1,5 +1,10 @@
 /* Custom CSS for RadioSim documentation */
 
+/* Sidebar logo: the SVG has no useful intrinsic layout size, so cap it. */
+.wy-side-nav-search > a img.logo {
+    width: 84px;
+}
+
 /* Code block styling */
 .highlight {
     border-radius: 4px;

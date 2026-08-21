@@ -100,6 +100,11 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "superpowers"]
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 
+# Brand mark: the cream-on-pine cut sits on the pine nav header; the favicon
+# carries a prefers-color-scheme switch for dark browser tabs.
+html_logo = "_static/logo-dark.svg"
+html_favicon = "_static/favicon.svg"
+
 # Theme options
 html_theme_options = {
     "logo_only": False,
@@ -108,7 +113,7 @@ html_theme_options = {
     # theme option warning, which the ``-W`` docs gate now rejects.
     "prev_next_buttons_location": "bottom",
     "style_external_links": True,
-    "style_nav_header_background": "#2980B9",
+    "style_nav_header_background": "#123F35",
     # TOC options
     "collapse_navigation": False,
     "sticky_navigation": True,

@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/_static/logo-dark.svg">
+    <img alt="RadioSim logo" src="docs/_static/logo.svg" width="130">
+  </picture>
+</p>
+
 # RadioSim
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
