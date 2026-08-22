@@ -32,6 +32,43 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-22 (R1-authoring reconciliation).** Authoring
+the M1 red slice against the accepted design surfaced one writable-list gap
+and confirmed three recorded advisories, resolved here as one bounded
+correction under Section 13.7. It supersedes the Phase-0 correction landing
+`71d3deb05b0d981653472dff9b17330b3dc9f9cf` as the operative `D`; that commit
+becomes a `superseded design` interval commit on the header-enumerated
+`D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. (1) The accepted Tier-6 characterization pin
+`tests/characterization/test_tier6_current_behavior.py::test_the_benchmark_harness_task_and_performance_test_now_exist`
+asserts the exact file listings of `tests/integration/` and
+`tests/performance/`; creating `tests/integration/test_sci004_mmode.py` at
+`R1` and `tests/performance/test_sci004_mmode.py` at `R2` therefore requires
+widening those pinned listings by exactly the file each phase's own list
+names — the pin's documented maintenance convention — yet no SCI-004 phase
+list authorized that path before `S3`. Sections 13.3 and 13.4 now authorize
+it, scoped to the named listing widenings alone. (2) Section 13.1's closing
+sentences still carried the pre-correction single-fixed-`D` phrasing; they
+now defer to Section 13.7's `D0`/operative-`D` definition (the deferred
+Phase-0 reconfirmation advisory). (3) Section 8's `mmode_static_gain`
+message named `jones.gain.time_model.kind`, but the strict config surface
+keys the gain block as `jones.G` (`io/jones_config.py`); the frozen message
+now names `jones.G.time_model.kind`. (4) Section 10 conflated the
+strategy-level backend-native `(T,B,F,2,2)` receptor cube with the public
+result container, whose strict shape is `(T,B,F,4)`
+(`core/result.py`); the sentence now states both truthfully. This
+correction is design-only and reopens no accepted slice: no `R1` commit
+exists yet, so the red slice lands against the corrected operative `D`. Its
+exact pre-landing file bytes
+(`sha256:fe2f8334dda068451c08d86ec43a83bf8654d47d00c4f91f27d377e735d8288a`)
+and parent-relative diff
+(`sha256:c7e3eda08556a55b22dc33a867116803f24725884f0fb56ab650c4f7201698e9`)
+received separate independent reviews on 2026-08-22 — computational and
+physics/governance, both `ACCEPT`, the former after one applied mechanical
+blocker: the supersession citation this paragraph now carries. This
+correction's landing commit is the operative `D` of Section 13.7.
+
 **Source reviewed:** `42a1f27e5f6078ce72960f7d200e8b1e94d399c2`.
 Concurrent WP-7 working-tree changes are outside this design and are not
 evidence for it.
@@ -1104,7 +1141,7 @@ The required semantic issue codes and exact messages are:
 | `mmode_tail_nyquist` | `obs_time.sidereal_samples must be at least 2 * resolved mcheck + 1 for the mandatory m-tail diagnostic.` |
 | `mmode_quadrature` | `execution.mmode.lmax must be at most 2 * execution.mmode.quadrature_nside.` |
 | `mmode_time_smearing` | `execution.simulator='mmode' owns ERA top-hat integration; jones.Q.time_smearing must be false.` |
-| `mmode_static_gain` | `execution.simulator='mmode' requires jones.gain.time_model.kind='constant'.` |
+| `mmode_static_gain` | `execution.simulator='mmode' requires jones.G.time_model.kind='constant'.` |
 | `mmode_phase_center` | `execution.simulator='mmode' requires the canonical fixed zenith-drift phase centre.` |
 | `mmode_point_morphology` | `execution.simulator='mmode' does not yet support Gaussian point-source morphology; use rime or remove the morphology.` |
 | `mmode_polarization_frame` | `polarized m-mode input requires an explicit canonical tangent-polarization frame.` |
@@ -1194,8 +1231,11 @@ advantage is claimed without the retained record in Section 11.
 
 ## 10. Result, provenance, and existing output formats
 
-The public result remains one `(T,B,F,2,2)` receptor cube and the existing four
-correlation labels. Point, HEALPix, and hybrid remain solver provenance, not
+The registered strategy returns the backend-native `(T,B,F,2,2)` receptor
+cube, and the public result container keeps its existing strict `(T,B,F,4)`
+visibility array in the four row-major correlation labels — the exact
+row-major flattening of that cube's receptor axes; neither shape changes.
+Point, HEALPix, and hybrid remain solver provenance, not
 separate output products. M1 widens the solver record to a strict tagged union:
 the current `rime` snapshot stays exactly as it is. An m-mode snapshot has the
 exact common fields `solver`, `sky_representation`, `convention`,
@@ -2071,8 +2111,11 @@ dependency gates.
 - `docs/index.rst`
 - `PostTier8RemediationPlan.md` (WP-9, Q5, dependency, and ledger wording only)
 
-`D` is the independently accepted commit containing this design. Every later
-`design_sha` is exactly `D`, never a phase-local memo tip or a search result.
+`D0` introduced this memo with exactly the three paths above; the operative
+`D` is Section 13.7's latest independently accepted, header-recorded
+design-gate commit. Every later `design_sha` is exactly the operative `D`
+frozen for its phase under Section 14.0, never a phase-local memo tip or a
+search result.
 
 ### 13.2 Dependency-gate tips
 
@@ -2198,6 +2241,10 @@ tip contains a new SCI-004 red, source, evidence, or acceptance byte.
 - `tests/unit/test_simulator/test_sci004_strategy.py` (new)
 - `tests/integration/test_sci004_mmode.py` (new)
 - `tests/characterization/test_tier7_current_behavior.py`
+- `tests/characterization/test_tier6_current_behavior.py` (the D15
+  directory-listing pin only: widen the pinned `tests/integration/` listing
+  by exactly `test_sci004_mmode.py` and record the addition in its
+  docstring)
 - `tests/unit/test_tier7_jones_acceptance.py`
 - `tests/unit/test_sci004_phase1_dependency.py` (new immutable dependency and
   design binding validator)
@@ -2272,6 +2319,10 @@ wrapper leaves every direct path byte-identical before M2 starts.
 - `tests/unit/test_simulator/test_sci004_memory.py` (new)
 - `tests/integration/test_sci004_mmode.py`
 - `tests/characterization/test_tier7_current_behavior.py`
+- `tests/characterization/test_tier6_current_behavior.py` (the D15
+  directory-listing pin only: widen the pinned `tests/performance/` listing
+  by exactly `test_sci004_mmode.py` and record the addition in its
+  docstring)
 - `tests/performance/test_sci004_mmode.py` (new, non-gating)
 - `tools/sci004_mmode_phase2_red.py` (new)
 - `docs/development/sci004_mmode_phase2_red_failures.json` (new)
