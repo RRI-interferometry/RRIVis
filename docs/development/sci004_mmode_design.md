@@ -32,6 +32,61 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-22 (S1 feasibility reconciliation).**
+Implementing the M1 production slice against the corrected design proved
+three of its requirements defective and surfaced three more unlisted-pin
+gaps, resolved here as one bounded correction under Section 13.7. It
+supersedes the R1-authoring-reconciliation landing
+`a3afec87f201d0691430070023ac980c863cb224` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. It also reopens, for one governed re-cut
+that will directly parent this correction's landing, the M1 red slice
+commit `724ef948bb7a251d3269247341e109f8bd2c3893` — henceforth a
+`superseded red slice` interval commit touching only Section 13.3 `R1`
+paths — whose `tests/integration/test_sci004_mmode.py` pins the superseded
+quadrature-policy literal and whose
+`tests/unit/test_core/test_sci004_scalar_harmonics.py` constant-map oracle
+pins the superseded continuous-field sky interpretation; the re-cut
+regenerates `docs/development/sci004_mmode_phase1_red_failures.json` under
+Section 13.7's disposal rule and rebinds the dependency validator's
+operative-`D` constants. The resolved defects: (1) Section 12.1's
+`OperationalHorizonEnclosure` demanded certified interval extensions of the
+installed ERFA expression graph, whose coefficient tables pyerfa does not
+expose and whose measured evaluation cost lower-bounds at hundreds of hours
+per solve; it is replaced by the certified-ceiling scan, complete via the
+design-frozen `L_op` derivative ceiling, consuming only the public Astropy
+API, with its own new fixed constants. (2) Section 12's ambiguous-piece
+error disks required the same interval extension of the complete integrand;
+they now use the certified magnitude-ceiling rule. (3) Equal-area HEALPix
+pixel-centre transfer quadrature cannot meet the Section 12.2 analytic
+transfer oracle under the strict horizon — its visible-area error is
+exactly `1/(3*nside)` — and is replaced by the iso-Gauss grid of identical
+`12*nside**2` cardinality, renaming the quadrature-policy literal to
+`iso-gauss-ring-production-plus-qcheck.v1`. (4) Section 7.1's
+map-coefficient construction is ruled to the pixel measure, making the
+harmonic sky and the private direct oracle the same object. (5) Section
+13.3's `S1` list gains three scoped inventory-pin grants whose pinned
+inventories the required registry and config widenings necessarily change.
+(6) Section 4.1 records the anchor-location convention and Section 13.2
+records the gate-anchor rule for corrections accepted after a gate has
+run. This correction is design-only: it implements no solver, accepts no
+phase, and does not close the register row. Its exact pre-landing file
+bytes
+(`sha256:09ea150e8285ea8067b4bc57056390cda2805dcde056c1dbce02364eb1f442bf`)
+and parent-relative diff
+(`sha256:478dc114c8c1be3a2635389f54d216e1570c7b272c20bab5228e9c03f0e8a82f`)
+received separate independent reviews on 2026-08-22 — physics/governance
+and computational, both `ACCEPT`, each independently re-deriving the
+ceiling lemma, the `1/(3*nside)` defect, and the pixel-measure residual —
+with two deferred non-blocking advisories recorded for a future
+correction: the `5e-12` operational residual bound is about `0.1%`
+stricter than its own cited derivation (the safe direction), and the
+`2**-44` turn unresolved floor deserves its own justification sentence
+rather than a unit carry-over from the replaced construction. This
+correction's landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-22 (R1-authoring reconciliation).** Authoring
 the M1 red slice against the accepted design surfaced one writable-list gap
 and confirmed three recorded advisories, resolved here as one bounded
@@ -423,7 +478,10 @@ inside the installed bundled-IERS context from Section 3.1.
    bits and recomputes `sp0_rad` and `RPOM0`. The CIRS frame is explicitly the
    **geocentric**
    `CIRS(obstime=t0)` frame; passing `location=site` here is forbidden because
-   that would add a different topocentric/diurnal-aberration model.
+   that would add a different topocentric/diurnal-aberration model. The
+   frozen anchor record retains the location that was supplied to its
+   construction — therefore always absent — and exposes the exact frame
+   object every public transform is taken against.
 2. Each ICRS direction is transformed once through the public
    `SkyCoord.transform_to(CIRS(obstime=t0))` API. Its North/East tangent
    Jacobian is transported by the public-Astropy oracle below. The resulting
@@ -526,7 +584,7 @@ subset:
   `[('production',quadrature_nside)] + [('diagnostic',q) for q in Q_diag]`,
   where `Q_diag` is the numerically sorted unique set of nsides consumed by a
   non-production operand of any Section 7.3 local-shell diagnostic and is
-  exactly `[qcheck]` under this design. Every canonical-RING pixel of every
+  exactly `[qcheck]` under this design. Every iso-Gauss node of every
   catalogue entry has a distinct, grid-qualified row. Production and
   diagnostic roles remain distinct even if nsides or vectors coincide. Native
   pixels are
@@ -728,7 +786,8 @@ provenance. A rectangular `(...,l,m)` array, padded invalid cell, field reorder,
 or implicit healpy packed index is a different convention and is rejected.
 
 The transform adapter has a slow explicit quadrature reference used by analytic
-tests and a production HEALPix-RING implementation. Complex transfer fields
+tests, the Section 7.1 pixel-measure projection for native HEALPix payloads,
+and the Section 7.3 iso-Gauss production quadrature. Complex transfer fields
 are transformed by separate real and imaginary operations and recombined in a
 documented order. Scalar and spin transforms are tested against analytic
 single modes and against each other under the exact basis bridge. Library
@@ -876,8 +935,23 @@ not one common sky field; adding analytic extended-source harmonics requires a
 design successor.
 
 HEALPix maps are converted at each frequency to IAU-canonical I/Q/U/V flux per
-solid angle, including the existing brightness-conversion rules, and integrated
-with the pixel solid angle. RING and NEST inputs must yield identical
+solid angle, including the existing brightness-conversion rules, and enter the
+harmonic sky as the **pixel measure**: the map's coefficients are exactly
+
+```text
+a_lm = sum_pix( s_pix * Omega_pix * conj(Y_lm(n_pix)) )
+```
+
+over canonical-RING pixel centres with the equal pixel solid angle
+`Omega_pix = 4*pi/npix` — the same measure the private direct oracle sums —
+so harmonic-versus-direct agreement tests truncation and nothing else, and a
+constant map's `l>0` coefficients carry the pixel-quadrature residue rather
+than being zero. A continuous band-limited reinterpretation of the map, a
+ring-weighted quadrature, or any iterated transform is a different sky
+object and is rejected; an implementation may evaluate the sum through a
+library transform only when that call is exactly equivalent to the displayed
+sum, with zero iterations and no quadrature weights beyond `Omega_pix`. RING
+and NEST inputs must yield identical
 coefficients after canonical ordering. Sparse maps remain sparse while loading
 but are transformed as the declared full-sky field with absent pixels exactly
 zero. A hybrid model adds point and map coefficients in the fixed
@@ -915,13 +989,29 @@ Validation requires
 ```text
 2 <= lmax <= 4088
 0 <= mmax <= lmax
-quadrature_nside is a positive HEALPix power of two
+quadrature_nside is a power of two, at least 2
 lmax <= 2 * quadrature_nside
 sidereal_samples >= 2 * mmax + 1
 ```
 
-The conservative `lmax <= 2*nside` bound stays below HEALPix's conventional
-upper transform range; it is not by itself an accuracy proof. Every production
+A transfer grid of resolution `nside` is the **iso-Gauss grid**: `3*nside`
+Gauss-Legendre colatitude rings — the nodes and weights of the
+`3*nside`-point rule in `z = cos(theta)` on `[-1, 1]` — each carrying
+`4*nside` uniformly spaced azimuths starting at `phi = 0`, for exactly
+`12*nside**2` nodes. A node's quadrature weight is its Gauss-Legendre
+weight times `2*pi/(4*nside)`. `3*nside` is even for every accepted
+`nside`, so no node lies on the horizon-critical equator, the visible
+hemisphere carries exactly half the total weight under any strict horizon
+through the equator, and the uniform azimuths annihilate every `m != 0`
+mode of an azimuthally constant integrand exactly; equal-area HEALPix
+pixel-centre quadrature, whose equatorial ring sits on the horizon and
+whose visible-area error is `1/(3*nside)` under the strict `alt > 0`
+factor, is rejected as a transfer quadrature. Node enumeration is
+ring-major from the north pole, then ascending azimuth index; `nside`
+retains its role as the resolution parameter and every `12*nside**2` count
+formula is unchanged. The conservative `lmax <= 2*nside` bound keeps the
+band comfortably inside the rule's exactness range; it is not by itself an
+accuracy proof. Every production
 run derives, without configuration knobs,
 
 ```text
@@ -989,7 +1079,7 @@ schema literal `radiosim.mmode-shell-coverage.v1`.
 `baseline_index`, `frequency_index`, `correlation_index`, `field_index`,
 `field_name`, `resolved_lmax`, `resolved_mmax`, `block_table_sha256`,
 `packed_sample_value_count`, and `packed_sample_sha256`. It is
-ordered by production then diagnostic catalogue grid, RING direction,
+ordered by production then diagnostic catalogue grid, iso-Gauss direction,
 baseline, frequency, correlation, and fixed field order. Each row is appended
 only after that exact direction was evaluated and accumulated into its grid's
 complete packed coefficient vector. The vector count equals the appropriate
@@ -1581,149 +1671,140 @@ root has exactly one integer-turn lift into `H_N`; its periodic copy is not
 stored. Correctly rounded `sinpi(2*u)`/`cospi(2*u)` interval kernels, not a
 rounded endpoint span or binary64 modulo, certify this topology.
 
-The pressure-zero operational Astropy trajectory is certified independently;
-a fixed grid or sign-change scan is forbidden. Define
+The pressure-zero operational Astropy trajectory is certified independently
+of the frozen model, and it consumes only public
+`SkyCoord.transform_to(AltAz(obstime=..., location=..., pressure=0))`
+values; a private frame surrogate is never an authority. Define
 `f_o(u)=sin(alt_operational(u))` using the exact installed bundled-IERS
-identity and UTC/UT1 mapping from Section 4. An
-`OperationalHorizonEnclosure` evaluates outward-rounded interval extensions
-`F(I)` and `F'(I)` of the same public ERFA/IERS expressions on an exact-turn
-interval `I`. The operational function is enclosed on the closed unwrapped
-interval `[h_N^-,h_N^+]`, with half-open root census
-`H_N=[h_N^-,h_N^+)`; it is not assumed periodic because precession, nutation,
-polar motion, and IERS interpolation evolve during the cycle. This domain
-contains every exact exposure `[u_k^-,u_k^+]`. Initial cells are its
-intersections with every retained centre and edge turn from that same grid
-object, plus every
-frozen root, bundled-IERS interpolation knot, UTC/time branch boundary, and
-other point at which the scalar chain is not continuously differentiable,
-all mapped into enclosing exact-turn intervals. The in-tree companion carries
-value and first-derivative
-intervals through every arithmetic and transcendental operation. It treats
-each binary64 input and ERFA constant by its exact integer ratio, uses
-outward-rounded rational/polynomial bounds and range-reduced trigonometric
-bounds with a proved remainder, and rounds outward to binary64 only after that
-proof. Applying `numpy.nextafter` to an arbitrary platform `libm` result is
-explicitly insufficient. The enclosure's target is the exact real-arithmetic
-value of the same expression graph the installed ERFA/IERS implementation
-evaluates — with every constant taken by its exact integer ratio — not an
-abstract celestial-mechanics function; outward interval evaluation of that
-graph contains every correctly rounded intermediate, which is why certified
-soundness and the fixed public-Astropy probe agreement can jointly hold. The
-companion is written from scratch against the Python standard library and
-NumPy alone; no interval-arithmetic dependency may be added or relied on
-transitively, matching Section 13.6's frozen dependency surface, and its
-implementation cost is owned by phase M1. The implementation, constants, and canonical leaf
-partition each have a normalized SHA-256 in the frame certificate. Public
-`SkyCoord.transform_to(AltAz(obstime=..., location=..., pressure=0))` values at
-every initial endpoint, every bisection midpoint, and every retained root must
-lie in the corresponding point enclosure and differ from its midpoint by at
-most `2e-12`; disagreement rejects the certifier rather than blessing a
-private frame surrogate.
+identity and UTC/UT1 mapping from Section 4. The census domain is the
+closed unwrapped interval `[h_N^-,h_N^+]`, with half-open root census
+`H_N=[h_N^-,h_N^+)`; it is not assumed periodic because precession,
+nutation, polar motion, and IERS interpolation evolve during the cycle,
+and this domain contains every exact exposure `[u_k^-,u_k^+]`.
 
-Isolation is a deterministic interval branch-and-bound:
-
-- if `0` is outside `F(I)`, `I` is proven root-free;
-- if `0` is outside `F'(I)`, `f_o` is strictly monotone on `I`. Directed-
-  rounded endpoint signs then prove zero roots or exactly one root; the latter
-  is narrowed by interval Newton plus bisection to width at most `1e-13 rad`
-  and an Astropy numerator residual at most `2e-13`;
-- otherwise `I` is bisected at its exactly representable midpoint and both
-  children remain in the queue; and
-- if a cell whose outward radian width is at most `2**-44 rad` still proves
-  neither root-free nor
-  uniquely transverse, its midpoint no longer advances, or a singleton
-  enclosure disagrees with public Astropy, the entire certificate rejects with
-  `mmode_horizon_unresolved`. No root is silently merged or discarded.
-
-Cells own their left endpoint and are half-open on the right for the root
-census. A root on any internal initial or bisection boundary is owned exactly
-once by the cell to its right and classified from certified one-sided signs;
-the cell to its left uses the explicit non-owning proof below. At a
-transformation knot, a singleton zero is retained only when certified non-zero
-one-sided signs exist and are opposite. Equal one-sided signs, a zero or
-unresolved one-sided sign, or a failure to certify transversality is a typed
-`mmode_horizon_unresolved` tangent/unresolved rejection; the zero is never
-silently omitted. A root at `h_N^-` belongs to the first cell, while a root
-exactly at `h_N^+` is an authenticated endpoint event excluded from `H_N`.
-There is no assertion that `f_o(h_N^-)==f_o(h_N^+)`. Only exhaustion of the queue
-with every cell classified, zero unresolved cells, and disjoint certified root
-intervals is a complete operational enumeration. This construction finds two
-crossings in one same-sign-endpoint starting cell or rejects their unresolved
-neighbourhood; it cannot miss them because a coarse sample did not approach
-the horizon.
-
-Every passing isolation emits one canonical terminal-leaf row with exactly
-these fields, in this order:
+Operational completeness rests on one design-frozen analytic ceiling, not
+on an interval extension of the installed ERFA expression graph. The
+operational direction is a unit vector transported by the rigid Earth
+rotation at exactly one cycle per turn composed with the operational
+corrections — polar-motion drift, UT1 interpolation, precession-nutation
+evolution, annual and diurnal aberration, and light deflection — whose
+combined angular rates over one cycle are bounded by the cited IERS
+Conventions (2010) magnitudes at well below `1e-3` of the rigid rate.
+Therefore `|d f_o / d u| <= L_op` on the whole domain, with the frozen
+ceiling
 
 ```text
-direction_id, leaf_index, turn_lo, turn_hi, proof_kind,
-f_range_lo_f64be, f_range_hi_f64be, df_range_lo_f64be,
-df_range_hi_f64be, left_sign, right_sign, root_turn_lo,
-root_turn_hi, root_orientation, astropy_residual_f64be
+L_op = 6.2895
 ```
 
-`proof_kind` is exactly `range_excludes_zero`, `monotone_same_sign`,
-`monotone_crossing`, `boundary_crossing`,
-`excluded_internal_upper_endpoint`, or `excluded_upper_endpoint`.
-`excluded_internal_upper_endpoint` is permitted only when a transverse root is
-exactly the leaf's internal `turn_hi`: its closed enclosure may include zero
-only at that singleton upper endpoint, its certified derivative interval
-excludes zero, and its non-zero left one-sided sign is opposite the certified
-right one-sided sign. The immediately following leaf for the same direction
-must start at the identical canonical turn and use `boundary_crossing` with
-`root_turn_lo==root_turn_hi==turn_hi` on the excluded row,
-`root_turn_lo==root_turn_hi==turn_lo` on the owner, and identical
-orientation and residual. The excluded row has `right_sign=0`; the owner has
-`left_sign=0`; their other signs are non-zero and opposite. The excluded
-left row authenticates its half-open root-free ownership but does not enter the
-root census; the following right row owns and counts the root exactly once.
-`excluded_upper_endpoint` is permitted only on the last leaf when the same
-transverse conditions hold at the non-owned `h_N^+` endpoint. Its root bounds
-and `turn_hi` equal `h_N^+`, `right_sign=0`, and its left
-sign is non-zero; it has no following owner and does not enter the root census.
+in `turn^-1` units, exceeding `2*pi*(1+1e-3)`. `L_op` is a constant of
+this design, never fitted or configurable; a trajectory violating it would
+violate the frozen attitude model itself and is outside the certified
+regime.
 
-`left_sign` and `right_sign` are integers in `{-1,0,1}` from the certified
-singleton enclosures. The four root fields are JSON null only for
-`range_excludes_zero` and `monotone_same_sign`; every crossing or excluded
-endpoint proof has non-null canonical-rational root bounds,
-`root_orientation` equal to `rising`
-or `setting`, and a non-null residual. Root-census reconstruction counts
-`monotone_crossing` and `boundary_crossing` only; it rejects any unpaired
-`excluded_internal_upper_endpoint`, any duplicate owned root, or any knot zero
-with same-side signs.
+Isolation is the deterministic **certified-ceiling scan**:
+
+- The initial partition of `[h_N^-,h_N^+]` is the uniform exact-turn grid
+  of spacing `h_0 = 2**-12` turn, refined so that every retained centre
+  and edge turn from the same Section 3.1 grid object and every frozen
+  root bound is also a cell boundary. `f_o` is evaluated exactly once at
+  every distinct cell boundary; evaluations may be batched, each boundary
+  value is computed once and reused, and the evaluation set is
+  deterministic.
+- A cell `[a,b]` of exact width `h` is proven root-free when
+  `min(|f_o(a)|,|f_o(b)|) > L_op*h`: any zero inside the cell would force
+  both endpoint magnitudes to at most `L_op*h` by the ceiling. Such a cell
+  is classified `ceiling_excludes_root`.
+- A cell with `f_o(a)*f_o(b) < 0` contains a crossing; it is bisected at
+  its exactly representable midpoint until the sign-changing bracket's
+  outward radian width is at most `1e-11 rad`, giving a certified
+  operational root enclosure classified `scan_crossing`. The retained root
+  must satisfy `|f_o(midpoint)| <= 5e-12`, consistent with
+  `L_op * (1e-11/2/(2*pi))`; a larger residual rejects.
+- Any other cell is bisected at its exactly representable midpoint and
+  both children re-enter the queue. A cell whose exact width reaches
+  `2**-44` turn with neither classification — the deep-tangency
+  signature — rejects the entire certificate as
+  `mmode_horizon_unresolved`. No root is silently merged or discarded.
+- Each retained root's census orientation comes from the signs of `f_o` at
+  the two probe turns exactly `1e-8` turn outside its enclosure on either
+  side: `rising` for a negative-to-positive transit and `setting` for the
+  reverse. Both probe magnitudes must exceed `1e-10`; a smaller, zero, or
+  same-side probe sign rejects as `mmode_horizon_unresolved`, so a
+  near-tangent transit is rejected rather than misclassified.
+
+Cells own their left endpoint and are half-open on the right for the root
+census. A crossing whose enclosure upper bound equals `h_N^+` is an
+authenticated endpoint event excluded from `H_N`; there is no assertion
+that `f_o(h_N^-)==f_o(h_N^+)`. Only exhaustion of the queue with every
+cell classified, zero unresolved cells, and disjoint certified root
+enclosures is a complete operational enumeration: the ceiling inequality —
+not a coarse sample's luck — is what proves a same-sign cell hides no
+crossing, because any crossing inside a width-`h` cell forces both
+endpoint magnitudes to at most `L_op*h`, which the root-free rule refuses
+to classify without refinement.
+
+Every terminal scan cell emits one canonical row with exactly these
+fields, in this order:
+
+```text
+direction_id, cell_index, turn_lo, turn_hi, classification,
+f_lo_f64be, f_hi_f64be, ceiling_margin_f64be, left_sign, right_sign,
+root_turn_lo, root_turn_hi, root_orientation, root_residual_f64be
+```
+
+`classification` is exactly `ceiling_excludes_root`, `scan_crossing`, or
+`excluded_upper_endpoint`, the last permitted only when the crossing's
+enclosure upper bound equals `h_N^+`; it does not enter the root census.
+`ceiling_margin_f64be` is `min(|f_lo|,|f_hi|) - L_op*(turn_hi-turn_lo)`
+for a `ceiling_excludes_root` row, which must decode to a positive
+binary64, and `F64(0)` otherwise. For a root-free row `left_sign` and
+`right_sign` are the endpoint value signs; for a crossing row they are the
+probe signs, in `{-1,1}`, and must differ. The three root fields are JSON
+null exactly for `ceiling_excludes_root`; a crossing or excluded-endpoint
+row has canonical-rational root bounds, `root_orientation` equal to
+`rising` or `setting`, and a non-null residual. Root-census reconstruction
+counts `scan_crossing` rows only; it rejects any duplicate owned root.
 Every `*_f64be` value is the lowercase 16-hex-character encoding of
-`struct.pack(">d", value)`, never a JSON float. Turn and root bounds are the
-canonical reduced rationals from Section 3.1. In direction-ledger order, rows
-are sorted by exact `turn_lo`, and `leaf_index` is contiguous from zero. They
-form a gap-free, overlap-free half-open partition of `H_N`; the closed
-`h_N^+` endpoint appears only as the last upper bound.
-`horizon_isolation_interval_count` is exactly the
-total number of these terminal rows across all directions, not a count of
-visited branch cells.
+`struct.pack(">d", value)`, never a JSON float. Turn and root bounds are
+the canonical reduced rationals from Section 3.1. In direction-ledger
+order, rows are sorted by exact `turn_lo`, and `cell_index` is contiguous
+from zero. They form a gap-free, overlap-free half-open partition of
+`H_N`; the closed `h_N^+` endpoint appears only as the last upper bound.
+`horizon_isolation_interval_count` is exactly the total number of these
+terminal rows across all directions, not a count of visited branch cells.
 
-The leaf array is serialized as UTF-8 JSON with the row-field order above,
+The scan array is serialized as UTF-8 JSON with the row-field order above,
 `ensure_ascii=true`, separators `(',',':')`, and no whitespace or trailing
-newline. `horizon_leaf_partition_sha256` is SHA-256 of exactly those bytes.
-The enclosure identity is a second canonical JSON object with fields, in
-order, `schema_version`, `algorithm_id`, `implementation_files`,
-`constant_rows`, `astropy_version`, `erfa_version`, and `iers_table_sha256`.
-The first two literals are both
-`radiosim.mmode-operational-horizon-enclosure.v1`.
-`implementation_files` is the path-sorted array of exact raw-byte SHA-256 rows
-for `src/radiosim/core/mmode/frame.py` and
+newline. `horizon_scan_ledger_sha256` is SHA-256 of exactly those bytes.
+The scan identity is a second canonical JSON object with fields, in order,
+`schema_version`, `algorithm_id`, `implementation_files`, `constant_rows`,
+`astropy_version`, `erfa_version`, and `iers_table_sha256`. The first two
+literals are both `radiosim.mmode-operational-horizon-scan.v1`.
+`implementation_files` is the path-sorted array of exact raw-byte SHA-256
+rows for `src/radiosim/core/mmode/frame.py` and
 `src/radiosim/core/mmode/time.py`, each row having exactly `path` and
-`sha256`. `constant_rows` contains every interval, range-reduction, Taylor,
-root-width, unresolved-width, and residual constant consumed by the
-implementation, sorted by `name`; each row has exactly `name`, `type`, and
-`value`, where `type` is `binary64`, `integer`, `rational`, or `literal`, and
-`value` is respectively f64be hex, a base-10 integer string, `p/q` in reduced
-base-10 integers, or the exact string literal. This object uses the same JSON
-serialization rule as the leaf array. `horizon_enclosure_sha256` is SHA-256 of
-its exact bytes. The strict evidence validator rebuilds both digests and
-requires the isolation count to equal the leaf-array length. The canonical
-`FrameApplicabilityCertificate` and every retained frame evidence row embed
-this exact object as `horizon_enclosure_manifest` and the exact array as
-`horizon_leaf_rows`; retaining only their digests is forbidden.
+`sha256`. `constant_rows` contains every ceiling, spacing, refinement,
+root-width, probe-offset, unresolved-width, and residual constant consumed
+by the implementation — `L_op`, `h_0`, the `1e-11 rad` enclosure width,
+the `1e-8` turn probe offset, the `1e-10` probe-magnitude floor, the
+`2**-44` turn unresolved floor, and the `5e-12` residual bound among
+them — sorted by `name`; each row has exactly `name`, `type`, and
+`value`, where `type` is `binary64`, `integer`, `rational`, or `literal`,
+and `value` is respectively f64be hex, a base-10 integer string, `p/q` in
+reduced base-10 integers, or the exact string literal. This object uses
+the same JSON serialization rule as the scan array. `horizon_scan_sha256`
+is SHA-256 of its exact bytes. The strict evidence validator rebuilds both
+digests and requires the isolation count to equal the scan-array length.
+The canonical `FrameApplicabilityCertificate` and every retained frame
+evidence row embed this exact object as `horizon_scan_manifest` and the
+exact array as `horizon_scan_rows`; retaining only their digests is
+forbidden. The frozen analytic census keeps its exact-rational
+construction above unchanged: only the operational census is scan-based,
+its enclosure width `1e-11 rad` and residual `5e-12` are its own new fixed
+constants rather than a widening of any frozen-model constant, and both
+models' closed root enclosures enter the unchanged pairing, lift, slab,
+sign, and membership machinery.
 
 The remaining horizon proof is also carried as embedded, authenticated
 ledgers rather than aggregate counters. The canonical direction ledger has one
@@ -1742,7 +1823,8 @@ Transfer rows use reserved `component_index=0`, role `production` or
 `native_healpix:<component_index>:<source_index>`, and
 `transfer_quadrature:<role>:<nside>:<source_index>`. Rows are ordered point,
 native, production transfer, then diagnostic transfer grids by increasing
-nside; component and canonical-RING source indices ascend within each group.
+nside; component source indices ascend in canonical-RING order for
+point/native groups and in iso-Gauss ring-major order for transfer groups.
 
 `active_frequency_mask` is an `F`-boolean array in run-frequency order. A
 point/native element is true exactly when any resolved finite I/Q/U/V value at
@@ -1762,8 +1844,8 @@ Section 14 array primitive with domain `radiosim.mmode-cirs-direction.v1`, role
 `resolved_stokes_iau_f64be`, and `integration_weight_f64be`. Binary64 values
 are lowercase f64be strings. Point/native payload is the complete resolved
 `[F,4]` IAU-Stokes array; transfer payload is empty. Integration weight is
-binary64 one for a point and the retained pixel solid angle for native and
-transfer rows. `schema_version` is exactly
+binary64 one for a point, the retained pixel solid angle for a native row,
+and the retained iso-Gauss node quadrature weight for a transfer row. `schema_version` is exactly
 `radiosim.mmode-direction-input.v1`. Non-finite payload rejects before hashing. Coincident vectors
 are never de-duplicated. The strict validator rebuilds exact ordered rows from
 the authenticated input and requires equality.
@@ -1778,7 +1860,7 @@ corresponding contiguous direction-ledger slice length; and its ledger digest
 is `D("radiosim.mmode-transfer-grid-direction-ids.v1",J(ordered_ids))`.
 `transfer_grid_catalog_sha256` is
 `D("radiosim.mmode-transfer-grid-catalog.v1",J(transfer_grid_catalog))`.
-Source indices are contiguous RING indices.
+Source indices are contiguous iso-Gauss ring-major indices.
 Repeated uses of one diagnostic nside share its entry, while distinct roles or
 entries never collapse. Every horizon ledger joins this complete
 grid-qualified direction order.
@@ -1794,11 +1876,13 @@ orientation_mismatch_count, pairs
 A certified root is never collapsed to a midpoint for pairing, splitting, a
 slab, or a limit. Each frozen and operational root retains its closed exact-
 turn enclosure `[root_turn_lo,root_turn_hi]`, with canonical reduced `p/q`
-endpoints and certified `rising` or `setting` orientation. The derivative
-interval excludes zero throughout. Distinct enclosures for one model are
-disjoint and ordered. Operational bounds are copied exactly from their owned
-leaf; frozen bounds are copied from the analytic certificate. Replacing either
-enclosure by a representative point rejects.
+endpoints and certified `rising` or `setting` orientation. The frozen
+enclosure's derivative interval excludes zero throughout; the operational
+enclosure's transversality is its probe-sign certificate. Distinct
+enclosures for one model are disjoint and ordered. Operational bounds are
+copied exactly from their owned scan row; frozen bounds are copied from the
+analytic certificate. Replacing either enclosure by a representative point
+rejects.
 
 Pairing is separate by orientation. For a candidate
 `F=[f_lo,f_hi]`, `O=[o_lo,o_hi]`, and integer lift `j in {-1,0,1}`, define the
@@ -1910,16 +1994,29 @@ Gauss-Legendre rules; `smooth_below` is exact zero. No quadrature node is
 evaluated in a positive-width `root_enclosure` piece.
 
 Let `g^M_dfbc(u)` be the smooth no-horizon integrand and
-`w_k=upper_turn[k]-lower_turn[k]`. On an ambiguous piece `I`, the authenticated
-outward interval extension of the complete integrand supplies a complex
-rectangle `G^M_dfbc(I)`. Let `G_abs` be the outward-rounded largest complex
-magnitude in that rectangle and define
-`epsilon^M_{dkfbcp}=round_up(((u_hi-u_lo)/w_k)*G_abs)`. The nominal ambiguous
-contribution is exact complex zero and `epsilon` is its absolute-error radius.
-Thus the unknown strict-visible subinterval lies inside a certified disk; no
-hidden step enters a smooth rule. Inactive payloads have zero nodes,
-contribution, and error. Error radii accumulate toward positive infinity in
-canonical contributor/piece order into model-qualified `[N,B,F,C]` cubes.
+`w_k=upper_turn[k]-lower_turn[k]`. On an ambiguous piece `I`, a certified
+magnitude ceiling replaces any interval extension of the integrand: define
+
+```text
+G_abs = round_up(|payload| * prod(certified factor ceilings))
+```
+
+where `|payload|` is the contributor's resolved Stokes magnitude times its
+integration weight and each remaining factor of the Section 6 kernel — every
+Jones-term operator norm along the chain, the unit-magnitude fringe, and
+the accepted `M`/`Q` factor magnitudes — enters through a design-recorded
+certified upper bound; the beam factor's ceiling is the recorded peak of
+the resolved normalized beam. Each ceiling is a `constant_rows` entry or an
+authenticated per-run manifest value, never an ad-hoc estimate. Define
+`epsilon^M_{dkfbcp}=round_up(((u_hi-u_lo)/w_k)*G_abs)`. The nominal
+ambiguous contribution is exact complex zero and `epsilon` is its
+absolute-error radius. Thus the unknown strict-visible subinterval lies
+inside a certified disk — its width is at most the `1e-11 rad` operational
+enclosure width, so the disk is orders below the Section 4.2 absolute
+floor — and no hidden step enters a smooth rule. Inactive payloads have
+zero nodes, contribution, and error. Error radii accumulate toward positive
+infinity in canonical contributor/piece order into model-qualified
+`[N,B,F,C]` cubes.
 
 The embedded `direct_integrand_enclosure_manifest` has exactly
 `schema_version`, `algorithm_id`, `implementation_files`, `constant_rows`,
@@ -1980,7 +2077,8 @@ exactly four outward `F64` bounds in order
 upper bound, and the error equals the row's finite non-negative value. The
 manifest `schema_version` is exactly
 `radiosim.mmode-direct-piece-error.v1`. For an active `root_enclosure` piece,
-the rectangle and error are the certified Section 12 values. For
+the rectangle is exactly `[-G_abs,G_abs,-G_abs,G_abs]` from the certified
+magnitude ceiling above and the error is the certified Section 12 value. For
 `smooth_above`, `smooth_below`, or any inactive piece, the rectangle is exactly
 `[F64(0),F64(0),F64(0),F64(0)]` and `enclosure_error_f64be=F64(0)`; no other
 zero spelling or unused carried enclosure is permitted. The strict validator
@@ -2064,9 +2162,9 @@ Minimum oracles are:
    edge containment in closed `[h_N^-,h_N^+]`; plus one nontrivial binary64
    fraction whose exact IEEE ratio is reconstructed.
 2. **Frame:** one-time ICRS-to-CIRS position and tangent transport, rigid group
-   composition, pressure-zero operational comparison, an exact internal-boundary
-   root with excluded-left/right-owned leaf linkage, a same-side-sign knot-zero
-   rejection, and the fixed budget.
+   composition, pressure-zero operational comparison, a ceiling-excluded
+   root-free cell, a scan-crossing refinement to the fixed enclosure width,
+   a probe-floor tangency rejection, and the fixed budget.
 3. **Scalar harmonics:** individual `Y_lm`, reality, point delta, constant
    HEALPix sky, RING/NEST equality, and point+map coefficient additivity.
 4. **Polarization:** individual spin `+2/-2` modes, the spin reality relation,
@@ -2221,6 +2319,18 @@ ancestry checks must pass. Worktrees and temporary directories are removed on
 success or failure. A dirty tip, merge, wrong ancestor, changed tool, nonzero
 exit, stderr byte, differing stdout, missing LF, or cleanup failure rejects.
 
+A Section 13.7 correction accepted after a gate has run does not re-run
+that gate: the commit that was the operative `D` when the gate ran is the
+**gate anchor**, the retained certificate and ancestry facts stay bound to
+it, and the dependency validator authenticates the gate anchor as an
+ancestor of the operative `D` through the header-enumerated chain instead
+of requiring the operative `D` to precede `G1`. A correction that reopens
+an already-committed red slice makes that red commit a header-recorded
+`superseded red slice` interval commit; the governed re-cut directly
+parents the correction landing, regenerates the phase red-failure record
+under Section 13.7's disposal rule, and rebinds the frozen constants that
+name the operative `D`.
+
 Across `D..G1`, the accepted `D` memo blob, its SCI-004 index entry, the
 `Fix.md` SCI-004 row, and the PostTier WP-9 subsection/ledger cells remain
 byte-identical. Across SCI-004 `A2..G3`, every SCI-004-owned byte at `A2`,
@@ -2282,6 +2392,14 @@ documentation in these paths:
 - `tests/unit/test_sci004_phase1_evidence.py` (new strict validator)
 - `tools/sci004_mmode_phase1_acceptance.py` (new)
 - `tests/unit/test_sci004_phase1_acceptance.py` (new strict validator)
+- `tests/unit/test_simulator/test_perf001_capabilities.py` (the
+  registered-simulator inventory pin only: widen the expected mapping to
+  exactly `{"mmode": False, "rime": False}`)
+- `tests/unit/test_io/test_config.py` (the `ExecutionConfig` field-set pin
+  only: add exactly `mmode` to the expected field names)
+- `tests/characterization/test_tier6_current_behavior.py` (the
+  `ExecutionConfig` field-set characterization only: add exactly `mmode` to
+  the expected field names)
 - `docs/user_guide/configuration.rst`
 - `docs/api/algorithms.rst`
 - `docs/api/result.rst`
@@ -2522,7 +2640,9 @@ regenerating `E` runs under the unchanged rule against absent paths and
 null sentinels. This disposal is authorized only for an artifact the memo
 header records as superseded; the `A` that would have accepted it returned
 `REJECT`, so removing it is disposal of a rejected draft, not replacement
-of a record. An accepted artifact is immutable and no commit may touch one.
+of a record. The same rule governs a superseded phase red-failure record:
+the governed re-cut deletes and regenerates it, since the record was never
+accepted. An accepted artifact is immutable and no commit may touch one.
 
 ## 14. Evidence schema and commit succession
 
@@ -2655,7 +2775,7 @@ harmonics=radiosim.shaw-polarized-harmonics.v1
 tangent_frame=radiosim.sky-tangent-polarization.v1
 stokes_bridge=radiosim.stokes-ne-theta-phi.v1
 transfer_catalog=radiosim.mmode-transfer-grid-catalog.v1
-quadrature_policy=healpix-ring-production-plus-qcheck.v1
+quadrature_policy=iso-gauss-ring-production-plus-qcheck.v1
 truncation_policy=complete-frozen-direct-plus-local-shells.v1
 execution_policy=host_harmonics_backend_native_dense_v1
 field_order=[I,+2,-2,V]
@@ -2860,12 +2980,12 @@ digest not covered by this paragraph, a narrower rule, or a raw-file rule is a
 schema error; implementations may not invent a preimage.
 
 The sole discriminated-format exception is the embedded Section 12.1
-`horizon_leaf_rows` array. Its `proof_kind` is the null reason for the four
-root fields, so adjacent reason keys are forbidden there. Non-null root-turn
-bounds use canonical rationals. Its `*_f64be` values are exact strings rather
-than JSON numbers; every value must decode to a finite binary64, and every
-decoded residual must be non-negative. For the
-leaf-partition digest the validator reconstructs the Section 12.1 listed field
+`horizon_scan_rows` array. Its `classification` is the null reason for the
+three root fields, so adjacent reason keys are forbidden there. Non-null
+root-turn bounds use canonical rationals. Its `*_f64be` values are exact
+strings rather than JSON numbers; every value must decode to a finite
+binary64, and every decoded residual must be non-negative. For the
+scan-ledger digest the validator reconstructs the Section 12.1 listed field
 order; the containing phase record itself still uses this section's
 lexicographically sorted object keys.
 
@@ -2993,9 +3113,9 @@ M1 `results` has exactly `dependency_certificate`, `time_grid_cases`, `frame_cer
   `das2r_rad_per_arcsec`, `xp0_rad`, `yp0_rad`, `sp0_rad`,
   `diagnostic_qcheck_nsides`, `transfer_grid_catalog`,
   `transfer_grid_catalog_sha256`, `direction_rows`,
-  `direction_ledger_sha256`, `horizon_enclosure_manifest`,
-  `horizon_enclosure_sha256`, `horizon_leaf_rows`,
-  `horizon_leaf_partition_sha256`, `horizon_root_pair_rows`,
+  `direction_ledger_sha256`, `horizon_scan_manifest`,
+  `horizon_scan_sha256`, `horizon_scan_rows`,
+  `horizon_scan_ledger_sha256`, `horizon_root_pair_rows`,
   `horizon_root_pair_ledger_sha256`, `horizon_slab_rows`,
   `horizon_slab_ledger_sha256`, `horizon_sign_interval_rows`,
   `horizon_sign_interval_ledger_sha256`, `horizon_membership_rows`,
@@ -3118,7 +3238,7 @@ width from the embedded UTC edges and requires the exact Section 3.1 array
 digest. A predicate requiring rounded
 `horizon_hi_rad-horizon_lo_rad==tau` is itself a validation failure. A frame
 row with the same fixture joins both canonical grid digests; every phase node,
-horizon leaf, membership row, and direct partition uses that object.
+horizon scan row, membership row, and direct partition uses that object.
 
 For a frame row, the retained site and frame manifests, two unit literals, and
 all six unit-named polar-motion/s-prime numbers must satisfy Section 4.1. The
@@ -3162,7 +3282,7 @@ coverage.
 The embedded horizon ledgers and their digests must satisfy every Section 12.1
 schema, order, join, and recomputation predicate. In particular,
 `evaluated_horizon_root_pair_row_count` and the root-pair array length equal
-`D`; `horizon_isolation_interval_count` equals the terminal-leaf array length
+`D`; `horizon_isolation_interval_count` equals the scan-row array length
 across the identical ordered direction IDs; and
 `expected_horizon_slab_row_count` equals the sum of all embedded pair-array
 lengths and `horizon_paired_root_count`. The evaluated slab-row count,
