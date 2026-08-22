@@ -385,6 +385,16 @@ def test_the_accepted_simulator_values_equal_the_registry_keys() -> None:
     ``api/simulator.py`` passes it to ``get_simulator``.  Pinning the two sets
     equal makes a second, unread selector structurally impossible to
     reintroduce (Section 18).
+
+    WIDENED BY: SCI-004 phase M1.  ``docs/development/sci004_mmode_design.md``
+    Section 2 keeps this invariant *exact* -- "accepted values of
+    execution.simulator == simulator registry keys" -- and says that after M1
+    the set is ``{"rime", "mmode"}``.  The m-mode solver is a second complete
+    forward model registered at the whole-``SkyModel`` boundary, which is
+    precisely the shape this assertion exists to force: a new algorithm arrives
+    as a registry entry that the one selector already honours, never as a second
+    unread configuration field.  Section 14.2 names this node as the
+    authoritative registry row of the M1 ``capability_cases`` array.
     """
     from typing import get_args
 
@@ -394,7 +404,7 @@ def test_the_accepted_simulator_values_equal_the_registry_keys() -> None:
     accepted = set(get_args(ExecutionConfig.model_fields["simulator"].annotation))
     assert accepted == set(_SIMULATORS)
     assert accepted == set(get_simulator_names())
-    assert accepted == {"rime"}
+    assert accepted == {"mmode", "rime"}
     assert "get_simulator(self._simulator_name)" in _source(
         "src/radiosim/api/simulator.py"
     )

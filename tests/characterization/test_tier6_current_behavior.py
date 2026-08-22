@@ -2225,6 +2225,10 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
     SCI-005 Stage 1 added ``test_sci005_beam_physics.py``, the one integration
     file ``docs/development/sci005_beam_physics_plan.md`` Section 6 names for
     the staged beam-physics programme.
+    SCI-004 phase M1 added ``test_sci004_mmode.py``, the one integration file
+    ``docs/development/sci004_mmode_design.md`` Section 13.3 names for the
+    m-mode red slice; that design's own Section 13.3/13.4 entries authorize
+    exactly this listing widening.
     """
     performance = sorted(
         p.name for p in (REPO_ROOT / "tests" / "performance").glob("*.py")
@@ -2238,6 +2242,7 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
         "test_cli_end_to_end.py",
         "test_hybrid_end_to_end.py",
         "test_jones_end_to_end.py",
+        "test_sci004_mmode.py",
         "test_sci005_beam_physics.py",
         "test_sci006_output_roundtrip.py",
     ]

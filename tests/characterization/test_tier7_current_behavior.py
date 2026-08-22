@@ -793,6 +793,37 @@ def test_capability_flags_are_declared_only_where_they_can_be_verified() -> None
     assert config["term_status"] == "implemented"
 
 
+def test_mmode_m1_capability_truth() -> None:
+    """SCI-004 phase M1: capability truth is phase-local, and pinned here.
+
+    ``docs/development/sci004_mmode_design.md`` Section 9 makes this file the
+    authoritative record of two facts that must be stated together, because the
+    risk is precisely that they drift apart: ``MModeSimulator`` must *override*
+    ``supports_polarization`` to ``False`` -- "a new simulator registry entry may
+    not inherit the base class's permissive default" -- while the unchanged
+    ``RIMESimulator.supports_polarization is True`` proves the override is a
+    statement about the m-mode phase rather than a weakening of the direct
+    solver.  Section 14.2 names this exact node for both property rows of the M1
+    ``capability_cases`` array.
+
+    M1 adds no polarized capability claim: the m-mode request validator rejects
+    any sky with non-zero Q, U or V using ``mmode_m1_scalar_only``, and
+    ``supports_gpu`` stays ``False`` because Section 9 licenses no end-to-end
+    accelerator record.  Only accepted M2, after point, HEALPix and hybrid
+    full-Stokes direct oracles pass, may deliberately flip the m-mode property
+    and this assertion to ``True``.
+    """
+    from radiosim.simulator import MModeSimulator, RIMESimulator
+
+    assert MModeSimulator.supports_polarization is False
+    assert RIMESimulator.supports_polarization is True
+
+    # The override is explicit, not inherited: the flag is declared on the class
+    # itself, which is the whole point of Section 9's sentence.
+    assert "supports_polarization" in vars(MModeSimulator)
+    assert MModeSimulator.supports_gpu is False
+
+
 # =========================================================================
 # Section 5.3 -- the chain and the evaluation contract
 # =========================================================================
