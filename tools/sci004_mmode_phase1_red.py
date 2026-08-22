@@ -567,7 +567,10 @@ def generate(output: Path) -> None:
         raise RedRecordError(f"{output} already exists; generation never overwrites")
 
     design_sha = _frozen_binding("APPROVED_SCI004_D_SHA")
-    pre_fix_source_sha = _frozen_binding("APPROVED_SCI004_G1_SHA")
+    # Section 13.2 (as corrected): the red slice directly parents the
+    # operative correction commit, so the pre-fix source is the operative
+    # ``D`` rather than the gate anchor ``G1``.
+    pre_fix_source_sha = _frozen_binding("APPROVED_SCI004_D_SHA")
     head = _git("rev-parse", "HEAD").strip()
     if head != pre_fix_source_sha:
         raise RedRecordError(

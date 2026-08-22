@@ -43,7 +43,7 @@ MMODE_HARMONIC_CONVENTION = "radiosim.shaw-polarized-harmonics.v1"
 MMODE_TIME_GRID_CONVENTION = "radiosim.mmode-era-turn-grid.v1"
 MMODE_TANGENT_FRAME_M1 = "not_applicable_scalar_m1"
 MMODE_STOKES_BRIDGE = "radiosim.stokes-ne-theta-phi.v1"
-MMODE_QUADRATURE_POLICY = "healpix-ring-production-plus-qcheck.v1"
+MMODE_QUADRATURE_POLICY = "iso-gauss-ring-production-plus-qcheck.v1"
 MMODE_TRUNCATION_POLICY = "complete-frozen-direct-plus-local-shells.v1"
 MMODE_EXECUTION_POLICY = "host_harmonics_backend_native_dense_v1"
 

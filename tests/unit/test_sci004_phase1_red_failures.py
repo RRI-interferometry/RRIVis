@@ -47,7 +47,6 @@ import pytest
 
 from tests.unit.test_sci004_phase1_dependency import (
     APPROVED_SCI004_D_SHA,
-    APPROVED_SCI004_G1_SHA,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -347,10 +346,12 @@ def test_the_record_carries_the_exact_top_level_key_set(
 def test_the_record_binds_the_frozen_design_and_pre_fix_source(
     record: dict[str, Any],
 ) -> None:
-    """Section 14.0/14.1: ``design_sha`` is the operative ``D``; the pre-fix SHA
-    is ``G1``."""
+    """Section 14.0/14.1: ``design_sha`` is the operative ``D``; the pre-fix
+    SHA is the red slice's direct parent, which per the corrected Section
+    13.2 is the operative ``D`` (the governed re-cut directly parents the
+    correction landing)."""
     assert record["design_sha"] == APPROVED_SCI004_D_SHA
-    assert record["pre_fix_source_sha"] == APPROVED_SCI004_G1_SHA
+    assert record["pre_fix_source_sha"] == APPROVED_SCI004_D_SHA
 
 
 def test_the_self_reference_is_a_null_sha_with_its_exact_reason(

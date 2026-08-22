@@ -171,8 +171,8 @@ SCI004_RED_CASES: tuple[dict[str, Any], ...] = (
     ),
     _case(
         "m1.harmonics.constant-map",
-        "sci004.section-7.1.healpix-solid-angle-integration",
-        "test_a_constant_healpix_map_carries_only_the_monopole",
+        "sci004.section-7.1.healpix-pixel-measure-coefficients",
+        "test_a_constant_healpix_map_carries_the_exact_pixel_measure",
         _MAP_FIXTURE,
         excluded_by=_YLM_ORACLE,
     ),
@@ -409,9 +409,19 @@ def test_an_analytic_point_delta_has_the_closed_form_coefficients() -> None:
         assert abs(observed - expected) <= ANALYTIC_RESIDUAL_LIMIT, (degree, order)
 
 
-def test_a_constant_healpix_map_carries_only_the_monopole() -> None:
-    """Section 7.1: pixel solid angle integration, checked on the constant map."""
+def test_a_constant_healpix_map_carries_the_exact_pixel_measure() -> None:
+    """Section 7.1 (as corrected): the map's coefficients are the pixel
+    measure ``sum_pix(s_pix * Omega_pix * conj(Y_lm(n_pix)))`` — the same
+    object the private direct oracle sums — so a constant map's ``l>0``
+    coefficients carry the pixel-quadrature residue rather than being zero.
+    The expectation is rebuilt here independently from ``healpy.pix2vec``
+    and SciPy's Condon-Shortley harmonics; a continuous-field
+    reinterpretation (ring weights, iterated transforms) differs from it at
+    the `1e-2` scale and cannot pass.
+    """
+    import healpy as hp
     import numpy as np
+    from scipy.special import sph_harm_y
 
     from radiosim.core.mmode.harmonics import scalar_coefficient
     from radiosim.core.mmode.sky import healpix_scalar_coefficients
@@ -424,14 +434,28 @@ def test_a_constant_healpix_map_carries_only_the_monopole() -> None:
         lmax=LMAX,
         mmax=MMAX,
     )
-    monopole = scalar_coefficient(coefficients, 0, 0)
 
+    x, y, z = hp.pix2vec(NSIDE, np.arange(npix), nest=False)
+    theta = np.arccos(np.clip(z, -1.0, 1.0))
+    phi = np.mod(np.arctan2(y, x), 2.0 * math.pi)
+    omega = 4.0 * math.pi / npix
+
+    monopole = scalar_coefficient(coefficients, 0, 0)
     assert abs(monopole - math.sqrt(4.0 * math.pi)) <= ANALYTIC_RESIDUAL_LIMIT
+
+    largest_residue = 0.0
     for degree in range(1, LMAX + 1):
         for order in range(-min(degree, MMAX), min(degree, MMAX) + 1):
-            assert abs(scalar_coefficient(coefficients, degree, order)) <= (
-                ANALYTIC_RESIDUAL_LIMIT
+            expected = omega * np.sum(np.conj(sph_harm_y(degree, order, theta, phi)))
+            observed = scalar_coefficient(coefficients, degree, order)
+            assert abs(observed - expected) <= ANALYTIC_RESIDUAL_LIMIT, (
+                degree,
+                order,
             )
+            largest_residue = max(largest_residue, abs(expected))
+    # Non-vacuity: the pixel-quadrature residue is macroscopic, so a
+    # continuous-field implementation cannot satisfy the assertions above.
+    assert largest_residue > 1e-3
 
 
 def test_ring_and_nest_inputs_give_identical_coefficients() -> None:
