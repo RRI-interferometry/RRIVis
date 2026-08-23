@@ -32,6 +32,58 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (guard intervals and independent
+membership).** The S1 re-implementation's dry-run rehearsal surfaced two
+defects at the scan's edges. First, the literal "gap-free, overlap-free
+half-open partition" demand rejects a range of accepted crossings: near a
+root with local slope `beta*L_op`, bisection terminates only after
+roughly `log2(1/beta)` extra refinements, so a crossing shallower than
+`beta ~ 0.036` drives its innermost splinter to the unresolved floor
+while the probe floor still accepts transverse crossings down to
+`beta ~ 1.6e-3`. Section 12.1
+now gives each retained crossing up to two flanking `guard_interval`
+rows — bounded by the probe offset, restoring the partition together with
+the root enclosures — and Section 12's exposure machinery cuts at and
+error-disks over each crossing's enclosure-plus-guards union, so any
+undetected structure inside a guard is certified-bounded physically
+rather than assumed absent. Second, the accepted implementation evaluated
+the certificate's "operational" membership and interval signs through
+the frozen attitude, making two mismatch counters frozen-versus-frozen;
+Section 4.2 now states explicitly that both censuses take their
+operational values from the same public-API evaluations the scan
+consumes, and its membership rule gains the same outside-slabs scope the
+sign intervals always had — a slab-interior centre records its
+disagreement into the slab accounting instead of being falsely required
+to agree — with Section 14.2's counter semantics updated to match. It
+supersedes the post-source-record-retention landing
+`112570ff2bba42e6ab57be133318e3c0bfe32f7c` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. It reopens, as a `superseded red slice`
+interval commit for a rebind-only re-cut under the post-source retention
+rule, the re-cut `13c34e79967dc28b0d11889b8ab4dcd528de915a`; the standing
+`46b7703` superseded-implementation reopening already covers the
+solver-side guard and membership changes, whose re-implementation has not
+yet landed. This correction is design-only: it implements no solver,
+accepts no phase, and does not close the register row. Its exact
+pre-landing file bytes
+(`sha256:14583080be874be13fdf3178bf14b288e806c4003b6528628e1f6613b15789a4`)
+and parent-relative diff
+(`sha256:50e62db6b5f76897c3ee0e3b05c97c8869d1ea2aa5f09936c05238c3c61aa3c1`)
+received separate independent reviews on 2026-08-23 — computational and
+physics/governance, both `ACCEPT` after two applied physics advisories:
+the guard justification was narrowed from a universal-impossibility claim
+to the derived and empirically confirmed `beta`-scoped mechanism
+(termination after roughly `log2(1/beta)` refinements; the `2**-44` floor
+binding only below `beta ~ 0.036` against the full enclosure width; the
+turn-native probe floor accepting transverse crossings down to
+`beta ~ 1.6e-3`), with the physics review measuring the public transform's
+noise floor at a real crossing to rule numerical noise out as the binding
+constraint and the computational review fixing the unit-consistent form of
+both thresholds. This correction's landing commit is the operative `D` of
+Section 13.7.
+
 **Bounded correction — 2026-08-23 (post-source record retention).**
 Executing the previous correction's pending re-cut proved one of its
 obligations self-contradictory: it required the Section 13.7
@@ -855,11 +907,19 @@ subset:
   given by the hull of both certified root enclosures under the selected exact
   integer-turn lift. A slab crossing the `H_N` seam is represented as two closed pieces on
   the unwrapped domain; no equality of the operational values at its endpoints
-  is assumed. Every exposure is split at every root-enclosure endpoint, and a
-  positive-width enclosure cell uses Section 12's outward error disk rather
-  than a smooth rule. Strict `alt > 0`
-  membership must agree at every actual sample centre, including a centre that
-  lies inside a slab. The above/below sign on every certified open root
+  is assumed. Every exposure is split at every root-enclosure and
+  guard-interval endpoint, and a
+  positive-width enclosure or guard cell uses Section 12's outward error
+  disk rather
+  than a smooth rule. Both models evaluate membership and interval signs
+  independently — the operational values from the same public-API
+  evaluations the scan consumes, never from the frozen attitude. Strict
+  `alt > 0`
+  membership must agree at every actual sample centre outside the mismatch
+  slabs; a centre inside a slab records its models' possibly differing
+  memberships into the slab accounting rather than being falsely required
+  to agree, exactly as the sign intervals are treated. The above/below
+  sign on every certified open root
   interval must agree outside the union of the slabs. Sign differences between
   displaced roots inside a slab are recorded, not falsely required to be zero;
   each direct model applies its own strict altitude numerator there, and the
@@ -2132,23 +2192,46 @@ f_lo_f64be, f_hi_f64be, ceiling_margin_f64be, left_sign, right_sign,
 root_turn_lo, root_turn_hi, root_orientation, root_residual_f64be
 ```
 
-`classification` is exactly `ceiling_excludes_root`, `scan_crossing`, or
+`classification` is exactly `ceiling_excludes_root`, `scan_crossing`,
+`guard_interval`, or
 `excluded_upper_endpoint`, the last permitted only when the crossing's
 enclosure upper bound equals `h_N^+`; it does not enter the root census.
-`ceiling_margin_f64be` is `min(|f_lo|,|f_hi|) - L_op*(turn_hi-turn_lo)`
+A `guard_interval` row exists because the ceiling rule degenerates beside
+a shallow crossing: near a root with local slope `beta*L_op`, a
+root-adjacent cell classifies root-free only after roughly `log2(1/beta)`
+extra refinements, so bisection terminates for ordinary crossings but the
+innermost splinter of a crossing with
+`beta < 2**-44 turn / (enclosure width) ~ 0.036` reaches the
+unresolved floor before classification — and the probe-magnitude floor
+still accepts transverse crossings down to `beta ~ 1.6e-3`, so the
+literal partition would reject exactly that accepted shallow range.
+Guards close it uniformly and harmlessly. Each retained crossing
+therefore owns up to two flanking `guard_interval` rows covering exactly
+the gap between its enclosure and the nearest classified neighbours, each
+guard's width at most the `1e-8` turn probe offset; the crossing's probe
+signs sit at or beyond the guards' outer ends, so an undetected extra
+crossing pair inside the guards would leave the probe signs opposite and
+is excluded from mattering physically by the Section 12 rule below, which
+error-disks the guards. `ceiling_margin_f64be` is
+`min(|f_lo|,|f_hi|) - L_op*(turn_hi-turn_lo)`
 for a `ceiling_excludes_root` row, which must decode to a positive
 binary64, and `F64(0)` otherwise. For a root-free row `left_sign` and
 `right_sign` are the endpoint value signs; for a crossing row they are the
-probe signs, in `{-1,1}`, and must differ. The three root fields are JSON
-null exactly for `ceiling_excludes_root`; a crossing or excluded-endpoint
+probe signs, in `{-1,1}`, and must differ; for a guard row they are the
+endpoint value signs with zero permitted at the root-adjacent end. The
+three root fields are JSON
+null exactly for `ceiling_excludes_root` and `guard_interval`; a crossing
+or excluded-endpoint
 row has canonical-rational root bounds, `root_orientation` equal to
 `rising` or `setting`, and a non-null residual. Root-census reconstruction
-counts `scan_crossing` rows only; it rejects any duplicate owned root.
+counts `scan_crossing` rows only; it rejects any duplicate owned root and
+any guard row not adjacent to its crossing's enclosure or another guard.
 Every `*_f64be` value is the lowercase 16-hex-character encoding of
 `struct.pack(">d", value)`, never a JSON float. Turn and root bounds are
 the canonical reduced rationals from Section 3.1. In direction-ledger
 order, rows are sorted by exact `turn_lo`, and `cell_index` is contiguous
-from zero. They form a gap-free, overlap-free half-open partition of
+from zero. Together with the retained root enclosures they form a
+gap-free, overlap-free half-open partition of
 `H_N`; the closed `h_N^+` endpoint appears only as the last upper bound.
 `horizon_isolation_interval_count` is exactly the total number of these
 terminal rows across all directions, not a count of visited branch cells.
@@ -2398,8 +2481,12 @@ instead of causing a logically impossible equality requirement.
 
 For every point/native direction `d` and sample `k`, construct one common exact-
 turn partition of `[lower_turn[k],upper_turn[k]]`. Its cuts are the two
-retained exposure endpoints and every frozen or operational root-enclosure
-lower or upper bound strictly inside. Sort and de-duplicate by exact rational
+retained exposure endpoints and every frozen root-enclosure and every
+operational root-enclosure or guard-interval
+lower or upper bound strictly inside — an operational crossing's ambiguous
+region is the closed union of its enclosure and its flanking guards, and
+every piece inside that union is a `root_enclosure`-class piece for the
+error-disk rule. Sort and de-duplicate by exact rational
 equality. Non-empty pieces are gap-free and overlap-free, receive contiguous
 indices, and are shared by all frequencies, baselines, correlations, models,
 and quadrature orders.
@@ -3735,8 +3822,11 @@ The membership mask-row length is exactly `D`, each row's `sample_count`
 is exactly `N`, and the expanded per-sample array has exactly `D*N` rows.
 
 `horizon_membership_mismatches` counts false `match` values across exactly
-those `D*N` expanded sample-centre rows — the sum of the mask rows'
-`mismatch_count` values — including centres inside mismatch slabs;
+the expanded sample-centre rows whose centres lie outside every mismatch
+slab; a slab-interior centre's disagreement joins the slab accounting per
+Section 4.2 and is excluded from this counter, while the mask rows'
+`mismatch_count` values remain the per-direction totals from which the
+outside-slab counter is recomputed against the slab geometry;
 `horizon_outside_slab_sign_mismatches` counts false `match` values in the sign
 rows. `horizon_root_count_mismatches` is the number of root-pair rows whose two
 root counts differ, `horizon_root_orientation_mismatches` is the sum of their
