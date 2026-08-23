@@ -202,15 +202,377 @@ def _synthetic_capability_rows() -> list[dict[str, Any]]:
     return rows
 
 
+#: The synthetic frame fixture's dimensions.  They are deliberately tiny --
+#: two directions, three samples, one baseline, one frequency -- because the
+#: rules under test are structural, and a fixture at the production scale would
+#: make a schema failure unreadable.
+SYNTHETIC_DIRECTIONS: tuple[str, ...] = (
+    "point:0:0",
+    "transfer_quadrature:production:1:0",
+)
+SYNTHETIC_SAMPLES = 3
+SYNTHETIC_BASELINES = 1
+SYNTHETIC_FREQUENCIES = 1
+
+
+#: The synthetic fixture's exact retained centre turns and ``tau`` bits.  The
+#: mask expansion derives every ``alpha_rad`` from these, so they are the whole
+#: preimage the economy form relies on.
+SYNTHETIC_CENTER_TURNS: tuple[str, ...] = ("0/1", "1/3", "2/3")
+SYNTHETIC_TAU_F64BE = "401921fb54442d18"
+
+
+def _synthetic_time_grid_row() -> dict[str, Any]:
+    """Return a time-grid row carrying the two canonical grid objects.
+
+    Only the fields the frame join and the membership expansion consume are
+    load-bearing here; the rest are structurally valid placeholders, because the
+    rules under test are the join and the expansion rather than Section 3.1's
+    own residual predicates.
+    """
+    sixty_four = "0" * 63 + "1"
+    return {
+        "fixture_id": "mmode_point_stokes_i",
+        "sidereal_samples": SYNTHETIC_SAMPLES,
+        "integration_fraction_f64be": "3ff0000000000000",
+        "canonical_era_turn_grid": {
+            "schema_version": "radiosim.mmode-era-turn-grid.v1",
+            "sidereal_samples": SYNTHETIC_SAMPLES,
+            "center_turns": list(SYNTHETIC_CENTER_TURNS),
+            "lower_edge_turns": ["-1/6", "1/6", "1/2"],
+            "upper_edge_turns": ["1/6", "1/2", "5/6"],
+            "exposure_width_turn": "1/3",
+            "horizon_lo_turn": "-1/6",
+            "horizon_hi_turn": "5/6",
+            "integration_fraction_f64be": "3ff0000000000000",
+            "integration_fraction_ratio": "1/1",
+        },
+        "iers_table_sha256": sixty_four,
+        "era_center_turn_sha256": sixty_four,
+        "era_lower_edge_turn_sha256": sixty_four,
+        "era_upper_edge_turn_sha256": sixty_four,
+        "canonical_era_turn_grid_sha256": sixty_four,
+        "tau_f64be": SYNTHETIC_TAU_F64BE,
+        "delta_alpha_rad_f64be": "4010c15238000000",
+        "horizon_lo_rad_f64be": "bff0c15238000000",
+        "horizon_hi_rad_f64be": "4014f1a970000000",
+        "era_center_rad_sha256": sixty_four,
+        "era_lower_edge_rad_sha256": sixty_four,
+        "era_upper_edge_rad_sha256": sixty_four,
+        "canonical_era_grid": {
+            "schema_version": "radiosim.mmode-era-grid.v1",
+            "canonical_era_turn_grid_sha256": sixty_four,
+            "era_center_turn_sha256": sixty_four,
+            "era_lower_edge_turn_sha256": sixty_four,
+            "era_upper_edge_turn_sha256": sixty_four,
+            "era_center_rad_sha256": sixty_four,
+            "era_lower_edge_rad_sha256": sixty_four,
+            "era_upper_edge_rad_sha256": sixty_four,
+            "tau_f64be": SYNTHETIC_TAU_F64BE,
+            "delta_alpha_rad_f64be": "4010c15238000000",
+            "horizon_lo_rad_f64be": "bff0c15238000000",
+            "horizon_hi_rad_f64be": "4014f1a970000000",
+        },
+        "canonical_era_grid_sha256": sixty_four,
+        "era_center_max_residual_rad": 0.0,
+        "era_center_limit_rad": 1e-9,
+        "era_step_max_residual_rad": 0.0,
+        "era_step_limit_rad": 1e-9,
+        "ut1_utc_roundtrip_seconds": 0.0,
+        "ut1_utc_roundtrip_limit_seconds": 1e-6,
+        "utc_manifest": {"schema_version": "radiosim.mmode-utc.v1"},
+        "utc_sha256": sixty_four,
+        "ut1_manifest": {"schema_version": "radiosim.mmode-ut1.v1"},
+        "ut1_sha256": sixty_four,
+        "integration_time_seconds_sha256": sixty_four,
+        "pass": True,
+    }
+
+
+def _synthetic_scan_crossing_row(direction_id: str) -> dict[str, Any]:
+    """Return one verbatim Section 12.1 crossing row in its exact field order."""
+    return {
+        "direction_id": direction_id,
+        "cell_index": 1,
+        "turn_lo": "1/4",
+        "turn_hi": "1/2",
+        "classification": "scan_crossing",
+        "f_lo_f64be": "bfd0000000000000",
+        "f_hi_f64be": "3fd0000000000000",
+        "ceiling_margin_f64be": "0000000000000000",
+        "left_sign": -1,
+        "right_sign": 1,
+        "root_turn_lo": "1/4",
+        "root_turn_hi": "1/2",
+        "root_orientation": "rising",
+        "root_residual_f64be": "0000000000000000",
+    }
+
+
+def _synthetic_guard_row(direction_id: str) -> dict[str, Any]:
+    """Return the guard row flanking the synthetic crossing's upper end.
+
+    It abuts the enclosure exactly, carries null root fields and an exact zero
+    margin, and its root-adjacent endpoint sign is zero -- the one place
+    Section 12.1 permits a zero sign, because the numerator vanishes there.
+    """
+    return {
+        "direction_id": direction_id,
+        "cell_index": 2,
+        "turn_lo": "1/2",
+        "turn_hi": "500000000001/1000000000000",
+        "classification": "guard_interval",
+        "f_lo_f64be": "0000000000000000",
+        "f_hi_f64be": "3e45798ee2308c3a",
+        "ceiling_margin_f64be": "0000000000000000",
+        "left_sign": 0,
+        "right_sign": 1,
+        "root_turn_lo": None,
+        "root_turn_hi": None,
+        "root_orientation": None,
+        "root_residual_f64be": None,
+    }
+
+
+def _synthetic_frame_row() -> dict[str, Any]:
+    """Return a frame row in Section 12.1's retained economy forms.
+
+    Every ledger here is the *projection* the corrected Section 12.1 retains:
+    the scan as crossing rows plus one summary row per direction, the membership
+    census as one visibility-mask row per direction, and the direct partition as
+    its own split rows -- not the sixteen-million-row terminal array or the
+    ``D*N`` per-sample rows the pre-correction letter demanded.
+    """
+    sixty_four = "0" * 63 + "1"
+    cells = 4 * SYNTHETIC_SAMPLES * SYNTHETIC_BASELINES * SYNTHETIC_FREQUENCIES
+    directions = list(SYNTHETIC_DIRECTIONS)
+    mask = "00"  # three samples, zero-padded to one whole byte
+    row: dict[str, Any] = {
+        "fixture_id": "mmode_point_stokes_i",
+        "certificate_sha256": sixty_four,
+        "site_manifest": {"schema_version": "radiosim.mmode-site.v1"},
+        "site_sha256": sixty_four,
+        "input_identity_sha256": sixty_four,
+        "iers_table_sha256": sixty_four,
+        "frame_matrix_manifest": {"schema_version": "radiosim.mmode-frame-matrices.v1"},
+        "frame_matrix_sha256": sixty_four,
+        "canonical_era_turn_grid_sha256": sixty_four,
+        "canonical_era_grid_sha256": sixty_four,
+        "pm_source_unit": "arcsec",
+        "pom00_argument_unit": "rad",
+        "xp0_arcsec": "0000000000000000",
+        "yp0_arcsec": "0000000000000000",
+        "das2r_rad_per_arcsec": "3ea0f2b17c8d0e21",
+        "xp0_rad": "0000000000000000",
+        "yp0_rad": "0000000000000000",
+        "sp0_rad": "0000000000000000",
+        "diagnostic_qcheck_nsides": [2],
+        "transfer_grid_catalog": [],
+        "transfer_grid_catalog_sha256": sixty_four,
+        "direction_rows": [{"direction_id": identifier} for identifier in directions],
+        "direction_ledger_sha256": sixty_four,
+        "horizon_scan_manifest": {
+            "schema_version": "radiosim.mmode-operational-horizon-scan.v1"
+        },
+        "horizon_scan_sha256": sixty_four,
+        "horizon_scan_crossing_rows": [
+            row
+            for identifier in directions
+            for row in (
+                _synthetic_scan_crossing_row(identifier),
+                _synthetic_guard_row(identifier),
+            )
+        ],
+        "horizon_scan_summary_rows": [
+            {
+                "direction_id": identifier,
+                "terminal_cell_count": 6,
+                "boundary_evaluation_count": 7,
+                "crossing_count": 1,
+                "min_ceiling_margin_f64be": "3f50624dd2f1a9fc",
+            }
+            for identifier in directions
+        ],
+        "horizon_scan_ledger_sha256": sixty_four,
+        "horizon_root_pair_rows": [
+            {
+                "direction_id": identifier,
+                "frozen_root_count": 1,
+                "operational_root_count": 1,
+                "orientation_mismatch_count": 0,
+                "pairs": [],
+            }
+            for identifier in directions
+        ],
+        "horizon_root_pair_ledger_sha256": sixty_four,
+        "horizon_slab_rows": [],
+        "horizon_slab_ledger_sha256": sixty_four,
+        "horizon_sign_interval_rows": [],
+        "horizon_sign_interval_ledger_sha256": sixty_four,
+        "horizon_membership_mask_rows": [
+            {
+                "direction_id": identifier,
+                "sample_count": SYNTHETIC_SAMPLES,
+                "frozen_visible_mask_hex": mask,
+                "operational_visible_mask_hex": mask,
+                "mismatch_count": 0,
+            }
+            for identifier in directions
+        ],
+        "horizon_membership_ledger_sha256": "",
+        "direct_split_rows": [],
+        "direct_split_ledger_sha256": sixty_four,
+        "direct_integrand_enclosure_manifest": {
+            "schema_version": "radiosim.mmode-direct-integrand-enclosure.v1"
+        },
+        "direct_integrand_enclosure_sha256": sixty_four,
+        "sidereal_samples": SYNTHETIC_SAMPLES,
+        "quadrature_nside": 1,
+        "n_baselines": SYNTHETIC_BASELINES,
+        "n_frequencies": SYNTHETIC_FREQUENCIES,
+        "n_correlations": 4,
+        "expected_point_direction_count": 1,
+        "evaluated_point_direction_count": 1,
+        "expected_native_healpix_direction_count": 0,
+        "evaluated_native_healpix_direction_count": 0,
+        "expected_production_transfer_direction_count": 1,
+        "evaluated_production_transfer_direction_count": 1,
+        "expected_diagnostic_transfer_direction_count": 0,
+        "evaluated_diagnostic_transfer_direction_count": 0,
+        "expected_transfer_quadrature_direction_count": 1,
+        "evaluated_transfer_quadrature_direction_count": 1,
+        "expected_direction_count": len(directions),
+        "evaluated_direction_count": len(directions),
+        "expected_phase_comparison_count": 12,
+        "evaluated_phase_comparison_count": 12,
+        "expected_horizon_trajectory_count": len(directions),
+        "evaluated_horizon_trajectory_count": len(directions),
+        "expected_horizon_root_pair_row_count": len(directions),
+        "evaluated_horizon_root_pair_row_count": len(directions),
+        "expected_horizon_membership_count": len(directions) * SYNTHETIC_SAMPLES,
+        "evaluated_horizon_membership_count": len(directions) * SYNTHETIC_SAMPLES,
+        "expected_direct_exposure_split_count": SYNTHETIC_SAMPLES,
+        "evaluated_direct_exposure_split_count": SYNTHETIC_SAMPLES,
+        "expected_direct_split_row_count": 0,
+        "evaluated_direct_split_row_count": 0,
+        "expected_frozen_gauss64_node_count": 0,
+        "evaluated_frozen_gauss64_node_count": 0,
+        "expected_frozen_gauss128_node_count": 0,
+        "evaluated_frozen_gauss128_node_count": 0,
+        "expected_operational_gauss64_node_count": 0,
+        "evaluated_operational_gauss64_node_count": 0,
+        "expected_operational_gauss128_node_count": 0,
+        "evaluated_operational_gauss128_node_count": 0,
+        "horizon_isolation_interval_count": 12,
+        "horizon_unresolved_interval_count": 0,
+        "expected_horizon_slab_row_count": 0,
+        "evaluated_horizon_slab_row_count": 0,
+        "expected_horizon_sign_interval_count": 0,
+        "evaluated_horizon_sign_interval_count": 0,
+        "horizon_root_count_mismatches": 0,
+        "horizon_root_orientation_mismatches": 0,
+        "horizon_membership_mismatches": 0,
+        "horizon_outside_slab_sign_mismatches": 0,
+        "horizon_paired_root_count": 0,
+        "horizon_mismatch_slab_count": 0,
+        "horizon_mismatch_measure_turn": "0/1",
+        "horizon_mismatch_measure_rad": 0.0,
+        "horizon_mismatch_measure_limit_rad": 0.0,
+        "horizon_root_max_rad": 0.0,
+        "horizon_root_limit_rad": 2e-5,
+        "phase_max_rad": 1.0e-9,
+        "phase_limit_rad": 5e-3,
+        "expected_cube_cell_count": cells,
+        "evaluated_frozen_gauss64_cube_cell_count": cells,
+        "evaluated_frozen_gauss128_cube_cell_count": cells,
+        "evaluated_operational_gauss64_cube_cell_count": cells,
+        "evaluated_operational_gauss128_cube_cell_count": cells,
+        "compared_frozen_gauss_change_cell_count": cells,
+        "compared_operational_gauss_change_cell_count": cells,
+        "evaluated_frozen_enclosure_error_cell_count": cells,
+        "evaluated_operational_enclosure_error_cell_count": cells,
+        "frozen_gauss64_cube_sha256": sixty_four,
+        "frozen_gauss128_cube_sha256": sixty_four,
+        "operational_gauss64_cube_sha256": sixty_four,
+        "operational_gauss128_cube_sha256": sixty_four,
+        "frozen_enclosure_error_cube_sha256": sixty_four,
+        "operational_enclosure_error_cube_sha256": sixty_four,
+        "direct_gauss_scale_jy": 1.0,
+        "frozen_gauss_change_max_jy": 0.0,
+        "operational_gauss_change_max_jy": 0.0,
+        "direct_gauss_change_max_jy": 0.0,
+        "direct_gauss_change_limit_jy": 1e-11,
+        "cube_scale_jy": 1.0,
+        "cube_max_jy": 0.0,
+        "cube_limit_jy": 5e-5 + 1e-10,
+        "cube_l2": 0.0,
+        "cube_l2_limit": 5e-5,
+        "direction_diagnostic_max_rad": 1.0e-9,
+        "direction_diagnostic_argmax_id": directions[0],
+        "direction_diagnostic_argmax_phase": "0/1",
+        "basis_diagnostic_max_rad": 1.0e-9,
+        "basis_diagnostic_argmax_id": directions[0],
+        "basis_diagnostic_argmax_phase": "0/1",
+        "pass": True,
+    }
+    # The retained digest is the *expansion* of the retained masks, computed by
+    # the same rule the strict validator applies, so the positive control cannot
+    # pass with a placeholder and the negative controls below genuinely fail.
+    row["horizon_membership_ledger_sha256"] = _tool().expand_membership_ledger(
+        row["horizon_membership_mask_rows"],
+        SYNTHETIC_CENTER_TURNS,
+        SYNTHETIC_TAU_F64BE,
+    )
+    return row
+
+
+def _synthetic_transfer_sample_rows(
+    grids: int, baselines: int, frequencies: int
+) -> list[dict[str, Any]]:
+    """Return Section 7.3's concatenation rows: one per grid and output cell."""
+    sixty_four = "0" * 63 + "1"
+    rows: list[dict[str, Any]] = []
+    for grid in range(grids):
+        for baseline in range(baselines):
+            for frequency in range(frequencies):
+                for correlation in range(4):
+                    for field_index, field_name in enumerate(("I", "+2", "-2", "V")):
+                        rows.append(
+                            {
+                                "grid_id": (
+                                    "production:8" if grid == 0 else "diagnostic:16"
+                                ),
+                                "baseline_index": baseline,
+                                "frequency_index": frequency,
+                                "correlation_index": correlation,
+                                "field_index": field_index,
+                                "field_name": field_name,
+                                "resolved_lmax": 16 if grid == 0 else 24,
+                                "resolved_mmax": 16 if grid == 0 else 24,
+                                "block_table_sha256": sixty_four,
+                                "direction_count": 768 if grid == 0 else 3072,
+                                "packed_sample_value_count": (
+                                    768 * 289 if grid == 0 else 3072 * 625
+                                ),
+                                "concatenation_sha256": sixty_four,
+                            }
+                        )
+    return rows
+
+
 def _synthetic_truncation_row() -> dict[str, Any]:
     """Return a truncation row on the ``sci004_two_tier_direct.v3`` surface.
 
     The numbers are the qualified M1 fixture's own measured values: tier 1a at
     the ``1e-13`` level against its ``1e-8`` limit, the recorded with-horizon
     shell inside its reviewed budget, and the three-level deficit sequence whose
-    quarter-to-full factor is ``6.12`` against the fixed floor of two.
+    quarter-to-full factor is ``6.12`` against the fixed floor of two.  The
+    transfer-sample ledger is the corrected Section 7.3 concatenation form --
+    ``(1+len(Q_diag))*B*F*C*4 = 288`` rows for this fixture, one per catalogue
+    grid and output cell, not one per direction.
     """
     sixty_four = "0" * 63 + "1"
+    transfer_rows = _synthetic_transfer_sample_rows(2, 3, 3)
     row: dict[str, Any] = {
         "fixture_id": "mmode_point_stokes_i",
         "input_identity_sha256": sixty_four,
@@ -254,11 +616,14 @@ def _synthetic_truncation_row() -> dict[str, Any]:
         "truncation_budget_jy": 0.2,
         "expected_shell_comparison_cell_count": 7056,
         "evaluated_shell_comparison_cell_count": 7056,
-        "expected_transfer_sample_row_count": 552960,
-        "evaluated_transfer_sample_row_count": 552960,
+        "expected_transfer_sample_row_count": 288,
+        "evaluated_transfer_sample_row_count": 288,
         "expected_field_block_count": 7056,
         "evaluated_field_block_count": 7056,
-        "shell_coverage": {},
+        "shell_coverage": {
+            "schema_version": "radiosim.mmode-shell-coverage.v1",
+            "transfer_sample_rows": transfer_rows,
+        },
         "shell_coverage_sha256": sixty_four,
         "quadrature_diagnostic_max_jy": 5.80459e-02,
         "l_tail_diagnostic_max_jy": 1.0e-02,
@@ -359,8 +724,8 @@ def _synthetic_envelope() -> dict[str, Any]:
                 "raw_sha256": sixty_four,
                 "certificate": certificate,
             },
-            "time_grid_cases": [],
-            "frame_certificate_cases": [],
+            "time_grid_cases": [_synthetic_time_grid_row()],
+            "frame_certificate_cases": [_synthetic_frame_row()],
             "scalar_harmonic_cases": [],
             "packed_layout_cases": [],
             "transfer_cases": [],
@@ -434,19 +799,62 @@ def test_the_generator_imports_only_the_standard_library() -> None:
         assert forbidden not in source, forbidden
 
 
-def test_the_generator_refuses_to_produce_anything_from_a_dirty_tree() -> None:
-    """Section 14.2: the common pre-output check fails closed."""
+def test_the_generator_refuses_to_produce_anything_from_a_dirty_tree(
+    tmp_path: Path,
+) -> None:
+    """Section 14.2: the common pre-output check fails closed on a dirty tree.
+
+    The refusal must be caused by the dirt, so the test *creates* it: an
+    untracked marker file inside the repository makes
+    ``git status --porcelain=v1 --untracked-files=all`` non-empty for the
+    duration of the run and is removed afterwards.  Asserting the refusal
+    without dirtying the tree would pass for whatever reason the generator
+    happened to refuse for -- including a generator that refuses
+    unconditionally -- which is exactly the blind assertion this replaces.
+    """
+    del tmp_path
     module = _tool()
-    completed = subprocess.run(
-        [sys.executable, str(REPOSITORY_ROOT / TOOL), "generate"],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    artifact = REPOSITORY_ROOT / ARTIFACT
+    before = artifact.read_bytes() if artifact.exists() else None
+    marker = REPOSITORY_ROOT / ".sci004-dirty-tree-probe"
+    marker.write_text("probe\n", encoding="utf-8")
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(REPOSITORY_ROOT / TOOL), "generate"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        marker.unlink()
     assert completed.returncode != 0
     assert completed.stdout == ""
     assert completed.stderr.startswith(module.PREFLIGHT + ": ")
+    assert "not globally clean" in completed.stderr
+    # The refusal happened before any output could be opened, so the declared
+    # output set is exactly as it was: absent at ``S1``, and byte-identical at
+    # ``E1`` where the artifact legitimately exists.
+    after = artifact.read_bytes() if artifact.exists() else None
+    assert after == before
+
+
+def test_the_generator_produces_at_a_clean_source_rather_than_refusing() -> None:
+    """Section 14.2/14.4: ``generate`` is bound to a venue, not prohibited.
+
+    A generator whose ``generate`` refuses unconditionally would satisfy the
+    dirty-tree test above for the wrong reason, so this pins the complementary
+    fact directly in the tracked bytes: the sub-command runs the preflight and
+    then builds, validates and publishes, and it carries no unconditional
+    post-preflight refusal.
+    """
+    source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
+    body = source[source.index('if arguments.command == "generate":') :]
+    body = body[: body.index("document = json.loads(")]
+    assert "build_evidence_document(state)" in body
+    assert "validate_evidence_document(document)" in body
+    assert "write_atomic_no_overwrite(" in body
+    assert "raise EvidenceError(" not in body
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +943,334 @@ def test_a_changed_direct_identity_digest_is_rejected() -> None:
     document["results"]["direct_identity_cases"][0]["rime_after_sha256"] = "1" * 64
     with pytest.raises(module.EvidenceError):
         module.validate_evidence_document(document)
+
+
+def test_the_synthetic_frame_row_carries_the_economy_projection() -> None:
+    """The fixture is a positive control for Section 12.1's corrected letter."""
+    module = _tool()
+    row = module.validate_frame_row(_synthetic_frame_row(), "frame")
+    assert set(row) == set(module.FRAME_ROW_KEYS)
+    assert len(row["horizon_membership_mask_rows"]) == len(SYNTHETIC_DIRECTIONS)
+    assert len(row["horizon_scan_summary_rows"]) == len(SYNTHETIC_DIRECTIONS)
+
+
+def test_a_frame_row_embedding_the_per_sample_membership_array_is_rejected() -> None:
+    """Section 12.1: the retained form is the mask row, not ``D*N`` rows.
+
+    The pre-correction letter embedded one row per direction and sample centre.
+    Re-embedding that array is now a schema failure, because the mask row's key
+    set is exact and a per-sample row does not have it.
+    """
+    module = _tool()
+    row = _synthetic_frame_row()
+    row["horizon_membership_mask_rows"] = [
+        {
+            "direction_id": identifier,
+            "sample_index": index,
+            "sample_turn": "0/1",
+            "alpha_rad_f64be": "0000000000000000",
+            "frozen_visible": True,
+            "operational_visible": True,
+            "match": True,
+        }
+        for identifier in SYNTHETIC_DIRECTIONS
+        for index in range(SYNTHETIC_SAMPLES)
+    ]
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_flipped_mask_bit_breaks_the_expanded_ledger_digest() -> None:
+    """Section 12.1: the expansion is what makes the mask form lossless.
+
+    The retained digest covers the complete ``D*N`` per-sample array, so a mask
+    the reviewer cannot expand back to it is a substituted census, not a
+    compression.
+    """
+    module = _tool()
+    envelope = _synthetic_envelope()
+    frame = envelope["results"]["frame_certificate_cases"][0]
+    frame["horizon_membership_mask_rows"][0]["frozen_visible_mask_hex"] = "80"
+    frame["horizon_membership_mask_rows"][0]["mismatch_count"] = 1
+    with pytest.raises(module.EvidenceError):
+        module.validate_evidence_document(envelope)
+
+
+def test_a_frame_row_without_its_time_grid_row_is_rejected() -> None:
+    """Section 14.3: a frame row joins the same-fixture canonical grid objects."""
+    module = _tool()
+    envelope = _synthetic_envelope()
+    envelope["results"]["time_grid_cases"] = []
+    with pytest.raises(module.EvidenceError):
+        module.validate_evidence_document(envelope)
+
+
+def test_a_mask_row_whose_sample_count_is_not_n_is_rejected() -> None:
+    """Section 12.1: every mask row covers exactly ``N`` sample centres."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    row["horizon_membership_mask_rows"][0]["sample_count"] = SYNTHETIC_SAMPLES + 1
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_mask_row_mismatch_that_the_masks_do_not_show_is_rejected() -> None:
+    """Section 4.2/14.2: both counters are recomputed from the masks.
+
+    The per-direction total and the gating outside-slab counter are recomputed
+    from the same mask expansion against the retained slab geometry, so a row
+    that declares a mismatch its masks do not contain cannot pass by asserting
+    it.
+    """
+    module = _tool()
+    envelope = _synthetic_envelope()
+    frame = envelope["results"]["frame_certificate_cases"][0]
+    frame["horizon_membership_mask_rows"][0]["mismatch_count"] = 1
+    with pytest.raises(module.EvidenceError):
+        module.validate_evidence_document(envelope)
+
+
+def test_an_outside_slab_membership_mismatch_is_rejected() -> None:
+    """Section 4.2: outside-slab disagreement is fatal, not attributable.
+
+    A centre outside every mismatch slab where the two independent models
+    disagree is exactly the failure the certificate exists to catch, so the
+    recomputed counter must be zero and the declared counter must equal it.
+    """
+    module = _tool()
+    envelope = _synthetic_envelope()
+    frame = envelope["results"]["frame_certificate_cases"][0]
+    mask = frame["horizon_membership_mask_rows"][0]
+    mask["operational_visible_mask_hex"] = "80"
+    mask["mismatch_count"] = 1
+    frame["horizon_membership_mismatches"] = 1
+    frame["horizon_membership_ledger_sha256"] = module.expand_membership_ledger(
+        frame["horizon_membership_mask_rows"],
+        SYNTHETIC_CENTER_TURNS,
+        SYNTHETIC_TAU_F64BE,
+    )
+    with pytest.raises(module.EvidenceError):
+        module.validate_evidence_document(envelope)
+
+
+def test_a_scan_summary_sum_that_contradicts_the_counter_is_rejected() -> None:
+    """Section 12.1: ``horizon_isolation_interval_count`` is the summary sum."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    row["horizon_scan_summary_rows"][0]["terminal_cell_count"] = 4
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_the_synthetic_projection_retains_its_guard_rows() -> None:
+    """Section 12.1: the retained projection carries each crossing's flanks."""
+    module = _tool()
+    row = module.validate_frame_row(_synthetic_frame_row(), "frame")
+    kinds = [entry["classification"] for entry in row["horizon_scan_crossing_rows"]]
+    assert kinds.count("guard_interval") == len(SYNTHETIC_DIRECTIONS)
+    assert kinds.count("scan_crossing") == len(SYNTHETIC_DIRECTIONS)
+
+
+def test_an_orphan_guard_row_is_rejected() -> None:
+    """Section 12.1: a guard must abut its crossing's enclosure or another guard.
+
+    A residue with no crossing to flank is a deep tangency, not a guard, and the
+    partition holds only *together with* the retained root enclosures.
+    """
+    module = _tool()
+    row = _synthetic_frame_row()
+    for entry in row["horizon_scan_crossing_rows"]:
+        if entry["classification"] == "guard_interval":
+            # Still a legal guard width -- only its anchor is gone.
+            entry["turn_lo"] = "3/4"
+            entry["turn_hi"] = "7500000000000001/10000000000000000"
+            break
+    with pytest.raises(module.EvidenceError, match="orphan guard"):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_duplicate_owned_root_is_rejected() -> None:
+    """Section 12.1: root-census reconstruction rejects a duplicate owned root.
+
+    Two ``scan_crossing`` rows of one direction whose exact enclosures coincide
+    are one root claimed twice.  Every per-row predicate still passes -- the
+    probe signs differ, the root bounds equal the enclosure, the summary count
+    is consistent -- so only the reconstruction itself catches it, which is why
+    the rule lives there rather than in the row schema.
+    """
+    module = _tool()
+    row = _synthetic_frame_row()
+    rows = row["horizon_scan_crossing_rows"]
+    original = next(
+        entry for entry in rows if entry["classification"] == "scan_crossing"
+    )
+    duplicate = dict(original)
+    duplicate["cell_index"] = int(original["cell_index"]) + 2
+    rows.insert(rows.index(original) + 1, duplicate)
+    # Keep every count the duplicate would otherwise contradict consistent, so
+    # the refusal can only come from the census reconstruction.
+    for entry in row["horizon_scan_summary_rows"]:
+        if entry["direction_id"] == original["direction_id"]:
+            entry["crossing_count"] = 2
+            entry["terminal_cell_count"] = 7
+    row["horizon_isolation_interval_count"] = 13
+    with pytest.raises(module.EvidenceError, match="duplicate owned root"):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_guard_relocated_to_a_distant_terminal_cell_is_rejected() -> None:
+    """Section 12.1: adjacency is positional as well as geometric.
+
+    A guard that shares a bound with an enclosure but claims a terminal cell
+    index far from it is not the flank of that crossing.
+    """
+    module = _tool()
+    row = _synthetic_frame_row()
+    for entry in row["horizon_scan_crossing_rows"]:
+        if entry["classification"] == "guard_interval":
+            entry["cell_index"] = 97
+            break
+    with pytest.raises(module.EvidenceError, match="orphan guard"):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_guard_row_carrying_a_root_is_rejected() -> None:
+    """Section 12.1: the three root fields are null for a guard row."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    for entry in row["horizon_scan_crossing_rows"]:
+        if entry["classification"] == "guard_interval":
+            entry["root_turn_lo"] = "1/2"
+            entry["root_turn_hi"] = "500000000001/1000000000000"
+            entry["root_orientation"] = "rising"
+            entry["root_residual_f64be"] = "0000000000000000"
+            break
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_guard_wider_than_the_probe_offset_is_rejected() -> None:
+    """Section 12.1: each guard's width is at most the ``1e-8`` turn probe offset."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    for entry in row["horizon_scan_crossing_rows"]:
+        if entry["classification"] == "guard_interval":
+            entry["turn_hi"] = "3/4"
+            break
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_guard_counted_as_a_crossing_is_rejected() -> None:
+    """Section 12.1: guards never enter the root census or its summary count."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    for entry in row["horizon_scan_summary_rows"]:
+        entry["crossing_count"] = 2
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_an_unknown_scan_classification_is_rejected() -> None:
+    """Section 12.1 freezes exactly four terminal-row classifications."""
+    module = _tool()
+    assert module.SCAN_CLASSIFICATIONS == (
+        "ceiling_excludes_root",
+        "scan_crossing",
+        "guard_interval",
+        "excluded_upper_endpoint",
+    )
+    row = _synthetic_frame_row()
+    row["horizon_scan_crossing_rows"][0]["classification"] = "ceiling_excludes_root"
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_crossing_row_without_its_root_bounds_is_rejected() -> None:
+    """Section 12.1: the three root fields are null only for a root-free row."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    row["horizon_scan_crossing_rows"][0]["root_turn_lo"] = None
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_root_free_row_smuggled_into_the_crossing_projection_is_rejected() -> None:
+    """Section 12.1 retains *crossing* rows verbatim; a ceiling row is not one."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    row["horizon_scan_crossing_rows"][0]["classification"] = "ceiling_excludes_root"
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_summary_row_set_that_does_not_join_the_ledger_is_rejected() -> None:
+    """Section 12.1: summary rows are in direction-ledger order, one per row."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    row["horizon_scan_summary_rows"] = list(reversed(row["horizon_scan_summary_rows"]))
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_nonzero_frame_mismatch_counter_is_rejected() -> None:
+    """Section 4.2: all four mismatch counters and the unresolved count are zero."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    row["horizon_root_count_mismatches"] = 1
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_widened_fixed_frame_limit_is_rejected() -> None:
+    """Section 4.2's frame limits are fixed; a per-fixture budget is not one."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    row["phase_limit_rad"] = 5e-2
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_a_cube_count_that_is_not_k_is_rejected() -> None:
+    """Section 12: every evaluated and compared cube count equals ``K=4*N*B*F``."""
+    module = _tool()
+    row = _synthetic_frame_row()
+    row["evaluated_frozen_gauss128_cube_cell_count"] = 1
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_row(row, "frame")
+
+
+def test_the_per_direction_transfer_sample_ledger_is_rejected() -> None:
+    """Section 7.3: the ledger is one row per grid and output cell.
+
+    The pre-correction form was one row per catalogued *direction* and cell --
+    ``552,960`` rows for this fixture. Declaring that count now fails, because
+    the expected count is ``(1+len(Q_diag))*B*F*C*4``.
+    """
+    module = _tool()
+    row = _synthetic_truncation_row()
+    row["expected_transfer_sample_row_count"] = 552960
+    row["evaluated_transfer_sample_row_count"] = 552960
+    with pytest.raises(module.EvidenceError):
+        module.validate_truncation_row(row, "truncation")
+
+
+def test_a_transfer_sample_row_missing_its_concatenation_digest_is_rejected() -> None:
+    """Section 7.3: the concatenation digest is the omission-detection guarantee."""
+    module = _tool()
+    row = _synthetic_truncation_row()
+    del row["shell_coverage"]["transfer_sample_rows"][0]["concatenation_sha256"]
+    with pytest.raises(module.EvidenceError):
+        module.validate_truncation_row(row, "truncation")
+
+
+def test_a_transfer_sample_row_count_below_its_declaration_is_rejected() -> None:
+    """Section 7.3: the embedded array must equal the evaluated count."""
+    module = _tool()
+    row = _synthetic_truncation_row()
+    row["shell_coverage"]["transfer_sample_rows"].pop()
+    with pytest.raises(module.EvidenceError):
+        module.validate_truncation_row(row, "truncation")
 
 
 def test_the_synthetic_truncation_row_carries_the_v3_surface() -> None:

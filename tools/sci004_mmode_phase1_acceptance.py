@@ -23,8 +23,10 @@ Sub-commands::
 The generator derives every commit, path, digest, reviewed-artifact and
 self-reference field; the reviewer supplies a verdict, the re-derived oracles
 and any blockers, and cannot override a derived field.  It runs from a globally
-clean exact ``E1``, first invokes the active evidence validator, and for an
-``ACCEPT`` prepares the previously absent canonical JSON.
+clean exact ``E1``, first invokes the active evidence validator, and writes the
+previously absent canonical JSON.  Section 14.4 names that venue rather than
+forbidding production there: a ``generate`` that refuses after a passing
+preflight would make the record unproducible.
 
 ``ACCEPT`` requires an independent reviewer, no false oracle, an empty
 ``blockers`` array, exact ``S -> E`` ancestry, an authenticated phase evidence
@@ -41,6 +43,7 @@ import math
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -222,12 +225,23 @@ def _require(condition: bool, prefix: str, detail: str) -> None:
 
 
 def _require_keys(value: Any, keys: tuple[str, ...], label: str) -> dict[str, Any]:
+    """Require an object to carry exactly one key set, rejecting any deviation.
+
+    Section 14's canonical serialization sorts object keys lexicographically, so
+    a re-read record never preserves an author's insertion order: "exactly these
+    keys" is a statement about the *set*.  Both a missing and an unknown key are
+    named in the refusal.
+    """
     _require(isinstance(value, dict), SCHEMA, f"{label} must be an object")
     mapping = dict(value)
+    missing = [key for key in keys if key not in mapping]
+    unknown = [key for key in mapping if key not in keys]
     _require(
-        tuple(mapping) == keys,
+        not missing and not unknown,
         SCHEMA,
-        f"{label} must have exactly {list(keys)} in that order",
+        f"{label} must have exactly {list(keys)}"
+        + (f"; missing {missing}" if missing else "")
+        + (f"; unknown {unknown}" if unknown else ""),
     )
     return mapping
 
@@ -391,6 +405,232 @@ def validate_acceptance_document(document: Any) -> dict[str, Any]:
     return record
 
 
+#: Section 14.3's exact reviewer-supplied key set.  Everything else in the
+#: record is derived, and a review record that carries a derived field is
+#: rejected rather than silently overridden.
+REVIEW_RECORD_KEYS: tuple[str, ...] = (
+    "reviewer_identity",
+    "reviewer_independent",
+    "verdict",
+    "rederived_oracles",
+    "blockers",
+    "accepted_limitations",
+    "claims_not_licensed",
+)
+
+#: The derived fields a reviewer may never supply.
+DERIVED_FIELDS: tuple[str, ...] = (
+    "acceptance_commit_sha",
+    "acceptance_commit_sha_reason",
+    "design_sha",
+    "evidence_artifact_path",
+    "evidence_artifact_sha256",
+    "evidence_commit_sha",
+    "generated_at_utc",
+    "phase",
+    "red_commit_sha",
+    "reviewed_artifacts",
+    "schema_version",
+    "source_sha",
+)
+
+
+def load_review_record(path: Path) -> dict[str, Any]:
+    """Load and validate the reviewer's own contribution to the record.
+
+    The reviewer supplies exactly a verdict, an identity, an independence
+    declaration, the re-derived oracles, any blockers, and the two claim
+    arrays.  Every other field is derived here from the repository, so a review
+    record that names one is refused instead of being allowed to overwrite the
+    derivation.
+    """
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        raise AcceptanceError(
+            ARGUMENT, f"the review record {path} could not be read: {error}"
+        ) from error
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise AcceptanceError(
+            ARGUMENT,
+            f"the review record {path} is not UTF-8 JSON: {error}",
+        ) from error
+    record = _require_keys(document, REVIEW_RECORD_KEYS, "review record")
+    for field in DERIVED_FIELDS:
+        _require(
+            field not in document,
+            ARGUMENT,
+            f"the review record may not supply the derived field {field!r}",
+        )
+    _require(
+        isinstance(record["reviewer_identity"], str) and record["reviewer_identity"],
+        ARGUMENT,
+        "review record reviewer_identity is a non-empty role/task identifier",
+    )
+    _require(
+        record["reviewer_independent"] is True,
+        VERDICT,
+        "an acceptance record requires an independent reviewer",
+    )
+    _require(
+        record["verdict"] in {"ACCEPT", "REJECT"},
+        VERDICT,
+        "review record verdict must be ACCEPT or REJECT",
+    )
+    for field in ("rederived_oracles", "blockers"):
+        _require(
+            isinstance(record[field], list),
+            ARGUMENT,
+            f"review record {field} must be an array",
+        )
+    return record
+
+
+def _evidence_source_sha(evidence: dict[str, Any]) -> str:
+    """Return the ``S1`` the phase evidence artifact binds."""
+    return _require_hex(evidence["source_sha"], 40, "evidence source_sha")
+
+
+def _require_exact_ancestry(source_sha: str, evidence_commit_sha: str) -> None:
+    """Require ``E1``'s direct parent to be exactly ``S1`` (Section 14.4)."""
+    parents = _git("rev-list", "--parents", "-n", "1", evidence_commit_sha).split()
+    _require(
+        len(parents) == 2 and parents[1] == source_sha,
+        ANCESTRY,
+        f"the direct parent of {evidence_commit_sha} must be exactly {source_sha}",
+    )
+
+
+def _reviewed_artifacts(source_sha: str, evidence_sha256: str) -> list[dict[str, Any]]:
+    """Return the authenticated artifact set the reviewer read.
+
+    Every path here is read from the working tree and hashed now, so the record
+    cannot claim to have reviewed bytes that are not the ones present at ``E1``.
+    """
+    rows = [
+        {
+            "path": EVIDENCE_ARTIFACT,
+            "sha256": evidence_sha256,
+            "source_sha": source_sha,
+            "authenticated": True,
+        }
+    ]
+    for relative in (
+        EVIDENCE_VALIDATOR,
+        EVIDENCE_GENERATOR,
+        ACCEPTANCE_VALIDATOR,
+        "docs/development/sci004_mmode_phase1_red_failures.json",
+        "docs/development/sci004_mmode_phase1_wp7_dependency.json",
+    ):
+        path = REPOSITORY_ROOT / relative
+        _require(
+            path.is_file(),
+            DIGEST,
+            f"the reviewed artifact {relative} is absent at E1",
+        )
+        rows.append(
+            {
+                "path": relative,
+                "sha256": raw_sha256(path),
+                "source_sha": source_sha,
+                "authenticated": True,
+            }
+        )
+    return sorted(rows, key=lambda row: str(row["path"]))
+
+
+def _run_evidence_validator() -> dict[str, Any]:
+    """Run the active evidence validator and record its exact command row.
+
+    Section 14.3 requires the acceptance generator to invoke the *active*
+    validator rather than to restate its verdict, so the command row carries the
+    real exit code and stream digests.
+    """
+    started = datetime.now(UTC)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(REPOSITORY_ROOT / EVIDENCE_GENERATOR),
+            "check",
+            "--artifact",
+            str(REPOSITORY_ROOT / EVIDENCE_ARTIFACT),
+        ],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    duration = (datetime.now(UTC) - started).total_seconds()
+    _require(
+        completed.returncode == 0,
+        DIGEST,
+        "the active evidence validator rejected the artifact: "
+        + completed.stderr.decode("utf-8", "replace").strip(),
+    )
+    return {
+        "argv": [
+            "pixi",
+            "run",
+            "python",
+            EVIDENCE_GENERATOR,
+            "check",
+            "--artifact",
+            EVIDENCE_ARTIFACT,
+        ],
+        "cwd": ".",
+        "pixi_environment": "default",
+        "started_at_utc": started.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "duration_seconds": duration,
+        "exit_code": completed.returncode,
+        "stdout_sha256": hashlib.sha256(completed.stdout).hexdigest(),
+        "stderr_sha256": hashlib.sha256(completed.stderr).hexdigest(),
+    }
+
+
+def build_acceptance_document(
+    state: dict[str, str], review: dict[str, Any]
+) -> dict[str, Any]:
+    """Build the complete Section 14.3 M1 acceptance record.
+
+    The reviewer's verdict, oracles, blockers and claim arrays are carried
+    through unchanged; every commit, path and digest is derived here.
+    """
+    evidence_commit_sha = state["evidence_commit_sha"]
+    evidence = json.loads(
+        (REPOSITORY_ROOT / EVIDENCE_ARTIFACT).read_bytes().decode("utf-8")
+    )
+    source_sha = _evidence_source_sha(evidence)
+    _require_exact_ancestry(source_sha, evidence_commit_sha)
+    command = _run_evidence_validator()
+    return {
+        "schema_version": ACCEPTANCE_SCHEMA,
+        "phase": PHASE,
+        "verdict": review["verdict"],
+        "generated_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "reviewer_identity": review["reviewer_identity"],
+        "reviewer_independent": True,
+        "design_sha": _require_hex(evidence["design_sha"], 40, "design_sha"),
+        "red_commit_sha": _require_hex(
+            evidence["red_commit_sha"], 40, "red_commit_sha"
+        ),
+        "source_sha": source_sha,
+        "evidence_commit_sha": evidence_commit_sha,
+        "evidence_artifact_path": EVIDENCE_ARTIFACT,
+        "evidence_artifact_sha256": state["evidence_artifact_sha256"],
+        "acceptance_commit_sha": None,
+        "acceptance_commit_sha_reason": ACCEPTANCE_SELF_REFERENCE_REASON,
+        "reviewed_artifacts": _reviewed_artifacts(
+            source_sha, state["evidence_artifact_sha256"]
+        ),
+        "rederived_oracles": list(review["rederived_oracles"]),
+        "commands": [command],
+        "blockers": list(review["blockers"]),
+        "accepted_limitations": sorted(set(review["accepted_limitations"])),
+        "claims_not_licensed": sorted(set(review["claims_not_licensed"])),
+    }
+
+
 def _git(*arguments: str) -> str:
     completed = subprocess.run(
         ["git", *arguments],
@@ -435,6 +675,24 @@ def preflight() -> dict[str, str]:
     }
 
 
+def require_declared_outputs_only() -> None:
+    """Require the repository's only new paths to equal the declared output set.
+
+    Section 14.3 runs this *after* publication: the acceptance record is the one
+    expected new path, and a generator that also left a stray file behind has
+    not produced the declared set.
+    """
+    status = _git("status", "--porcelain=v1", "--untracked-files=all")
+    observed = sorted(line[3:].strip() for line in status.splitlines() if line.strip())
+    expected = sorted(DECLARED_OUTPUTS)
+    _require(
+        observed == expected,
+        DIGEST,
+        f"after publication the repository's new paths must be exactly "
+        f"{expected}, not {observed}",
+    )
+
+
 def write_atomic_no_overwrite(path: Path, payload: bytes) -> None:
     """Publish one artifact atomically, refusing to overwrite anything."""
     temporary = path.with_name(path.name + ".tmp")
@@ -465,14 +723,25 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(canonical_json(state).decode("utf-8") + "\n")
             return 0
         if arguments.command == "generate":
-            preflight()
-            raise AcceptanceError(
-                ANCESTRY,
-                "the M1 acceptance record is generated at A1, from the globally "
-                "clean exact E1 after an independent reviewer finishes; this tool "
-                "is tracked at S1 and produces nothing there (design Sections "
-                "13.3, 14.3 and 14.4)",
+            state = preflight()
+            review = load_review_record(Path(arguments.review_record))
+            document = build_acceptance_document(state, review)
+            validate_acceptance_document(document)
+            payload = canonical_json(document)
+            write_atomic_no_overwrite(REPOSITORY_ROOT / ACCEPTANCE_ARTIFACT, payload)
+            require_declared_outputs_only()
+            sys.stdout.write(
+                canonical_json(
+                    {
+                        "artifact": ACCEPTANCE_ARTIFACT,
+                        "bytes": len(payload),
+                        "sha256": hashlib.sha256(payload).hexdigest(),
+                        "verdict": document["verdict"],
+                    }
+                ).decode("utf-8")
+                + "\n"
             )
+            return 0
         document = json.loads(Path(arguments.artifact).read_bytes().decode("utf-8"))
         validate_acceptance_document(document)
         return 0

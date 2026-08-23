@@ -38,7 +38,7 @@ import hashlib
 import json
 import math
 import struct
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from types import MappingProxyType
@@ -287,6 +287,34 @@ def domain_digest(domain: str, payload: bytes) -> str:
     digest.update(b"\x00")
     digest.update(struct.pack(">Q", len(payload)))
     digest.update(payload)
+    return digest.hexdigest()
+
+
+def streamed_domain_digest(domain: str, chunks: Callable[[], Iterator[bytes]]) -> str:
+    """Return ``D(domain, payload)`` for a payload that is never materialized.
+
+    Section 14.0's ``D`` prefixes the payload with its own length, so a single
+    streaming pass cannot produce it.  ``chunks`` is therefore a factory that
+    yields the payload's bytes on demand and is called twice: once to measure
+    the length and once to feed the hash.  Nothing but the running length and
+    the hash state is retained, which is what Sections 12.1 and 14.2 require of
+    the ledgers whose expanded arrays are far larger than the artifact.
+    """
+    if not domain or not domain.isascii() or "\x00" in domain:
+        raise ValueError("digest domain must be a non-empty NUL-free ASCII string")
+    length = 0
+    for chunk in chunks():
+        length += len(chunk)
+    digest = hashlib.sha256()
+    digest.update(domain.encode("ascii"))
+    digest.update(b"\x00")
+    digest.update(struct.pack(">Q", length))
+    written = 0
+    for chunk in chunks():
+        digest.update(chunk)
+        written += len(chunk)
+    if written != length:
+        raise ValueError("a streamed digest payload was not reproducible")
     return digest.hexdigest()
 
 

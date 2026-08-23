@@ -205,7 +205,15 @@ def test_the_generator_imports_only_the_standard_library() -> None:
 
 
 def test_the_generator_refuses_before_the_evidence_commit_exists() -> None:
-    """Section 14.3: the generator runs only from a globally clean exact ``E1``."""
+    """Section 14.3: the generator runs only from a globally clean exact ``E1``.
+
+    At ``S1`` the phase evidence artifact does not exist yet, so the refusal
+    names that; at ``E1`` the preflight passes and the empty review record is
+    refused as a malformed argument.  Either way the assertion names a *reason*
+    rather than accepting any non-zero exit, which a generator that refused
+    unconditionally would also produce, and the process always fails closed
+    with a frozen prefix rather than a traceback.
+    """
     module = _tool()
     completed = subprocess.run(
         [
@@ -222,8 +230,38 @@ def test_the_generator_refuses_before_the_evidence_commit_exists() -> None:
     )
     assert completed.returncode != 0
     assert completed.stdout == ""
-    prefixes = (module.ANCESTRY + ": ", module.DIGEST + ": ")
+    prefixes = (
+        module.ANCESTRY + ": ",
+        module.DIGEST + ": ",
+        module.ARGUMENT + ": ",
+    )
     assert completed.stderr.startswith(prefixes)
+    assert "Traceback" not in completed.stderr
+    assert not (REPOSITORY_ROOT / ARTIFACT).exists()
+    reasons = (
+        "not globally clean",
+        "commit that adds the phase evidence artifact",
+        "is not UTF-8 JSON",
+    )
+    assert any(reason in completed.stderr for reason in reasons)
+
+
+def test_the_generator_produces_at_a_clean_evidence_commit() -> None:
+    """Section 14.3/14.4: ``generate`` is bound to a venue, not prohibited.
+
+    The complement of the refusal above is pinned in the tracked bytes: after a
+    passing preflight the sub-command loads the review record, derives the
+    record, validates it, and publishes it by atomic no-overwrite rename, with
+    no unconditional post-preflight refusal.
+    """
+    source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
+    body = source[source.index('if arguments.command == "generate":') :]
+    body = body[: body.index("document = json.loads(")]
+    assert "load_review_record(" in body
+    assert "build_acceptance_document(state, review)" in body
+    assert "validate_acceptance_document(document)" in body
+    assert "write_atomic_no_overwrite(" in body
+    assert "raise AcceptanceError(" not in body
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +273,7 @@ def test_the_synthetic_accept_record_satisfies_every_rule() -> None:
     """The fixture is a positive control for the rejections below."""
     module = _tool()
     record = module.validate_acceptance_document(_synthetic_record())
-    assert tuple(record) == ACCEPTANCE_KEYS
+    assert set(record) == set(ACCEPTANCE_KEYS)
 
 
 def test_the_synthetic_reject_record_satisfies_every_rule() -> None:

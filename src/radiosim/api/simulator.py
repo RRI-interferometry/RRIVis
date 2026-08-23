@@ -80,6 +80,7 @@ if TYPE_CHECKING:
         BaselineSelectionConfig,
         InstrumentConfig,
     )
+    from radiosim.simulator.base import SkySolveRequest
     from radiosim.utils.healpix import BeamSamplingRequirement
 
 
@@ -1030,6 +1031,48 @@ class Simulator:
             self._era_grid = resolve_canonical_era_grid(obs_time)
         return self._era_grid
 
+    def build_solve_request(self) -> SkySolveRequest:
+        """Return the immutable request ``run()`` hands the selected strategy.
+
+        ``docs/development/sci004_mmode_design.md`` Section 2 makes this object
+        the whole strategy boundary, so it is public: an evidence generator or
+        an out-of-band re-derivation needs exactly the inputs a run consumed,
+        and rebuilding them by hand would be a second, divergent definition of
+        the boundary.  Setup runs first when it has not already.
+        """
+        from radiosim.simulator.base import SkySolveRequest
+
+        if not self._is_setup:
+            self.setup()
+        backend = self._backend
+        instrument_view = self._solver_instrument_view
+        frequencies = self._frequencies_hz
+        location = self._location
+        if (
+            backend is None
+            or instrument_view is None
+            or frequencies is None
+            or location is None
+            or self._sky_model is None
+        ):
+            raise RuntimeError("Simulation setup did not publish complete solver state")
+        return SkySolveRequest(
+            sky_representation=str(self._resolved.visibility["sky_representation"]),
+            sky_model=self._sky_model,
+            source_arrays=self._source_arrays,
+            instrument=instrument_view,
+            beam_system=self.beam_system,
+            location=location,
+            time_grid=self._resolved.observation.time_grid,
+            frequencies=frequencies,
+            receptors=self.receptors,
+            jones=self.jones_terms,
+            backend=backend,
+            worker_policy=self._resolved.execution.solver,
+            mmode=self._resolved.execution.mmode,
+            era_grid=self._resolve_era_grid(),
+        )
+
     def run(self, *, progress: bool = True) -> SimulationResult:
         """
         Run the visibility simulation.
@@ -1109,19 +1152,12 @@ class Simulator:
             print_table("Simulation Configuration", config_data)
             console.print()  # Add spacing
 
-        from radiosim.simulator.base import SkySolveRequest
-
         print_info(f"Running visibility simulation ({sky_representation} mode)...")
 
         if self._sky_model is None:
             raise RuntimeError("Simulation setup did not publish a sky model")
 
         solver_started = time.perf_counter()
-
-        # The one source of solver concurrency: the centrally resolved policy,
-        # already clamped to the time-sample count and already recorded in
-        # ``resolved_config`` (plan Sections 11.3, 12.1, 18.4).
-        solver_execution = self._resolved.execution.solver
 
         # ``docs/development/sci004_mmode_design.md`` Section 2: the high-level
         # API calls only the *selected registered strategy*, through one
@@ -1130,24 +1166,7 @@ class Simulator:
         # every component still receives the identical shared objects and a
         # hybrid run's two cubes are still summed in the backend array domain
         # before the single host transfer below (plan Sections 8.4, 9.1).
-        outcome = solver.solve(
-            SkySolveRequest(
-                sky_representation=sky_representation,
-                sky_model=self._sky_model,
-                source_arrays=self._source_arrays,
-                instrument=instrument_view,
-                beam_system=self.beam_system,
-                location=location,
-                time_grid=self._resolved.observation.time_grid,
-                frequencies=frequencies,
-                receptors=self.receptors,
-                jones=self.jones_terms,
-                backend=backend,
-                worker_policy=solver_execution,
-                mmode=self._resolved.execution.mmode,
-                era_grid=self._resolve_era_grid(),
-            )
-        )
+        outcome = solver.solve(self.build_solve_request())
         receptor_visibilities = outcome.receptor_visibilities
 
         solver_seconds = time.perf_counter() - solver_started

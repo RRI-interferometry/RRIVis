@@ -47,8 +47,11 @@ it requires and why this slice cannot supply it.
 
 from __future__ import annotations
 
+import bisect
+import hashlib
+import json
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -69,7 +72,9 @@ from radiosim.core.mmode.time import (
 from radiosim.core.mmode.types import (
     MMODE_FRAME_MODEL,
     TAU,
+    canonical_json,
     canonical_rational,
+    decode_f64be,
     f64be,
     object_digest,
 )
@@ -660,42 +665,47 @@ class OperationalScanRejected(MModeHorizonUnresolved):
 
 
 @dataclass(frozen=True, slots=True)
-class OperationalScanCell:
-    """One canonical Section 12.1 terminal scan cell."""
-
-    direction_index: int
-    turn_lo: Fraction
-    turn_hi: Fraction
-    classification: str
-    f_lo: float
-    f_hi: float
-    ceiling_margin: float
-    left_sign: int
-    right_sign: int
-    root_turn_lo: Fraction | None
-    root_turn_hi: Fraction | None
-    root_orientation: str | None
-    root_residual: float | None
-
-
-@dataclass(frozen=True, slots=True)
 class OperationalHorizonScan:
-    """The complete certified-ceiling census of every scanned direction."""
+    """The certified-ceiling census, retained in Section 12.1's economy form.
 
-    cells: tuple[tuple[OperationalScanCell, ...], ...]
+    The full terminal-cell array is of order ten million rows for the bounded
+    driver, so Section 12.1 retains a **bounded projection** of it rather than
+    the array itself: every ``scan_crossing`` and ``excluded_upper_endpoint``
+    row verbatim, plus one per-direction summary row.  The full array's digest
+    is computed *streamingly* during the census -- the array is serialized row
+    by row into the hash and never materialized -- and the array itself is
+    reconstructible by deterministic replay, which the ``A1`` re-derivation
+    performs.
+    """
+
+    crossing_rows: tuple[Mapping[str, Any], ...]
+    summary_rows: tuple[Mapping[str, Any], ...]
+    ledger_sha256: str
     roots: tuple[tuple[HorizonRootEnclosure, ...], ...]
+    #: ``f_o`` at every retained sample centre, shaped ``(sample, direction)``.
+    #: Section 4.2 requires the certificate's *operational* membership to come
+    #: from the same public-API evaluations this scan consumes, and every
+    #: centre is already one of its shared cell boundaries, so the values are
+    #: carried out rather than recomputed through a second path.
+    centre_values: np.ndarray
+    #: The live public-transform evaluator, so the outside-slab sign census
+    #: takes its operational values from the same source.
+    evaluator: Any
+    guard_count: int
     evaluation_count: int
-    #: The total number of terminal rows across all directions.  It is exact
-    #: whether or not the rows themselves were retained.
+    #: The total number of terminal rows across all directions.  It equals the
+    #: summary rows' ``terminal_cell_count`` sum by construction.
     isolation_interval_count: int
     astropy_version: str
     erfa_version: str
     iers_table_sha256: str
 
+    def manifest_sha256(self) -> str:
+        """Return SHA-256 of the scan manifest's exact canonical bytes."""
+        return hashlib.sha256(canonical_json(self.manifest())).hexdigest()
+
     def manifest(self) -> dict[str, Any]:
         """Return Section 12.1's ``horizon_scan_manifest`` object, in key order."""
-        import hashlib
-
         implementation = [
             {
                 "path": path,
@@ -719,6 +729,59 @@ class OperationalHorizonScan:
             "erfa_version": self.erfa_version,
             "iers_table_sha256": self.iers_table_sha256,
         }
+
+
+#: Section 12.1's exact terminal-row field order.  This is the sole
+#: discriminated-format exception: the scan row is serialized in *this* order,
+#: not with Section 14's lexicographic object-key sorting.
+SCAN_ROW_FIELDS: tuple[str, ...] = (
+    "direction_id",
+    "cell_index",
+    "turn_lo",
+    "turn_hi",
+    "classification",
+    "f_lo_f64be",
+    "f_hi_f64be",
+    "ceiling_margin_f64be",
+    "left_sign",
+    "right_sign",
+    "root_turn_lo",
+    "root_turn_hi",
+    "root_orientation",
+    "root_residual_f64be",
+)
+
+#: Section 12.1's exact per-direction summary-row field order.
+SCAN_SUMMARY_FIELDS: tuple[str, ...] = (
+    "direction_id",
+    "terminal_cell_count",
+    "boundary_evaluation_count",
+    "crossing_count",
+    "min_ceiling_margin_f64be",
+)
+
+
+def scan_row_bytes(row: Mapping[str, Any]) -> bytes:
+    """Serialize one terminal scan row in Section 12.1's exact field order.
+
+    ``ensure_ascii=true``, separators ``(',',':')``, no whitespace, no trailing
+    newline.  The three root fields are JSON null exactly for
+    ``ceiling_excludes_root``; every ``*_f64be`` value is an exact string
+    rather than a JSON number.
+    """
+    parts = []
+    for field in SCAN_ROW_FIELDS:
+        value = row[field]
+        if value is None:
+            rendered = "null"
+        elif isinstance(value, bool):  # pragma: no cover - defensive
+            rendered = "true" if value else "false"
+        elif isinstance(value, int):
+            rendered = str(int(value))
+        else:
+            rendered = json.dumps(str(value), ensure_ascii=True)
+        parts.append(json.dumps(field, ensure_ascii=True) + ":" + rendered)
+    return ("{" + ",".join(parts) + "}").encode("utf-8")
 
 
 def scan_constant_rows() -> list[dict[str, str]]:
@@ -777,6 +840,11 @@ class _OperationalTrajectory:
         )
         self.direction_count = int(self._coords.size)
         self.evaluations = 0
+        #: Section 12.1's per-direction boundary tally.  Every distinct turn at
+        #: which ``f_o`` is evaluated for a direction is counted exactly once,
+        #: which is what the summary row's ``boundary_evaluation_count``
+        #: reports.
+        self.per_direction = [0] * self.direction_count
 
     def _times(self, turns: Any) -> Any:
         from astropy.time import Time
@@ -803,6 +871,8 @@ class _OperationalTrajectory:
         frame = AltAz(obstime=times[0], location=self._site, pressure=0)
         altitude = self._coords.transform_to(frame).alt.to_value(self._units.rad)
         self.evaluations += self.direction_count
+        for index in range(self.direction_count):
+            self.per_direction[index] += 1
         return np.sin(np.atleast_1d(np.asarray(altitude, dtype=np.float64)))
 
     def at_pairs(self, indices: Any, turns: Any) -> np.ndarray:
@@ -818,6 +888,8 @@ class _OperationalTrajectory:
             self._coords[index_array].transform_to(frame).alt.to_value(self._units.rad)
         )
         self.evaluations += int(index_array.size)
+        for index in index_array.tolist():
+            self.per_direction[int(index)] += 1
         return np.sin(np.atleast_1d(np.asarray(altitude, dtype=np.float64)))
 
 
@@ -836,7 +908,7 @@ def scan_operational_horizon(
     ra_rad: Any,
     dec_rad: Any,
     frozen_root_bounds: Sequence[Sequence[Fraction]],
-    retain_cells: bool = True,
+    direction_ids: Sequence[str],
 ) -> OperationalHorizonScan:
     """Run Section 12.1's deterministic certified-ceiling scan.
 
@@ -856,22 +928,24 @@ def scan_operational_horizon(
     exact width reaches ``2**-44`` turn with neither classification rejects the
     entire certificate.
 
+    Section 12.1's economy projection is produced here rather than downstream:
+    the complete terminal array is serialized one direction at a time straight
+    into a streaming SHA-256 and never materialized, while the crossing rows and
+    the per-direction summaries -- the bounded projection the evidence embeds --
+    are retained.
+
     Parameters
     ----------
-    retain_cells : bool
-        Whether to materialize the canonical terminal-cell rows.  Every cell is
-        classified either way and ``isolation_interval_count`` is exact either
-        way; retention is what the evidence artifact needs, and a complete
-        ledger over a full transfer catalogue is tens of millions of rows, so a
-        caller that only needs the certified roots, the counts and the digests
-        can decline the row objects.
+    direction_ids : sequence of str
+        The canonical direction-ledger identifiers, in ledger order.  They label
+        the emitted rows, so the scan's own output joins the ledger directly.
 
     Returns
     -------
     OperationalHorizonScan
-        Terminal cells and certified root enclosures per direction, plus the
-        deterministic evaluation count and the environment identities the scan
-        manifest binds.
+        The retained economy projection, the streamed full-array digest, the
+        certified root enclosures per direction, the deterministic evaluation
+        count, and the environment identities the scan manifest binds.
     """
     import erfa
     from astropy import __version__ as astropy_version
@@ -883,6 +957,8 @@ def scan_operational_horizon(
     direction_count = trajectory.direction_count
     if len(frozen_root_bounds) != direction_count:
         raise ValueError("one frozen root-bound list is required per direction")
+    if len(direction_ids) != direction_count:
+        raise ValueError("one direction identifier is required per direction")
 
     steps = int((horizon_hi - horizon_lo) / SCAN_INITIAL_SPACING_TURN)
     base: set[Fraction] = {
@@ -914,30 +990,11 @@ def scan_operational_horizon(
         crossing = (low_values * high_values) < 0.0
         ambiguous = ~(root_free | crossing)
 
-        terminal: list[list[OperationalScanCell]] = [[] for _ in range(direction_count)]
-        terminal_counts = np.count_nonzero(root_free, axis=0).astype(np.int64)
-        if retain_cells:
-            cells, directions = np.nonzero(root_free)
-            for cell_index, direction in zip(
-                cells.tolist(), directions.tolist(), strict=True
-            ):
-                terminal[direction].append(
-                    OperationalScanCell(
-                        direction_index=direction,
-                        turn_lo=shared[cell_index],
-                        turn_hi=shared[cell_index + 1],
-                        classification="ceiling_excludes_root",
-                        f_lo=float(low_values[cell_index, direction]),
-                        f_hi=float(high_values[cell_index, direction]),
-                        ceiling_margin=float(margins[cell_index, direction]),
-                        left_sign=_sign(float(low_values[cell_index, direction])),
-                        right_sign=_sign(float(high_values[cell_index, direction])),
-                        root_turn_lo=None,
-                        root_turn_hi=None,
-                        root_orientation=None,
-                        root_residual=None,
-                    )
-                )
+        # A shared-grid cell the vectorized pass did not prove root-free is
+        # replaced in the terminal partition by whatever the queue produces
+        # below, so its own row is suppressed.
+        subdivided = ~root_free
+        bisected: list[tuple[int, Fraction, Fraction, float, float, float]] = []
 
         pending: list[tuple[int, Fraction, Fraction, float, float]] = []
         crossings: list[tuple[int, Fraction, Fraction, float, float]] = []
@@ -971,25 +1028,7 @@ def scan_operational_horizon(
                     SCAN_DERIVATIVE_CEILING_PER_TURN * float(width)
                 )
                 if margin > 0.0:
-                    terminal_counts[direction] += 1
-                    if retain_cells:
-                        terminal[direction].append(
-                            OperationalScanCell(
-                                direction_index=direction,
-                                turn_lo=low,
-                                turn_hi=high,
-                                classification="ceiling_excludes_root",
-                                f_lo=f_low,
-                                f_hi=f_high,
-                                ceiling_margin=margin,
-                                left_sign=_sign(f_low),
-                                right_sign=_sign(f_high),
-                                root_turn_lo=None,
-                                root_turn_hi=None,
-                                root_orientation=None,
-                                root_residual=None,
-                            )
-                        )
+                    bisected.append((direction, low, high, f_low, f_high, margin))
                     continue
                 if f_low * f_high < 0.0:
                     crossings.append(item)
@@ -1013,28 +1052,109 @@ def scan_operational_horizon(
                 pending.append((direction, middle, high, f_middle, f_high))
 
         target = Fraction(SCAN_ROOT_WIDTH_RAD) / Fraction(*TAU.as_integer_ratio())
-        refined: list[tuple[int, Fraction, Fraction, float, float]] = []
-        active = crossings
+        # Section 12.1: the same-sign sibling produced beside a crossing at each
+        # bisection step is *not* discarded.  It re-enters the bullet-4 queue
+        # keyed to the crossing it flanks, so the terminal rows tile the
+        # crossing's parent cell together with the retained enclosure, and the
+        # residual the ceiling rule cannot classify becomes a guard rather than
+        # a hole.
+        enclosure: dict[int, tuple[int, Fraction, Fraction, float, float]] = {}
+        siblings: list[tuple[int, int, Fraction, Fraction, float, float]] = []
+        active = list(enumerate(crossings))
         while active:
-            wide: list[tuple[int, Fraction, Fraction, float, float]] = []
-            for item in active:
+            wide: list[tuple[int, tuple[int, Fraction, Fraction, float, float]]] = []
+            for owner, item in active:
                 if (item[2] - item[1]) <= target:
-                    refined.append(item)
+                    enclosure[owner] = item
                 else:
-                    wide.append(item)
+                    wide.append((owner, item))
             if not wide:
                 break
-            midpoints = [(item[1] + item[2]) / 2 for item in wide]
-            observed = trajectory.at_pairs([item[0] for item in wide], midpoints)
+            midpoints = [(item[1] + item[2]) / 2 for _owner, item in wide]
+            observed = trajectory.at_pairs(
+                [item[0] for _owner, item in wide], midpoints
+            )
             active = []
-            for position, item in enumerate(wide):
+            for position, (owner, item) in enumerate(wide):
                 direction, low, high, f_low, f_high = item
                 middle = midpoints[position]
                 f_middle = float(observed[position])
                 if f_low * f_middle <= 0.0:
-                    active.append((direction, low, middle, f_low, f_middle))
+                    active.append((owner, (direction, low, middle, f_low, f_middle)))
+                    siblings.append((owner, direction, middle, high, f_middle, f_high))
                 else:
-                    active.append((direction, middle, high, f_middle, f_high))
+                    active.append((owner, (direction, middle, high, f_middle, f_high)))
+                    siblings.append((owner, direction, low, middle, f_low, f_middle))
+        refined = [enclosure[owner] for owner in sorted(enclosure)]
+
+        # Refine every retained sibling under the same bullet-4 rule.  A cell
+        # classifies root-free once its width falls below ``beta`` times its
+        # distance to the root, which for an ordinary crossing happens after
+        # roughly ``log2(1/beta)`` extra refinements; the contiguous residue
+        # that reaches the ``2**-44`` turn floor still touching its crossing's
+        # enclosure becomes that flank's single guard interval.
+        classified: list[tuple[int, Fraction, Fraction, float, float, float]] = []
+        unresolved: dict[
+            tuple[int, str], list[tuple[Fraction, Fraction, float, float]]
+        ] = {}
+        pending_guard: list[tuple[int, int, Fraction, Fraction, float, float]] = [
+            entry for entry in siblings if entry[3] > entry[2]
+        ]
+        while pending_guard:
+            split: list[tuple[int, int, Fraction, Fraction, float, float]] = []
+            for owner, direction, low, high, f_low, f_high in pending_guard:
+                width = high - low
+                margin = min(abs(f_low), abs(f_high)) - (
+                    SCAN_DERIVATIVE_CEILING_PER_TURN * float(width)
+                )
+                if margin > 0.0:
+                    classified.append((direction, low, high, f_low, f_high, margin))
+                    continue
+                if width <= SCAN_UNRESOLVED_WIDTH_TURN:
+                    side = "left" if high <= enclosure[owner][1] else "right"
+                    unresolved.setdefault((owner, side), []).append(
+                        (low, high, f_low, f_high)
+                    )
+                    continue
+                split.append((owner, direction, low, high, f_low, f_high))
+            if not split:
+                break
+            midpoints = [(low + high) / 2 for _o, _d, low, high, _fl, _fh in split]
+            observed = trajectory.at_pairs([entry[1] for entry in split], midpoints)
+            pending_guard = []
+            for position, entry in enumerate(split):
+                owner, direction, low, high, f_low, f_high = entry
+                middle = midpoints[position]
+                f_middle = float(observed[position])
+                pending_guard.append((owner, direction, low, middle, f_low, f_middle))
+                pending_guard.append((owner, direction, middle, high, f_middle, f_high))
+
+        # Each flank's unresolved residue must be one contiguous block touching
+        # the enclosure; an orphan block is a genuine deep tangency and rejects.
+        guards: dict[tuple[int, str], tuple[Fraction, Fraction, float, float]] = {}
+        for (owner, side), pieces in unresolved.items():
+            pieces.sort(key=lambda piece: piece[0])
+            lower, upper = pieces[0][0], pieces[-1][1]
+            merged = lower
+            for piece_lo, piece_hi, _f_lo, _f_hi in pieces:
+                if piece_lo != merged:
+                    raise OperationalScanRejected(
+                        "an unresolved scan residue beside a certified crossing is "
+                        "not contiguous; the deep-tangency signature is not a guard"
+                    )
+                merged = piece_hi
+            root_lo, root_hi = enclosure[owner][1], enclosure[owner][2]
+            touches = upper == root_lo if side == "left" else lower == root_hi
+            if not touches:
+                raise OperationalScanRejected(
+                    "an unresolved scan cell reached the deep-tangency width "
+                    "without touching a certified root enclosure"
+                )
+            if (upper - lower) > SCAN_PROBE_OFFSET_TURN:
+                raise OperationalScanRejected(
+                    "a guard interval exceeded the probe offset that bounds it"
+                )
+            guards[(owner, side)] = (lower, upper, pieces[0][2], pieces[-1][3])
 
         # Probe signs fix each retained root's census orientation.
         probes: list[tuple[int, Fraction]] = []
@@ -1055,8 +1175,13 @@ def scan_operational_horizon(
             else np.zeros(0, dtype=np.float64)
         )
 
+        # Every retained root, plus the terminal rows the refinement produced.
         roots: list[list[HorizonRootEnclosure]] = [[] for _ in range(direction_count)]
+        extra: list[list[dict[str, Any]]] = [[] for _ in range(direction_count)]
+        owners = sorted(enclosure)
+        guard_total = 0
         for position, (direction, low, high, f_low, f_high) in enumerate(refined):
+            owner = owners[position]
             before = float(probe_values[2 * position])
             after = float(probe_values[2 * position + 1])
             if (
@@ -1079,25 +1204,46 @@ def scan_operational_horizon(
             classification = (
                 "excluded_upper_endpoint" if high == horizon_hi else "scan_crossing"
             )
-            terminal_counts[direction] += 1
-            if retain_cells:
-                terminal[direction].append(
-                    OperationalScanCell(
-                        direction_index=direction,
-                        turn_lo=low,
-                        turn_hi=high,
-                        classification=classification,
-                        f_lo=f_low,
-                        f_hi=f_high,
-                        ceiling_margin=0.0,
-                        left_sign=_sign(before),
-                        right_sign=_sign(after),
-                        root_turn_lo=low,
-                        root_turn_hi=high,
-                        root_orientation=orientation,
-                        root_residual=residual,
-                    )
+            extra[direction].append(
+                {
+                    "turn_lo": low,
+                    "turn_hi": high,
+                    "classification": classification,
+                    "f_lo_f64be": f64be(f_low),
+                    "f_hi_f64be": f64be(f_high),
+                    "ceiling_margin_f64be": f64be(0.0),
+                    "left_sign": _sign(before),
+                    "right_sign": _sign(after),
+                    "root_turn_lo": canonical_rational(low),
+                    "root_turn_hi": canonical_rational(high),
+                    "root_orientation": orientation,
+                    "root_residual_f64be": f64be(residual),
+                }
+            )
+            left = guards.get((owner, "left"))
+            right = guards.get((owner, "right"))
+            for side, guard in (("left", left), ("right", right)):
+                if guard is None:
+                    continue
+                guard_lo, guard_hi, guard_f_lo, guard_f_hi = guard
+                guard_total += 1
+                extra[direction].append(
+                    {
+                        "turn_lo": guard_lo,
+                        "turn_hi": guard_hi,
+                        "classification": "guard_interval",
+                        "f_lo_f64be": f64be(guard_f_lo),
+                        "f_hi_f64be": f64be(guard_f_hi),
+                        "ceiling_margin_f64be": f64be(0.0),
+                        "left_sign": _sign(guard_f_lo),
+                        "right_sign": _sign(guard_f_hi),
+                        "root_turn_lo": None,
+                        "root_turn_hi": None,
+                        "root_orientation": None,
+                        "root_residual_f64be": None,
+                    }
                 )
+                del side
             if classification == "scan_crossing":
                 roots[direction].append(
                     HorizonRootEnclosure(
@@ -1105,18 +1251,224 @@ def scan_operational_horizon(
                         turn_hi=high,
                         orientation=orientation,
                         residual=residual,
+                        guard_turn_lo=None if left is None else left[0],
+                        guard_turn_hi=None if right is None else right[1],
                     )
                 )
         for direction in range(direction_count):
-            terminal[direction].sort(key=lambda entry: entry.turn_lo)
             roots[direction].sort(key=lambda entry: entry.turn_lo)
+
+        # The refined siblings are ordinary root-free terminal rows.
+        for direction, low, high, f_low, f_high, margin in classified:
+            extra[direction].append(
+                {
+                    "turn_lo": low,
+                    "turn_hi": high,
+                    "classification": "ceiling_excludes_root",
+                    "f_lo_f64be": f64be(f_low),
+                    "f_hi_f64be": f64be(f_high),
+                    "ceiling_margin_f64be": f64be(margin),
+                    "left_sign": _sign(f_low),
+                    "right_sign": _sign(f_high),
+                    "root_turn_lo": None,
+                    "root_turn_hi": None,
+                    "root_orientation": None,
+                    "root_residual_f64be": None,
+                }
+            )
+
+        # The subdivided cells are exactly those the vectorized pass did not
+        # prove root-free; their shared-grid rows are replaced by the terminal
+        # rows the queue produced.
+        for item in bisected:
+            direction, low, high, f_low, f_high, margin = item
+            extra[direction].append(
+                {
+                    "turn_lo": low,
+                    "turn_hi": high,
+                    "classification": "ceiling_excludes_root",
+                    "f_lo_f64be": f64be(f_low),
+                    "f_hi_f64be": f64be(f_high),
+                    "ceiling_margin_f64be": f64be(margin),
+                    "left_sign": _sign(f_low),
+                    "right_sign": _sign(f_high),
+                    "root_turn_lo": None,
+                    "root_turn_hi": None,
+                    "root_orientation": None,
+                    "root_residual_f64be": None,
+                }
+            )
+
+        # Section 12.1's economy projection.  The complete array is serialized
+        # one direction at a time straight into the hash and never retained;
+        # only the crossing rows and the per-direction summaries survive.
+        #
+        # The complete array is of order sixteen million rows for the bounded
+        # driver, so the serialization is written for that scale: every value
+        # that repeats across directions -- the shared grid's exact rational
+        # bounds, the field-name prefixes, the contiguous cell indices -- is
+        # rendered once, and each direction's three binary64 columns are
+        # converted in one big-endian buffer rather than value by value.  The
+        # bytes are identical to :func:`scan_row_bytes` row for row.
+        digest = hashlib.sha256()
+        digest.update(b"[")
+        crossing_rows: list[Mapping[str, Any]] = []
+        summary_rows: list[Mapping[str, Any]] = []
+        emitted = 0
+        shared_turn_json = [
+            json.dumps(canonical_rational(bound), ensure_ascii=True) for bound in shared
+        ]
+        widest = len(shared) + max((len(rows) for rows in extra), default=0) + 1
+        index_json = [str(index) for index in range(widest)]
+        names = [json.dumps(field, ensure_ascii=True) for field in SCAN_ROW_FIELDS]
+        excluded_tail = (
+            f',{names[4]}:"ceiling_excludes_root"'
+            f',{names[5]}:"%s",{names[6]}:"%s",{names[7]}:"%s"'
+            f",{names[8]}:%s,{names[9]}:%s"
+            f",{names[10]}:null,{names[11]}:null"
+            f",{names[12]}:null,{names[13]}:null}}"
+        )
+        # Every extra row belongs to the shared cell its lower bound falls in,
+        # which is what restores the ascending ``turn_lo`` order without a
+        # global sort over exact rationals.
+        parents: list[list[dict[str, Any]]] = [[] for _ in range(direction_count)]
+        for direction in range(direction_count):
+            owned = sorted(extra[direction], key=lambda entry: entry["turn_lo"])
+            parents[direction] = owned
+        boundary_evaluations = list(trajectory.per_direction)
+
+        for direction in range(direction_count):
+            identifier = json.dumps(direction_ids[direction], ensure_ascii=True)
+            prefix = "{" + names[0] + ":" + identifier + "," + names[1] + ":"
+            keep = ~subdivided[:, direction]
+            low_hex = (
+                np.ascontiguousarray(low_values[:, direction], dtype=">f8")
+                .tobytes()
+                .hex()
+            )
+            high_hex = (
+                np.ascontiguousarray(high_values[:, direction], dtype=">f8")
+                .tobytes()
+                .hex()
+            )
+            margin_hex = (
+                np.ascontiguousarray(margins[:, direction], dtype=">f8").tobytes().hex()
+            )
+            low_signs = np.sign(low_values[:, direction]).astype(np.int64)
+            high_signs = np.sign(high_values[:, direction]).astype(np.int64)
+
+            owned = parents[direction]
+            by_parent: dict[int, list[dict[str, Any]]] = {}
+            for row in owned:
+                position = bisect.bisect_right(shared, row["turn_lo"]) - 1
+                by_parent.setdefault(max(position, 0), []).append(row)
+
+            chunks: list[bytes] = []
+            crossing_count = 0
+            cell_index = 0
+            smallest = math.inf
+            for cell in range(len(shared) - 1):
+                if keep[cell]:
+                    margin = float(margins[cell, direction])
+                    if margin < smallest:
+                        smallest = margin
+                    chunks.append(
+                        (
+                            prefix
+                            + index_json[cell_index]
+                            + ","
+                            + names[2]
+                            + ":"
+                            + shared_turn_json[cell]
+                            + ","
+                            + names[3]
+                            + ":"
+                            + shared_turn_json[cell + 1]
+                            + excluded_tail
+                            % (
+                                low_hex[cell * 16 : cell * 16 + 16],
+                                high_hex[cell * 16 : cell * 16 + 16],
+                                margin_hex[cell * 16 : cell * 16 + 16],
+                                low_signs[cell],
+                                high_signs[cell],
+                            )
+                        ).encode("utf-8")
+                    )
+                    cell_index += 1
+                    continue
+                for row in by_parent.get(cell, ()):
+                    canonical = {
+                        "direction_id": direction_ids[direction],
+                        "cell_index": cell_index,
+                        "turn_lo": canonical_rational(row["turn_lo"]),
+                        "turn_hi": canonical_rational(row["turn_hi"]),
+                        **{
+                            field: row[field]
+                            for field in SCAN_ROW_FIELDS
+                            if field
+                            not in ("direction_id", "cell_index", "turn_lo", "turn_hi")
+                        },
+                    }
+                    chunks.append(scan_row_bytes(canonical))
+                    cell_index += 1
+                    kind = canonical["classification"]
+                    if kind == "ceiling_excludes_root":
+                        margin = decode_f64be(canonical["ceiling_margin_f64be"])
+                        if margin < smallest:
+                            smallest = margin
+                    elif kind == "guard_interval":
+                        # A guard is retained verbatim beside the crossing it
+                        # flanks -- the strict validator's adjacency and
+                        # partition rules need the row itself -- but it is not
+                        # a crossing and never enters the root census.
+                        crossing_rows.append(canonical)
+                    else:
+                        crossing_count += 1
+                        crossing_rows.append(canonical)
+            if chunks:
+                if emitted:
+                    digest.update(b",")
+                digest.update(b",".join(chunks))
+                emitted += len(chunks)
+            summary_rows.append(
+                {
+                    "direction_id": direction_ids[direction],
+                    "terminal_cell_count": cell_index,
+                    "boundary_evaluation_count": boundary_evaluations[direction],
+                    "crossing_count": crossing_count,
+                    "min_ceiling_margin_f64be": f64be(
+                        smallest if math.isfinite(smallest) else 0.0
+                    ),
+                }
+            )
+        digest.update(b"]")
+
+        # Section 4.2's independent membership: every retained sample centre is
+        # one of the shared cell boundaries above, so the operational values the
+        # certificate compares are exactly the public-API values this scan
+        # already consumed, taken by index rather than recomputed.
+        centre_positions = [
+            bisect.bisect_left(shared, grid.center_turn(index))
+            for index in range(grid.sidereal_samples)
+        ]
+        for index, position in enumerate(centre_positions):
+            if position >= len(shared) or shared[position] != grid.center_turn(index):
+                raise OperationalScanRejected(
+                    "a retained sample centre is not a scanned cell boundary"
+                )
+        centre_values = matrix[centre_positions, :]
 
         installed = installed_iers()
         return OperationalHorizonScan(
-            cells=tuple(tuple(rows) for rows in terminal),
+            crossing_rows=tuple(crossing_rows),
+            summary_rows=tuple(summary_rows),
+            ledger_sha256=digest.hexdigest(),
             roots=tuple(tuple(entries) for entries in roots),
+            centre_values=centre_values,
+            evaluator=trajectory,
+            guard_count=guard_total,
             evaluation_count=trajectory.evaluations,
-            isolation_interval_count=int(terminal_counts.sum()),
+            isolation_interval_count=emitted,
             astropy_version=str(astropy_version),
             erfa_version=str(erfa.__version__),
             iers_table_sha256=installed.table_sha256,
@@ -1130,12 +1482,30 @@ def scan_operational_horizon(
 
 @dataclass(frozen=True, slots=True)
 class HorizonRootEnclosure:
-    """One certified closed exact-turn root enclosure and its orientation."""
+    """One certified closed exact-turn root enclosure and its orientation.
+
+    ``guard_turn_lo`` and ``guard_turn_hi`` are the outer bounds of the Section
+    12.1 flanking guard intervals, which default to the enclosure itself when
+    the refinement classified every neighbour.  Section 12's exposure machinery
+    cuts at and error-disks over the *guarded* span, so any structure the
+    ceiling rule could not exclude beside a shallow crossing is certified
+    bounded rather than assumed absent.  The frozen analytic census owns exact
+    roots and never carries guards.
+    """
 
     turn_lo: Fraction
     turn_hi: Fraction
     orientation: Literal["rising", "setting"]
     residual: float
+    guard_turn_lo: Fraction | None = None
+    guard_turn_hi: Fraction | None = None
+
+    @property
+    def ambiguous_span(self) -> tuple[Fraction, Fraction]:
+        """Return the closed enclosure-plus-guards union of this crossing."""
+        lower = self.turn_lo if self.guard_turn_lo is None else self.guard_turn_lo
+        upper = self.turn_hi if self.guard_turn_hi is None else self.guard_turn_hi
+        return (lower, upper)
 
     def as_row(self) -> dict[str, Any]:
         """Return the canonical serialization of this enclosure."""

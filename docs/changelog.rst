@@ -20,6 +20,11 @@ Added
   ``RIMESimulator.solve`` is a thin wrapper around the maintained
   point/HEALPix/hybrid path whose arithmetic, component order, source
   reduction, result bytes and fingerprints are unchanged.
+- ``Simulator.build_solve_request()`` returns that immutable request directly.
+  ``run()`` now calls it rather than assembling the request inline, so an
+  evidence generator or an out-of-band re-derivation consumes exactly the
+  inputs a run consumed instead of rebuilding a second, divergent definition of
+  the strategy boundary.
 - ``execution.mmode``, required with ``simulator: mmode`` and rejected with
   ``rime``, carrying three exact convention literals and the four truncation
   dimensions; and the strict ``obs_time`` full-sidereal variant
