@@ -24,6 +24,7 @@ from radiosim.core.polarization_basis import (
     PolarizationBasis,
 )
 from radiosim.core.result import (
+    MMODE_SOLVER_SNAPSHOT_KEYS,
     InvalidResultError,
     LoadedSimulationResult,
     ResultPerformance,
@@ -2136,21 +2137,36 @@ def _validate_component_provenance(snapshots: Mapping[str, object]) -> None:
     performance = cast(dict[str, object], snapshots["performance"])
     resolved_config = cast(dict[str, object], snapshots["resolved_config"])
 
-    if set(solver) != {field.name for field in fields(SolverResultProvenance)}:
+    if solver.get("solver") == "mmode":
+        # ``docs/development/sci004_mmode_design.md`` Section 10: HDF5
+        # preserves the *complete* tagged solver snapshot, and "a reader that
+        # silently labels it ``rime`` fails acceptance".  The m-mode arm has its
+        # own exact key set, checked here from the already byte-bounded JSON.
+        if tuple(solver) != MMODE_SOLVER_SNAPSHOT_KEYS:
+            raise UnsafeResultInputError("HDF5 solver_json has unexpected fields")
+        _ = _bounded_component_sequence(solver, "components")
+        _ = _bounded_component_sequence(solver, "component_element_counts")
+        for key in ("tangent_polarization_frame", "stokes_v_basis_bridge"):
+            if not isinstance(solver.get(key), str) or not solver[key]:
+                raise UnsafeResultInputError("HDF5 solver_json is invalid")
+        sky_representation = str(solver.get("sky_representation", ""))
+    elif set(solver) != {field.name for field in fields(SolverResultProvenance)}:
         raise UnsafeResultInputError("HDF5 solver_json has unexpected fields")
-    _ = _bounded_component_sequence(solver, "components")
-    _ = _bounded_component_sequence(solver, "component_element_counts")
-    try:
-        identity = SolverResultProvenance(**cast(dict[str, Any], solver))
-    except (TypeError, ValueError, InvalidResultError) as exc:
-        raise UnsafeResultInputError("HDF5 solver_json is invalid") from exc
+    else:
+        _ = _bounded_component_sequence(solver, "components")
+        _ = _bounded_component_sequence(solver, "component_element_counts")
+        try:
+            identity = SolverResultProvenance(**cast(dict[str, Any], solver))
+        except (TypeError, ValueError, InvalidResultError) as exc:
+            raise UnsafeResultInputError("HDF5 solver_json is invalid") from exc
+        sky_representation = identity.sky_representation
 
     visibility = _snapshot_mapping(
         resolved_config,
         "visibility",
         context="resolved_config",
     )
-    if visibility.get("sky_representation") != identity.sky_representation:
+    if visibility.get("sky_representation") != sky_representation:
         raise UnsafeResultInputError(
             "HDF5 solver_json sky representation disagrees with the resolved "
             "configuration"

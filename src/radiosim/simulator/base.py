@@ -10,7 +10,8 @@ algorithms based on problem characteristics (source count, array density, etc.).
 
 import operator
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from radiosim.backends.base import ArrayBackend
@@ -18,12 +19,81 @@ if TYPE_CHECKING:
     from radiosim.core.instrument_adapters import SolverInstrumentView
     from radiosim.core.jones_terms import ResolvedJonesTerms
     from radiosim.core.receptor import ResolvedReceptorSet
-    from radiosim.core.sky.containers.model import SourceArrays
+    from radiosim.core.runtime_config import ResolvedSolverExecutionConfig
+    from radiosim.core.sky.containers.model import SkyModel, SourceArrays
     from radiosim.core.time_grid import ObservationTimeGrid
 
 import numpy as np
 
 from radiosim.core.jones_terms import EMPTY_JONES_TERMS
+
+
+@dataclass(frozen=True, slots=True)
+class SkySolveRequest:
+    """Every resolved input one registered strategy needs, at the sky boundary.
+
+    ``docs/development/sci004_mmode_design.md`` Section 2 records why the
+    pre-SCI-004 registry was not yet a full-sky strategy boundary:
+    ``calculate_visibilities`` accepted ``SourceArrays``, so the abstract
+    interface described only the point component, ``Simulator.run()`` always
+    called ``core.hybrid.solve_sky`` itself, and ``solve_sky`` dispatched point
+    sources through the registered object while calling
+    ``calculate_visibility_healpix`` directly.  Registering a second algorithm
+    against that interface would have been false architecture, because HEALPix
+    and hybrid runs would still have bypassed it.
+
+    This request is the replacement boundary: one immutable object carrying the
+    **whole** resolved ``SkyModel`` together with the point arrays, instrument
+    view, beam system, location, time and frequency coordinates, receptors,
+    Jones inventory, backend and worker policy.  ``RIMESimulator.solve`` is a
+    thin wrapper around the maintained point/HEALPix/hybrid path, and
+    ``MModeSimulator.solve`` consumes the same whole request and never calls the
+    direct kernels.
+    """
+
+    sky_representation: str
+    sky_model: "SkyModel"
+    source_arrays: "SourceArrays | None"
+    instrument: "SolverInstrumentView"
+    beam_system: "BeamSystem"
+    location: Any
+    time_grid: "ObservationTimeGrid"
+    frequencies: np.ndarray
+    receptors: "ResolvedReceptorSet"
+    jones: "ResolvedJonesTerms"
+    backend: "ArrayBackend"
+    worker_policy: "ResolvedSolverExecutionConfig"
+    #: The resolved ``execution.mmode`` block, present only for an m-mode run.
+    mmode: Any = None
+    #: The resolved full-sidereal ``obs_time`` variant, when one was declared.
+    era_grid: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class SkySolveOutcome:
+    """The one receptor-visibility cube of a run and its solver record.
+
+    Point, HEALPix and hybrid remain *solver provenance*, not separate output
+    products (Section 10), so a strategy returns one backend-native
+    ``(T, B, F, 2, 2)`` receptor cube plus the component identity and element
+    counts the result provenance publishes.
+    """
+
+    receptor_visibilities: Any
+    components: tuple[str, ...]
+    component_element_counts: tuple[int, ...]
+    execution_path: Literal["scalar", "polarized"]
+    component_seconds: tuple[float, ...] = ()
+    #: Solver-specific provenance the API copies into the tagged result record.
+    solver_record: Any = None
+    diagnostics: dict[str, Any] = field(default_factory=dict)
+
+    def seconds_for(self, name: str) -> float:
+        """Return a component's wall time, or ``0.0`` when it did not run."""
+        for index, component in enumerate(self.components):
+            if component == name and index < len(self.component_seconds):
+                return self.component_seconds[index]
+        return 0.0
 
 
 def _require_kernel_n_sources(
@@ -272,6 +342,31 @@ class VisibilitySimulator(ABC):
         - K: Geometric phase (fringe rotation)
         """
         pass
+
+    def solve(self, request: SkySolveRequest) -> SkySolveOutcome:
+        """Solve one complete run from the whole-``SkyModel`` request.
+
+        This is the Section 2 strategy boundary: the high-level API calls only
+        the selected registered strategy, and every representation -- point,
+        HEALPix and hybrid -- arrives through this one method.  The inherited
+        implementation raises, so a registered strategy that has not adopted the
+        boundary cannot silently fall back to the direct kernels.
+
+        Parameters
+        ----------
+        request : SkySolveRequest
+            The immutable resolved inputs of one run.
+
+        Returns
+        -------
+        SkySolveOutcome
+            One backend-native ``(T, B, F, 2, 2)`` receptor cube and its
+            component record.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement the whole-SkyModel "
+            "solve(request) boundary"
+        )
 
     def validate_inputs(
         self,

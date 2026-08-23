@@ -120,6 +120,157 @@ implicitly.
 :doc:`backends` for what each one executes, for ``auto``'s precedence, and for
 the measured comparison between them.
 
+Simulator selection
+-------------------
+
+``execution.simulator`` accepts exactly the keys of the simulator registry:
+``rime``, the direct RIME summation and the default, and ``mmode``, the
+``SCI-004`` m-mode full-sidereal harmonic forward model. There is no second
+selector; a value the registry does not hold is a schema error naming the
+registered set.
+
+The m-mode block
+----------------
+
+``execution.mmode`` is **required** with ``simulator: mmode`` and **forbidden**
+with ``simulator: rime``. An absent block never changes a direct run.
+
+.. code-block:: yaml
+
+   execution:
+     simulator: mmode
+     mmode:
+       convention: radiosim.mmode-forward.v1
+       frame_model: radiosim.frozen-cirs-rigid-era.v1
+       harmonic_convention: radiosim.shaw-polarized-harmonics.v1
+       lmax: 64
+       mmax: 64
+       quadrature_nside: 64
+       working_memory_bytes: 1073741824
+
+The three convention fields are required exact literals, so a document cannot
+select an unreviewed forward model, frame or harmonic convention by spelling a
+different string. Integers are strict and booleans are not integers.
+``working_memory_bytes`` is a strict positive integer used only for
+deterministic scheduling; it does not enter the scientific fingerprint, while
+the resolved chunk schedule and the measured peak do enter provenance.
+
+Validation requires ``2 <= lmax <= 4088``, ``0 <= mmax <= lmax``,
+``lmax <= 2 * quadrature_nside``, and a ``quadrature_nside`` that is a power of
+two, at least 2.
+
+``quadrature_nside`` names the resolution of the **iso-Gauss** transfer grid:
+``3 * nside`` Gauss-Legendre colatitude rings, each carrying ``4 * nside``
+uniform azimuths from ``phi = 0``, for exactly ``12 * nside**2`` nodes, with
+each node weighted by its Gauss-Legendre weight times ``2 * pi / (4 * nside)``.
+``3 * nside`` is even for every accepted ``nside``, so no node lands on the
+equator, the strictly visible hemisphere carries exactly half the total weight
+under the hard ``alt > 0`` horizon, and the uniform azimuths annihilate every
+``m != 0`` mode of an azimuthally constant integrand exactly. An equal-area
+HEALPix pixel-centre grid is not usable here: its equatorial ring sits *on* the
+horizon, and half-weighting it is exactly what the strict horizon factor
+forbids, so its visible-area error is ``1/(3 * nside)``.
+
+Every run then derives its own validation grid without configuration knobs::
+
+   lcheck = min(lmax + max(8, lmax // 8), 4096)
+   mcheck = min(lcheck, mmax + max(8, max(1, mmax // 8)))
+   qcheck = next_power_of_two(max(2 * quadrature_nside, ceil(lcheck / 2)))
+
+``lmax: 4096``, and every value above ``4088``, is a typed rejection rather than
+a claim of convergence: the ceiling reserves at least eight further multipoles
+inside the fixed transform ceiling so the omitted physical tail can be measured.
+
+The full-sidereal time variant
+------------------------------
+
+``obs_time`` has two shapes. The untagged UTC interval is the only ``rime``
+input and is unchanged:
+
+.. code-block:: yaml
+
+   obs_time:
+     start_time: "2025-01-01T00:00:00"
+     duration_seconds: 60.0
+     time_step_seconds: 10.0
+
+The m-mode solver takes the distinct strict variant instead:
+
+.. code-block:: yaml
+
+   obs_time:
+     mode: full_sidereal
+     start_time: "2025-01-01T00:00:00"
+     sidereal_samples: 257
+     integration_fraction: 1.0
+
+``sidereal_samples`` is a strict positive integer. ``integration_fraction`` is a
+strict finite float in ``(0, 1]`` that scales the exposure top hat without
+removing a sample. No duration, UTC cadence, explicit time list, flag or window
+weight is accepted in this variant: the sample centres are a complete,
+unflagged, uniformly spaced Earth Rotation Angle cycle with no duplicated
+endpoint, and the whole grid -- centres, exposure edges and cycle boundaries --
+is built in exact rational arithmetic before any value is rounded to a
+binary64 radian view. UTC is an output and provenance coordinate here, not the
+coordinate that owns the topology.
+
+Earth orientation is read from exactly one bundled offline table. There is no
+network lookup, no implicit table selection, and no automatic download, so a
+grid whose mapped cycle leaves that table is rejected rather than silently
+extrapolated.
+
+m-mode rejection contract
+-------------------------
+
+The cross-field rules below are semantic errors -- ``ConfigSemanticError``, not
+schema errors -- because each one is legal input for the direct solver and is
+rejected only under ``simulator: mmode``:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Issue code
+     - Rejected because
+   * - ``mmode_block_required``
+     - ``simulator: mmode`` without an explicit ``execution.mmode`` block.
+   * - ``mmode_block_forbidden``
+     - an ``execution.mmode`` block under ``simulator: rime``.
+   * - ``mmode_time_grid_required``
+     - a UTC-uniform interval is not an m-mode grid.
+   * - ``rime_time_grid_required``
+     - ``mode: full_sidereal`` under ``simulator: rime``.
+   * - ``mmode_exposure_resolution``
+     - ``integration_fraction`` too small for distinct binary64 exposure edges
+       at this ``sidereal_samples``.
+   * - ``mmode_nyquist``
+     - ``sidereal_samples`` below ``2 * mmax + 1``.
+   * - ``mmode_tail_nyquist``
+     - ``sidereal_samples`` below ``2 * mcheck + 1``, so the mandatory m-tail
+       diagnostic could not be represented.
+   * - ``mmode_quadrature``
+     - ``lmax`` above ``2 * quadrature_nside``.
+   * - ``mmode_truncation_check``
+     - ``lmax`` leaves no room for the required harmonic tail check.
+   * - ``mmode_iers_range``
+     - the mapped cycle leaves the available offline IERS table.
+   * - ``mmode_time_smearing``
+     - the exact ERA top hat already owns exposure averaging, so
+       ``jones.Q.time_smearing`` must be false.
+   * - ``mmode_static_gain``
+     - every accepted Jones term must be stationary in the ground frame, so
+       ``jones.G.time_model.kind`` must be ``constant``.
+   * - ``mmode_phase_center``
+     - a ``beams.pointing`` offset displaces the boresight from the canonical
+       fixed zenith-drift phase centre.
+
+Two further rules are payload rules rather than document rules and are raised as
+``UnsupportedConfigError``: ``mmode_point_morphology`` for Gaussian point-source
+morphology, whose baseline-dependent envelope is not one common sky field, and
+``mmode_m1_scalar_only`` for any non-zero Stokes ``Q``, ``U`` or ``V``, which
+phase M1 does not accept. Every one of these failures occurs before backend
+allocation, output-path creation, or any harmonic work.
+
 Worker policy
 -------------
 

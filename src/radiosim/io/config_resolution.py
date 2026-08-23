@@ -46,7 +46,10 @@ from radiosim.core.runtime_config import (
     json_safe_mapping,
 )
 from radiosim.core.sky.registry import loader_registry
-from radiosim.core.time_grid import build_observation_time_grid
+from radiosim.core.time_grid import (
+    ObservationTimeGrid,
+    build_observation_time_grid,
+)
 from radiosim.io.config import (
     CliWorkflowConfig,
     ConfigIssue,
@@ -1380,6 +1383,62 @@ def _resolve_beam_input(
     raise TypeError(f"unsupported beams mode {type(beams).__name__}")
 
 
+def resolve_canonical_era_grid(config: Any) -> Any:
+    """Build the Section 3.1 exact-turn ERA grid of a full-sidereal input.
+
+    The grid is the one immutable object Section 3.1 requires every consumer to
+    receive *by identity*: the time mapper, the operational isolator, the phase
+    ledger, the harmonic window and both direct oracles all read its retained
+    rationals rather than reconstructing a turn from ``k``, radians, a width or
+    an adjacent edge.
+    """
+    from radiosim.core.mmode.time import build_canonical_era_grid
+
+    return build_canonical_era_grid(
+        sidereal_samples=config.sidereal_samples,
+        integration_fraction=config.integration_fraction,
+        start_time=_normalize_start_time(config.start_time),
+    )
+
+
+def _resolve_time_grid(config: Any) -> ObservationTimeGrid:
+    """Resolve either Section 3.2 time variant into one canonical UTC grid.
+
+    The untagged UTC interval keeps its existing uniform construction exactly,
+    so every old serialized ``rime`` snapshot stays byte-identical.  The
+    full-sidereal variant is mapped from its exact turns instead, and its
+    per-sample integration widths come from the retained exposure edges rather
+    than from a cadence.
+    """
+    from radiosim.core.time_grid import build_mmode_observation_time_grid
+    from radiosim.io.config import FullSiderealObsTimeConfig
+
+    if not isinstance(config, FullSiderealObsTimeConfig):
+        return build_observation_time_grid(
+            start_time=_normalize_start_time(config.start_time),
+            duration_seconds=config.duration_seconds,
+            cadence_seconds=config.time_step_seconds,
+        )
+
+    era_grid = resolve_canonical_era_grid(config)
+    centers = era_grid.utc_two_part
+    widths = era_grid.integration_time_seconds
+    span_days = float(
+        (centers[0][-1] - centers[0][0]) + (centers[1][-1] - centers[1][0])
+    )
+    samples = era_grid.sidereal_samples
+    duration = max(span_days * 86400.0, float(widths.sum()))
+    cadence = duration / samples if samples else duration
+    return build_mmode_observation_time_grid(
+        start_time_iso=era_grid.start_time_iso,
+        utc_jd1=centers[0],
+        utc_jd2=centers[1],
+        integration_time_seconds=widths,
+        duration_seconds=duration,
+        cadence_seconds=cadence,
+    )
+
+
 def _normalize_start_time(value: str) -> str:
     time_module: Any = import_module("astropy.time")
     return str(time_module.Time(value).utc.isot)
@@ -1662,12 +1721,9 @@ def resolve_config(
         workflow_data = candidate.workflow.model_dump(mode="python")
         workflow_data["output_dir"] = output_dir
         resolved_workflow = CliWorkflowConfig.model_validate(workflow_data)
-        time_grid = build_observation_time_grid(
-            start_time=_normalize_start_time(candidate.obs_time.start_time),
-            duration_seconds=candidate.obs_time.duration_seconds,
-            cadence_seconds=candidate.obs_time.time_step_seconds,
-        )
+        time_grid = _resolve_time_grid(candidate.obs_time)
         runtime = ResolvedSimulationConfig(
+            obs_time=candidate.obs_time,
             instrument=instrument,
             beams=beam_config,
             baseline_selection=candidate.baseline_selection,
@@ -1697,6 +1753,7 @@ def resolve_config(
                     candidate.execution.solver,
                     time_sample_count=len(time_grid),
                 ),
+                mmode=candidate.execution.mmode,
             ),
         )
         return ResolvedConfiguration(

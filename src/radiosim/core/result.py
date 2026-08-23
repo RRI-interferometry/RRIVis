@@ -268,6 +268,104 @@ class SolverResultProvenance:
 
 
 @dataclass(frozen=True, slots=True)
+class MModeSolverResultProvenance:
+    """The m-mode arm of Section 10's strict tagged solver record.
+
+    ``docs/development/sci004_mmode_design.md`` Section 10 widens the solver
+    record to a tagged union in which the current ``rime`` snapshot stays
+    exactly as it is -- ``RIMESimulator`` serialization must be byte-identical
+    after the union is introduced -- and an m-mode snapshot carries the exact
+    common fields ``solver``, ``sky_representation``, ``convention``,
+    ``execution_path``, ``components`` and ``component_element_counts``,
+    followed by the exact m-mode block.
+
+    Neither ``tangent_polarization_frame`` nor ``stokes_v_basis_bridge`` is
+    nullable.  In M1 the first is the exact literal
+    ``not_applicable_scalar_m1``, because the phase carries no polarized
+    payload at all; after M2 it becomes the six-key Section 5.1 object.  The
+    second is always ``radiosim.stokes-ne-theta-phi.v1``.
+
+    The scientific snapshot excludes worker count and memory budget but
+    includes every scientific convention and truncation dimension; backend,
+    device, worker, chunk, library-version, IERS-path and timing details remain
+    provenance.
+    """
+
+    snapshot: Any
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        _reject_subclass("MModeSolverResultProvenance")
+
+    @property
+    def solver(self) -> str:
+        """Return the registry key this arm of the union records."""
+        return "mmode"
+
+    @property
+    def sky_representation(self) -> str:
+        """Return the solved representation, which stays solver provenance."""
+        return str(self.snapshot.sky_representation)
+
+    @property
+    def convention(self) -> str:
+        """Return the m-mode execution convention literal."""
+        return str(self.snapshot.convention)
+
+    @property
+    def direct_gate(self) -> Any:
+        """Return Section 7.3's every-run complete frozen-direct comparison."""
+        return self.snapshot.direct_gate
+
+    @property
+    def frozen_gauss128_cube_sha256(self) -> str:
+        """Return the certificate's retained final frozen direct-cube identity."""
+        return str(self.snapshot.frozen_gauss128_cube_sha256)
+
+    @property
+    def frozen_enclosure_error_cube_sha256(self) -> str:
+        """Return the certificate's retained frozen enclosure-error identity."""
+        return str(self.snapshot.frozen_enclosure_error_cube_sha256)
+
+    def as_mapping(self) -> dict[str, Any]:
+        """Return Section 10's exact tagged m-mode snapshot, in key order."""
+        return dict(self.snapshot.as_mapping())
+
+    def to_snapshot(self) -> FrozenMapping:
+        """Return the JSON-safe scientific snapshot the fingerprint hashes."""
+        return json_safe_mapping(self.as_mapping())
+
+
+#: The Section 10 tagged solver union.  ``rime`` results keep the unchanged
+#: ``SolverResultProvenance`` arm, byte for byte.
+SolverProvenanceUnion = SolverResultProvenance | MModeSolverResultProvenance
+
+#: Section 10's exact m-mode snapshot key set, in order.  Unknown or missing
+#: keys reject on both the written and the read side.
+MMODE_SOLVER_SNAPSHOT_KEYS: tuple[str, ...] = (
+    "solver",
+    "sky_representation",
+    "convention",
+    "execution_path",
+    "components",
+    "component_element_counts",
+    "time_grid_convention",
+    "frame_model",
+    "harmonic_convention",
+    "sidereal_samples",
+    "lmax",
+    "mmax",
+    "quadrature_nside",
+    "quadrature_policy",
+    "truncation_policy",
+    "tangent_polarization_frame",
+    "stokes_v_basis_bridge",
+    "iers_table_sha256",
+    "frame_certificate_sha256",
+    "transform_execution_policy",
+)
+
+
+@dataclass(frozen=True, slots=True)
 class ResultPerformance:
     """Finite nonnegative timings for one result construction."""
 
@@ -1037,7 +1135,7 @@ class SimulationResult(_ResultMethods):
     jones: FrozenMapping
     phase_center: PhaseCenter
     backend: BackendResultProvenance
-    solver: SolverResultProvenance
+    solver: SolverProvenanceUnion
     resolved_config: FrozenMapping
     configuration_provenance: FrozenMapping | None
     performance: ResultPerformance
@@ -1287,6 +1385,22 @@ def _validate_loaded_identity_snapshots(
             "backend_snapshot result dtype does not match visibilities"
         )
 
+    if solver.get("solver") == "mmode":
+        # Section 10's m-mode arm of the tagged union.  Unknown or missing keys
+        # reject, and written and read solver records use the same rule, so a
+        # reader can never silently relabel an m-mode record as ``rime``.
+        if tuple(solver) != MMODE_SOLVER_SNAPSHOT_KEYS:
+            raise InvalidResultError("solver_snapshot has unexpected fields")
+        for key in (
+            "tangent_polarization_frame",
+            "stokes_v_basis_bridge",
+            "frame_certificate_sha256",
+            "iers_table_sha256",
+        ):
+            if solver.get(key) in (None, ""):
+                raise InvalidResultError("solver_snapshot is invalid")
+        return
+
     solver_fields = {
         "solver",
         "sky_representation",
@@ -1347,7 +1461,7 @@ def build_simulation_result(
     jones_terms: ResolvedJonesTerms = EMPTY_JONES_TERMS,
     phase_center: PhaseCenter,
     backend_provenance: BackendResultProvenance,
-    solver_provenance: SolverResultProvenance,
+    solver_provenance: SolverProvenanceUnion,
     resolved_config: Mapping[str, object],
     configuration_provenance: Mapping[str, object] | None,
     performance: ResultPerformance,
@@ -1370,10 +1484,19 @@ def build_simulation_result(
         (receptors, ResolvedReceptorSet, "receptors"),
         (phase_center, PhaseCenter, "phase_center"),
         (backend_provenance, BackendResultProvenance, "backend_provenance"),
-        (solver_provenance, SolverResultProvenance, "solver_provenance"),
         (performance, ResultPerformance, "performance"),
     ):
         _require_exact(value, expected, field_name)
+    # Section 10's tagged union: either arm is accepted, and neither is a
+    # subclass of the other, so the check stays an exact-type check.
+    if type(solver_provenance) not in (
+        SolverResultProvenance,
+        MModeSolverResultProvenance,
+    ):
+        raise TypeError(
+            "solver_provenance must be an exact SolverResultProvenance or "
+            "MModeSolverResultProvenance"
+        )
     if (
         selection.provenance.instrument_sha256
         != instrument.provenance.instrument_sha256
@@ -1711,6 +1834,8 @@ __all__ = [
     "ResultShapeError",
     "ResultUnavailableError",
     "SimulationResult",
+    "MModeSolverResultProvenance",
+    "SolverProvenanceUnion",
     "SolverResultProvenance",
     "TimeGridLimitError",
     "build_loaded_simulation_result",

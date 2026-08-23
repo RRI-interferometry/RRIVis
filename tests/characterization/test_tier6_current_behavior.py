@@ -1727,6 +1727,12 @@ def test_execution_config_expresses_worker_policy_in_two_typed_blocks() -> None:
         "backend",
         "precision",
         "simulator",
+        # WIDENED BY: SCI-004 phase M1.  ``docs/development/
+        # sci004_mmode_design.md`` Section 8 makes ``execution.mmode`` required
+        # with ``simulator='mmode'`` and forbidden with ``rime``, so the block
+        # is a field of this model; Section 13.3 authorizes exactly this
+        # field-set widening and nothing else in this file.
+        "mmode",
         "offline",
         "sky_loading",
         "solver",

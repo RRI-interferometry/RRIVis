@@ -187,6 +187,9 @@ class Simulator:
         self._backend = None
         self._simulator = None
         self._solver_instrument_view = None
+        #: The Section 3.1 exact-turn ERA grid of a full-sidereal m-mode run,
+        #: built once and passed by identity to the selected strategy.
+        self._era_grid: Any = None
 
         # Canonical state is assigned atomically before later setup work.
         self._instrument_state = None
@@ -569,6 +572,7 @@ class Simulator:
         self._backend = None
         self._simulator = None
         self._solver_instrument_view = None
+        self._era_grid = None
         self._source_arrays = None
         self._sky_model = None
         self._location = None
@@ -1008,6 +1012,24 @@ class Simulator:
                 labels.append(f"{self._sky_model.n_healpix_pixels} pixels")
         return " + ".join(labels)
 
+    def _resolve_era_grid(self) -> Any:
+        """Return the retained ``CanonicalEraGrid`` of a full-sidereal run.
+
+        ``docs/development/sci004_mmode_design.md`` Section 3.1 requires one
+        immutable exact-turn object to be passed *by identity* to every
+        consumer, so it is built once here and handed to the strategy.  A
+        UTC-uniform ``rime`` run has no such object and receives ``None``.
+        """
+        from radiosim.io.config import FullSiderealObsTimeConfig
+        from radiosim.io.config_resolution import resolve_canonical_era_grid
+
+        obs_time = getattr(self._resolved, "obs_time", None)
+        if not isinstance(obs_time, FullSiderealObsTimeConfig):
+            return None
+        if self._era_grid is None:
+            self._era_grid = resolve_canonical_era_grid(obs_time)
+        return self._era_grid
+
     def run(self, *, progress: bool = True) -> SimulationResult:
         """
         Run the visibility simulation.
@@ -1087,7 +1109,7 @@ class Simulator:
             print_table("Simulation Configuration", config_data)
             console.print()  # Add spacing
 
-        from radiosim.core.hybrid import solve_sky
+        from radiosim.simulator.base import SkySolveRequest
 
         print_info(f"Running visibility simulation ({sky_representation} mode)...")
 
@@ -1101,24 +1123,30 @@ class Simulator:
         # ``resolved_config`` (plan Sections 11.3, 12.1, 18.4).
         solver_execution = self._resolved.execution.solver
 
-        # One call site for every representation.  Each component receives the
-        # identical shared objects, and a hybrid run's two cubes are summed in
-        # the backend array domain before the single host transfer below
-        # (plan Sections 8.4, 9.1).
-        outcome = solve_sky(
-            sky_representation=sky_representation,
-            sky_model=self._sky_model,
-            source_arrays=self._source_arrays,
-            point_solver=solver,
-            backend=backend,
-            instrument=instrument_view,
-            beam_system=self.beam_system,
-            location=location,
-            time_grid=self._resolved.observation.time_grid,
-            frequencies=frequencies,
-            receptors=self.receptors,
-            jones_terms=self.jones_terms,
-            solver_execution=solver_execution,
+        # ``docs/development/sci004_mmode_design.md`` Section 2: the high-level
+        # API calls only the *selected registered strategy*, through one
+        # immutable whole-``SkyModel`` request.  ``RIMESimulator.solve`` is a
+        # thin wrapper around the maintained ``core.hybrid.solve_sky`` path, so
+        # every component still receives the identical shared objects and a
+        # hybrid run's two cubes are still summed in the backend array domain
+        # before the single host transfer below (plan Sections 8.4, 9.1).
+        outcome = solver.solve(
+            SkySolveRequest(
+                sky_representation=sky_representation,
+                sky_model=self._sky_model,
+                source_arrays=self._source_arrays,
+                instrument=instrument_view,
+                beam_system=self.beam_system,
+                location=location,
+                time_grid=self._resolved.observation.time_grid,
+                frequencies=frequencies,
+                receptors=self.receptors,
+                jones=self.jones_terms,
+                backend=backend,
+                worker_policy=solver_execution,
+                mmode=self._resolved.execution.mmode,
+                era_grid=self._resolve_era_grid(),
+            )
         )
         receptor_visibilities = outcome.receptor_visibilities
 
@@ -1129,6 +1157,7 @@ class Simulator:
         from radiosim.core.precision import PrecisionConfig
         from radiosim.core.result import (
             BackendResultProvenance,
+            MModeSolverResultProvenance,
             ResultPerformance,
             SolverResultProvenance,
             build_simulation_result,
@@ -1169,16 +1198,24 @@ class Simulator:
                 device_kind=backend.device_kind,
                 compilation_used=backend.supports_compilation,
             ),
-            solver_provenance=SolverResultProvenance(
-                solver="rime",
-                sky_representation=cast(
-                    Literal["point_sources", "healpix_map", "hybrid"],
-                    sky_representation,
-                ),
-                convention="radiosim.rime-zenith-drift.v1",
-                execution_path=outcome.execution_path,
-                components=outcome.component_names,
-                component_element_counts=outcome.component_element_counts,
+            solver_provenance=(
+                # ``docs/development/sci004_mmode_design.md`` Section 10: the
+                # solver record is a strict tagged union.  A direct run keeps
+                # the unchanged ``rime`` arm byte for byte; an m-mode run
+                # publishes the snapshot its own strategy built.
+                MModeSolverResultProvenance(snapshot=outcome.solver_record)
+                if outcome.solver_record is not None
+                else SolverResultProvenance(
+                    solver="rime",
+                    sky_representation=cast(
+                        Literal["point_sources", "healpix_map", "hybrid"],
+                        sky_representation,
+                    ),
+                    convention="radiosim.rime-zenith-drift.v1",
+                    execution_path=outcome.execution_path,
+                    components=outcome.components,
+                    component_element_counts=outcome.component_element_counts,
+                )
             ),
             resolved_config=self._resolved.to_json_safe(),
             configuration_provenance=(

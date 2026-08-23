@@ -34,6 +34,8 @@ from radiosim.core.contraction import (  # pyright: ignore[reportPrivateUsage]
 from radiosim.core.jones_terms import EMPTY_JONES_TERMS
 from radiosim.core.solver_partition import SERIAL_SOLVER_EXECUTION
 from radiosim.simulator.base import (  # pyright: ignore[reportPrivateUsage]
+    SkySolveOutcome,
+    SkySolveRequest,
     VisibilitySimulator,
     _require_kernel_n_sources,
 )
@@ -160,10 +162,13 @@ class RIMESimulator(VisibilitySimulator):
         """Algorithm complexity."""
         return "O(N_src × N_bl × N_freq)"
 
-    @property
-    def supports_polarization(self) -> bool:
-        """Full polarization support."""
-        return True
+    #: Full polarization support.  Declared as a class attribute rather than a
+    #: property so the flag can be read from the class itself: SCI-004 M1 pins
+    #: ``RIMESimulator.supports_polarization is True`` beside
+    #: ``MModeSimulator.supports_polarization is False`` in one Tier 7
+    #: characterization assertion, and a property object would answer neither
+    #: (``docs/development/sci004_mmode_design.md`` Section 9).
+    supports_polarization = True
 
     @property
     def supports_gpu(self) -> bool:
@@ -269,6 +274,60 @@ class RIMESimulator(VisibilitySimulator):
             receptors=receptors,
             jones_terms=jones_terms,
             solver_execution=solver_execution,
+        )
+
+    def solve(self, request: "SkySolveRequest") -> "SkySolveOutcome":
+        """Solve one whole-``SkyModel`` run through the maintained direct path.
+
+        This is deliberately a **thin wrapper**.
+        ``docs/development/sci004_mmode_design.md`` Section 2 requires the
+        arithmetic, component order, source reduction, result bytes and
+        fingerprints of the direct path to remain unchanged when the registry
+        becomes a full-sky strategy boundary, so the wrapper forwards the
+        request's already resolved objects to ``core.hybrid.solve_sky`` and adds
+        no numerical step of its own.  ``solve_sky`` still dispatches the point
+        component through ``self`` and the HEALPix component through
+        ``calculate_visibility_healpix``, in the same fixed
+        ``("point", "healpix")`` order, and still sums hybrid components with
+        ``ArrayBackend.add`` in the backend array domain before any host
+        transfer.
+
+        Parameters
+        ----------
+        request : SkySolveRequest
+            The immutable resolved inputs of one run.
+
+        Returns
+        -------
+        SkySolveOutcome
+            One backend-native ``(T, B, F, 2, 2)`` receptor cube and its
+            component record.
+        """
+        from radiosim.core.hybrid import solve_sky
+
+        outcome = solve_sky(
+            sky_representation=request.sky_representation,
+            sky_model=request.sky_model,
+            source_arrays=request.source_arrays,
+            point_solver=self,
+            backend=request.backend,
+            instrument=request.instrument,
+            beam_system=request.beam_system,
+            location=request.location,
+            time_grid=request.time_grid,
+            frequencies=request.frequencies,
+            receptors=request.receptors,
+            jones_terms=request.jones,
+            solver_execution=request.worker_policy,
+        )
+        return SkySolveOutcome(
+            receptor_visibilities=outcome.receptor_visibilities,
+            components=outcome.component_names,
+            component_element_counts=outcome.component_element_counts,
+            execution_path=outcome.execution_path,
+            component_seconds=tuple(
+                component.seconds for component in outcome.components
+            ),
         )
 
     def get_memory_estimate(

@@ -31,6 +31,9 @@ from typing import (
 import numpy as np
 import yaml
 from pydantic import (
+    Discriminator as PydanticDiscriminator,
+)
+from pydantic import (
     Field,
     PlainSerializer,
     SerializeAsAny,
@@ -39,6 +42,9 @@ from pydantic import (
     field_serializer,
     field_validator,
     model_validator,
+)
+from pydantic import (
+    Tag as PydanticTag,
 )
 from typing_extensions import override
 
@@ -1235,7 +1241,13 @@ class SkyModelConfig(StrictFrozenModel):
 
 
 class ObsTimeConfig(StrictFrozenModel):
-    """Required observation start, duration, and cadence."""
+    """Required observation start, duration, and cadence.
+
+    This untagged UTC interval remains the only ``rime`` time input
+    (``docs/development/sci004_mmode_design.md`` Section 3.2).  It is unchanged
+    by SCI-004: the old model and every old serialized ``rime`` snapshot stay
+    byte-identical when the full-sidereal variant is absent.
+    """
 
     start_time: str
     duration_seconds: PositiveFiniteFloat
@@ -1245,6 +1257,56 @@ class ObsTimeConfig(StrictFrozenModel):
     @classmethod
     def validate_start_time(cls, value: str) -> str:
         return _nonblank(value, field_name="start_time")
+
+
+class FullSiderealObsTimeConfig(StrictFrozenModel):
+    """The strict full-sidereal m-mode time variant (Section 3.2).
+
+    ``sidereal_samples`` is a strict positive integer and
+    ``integration_fraction`` a strict finite float in ``(0, 1]`` that scales the
+    top-hat width without removing a sample.  No duration, UTC cadence, explicit
+    time list, flag or window weight is accepted in this variant: the sample
+    centres are a complete, unflagged, uniformly spaced Earth Rotation Angle
+    cycle with no duplicated endpoint, and Section 3.1's exact-turn construction
+    owns every centre, boundary and horizon cut.
+    """
+
+    mode: Literal["full_sidereal"]
+    start_time: str
+    sidereal_samples: Annotated[int, Field(strict=True, ge=1)]
+    integration_fraction: Annotated[
+        float, Field(strict=True, gt=0.0, le=1.0, allow_inf_nan=False)
+    ]
+
+    @field_validator("start_time")
+    @classmethod
+    def validate_start_time(cls, value: str) -> str:
+        return _nonblank(value, field_name="start_time")
+
+
+def _obs_time_variant(value: Any) -> str:
+    """Return the ``obs_time`` union tag of one raw or validated value."""
+    if isinstance(value, FullSiderealObsTimeConfig):
+        return "full_sidereal"
+    if isinstance(value, ObsTimeConfig):
+        return "utc_interval"
+    if isinstance(value, Mapping):
+        declared = cast(Mapping[str, object], value).get("mode")
+        if declared is not None:
+            return str(declared)
+    return "utc_interval"
+
+
+#: The two accepted ``obs_time`` shapes.  A callable discriminator keeps the
+#: untagged UTC interval untagged -- adding a ``mode`` field to it would change
+#: every existing serialized document -- while still routing a declared
+#: ``mode: full_sidereal`` to exactly one model, so a schema failure reports one
+#: field path instead of a union of near misses.
+ObsTimeInput = Annotated[
+    Annotated[ObsTimeConfig, PydanticTag("utc_interval")]
+    | Annotated[FullSiderealObsTimeConfig, PydanticTag("full_sidereal")],
+    PydanticDiscriminator(_obs_time_variant),
+]
 
 
 class FrequencyGridConfig(StrictFrozenModel):
@@ -1558,6 +1620,38 @@ class SolverExecutionConfig(StrictFrozenModel):
         return value
 
 
+class MModeExecutionConfig(StrictFrozenModel):
+    """The strict ``execution.mmode`` block (Section 8).
+
+    The three convention fields are required exact literals, so a document
+    cannot select an unreviewed forward model, frame or harmonic convention by
+    spelling a different string.  Integers are strict and booleans are not
+    integers.  ``working_memory_bytes`` is used only for deterministic
+    scheduling and does not enter ``scientific_sha256``; the resolved chunk
+    schedule and the measured peak do enter provenance.
+    """
+
+    convention: Literal["radiosim.mmode-forward.v1"]
+    frame_model: Literal["radiosim.frozen-cirs-rigid-era.v1"]
+    harmonic_convention: Literal["radiosim.shaw-polarized-harmonics.v1"]
+    lmax: Annotated[int, Field(strict=True, ge=0)]
+    mmax: Annotated[int, Field(strict=True, ge=0)]
+    quadrature_nside: Annotated[int, Field(strict=True, ge=2)]
+    working_memory_bytes: Annotated[int, Field(strict=True, ge=1)]
+
+    @model_validator(mode="after")
+    def validate_declared_truncation(self) -> MModeExecutionConfig:
+        """Enforce the Section 7.3 bounds a single block can decide alone."""
+        if self.mmax > self.lmax:
+            raise ValueError("execution.mmode.mmax must be at most lmax")
+        nside = self.quadrature_nside
+        if nside & (nside - 1):
+            raise ValueError(
+                "execution.mmode.quadrature_nside must be a power of two, at least 2"
+            )
+        return self
+
+
 class ExecutionConfig(StrictFrozenModel):
     """Declared execution strategy; no backend construction occurs here."""
 
@@ -1565,7 +1659,13 @@ class ExecutionConfig(StrictFrozenModel):
     precision: PrecisionInput = Field(
         default_factory=lambda: PrecisionInput(preset="standard")
     )
-    simulator: Literal["rime"] = "rime"
+    #: ``docs/development/sci004_mmode_design.md`` Section 2 keeps one standing
+    #: invariant exact: the accepted values here are exactly the simulator
+    #: registry keys.  After M1 that set is ``{"rime", "mmode"}``.
+    simulator: Literal["rime", "mmode"] = "rime"
+    #: Required with ``simulator='mmode'`` and forbidden with ``rime``.  An
+    #: absent or default block never changes a direct run.
+    mmode: MModeExecutionConfig | None = None
     offline: bool = False
     sky_loading: SkyLoadingConfig = Field(default_factory=SkyLoadingConfig)
     solver: SolverExecutionConfig = Field(default_factory=SolverExecutionConfig)
@@ -1858,7 +1958,7 @@ class RadioSimConfig(StrictFrozenModel):
     #: ``default_factory`` would collapse the two.
     jones: JonesConfig | None = None
     sky_model: SkyModelConfig
-    obs_time: ObsTimeConfig
+    obs_time: ObsTimeInput
     obs_frequency: ObsFrequencyConfig
     visibility: VisibilityConfig = Field(default_factory=VisibilityConfig)
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
@@ -2518,13 +2618,189 @@ def _stage1_unsupported_issues(config: RadioSimConfig) -> list[ConfigIssue]:
     return issues
 
 
+#: Section 8's frozen semantic issue codes and their exact messages.  Every
+#: message here is a literal: the strict tests assert the whole string, so a
+#: reworded sentence is a contract break rather than a copy edit.
+MMODE_ISSUE_MESSAGES: dict[str, str] = {
+    "mmode_block_required": (
+        "execution.simulator='mmode' requires an explicit execution.mmode block."
+    ),
+    "mmode_block_forbidden": (
+        "execution.mmode is only valid when execution.simulator='mmode'."
+    ),
+    "mmode_time_grid_required": (
+        "execution.simulator='mmode' requires obs_time.mode='full_sidereal'; a "
+        "UTC-uniform interval is not an m-mode grid."
+    ),
+    "rime_time_grid_required": (
+        "obs_time.mode='full_sidereal' is only valid when execution.simulator='mmode'."
+    ),
+    "mmode_exposure_resolution": (
+        "obs_time.integration_fraction is too small for distinct canonical "
+        "binary64 exposure edges at this sidereal_samples."
+    ),
+    "mmode_nyquist": (
+        "obs_time.sidereal_samples must be at least 2 * execution.mmode.mmax + 1."
+    ),
+    "mmode_tail_nyquist": (
+        "obs_time.sidereal_samples must be at least 2 * resolved mcheck + 1 for "
+        "the mandatory m-tail diagnostic."
+    ),
+    "mmode_quadrature": (
+        "execution.mmode.lmax must be at most 2 * execution.mmode.quadrature_nside."
+    ),
+    "mmode_time_smearing": (
+        "execution.simulator='mmode' owns ERA top-hat integration; "
+        "jones.Q.time_smearing must be false."
+    ),
+    "mmode_static_gain": (
+        "execution.simulator='mmode' requires jones.G.time_model.kind='constant'."
+    ),
+    "mmode_phase_center": (
+        "execution.simulator='mmode' requires the canonical fixed zenith-drift "
+        "phase centre."
+    ),
+    "mmode_point_morphology": (
+        "execution.simulator='mmode' does not yet support Gaussian point-source "
+        "morphology; use rime or remove the morphology."
+    ),
+    "mmode_polarization_frame": (
+        "polarized m-mode input requires an explicit canonical "
+        "tangent-polarization frame."
+    ),
+    "mmode_iers_range": (
+        "the full-sidereal UTC mapping is outside the available offline IERS table."
+    ),
+    "mmode_truncation_check": (
+        "execution.mmode.lmax leaves no room for the required harmonic tail check."
+    ),
+    "mmode_horizon_unresolved": (
+        "execution.simulator='mmode' could not certify complete horizon-root "
+        "isolation; tangent, identically-zero, and unresolved intervals are "
+        "rejected."
+    ),
+    "mmode_m1_scalar_only": (
+        "MModeSimulator phase M1 accepts Stokes I only; non-zero Q, U, or V "
+        "requires accepted phase M2."
+    ),
+}
+
+#: Section 7.3's ceiling.  ``lmax = 4096``, and every input above ``4088``, is a
+#: typed rejection rather than a claim of convergence: the ceiling reserves at
+#: least eight additional multipoles inside the fixed 4096 transform ceiling.
+MMODE_LMAX_CEILING = 4088
+MMODE_LMAX_FLOOR = 2
+
+
+def _mmode_issue(path: str, code: str) -> ConfigIssue:
+    """Return one Section 8 issue with its exact frozen message."""
+    return ConfigIssue(path, code, MMODE_ISSUE_MESSAGES[code])
+
+
+def _mmode_semantic_issues(config: RadioSimConfig) -> list[ConfigIssue]:
+    """Collect Section 8's cross-field m-mode issues from a valid input model.
+
+    Failure occurs here, before backend allocation, output-path creation, or
+    harmonic work.  The expensive grid-dependent checks -- the derived binary64
+    exposure edges and the offline IERS coverage -- run only once every cheaper
+    rule has passed, so a document with an arithmetic contradiction is rejected
+    without first mapping a full sidereal cycle through Astropy.
+    """
+    from radiosim.core.mmode.types import derive_mmode_dimensions
+
+    issues: list[ConfigIssue] = []
+    simulator = config.execution.simulator
+    block = config.execution.mmode
+    time_input = config.obs_time
+    full_sidereal = isinstance(time_input, FullSiderealObsTimeConfig)
+
+    if simulator == "mmode":
+        if block is None:
+            issues.append(_mmode_issue("execution.mmode", "mmode_block_required"))
+        if not full_sidereal:
+            issues.append(_mmode_issue("obs_time.mode", "mmode_time_grid_required"))
+    else:
+        if block is not None:
+            issues.append(_mmode_issue("execution.mmode", "mmode_block_forbidden"))
+        if full_sidereal:
+            issues.append(_mmode_issue("obs_time.mode", "rime_time_grid_required"))
+
+    if simulator != "mmode" or block is None:
+        return issues
+
+    if not MMODE_LMAX_FLOOR <= block.lmax <= MMODE_LMAX_CEILING:
+        issues.append(_mmode_issue("execution.mmode.lmax", "mmode_truncation_check"))
+    if block.lmax > 2 * block.quadrature_nside:
+        issues.append(_mmode_issue("execution.mmode.lmax", "mmode_quadrature"))
+
+    if full_sidereal:
+        samples = cast(FullSiderealObsTimeConfig, time_input).sidereal_samples
+        if samples < 2 * block.mmax + 1:
+            issues.append(_mmode_issue("obs_time.sidereal_samples", "mmode_nyquist"))
+        dimensions = derive_mmode_dimensions(
+            lmax=block.lmax,
+            mmax=block.mmax,
+            quadrature_nside=block.quadrature_nside,
+        )
+        if samples < 2 * dimensions.mcheck + 1:
+            issues.append(
+                _mmode_issue("obs_time.sidereal_samples", "mmode_tail_nyquist")
+            )
+
+    # Section 8: every accepted Jones term must be stationary in the ground
+    # frame, and the exact ERA top hat already owns exposure averaging.
+    jones = config.jones
+    if jones is not None:
+        smearing = getattr(jones, "Q", None)
+        if smearing is not None and bool(getattr(smearing, "time_smearing", False)):
+            issues.append(_mmode_issue("jones.Q.time_smearing", "mmode_time_smearing"))
+        gain = getattr(jones, "G", None)
+        if gain is not None:
+            model = getattr(gain, "time_model", None)
+            if model is not None and getattr(model, "kind", "constant") != "constant":
+                issues.append(
+                    _mmode_issue("jones.G.time_model.kind", "mmode_static_gain")
+                )
+
+    # Section 1: the phase centre and boresight are the existing fixed zenith.
+    # A ``beams.pointing`` block only validates when at least one authored
+    # offset is non-zero, so its presence is the displacement.
+    if getattr(config.beams, "pointing", None) is not None:
+        issues.append(_mmode_issue("beams.pointing", "mmode_phase_center"))
+
+    if issues or not full_sidereal:
+        return issues
+
+    resolved_time = cast(FullSiderealObsTimeConfig, time_input)
+    from radiosim.core.mmode.time import (
+        exposure_edges_resolve,
+        full_sidereal_iers_covered,
+    )
+
+    if not exposure_edges_resolve(
+        resolved_time.sidereal_samples, resolved_time.integration_fraction
+    ):
+        issues.append(
+            _mmode_issue("obs_time.integration_fraction", "mmode_exposure_resolution")
+        )
+        return issues
+    if not full_sidereal_iers_covered(resolved_time.start_time):
+        issues.append(_mmode_issue("obs_time.start_time", "mmode_iers_range"))
+    return issues
+
+
 def collect_semantic_issues(config: RadioSimConfig) -> tuple[ConfigIssue, ...]:
     """Collect every pure cross-field issue from a valid input model."""
     issues: list[ConfigIssue] = _stage1_semantic_issues(config)
     # Section 4.1.1: Stage-2 document checks run after every Stage-1 aperture
     # and diagnostic check in Section 3.5's fixed order.
     issues.extend(_stage2_semantic_issues(config))
-    if config.obs_time.time_step_seconds > config.obs_time.duration_seconds:
+    # SCI-004 Section 8: the m-mode contract, including the two rules that
+    # decide which time variant belongs to which simulator.
+    issues.extend(_mmode_semantic_issues(config))
+    if isinstance(config.obs_time, ObsTimeConfig) and (
+        config.obs_time.time_step_seconds > config.obs_time.duration_seconds
+    ):
         issues.append(
             ConfigIssue(
                 "obs_time.time_step_seconds",
@@ -2833,9 +3109,15 @@ _KNOWN_FIELDS_BY_PARENT: dict[str, tuple[str, ...]] = {
     "jones.M": tuple(BaselineErrorTermConfig.model_fields),
     "jones.Q": tuple(SmearingTermConfig.model_fields),
     "sky_model": tuple(SkyModelConfig.model_fields),
-    "obs_time": tuple(ObsTimeConfig.model_fields),
+    "obs_time": tuple(
+        sorted(
+            set(ObsTimeConfig.model_fields)
+            | set(FullSiderealObsTimeConfig.model_fields)
+        )
+    ),
     "workflow": tuple(CliWorkflowConfig.model_fields),
     "execution": tuple(ExecutionConfig.model_fields),
+    "execution.mmode": tuple(MModeExecutionConfig.model_fields),
     "execution.precision": tuple(PrecisionInput.model_fields),
     "visibility": tuple(VisibilityConfig.model_fields),
 }
@@ -2867,11 +3149,27 @@ _BEAM_UNION_BRANCH_TAGS = frozenset(
 )
 
 
+#: The ``obs_time`` union tags.  SCI-004 adds one tagged variant beside the
+#: untagged UTC interval, so the same branch-label stripping the beam unions
+#: already need applies here: an authored ``obs_time.duration_seconds`` failure
+#: must report that path, not ``obs_time.utc_interval.duration_seconds``.
+_OBS_TIME_UNION_BRANCH_TAGS = frozenset({"utc_interval", "full_sidereal"})
+
+
 def _logical_schema_location(
     location: Sequence[str | int],
 ) -> tuple[str | int, ...]:
     """Remove Pydantic discriminator branch labels from logical issue paths."""
-    if not location or location[0] != "beams":
+    if not location:
+        return tuple(location)
+    if location[0] == "obs_time":
+        return tuple(
+            item
+            for index, item in enumerate(location)
+            if index == 0
+            or not (isinstance(item, str) and item in _OBS_TIME_UNION_BRANCH_TAGS)
+        )
+    if location[0] != "beams":
         return tuple(location)
     return tuple(
         item

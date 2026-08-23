@@ -387,6 +387,13 @@ def _summary_payload(result: SimulationResult) -> dict[str, object]:
             "phase_center": result.phase_center.to_snapshot(),
             "beam": result.beam_state.to_snapshot(),
             "backend": result.backend.to_snapshot(),
+            # ``docs/development/sci004_mmode_design.md`` Section 10: the
+            # summary carries whichever arm of the strict tagged solver union
+            # the run produced, and stays metadata-only either way.  The
+            # ``rime`` snapshot is byte-identical to what it was before the
+            # union existed; an m-mode run publishes its own exact key set,
+            # including the frame-certificate and bundled-IERS digests, so a
+            # reader can never mistake one arm for the other.
             "solver": result.solver.to_snapshot(),
             "execution": _execution_summary(result),
             "resolved_config": result.resolved_config,

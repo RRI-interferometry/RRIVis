@@ -14,21 +14,31 @@ Current Implementations
       ``RIMESimulator.supports_gpu`` is ``False`` and every measured JAX run is
       slower than NumPy (records: ``output/benchmarks/reference/``,
       register row ``PERF-001``)
+- **mmode**: m-mode full-sidereal harmonic forward model, SCI-004 phase M1
+    - A second *complete* forward model, not an optimization of the direct sum
+    - Scalar in M1: ``supports_polarization`` is ``False`` and non-zero Stokes
+      ``Q``, ``U`` or ``V`` is rejected with ``mmode_m1_scalar_only``
+    - ``supports_gpu`` is ``False``; the recorded transform execution policy
+      ``host_harmonics_backend_native_dense_v1`` splits host-side harmonics from
+      backend-native dense work and is **not** an accelerator claim
 
 Registry
 --------
-``rime`` is the only registered simulator. An FFT/NUFFT solver and a
-matrix-based solver are candidates for a future registration, not shipped code
-and not a promise attached to a version number; nothing here measures or claims
-what they would cost.
+The registry holds ``rime`` and ``mmode``, and its keys are exactly the accepted
+values of ``execution.simulator``.  An FFT/NUFFT solver and a matrix-based
+solver are candidates for a future registration, not shipped code and not a
+promise attached to a version number; nothing here measures or claims what they
+would cost.
 
 Quick Start
 -----------
 >>> from radiosim.simulator import get_simulator, list_simulators
 >>>
 >>> # List available simulators
->>> print(list_simulators())
-{'rime': 'Direct RIME summation (accurate reference implementation)'}
+>>> for name in sorted(list_simulators()):
+...     print(name)
+mmode
+rime
 >>>
 >>> # Get a simulator instance
 >>> sim = get_simulator("rime")
@@ -73,13 +83,23 @@ radiosim.core.visibility : Core visibility calculation
 radiosim.core.jones : Jones matrix framework
 """
 
-from radiosim.simulator.base import VisibilitySimulator
+from radiosim.simulator.base import (
+    SkySolveOutcome,
+    SkySolveRequest,
+    VisibilitySimulator,
+)
+from radiosim.simulator.mmode import MModeSimulator
 from radiosim.simulator.rime import RIMESimulator
 
 # Registry of available simulators
-# Maps simulator name -> simulator class
+# Maps simulator name -> simulator class.  ``docs/development/
+# sci004_mmode_design.md`` Section 2 keeps one standing invariant exact:
+# ``accepted values of execution.simulator == simulator registry keys``.  A new
+# algorithm therefore arrives as a registry entry the single selector already
+# honours, never as a second unread configuration field.
 _SIMULATORS: dict[str, type[VisibilitySimulator]] = {
     "rime": RIMESimulator,
+    "mmode": MModeSimulator,
 }
 
 # Default simulator to use
@@ -98,10 +118,11 @@ def get_simulator(name: str = "rime") -> VisibilitySimulator:
     ----------
     name : str, optional
         Simulator name. The accepted values are exactly the keys of the
-        registry, which currently holds one: ``"rime"``, direct RIME
-        summation, which is also the default. Any other name raises
-        ``ValueError`` naming the registered set, so this docstring cannot
-        drift into advertising a solver that is not registered.
+        registry, which holds ``"rime"`` -- direct RIME summation, and the
+        default -- and ``"mmode"``, the SCI-004 m-mode full-sidereal harmonic
+        forward model. Any other name raises ``ValueError`` naming the
+        registered set, so this docstring cannot drift into advertising a
+        solver that is not registered.
 
     Returns
     -------
@@ -165,9 +186,10 @@ def list_simulators() -> dict[str, str]:
     >>> from radiosim.simulator import list_simulators
     >>>
     >>> sims = list_simulators()
-    >>> for name, desc in sims.items():
-    ...     print(f"{name}: {desc}")
-    rime: Direct RIME summation (accurate reference implementation)
+    >>> print(sims["rime"])
+    Direct RIME summation (accurate reference implementation)
+    >>> print(sims["mmode"])
+    m-mode full-sidereal harmonic forward model (phase M1, scalar)
     >>>
     >>> # Check if a specific simulator is available
     >>> if "fft" in list_simulators():
@@ -196,8 +218,8 @@ def get_simulator_names() -> list[str]:
     --------
     >>> from radiosim.simulator import get_simulator_names
     >>> names = get_simulator_names()
-    >>> print(names)
-    ['rime']
+    >>> print(sorted(names))
+    ['mmode', 'rime']
     """
     return list(_SIMULATORS.keys())
 
@@ -224,7 +246,11 @@ def get_default_simulator() -> str:
 __all__ = [
     # Base class
     "VisibilitySimulator",
+    # The whole-SkyModel strategy boundary
+    "SkySolveOutcome",
+    "SkySolveRequest",
     # Implementations
+    "MModeSimulator",
     "RIMESimulator",
     # Factory functions
     "get_simulator",

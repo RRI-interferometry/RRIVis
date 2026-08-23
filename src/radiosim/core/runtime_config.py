@@ -316,18 +316,33 @@ class ResolvedExecutionConfig:
 
     backend_strategy: Literal["auto", "numpy", "jax", "dask"]
     precision: PrecisionConfig
-    simulator: Literal["rime"]
+    #: ``docs/development/sci004_mmode_design.md`` Section 2: the accepted
+    #: values are exactly the simulator registry keys.
+    simulator: Literal["rime", "mmode"]
     offline: bool
     sky_loading: ResolvedSkyLoadingConfig
     solver: ResolvedSolverExecutionConfig
+    #: The resolved ``execution.mmode`` block.  ``None`` -- the only value a
+    #: direct run may carry -- means the document declared no m-mode block, and
+    #: Section 8 makes an absent block never change a direct run.
+    mmode: Any = None
 
     def __post_init__(self) -> None:
+        from radiosim.io.config import MModeExecutionConfig
+
         if self.backend_strategy not in {"auto", "numpy", "jax", "dask"}:
             raise ValueError("backend_strategy is not supported")
         if type(self.precision) is not PrecisionConfig:
             raise TypeError("precision must be a PrecisionConfig")
-        if self.simulator != "rime":
-            raise ValueError("simulator must be 'rime'")
+        if self.simulator not in {"rime", "mmode"}:
+            raise ValueError("simulator must be 'rime' or 'mmode'")
+        if self.mmode is not None and type(self.mmode) is not MModeExecutionConfig:
+            raise TypeError("mmode must be a MModeExecutionConfig or None")
+        if (self.mmode is None) != (self.simulator != "mmode"):
+            raise ValueError(
+                "execution.mmode is required with simulator='mmode' and "
+                "forbidden otherwise"
+            )
         if type(self.offline) is not bool:
             raise TypeError("offline must be a boolean")
         if type(self.sky_loading) is not ResolvedSkyLoadingConfig:
@@ -461,6 +476,12 @@ class ResolvedSimulationConfig:
     frequency: ResolvedFrequencyConfig
     visibility: FrozenMapping
     execution: ResolvedExecutionConfig
+    #: The validated ``obs_time`` input, carried through resolution untouched so
+    #: a consumer can read which of the two Section 3.2 variants was declared.
+    #: ``ResolvedObservationConfig`` keeps the canonical UTC sample grid either
+    #: way; this record is what distinguishes an m-mode full-sidereal cycle from
+    #: a UTC-uniform interval that happens to have the same sample count.
+    obs_time: Any = None
     receptors: ReceptorsConfig = field(default_factory=_default_receptors_config)
     #: The Tier 7 ``jones:`` section, carried through resolution untouched.
     #: ``None`` means the document selected the current empty optional-term

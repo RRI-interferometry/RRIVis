@@ -1002,3 +1002,79 @@ Read the value with `get_required_services(sky_model_config)`, which returns
 the set of services a configuration will actually reach. A custom loader that
 imports a network client and declares no service is now a test failure, not a
 silent one.
+
+## The simulator registry gained a second entry (2026-08-22)
+
+### `execution.simulator` now accepts `mmode` as well as `rime`
+
+`SCI-004` phase M1 registers the m-mode full-sidereal harmonic forward model.
+The standing invariant is unchanged and still exact — the accepted values of
+`execution.simulator` are exactly the simulator registry keys — but that set is
+now `{"rime", "mmode"}`. Nothing about a direct run changes: `rime` remains the
+default, its arithmetic, component order, source reduction, result bytes and
+fingerprints are unchanged, and an absent `execution.mmode` block never changes
+a direct run.
+
+| Was | Now |
+| --- | --- |
+| `execution.simulator: Literal["rime"]` | `execution.simulator: Literal["rime", "mmode"]` |
+| `ExecutionConfig` had no m-mode block | `execution.mmode`, required with `mmode` and rejected with `rime` |
+| `obs_time` was one untagged UTC interval | `obs_time` is a two-shape union; the untagged interval is unchanged and remains the only `rime` input |
+
+### `VisibilitySimulator` grew a whole-`SkyModel` boundary
+
+Before this change the registry was not a full-sky strategy boundary:
+`calculate_visibilities` accepted `SourceArrays`, so the abstract interface
+described only the point component; `Simulator.run()` always called
+`core.hybrid.solve_sky` itself; and `solve_sky` dispatched point sources
+through the registered object while calling `calculate_visibility_healpix`
+directly. Registering a second algorithm against that interface would have been
+false architecture, because HEALPix and hybrid runs would still have bypassed
+it.
+
+`VisibilitySimulator.solve(request)` is the replacement boundary. It takes one
+immutable `SkySolveRequest` carrying the whole resolved `SkyModel` and returns
+one `SkySolveOutcome`.
+
+| Was | Now |
+| --- | --- |
+| `Simulator.run()` called `core.hybrid.solve_sky(...)` directly | `Simulator.run()` calls only `get_simulator(name).solve(request)` |
+| a strategy implemented `calculate_visibilities(SourceArrays, ...)` only | a strategy implements `solve(SkySolveRequest)`; `RIMESimulator` still implements both, and its `solve` is a thin wrapper around the same `solve_sky` path |
+| `HybridSolveOutcome.component_names` was read by the API | `SkySolveOutcome.components` |
+
+`calculate_visibilities` is not removed: it is still the point-component kernel
+`solve_sky` dispatches through, and `RIMESimulator` still implements it
+unchanged. `MModeSimulator` deliberately does not: it raises rather than
+quietly delegating a point-only call to a direct kernel.
+
+### `RIMESimulator.supports_polarization` is a class attribute, not a property
+
+`SCI-004` Section 9 makes capability truth phase-local and pins two facts in one
+assertion: `MModeSimulator.supports_polarization is False` beside the unchanged
+`RIMESimulator.supports_polarization is True`. Reading both from the classes
+themselves is what makes the pair checkable, so the flag is now a plain class
+attribute on both. Instance access is unaffected.
+`RIMESimulator.supports_gpu` remains a property and remains `False`; no
+end-to-end accelerator run of any RadioSim solver has been measured (register
+row `PERF-001`).
+
+### `SimulationResult.solver` is a tagged union
+
+A direct run still carries the unchanged `SolverResultProvenance`, with the same
+six fields and byte-identical serialization. An m-mode run carries
+`MModeSolverResultProvenance` instead. Readers reconstruct and authenticate
+whichever arm was written; a reader that silently relabels an m-mode record as
+`rime` is a failure rather than a fallback.
+
+### HEALPix sky coefficients under `mmode` are the pixel measure
+
+The m-mode sky path reads a HEALPix payload as the **pixel measure**
+`a_lm = sum_pix(s_pix * Omega_pix * conj(Y_lm(n_pix)))` over canonical-RING
+pixel centres — the same measure the private direct oracle sums. A continuous
+band-limited reinterpretation of the map, a ring-weighted quadrature, or any
+iterated transform is a different sky object and is rejected. This affects only
+the `mmode` path; the direct solvers' HEALPix handling is unchanged.
+
+`SCI-004` remains `ROADMAP`. The design gate is accepted and the production
+phases are separately gated; registering the strategy does not close the row,
+and phase M1 makes no polarized, fingerprint, speed or accelerator claim.

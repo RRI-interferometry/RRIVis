@@ -28,8 +28,14 @@ def test_abstract_simulator_capability_defaults_to_false() -> None:
 
 def test_every_registered_simulator_has_an_explicit_unbacked_false() -> None:
     assert RIMESimulator.__dict__["supports_gpu"].fget is not None
+    # WIDENED BY: SCI-004 phase M1.  ``docs/development/
+    # sci004_mmode_design.md`` Section 2 registers the m-mode forward model, and
+    # Section 9 keeps its ``supports_gpu`` explicitly ``False`` -- no
+    # independently accepted end-to-end accelerator record names it either.
+    # Section 13.3 authorizes exactly this inventory widening.
     assert {name: cls().supports_gpu for name, cls in _SIMULATORS.items()} == {
-        "rime": False
+        "mmode": False,
+        "rime": False,
     }
 
 

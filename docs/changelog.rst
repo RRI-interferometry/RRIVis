@@ -6,7 +6,87 @@ All notable changes to RadioSim are documented here.
 [Unreleased]
 ------------
 
-Nothing yet.
+Added
+^^^^^
+
+- ``SCI-004`` phase M1: the m-mode full-sidereal harmonic forward model is
+  registered as ``execution.simulator: mmode``. It is a second *complete*
+  forward model, not a Jones term, a point-source optimization, a map maker, or
+  a new name for the direct sum. The simulator registry is now a whole-``SkyModel``
+  strategy boundary: one immutable ``SkySolveRequest`` carries the resolved sky
+  model, point arrays, instrument view, beam system, location, time and
+  frequency coordinates, receptors, Jones inventory, backend and worker policy,
+  and ``Simulator.run()`` calls only the selected registered strategy.
+  ``RIMESimulator.solve`` is a thin wrapper around the maintained
+  point/HEALPix/hybrid path whose arithmetic, component order, source
+  reduction, result bytes and fingerprints are unchanged.
+- ``execution.mmode``, required with ``simulator: mmode`` and rejected with
+  ``rime``, carrying three exact convention literals and the four truncation
+  dimensions; and the strict ``obs_time`` full-sidereal variant
+  (``mode: full_sidereal``, ``sidereal_samples``, ``integration_fraction``).
+  The untagged UTC interval is unchanged and remains the only ``rime`` input,
+  so every existing document and every serialized ``rime`` snapshot stays
+  byte-identical.
+- The exact-turn ``CanonicalEraGrid``: sample centres, exposure edges and the
+  cell-centred cycle are built in exact rational arithmetic, and each derived
+  radian is one round-to-nearest of ``tau`` times its exact rational with no
+  intermediate binary64 step. Earth orientation comes from exactly one bundled
+  offline table, with no network lookup and no implicit table selection.
+- The frozen-CIRS rigid-ERA frame ``radiosim.frozen-cirs-rigid-era.v1``, with
+  one normative arcsecond-to-radian polar-motion conversion, a geocentric CIRS
+  anchor, the SOFA passive ``[ITRS] = RPOM0 R3(ERA) [CIRS]`` attitude, and a
+  Richardson-extrapolated tangent-transport oracle built from public Astropy
+  transforms only.
+- Orthonormal Condon-Shortley scalar harmonics and the unpadded
+  signed-``m``-major packed block table; analytic point-delta sky coefficients
+  and the HEALPix **pixel measure**
+  ``a_lm = sum_pix(s_pix * Omega_pix * conj(Y_lm))`` -- the same measure the
+  private direct oracle sums, so harmonic-versus-direct agreement tests
+  truncation and nothing else; and the scalar baseline transfer ``B_lm`` on the
+  **iso-Gauss** quadrature grid (``3 * nside`` Gauss-Legendre colatitude rings
+  by ``4 * nside`` uniform azimuths) with its rigid ``exp(+i m alpha)`` rotation
+  law.
+- One shared horizon predicate. Section 6 requires the private direct oracles
+  and the harmonic-transfer kernel to invoke the *identical* implementation of
+  the strict ``alt > 0`` factor -- one code object, never a re-derivation -- so
+  a horizon-application defect cannot differ between the compared models.
+- The operational horizon census as a certified-ceiling scan: a uniform
+  ``2**-12``-turn exact partition refined at every retained centre, edge and
+  frozen root bound, a root-free rule from the design-frozen derivative ceiling,
+  sign-change bisection to a fixed ``1e-11 rad`` enclosure, and probe-sign
+  orientation with a magnitude floor. It consumes only the public Astropy
+  pressure-zero transform, and a cell that reaches the deep-tangency width with
+  neither classification rejects the whole certificate.
+- ``SimulationResult.solver`` is a strict tagged union. The ``rime`` arm is
+  unchanged; an m-mode result carries ``MModeSolverResultProvenance``, whose
+  ``tangent_polarization_frame`` is the exact literal
+  ``not_applicable_scalar_m1`` in phase M1 and whose ``stokes_v_basis_bridge``
+  is always ``radiosim.stokes-ne-theta-phi.v1``.
+
+Notes
+^^^^^
+
+- Phase M1 is **scalar only**. ``MModeSimulator.supports_polarization`` is
+  explicitly ``False`` and any non-zero Stokes ``Q``, ``U`` or ``V`` is rejected
+  with ``mmode_m1_scalar_only``. ``MModeSimulator.supports_gpu`` is ``False``:
+  no end-to-end accelerator run of this solver has been measured, and the
+  recorded ``host_harmonics_backend_native_dense_v1`` policy describes where the
+  work runs rather than claiming an advantage. Register row ``PERF-001`` governs
+  every performance statement. ``SCI-004`` remains ``ROADMAP``: registering the
+  strategy does not close the row, and this phase adds no fingerprint pin.
+- Truncation is gated, not assumed. Every production run executes a two-tier
+  gate before any result exists. Tier 1a gates the harmonic pipeline at
+  ``1e-8`` on a horizon-free cross-quadrature shell -- the same pipeline with
+  the horizon factor removed, whose integrand is smooth and therefore
+  spectrally exact. Tier 1b records the with-horizon shell, which no finite
+  quadrature can make exact under the strict horizon and which is bounded by a
+  reviewed per-fixture budget. Tier 2 reports the truncation deficit against
+  the complete frozen-frame direct oracle, gated on strict monotone decrease
+  across a quarter and a half of ``lmax`` with a quarter-to-full factor of at
+  least two, and discloses it in the result's provenance record. The deficit is
+  never called agreement: the forward product reconstructs the band-limited
+  transfer kernel, so for a delta sky it is exactly ``S*K_L(n_s)`` and the
+  residual is a property of the method.
 
 [0.4.0] - 2026-08-20
 --------------------

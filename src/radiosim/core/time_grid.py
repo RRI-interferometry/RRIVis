@@ -133,6 +133,74 @@ class ObservationTimeGrid:
         return np.array(self.as_astropy().mjd, dtype=np.float64, copy=True)
 
 
+def build_mmode_observation_time_grid(
+    *,
+    start_time_iso: str,
+    utc_jd1: np.ndarray,
+    utc_jd2: np.ndarray,
+    integration_time_seconds: np.ndarray,
+    duration_seconds: float,
+    cadence_seconds: float,
+) -> ObservationTimeGrid:
+    """Publish an m-mode full-sidereal cycle as the canonical UTC sample grid.
+
+    ``docs/development/sci004_mmode_design.md`` Section 3.1 makes the exact turn
+    coordinate authoritative and UTC an *output and provenance* coordinate: the
+    centres, exposure boundaries and horizon cuts are all mapped from exact
+    turns, and the resulting values are then converted to two-part UTC for the
+    existing results and writers.  This factory publishes exactly those already
+    mapped values; it does not re-derive a cadence, and it never regenerates a
+    turn from ``k``, a width or an adjacent edge.
+
+    Parameters
+    ----------
+    start_time_iso : str
+        The canonical UTC anchor spelling.
+    utc_jd1, utc_jd2 : ndarray
+        The two-part UTC sample centres mapped from the retained exact turns.
+    integration_time_seconds : ndarray
+        Each sample's SI-second width, derived from its exact exposure edges.
+    duration_seconds, cadence_seconds : float
+        The retained cycle span and mean sample separation, recorded for the
+        existing provenance surface only.
+    """
+    if type(start_time_iso) is not str or not start_time_iso.strip():
+        raise InvalidTimeGridError("start_time must be a nonblank string")
+    first = np.asarray(utc_jd1, dtype=np.float64)
+    second = np.asarray(utc_jd2, dtype=np.float64)
+    widths = np.asarray(integration_time_seconds, dtype=np.float64)
+    count = int(first.shape[0])
+    if (
+        first.ndim != 1
+        or second.shape != first.shape
+        or widths.shape != first.shape
+        or count == 0
+    ):
+        raise InvalidTimeGridError("m-mode UTC coordinates are invalid")
+    if count > MAX_TIME_SAMPLES:
+        raise TimeGridLimitError(requested_count=count, limit=MAX_TIME_SAMPLES)
+    if (
+        not np.all(np.isfinite(first))
+        or not np.all(np.isfinite(second))
+        or not np.all(np.isfinite(widths))
+        or not np.all(widths > 0.0)
+    ):
+        raise InvalidTimeGridError("m-mode UTC coordinates are invalid")
+    duration = _positive_finite(duration_seconds, field_name="duration_seconds")
+    cadence = _positive_finite(cadence_seconds, field_name="cadence_seconds")
+
+    result = object.__new__(ObservationTimeGrid)
+    object.__setattr__(result, "schema_version", "radiosim.time-grid.v1")
+    object.__setattr__(result, "interval_semantics", "half_open_sample_centers")
+    object.__setattr__(result, "start_time_iso", start_time_iso.strip())
+    object.__setattr__(result, "duration_seconds", duration)
+    object.__setattr__(result, "cadence_seconds", cadence)
+    object.__setattr__(result, "utc_jd1", _immutable_float64(first))
+    object.__setattr__(result, "utc_jd2", _immutable_float64(second))
+    object.__setattr__(result, "integration_time_seconds", _immutable_float64(widths))
+    return result
+
+
 def _positive_finite(value: object, *, field_name: str) -> float:
     if isinstance(value, (bool, np.bool_)):
         raise InvalidTimeGridError(f"{field_name} must be a positive finite number")
