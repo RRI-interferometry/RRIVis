@@ -35,14 +35,22 @@ retuned acceptance fixture against that gate then proved its tier 1
 unattainable by the same quadrature mechanism, and the dated 2026-08-23
 tier-1-horizon-free-shell correction -- dual-``ACCEPT``ed on its own
 pinned bytes and diff, and carrying the required supersession citation of
-``10ae862`` -- landed as ``a67f3c8401e6d6ca4e6f531757df8cdf1598e941``,
-the operative ``D``.
+``10ae862`` -- landed as ``a67f3c8401e6d6ca4e6f531757df8cdf1598e941``
+with the pending ``fe3f786`` reopening standing, and that re-cut landed
+as ``b5af353`` encoding the final two-tier form. Completing S1 to a fully
+green suite then surfaced the beam evaluator's own below-horizon gate,
+and the dated 2026-08-23 ablation-clarification correction --
+dual-``ACCEPT``ed on its own pinned bytes and diff, carrying the required
+supersession citation of ``a67f3c8``, and reopening ``b5af353`` solely
+for rebinding and record regeneration while closing every deferred
+advisory -- landed as ``b8333c52688e9358e4d1747173e70196a60209ab``, the
+operative ``D``.
 
 ``a3afec8`` remains the frozen **gate anchor** (the operative ``D`` when
 the ``G1`` gate ran, equal to ``G1`` itself), and per the corrected
 Section 13.2 the anchor precedes ``G1`` while the operative ``D`` follows
 it through the header-enumerated chain; a correction accepted after a gate
-has run does not re-run that gate. The chain is exactly six links -- the
+has run does not re-run that gate. The chain is exactly seven links -- the
 memo-introducing ``D0``, four superseded design commits, and the operative
 ``D`` -- and the tests below prove from Git objects that no other commit
 between ``D0`` and the operative ``D`` touched the memo.
@@ -84,7 +92,7 @@ import pytest
 #: The operative SCI-004 design commit ``D`` (Section 13.7). Section 14.0
 #: authorises exactly one such assignment in this file, and no later phase may
 #: change it.
-APPROVED_SCI004_D_SHA = "a67f3c8401e6d6ca4e6f531757df8cdf1598e941"
+APPROVED_SCI004_D_SHA = "b8333c52688e9358e4d1747173e70196a60209ab"
 
 #: The globally clean programme tip ``G1`` (Section 13.2). It equals the
 #: frozen gate anchor -- the operative ``D`` at gate time -- and per the
@@ -122,10 +130,10 @@ CERTIFICATE_PATH = "docs/development/sci004_mmode_phase1_wp7_dependency.json"
 CPU_EVIDENCE_TOOL_PATH = "tools/wp7_perf001_cpu_evidence.py"
 
 #: The landed operative-``D`` memo blob.
-D_MEMO_BLOB_SHA256 = "5cb27420d1cbb79ef9c1cededee26c4560ee7dd532e0556368b9c2d91a9d4bc5"
+D_MEMO_BLOB_SHA256 = "51a3f5f730860734d3ff62469f09173af52a72f847c79eeb60acc76d8f9b0830"
 #: The landed operative-``D`` parent-relative memo diff, reproduced hermetically.
 D_LANDED_MEMO_DIFF_SHA256 = (
-    "bd15e8c2b459732ef67febc654f2c6fca88df2b710be7ab61f96cdce633ea4bc"
+    "6c5a48561abf61cdc7f684b211b9074a2c86470785384304526197e2e94276de"
 )
 #: The superseded Phase-0 correction landing (Section 13.7's ``superseded
 #: design`` interval commit) and its landed memo blob.
@@ -178,22 +186,37 @@ D4_PRE_LANDING_FILE_SHA256 = (
 D4_PRE_LANDING_DIFF_SHA256 = (
     "f8ada4348e3ba3598f01510cd5ed10946721ad404ac0a847df37c61e2cc4a760"
 )
+#: The superseded tier-1-horizon-free-shell landing, its landed memo blob and
+#: hunk, and its pre-landing review pins.
+D5_SHA = "a67f3c8401e6d6ca4e6f531757df8cdf1598e941"
+D5_MEMO_BLOB_SHA256 = "5cb27420d1cbb79ef9c1cededee26c4560ee7dd532e0556368b9c2d91a9d4bc5"
+D5_LANDED_MEMO_DIFF_SHA256 = (
+    "bd15e8c2b459732ef67febc654f2c6fca88df2b710be7ab61f96cdce633ea4bc"
+)
+D5_PRE_LANDING_FILE_SHA256 = (
+    "05e535126a3ae345f50b1772e9e7af7f35ae4e5612e105ba9cd28373b03f12e9"
+)
+D5_PRE_LANDING_DIFF_SHA256 = (
+    "df522a6d95d6ef946ec6116f6594d17aa6a401d9c09759bc3ae9485f380dc7c3"
+)
 #: The operative correction's exact *pre-landing* file bytes and
 #: parent-relative diff. These were never committed -- the correction landed
 #: with its own header record appended -- so the accepted header text is their
 #: only authority.
 D_PRE_LANDING_FILE_SHA256 = (
-    "05e535126a3ae345f50b1772e9e7af7f35ae4e5612e105ba9cd28373b03f12e9"
+    "757224b46ae36240020444863043c07ea82b04e6da7e3e5fa32138c1e01f6258"
 )
 D_PRE_LANDING_DIFF_SHA256 = (
-    "df522a6d95d6ef946ec6116f6594d17aa6a401d9c09759bc3ae9485f380dc7c3"
+    "f24b8c183709ff3b734a82e5ee558e48720a85f2662ed0f3136b347f95fed9a0"
 )
-#: The two reopened red-slice commits Section 13.7 records as ``superseded red
-#: slice`` interval commits: the original M1 slice and its first governed
-#: re-cut, each reopened by the correction that directly parents its successor.
+#: The three reopened red-slice commits Section 13.7 records as ``superseded
+#: red slice`` interval commits: the original M1 slice and its two governed
+#: re-cuts, each reopened by the correction that directly parents its
+#: successor.
 REOPENED_RED_SLICE_SHAS: tuple[str, ...] = (
     "724ef948bb7a251d3269247341e109f8bd2c3893",
     "fe3f7865ad4684de8bfa7a305661e4e4bf2fd233",
+    "b5af3539324bfc0784dd544d935cb479289692c4",
 )
 
 #: Section 13.2's exact certificate field list, in the order the memo prints it.
@@ -314,11 +337,19 @@ SCI004_DESIGN_CHAIN: tuple[_DesignCommit, ...] = (
         landed_memo_diff_sha256=D4_LANDED_MEMO_DIFF_SHA256,
     ),
     _DesignCommit(
+        sha=D5_SHA,
+        kind="superseded design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D5_MEMO_BLOB_SHA256,
+        label="tier-1 horizon-free shell",
+        landed_memo_diff_sha256=D5_LANDED_MEMO_DIFF_SHA256,
+    ),
+    _DesignCommit(
         sha=APPROVED_SCI004_D_SHA,
         kind="operative design",
         allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
         memo_blob_sha256=D_MEMO_BLOB_SHA256,
-        label="tier-1 horizon-free shell",
+        label="ablation clarification and deferred advisories",
         landed_memo_diff_sha256=D_LANDED_MEMO_DIFF_SHA256,
     ),
 )
@@ -702,19 +733,21 @@ def test_the_memo_was_introduced_at_d0_with_its_exact_three_path_diff() -> None:
 def test_the_header_enumerated_chain_from_d0_to_the_operative_d_is_exact() -> None:
     """Section 13.7/14.0: every chain link matches its kind and its allowed paths.
 
-    The chain is exactly six links here -- the memo-introducing ``D0``, the
-    superseded Phase-0, R1-authoring-reconciliation, S1-feasibility and
-    two-tier-acceptance-gate corrections, and the accepted
-    tier-1-horizon-free-shell correction that is the operative ``D`` -- and
+    The chain is exactly seven links here -- the memo-introducing ``D0``, the
+    superseded Phase-0, R1-authoring-reconciliation, S1-feasibility,
+    two-tier-acceptance-gate and tier-1-horizon-free-shell corrections, and
+    the accepted ablation-clarification correction that is the operative
+    ``D`` -- and
     the test proves from Git objects that no *other* commit between ``D0``
     and the operative ``D`` touched the memo, so the enumeration is complete
     rather than merely consistent.
     """
-    assert len(SCI004_DESIGN_CHAIN) == 6
+    assert len(SCI004_DESIGN_CHAIN) == 7
     assert SCI004_DESIGN_CHAIN[0].sha == DESIGN_D0_SHA
     assert SCI004_DESIGN_CHAIN[-1].sha == APPROVED_SCI004_D_SHA
     assert [entry.kind for entry in SCI004_DESIGN_CHAIN] == [
         "memo-introducing",
+        "superseded design",
         "superseded design",
         "superseded design",
         "superseded design",
@@ -752,7 +785,7 @@ def test_every_pinned_correction_diff_reproduces_hermetically() -> None:
     """
     pinned = [entry for entry in SCI004_DESIGN_CHAIN if entry.landed_memo_diff_sha256]
 
-    assert len(pinned) == 3
+    assert len(pinned) == 4
     for entry in pinned:
         assert (
             _hermetic_diff_digest(entry.sha, DESIGN_MEMO_PATH)
@@ -781,6 +814,8 @@ def test_every_recorded_review_digest_appears_in_the_accepted_memo_header() -> N
         D3_PRE_LANDING_DIFF_SHA256,
         D4_PRE_LANDING_FILE_SHA256,
         D4_PRE_LANDING_DIFF_SHA256,
+        D5_PRE_LANDING_FILE_SHA256,
+        D5_PRE_LANDING_DIFF_SHA256,
         D_PRE_LANDING_FILE_SHA256,
         D_PRE_LANDING_DIFF_SHA256,
     ):
@@ -790,7 +825,7 @@ def test_every_recorded_review_digest_appears_in_the_accepted_memo_header() -> N
     # Section 13.7 requires every correction's header record to cite the commit
     # it superseded by SHA, and a correction that reopens a committed red slice
     # to cite that slice too.
-    for superseded in (D1_SHA, D2_SHA, D3_SHA, D4_SHA):
+    for superseded in (D1_SHA, D2_SHA, D3_SHA, D4_SHA, D5_SHA):
         assert superseded in memo, superseded
     for reopened in REOPENED_RED_SLICE_SHAS:
         assert reopened in memo, reopened
@@ -799,6 +834,7 @@ def test_every_recorded_review_digest_appears_in_the_accepted_memo_header() -> N
     assert D2_PRE_LANDING_FILE_SHA256 != D2_MEMO_BLOB_SHA256
     assert D3_PRE_LANDING_FILE_SHA256 != D3_MEMO_BLOB_SHA256
     assert D4_PRE_LANDING_FILE_SHA256 != D4_MEMO_BLOB_SHA256
+    assert D5_PRE_LANDING_FILE_SHA256 != D5_MEMO_BLOB_SHA256
     assert D_PRE_LANDING_FILE_SHA256 != D_MEMO_BLOB_SHA256
     for entry in SCI004_DESIGN_CHAIN:
         if entry.landed_memo_diff_sha256:
