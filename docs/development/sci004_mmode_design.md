@@ -32,6 +32,50 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-24 (un-ignoring the granted reference
+records).** Authoring the phase-3 red slice measured the third
+unexercisable-grant-class defect: Section 13.5 grants `S3` the
+`output/benchmarks/reference/README.md` and `E3` the one
+`output/benchmarks/reference/sci004/` performance record, but
+`.gitignore`'s `output/benchmarks/reference/*` rule excludes both
+(measured by `git check-ignore -v`, rule line 184), and no M3 phase list
+grants `.gitignore` — the same class Section 13.2 records for the WP-7
+`pixi.toml` freeze and the struck `S2` grant of
+`src/radiosim/benchmarks/record.py`. Section 13.5's `S3` list now
+grants `.gitignore`, scoped to the negation rules un-ignoring exactly
+those two granted paths in the established perf001 block form. Because
+the phase-3 red slice `62a7d3d90dcbf0488e8b7c875ae5f95acba007b6` landed
+directly on its gate tip before this correction, this landing sits
+between `R3` and `S3`: per Section 13.7's later-phase-commit rule the
+`R3 -> S3` edge is starred, `S3` directly parents this correction's
+landing, and Section 14.4's order equation and its `S`-edge restatement
+now show that edge starred; the interval commit is exactly this landing.
+Its exact pre-landing file bytes
+(`sha256:20e104fe73130431ca1122905d3e99a9236981fe5cba067f6601008a15c121ea`)
+and parent-relative diff
+(`sha256:ce79e0ec83552f8453968ef08ce70e6a28d439ca7dc202df02beda0d67270752`)
+received separate independent reviews on 2026-08-24 —
+physics/governance and computational, both `ACCEPT` with no blocking
+findings: both reproduced the `check-ignore` defect at its cited rule
+and line, the computational review proved by a real-commit worktree
+simulation that the phase-3 validator's derived `R3` anchor survives
+this landing and that nothing accepted pins `.gitignore`'s bytes, and
+the governance review verified the later-phase-commit rule against its
+live `R2 ->* S2` precedent in the commit graph. Two advisories stand
+for the `S3` implementation: the `pixi.toml` analogy is
+verification-infeasibility rather than a blocked write-grant, and the
+scope's "negation rules" phrase means the full perf001 four-line block
+form including its companion re-ignore lines, so only the one record
+file and the README are exposed, never the whole `sci004/` subtree.
+It supersedes the description-follows-capability landing
+`b9a9d7a8a49974bae4634f24fbc805077cdc4ef8` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. This correction is design-only: it
+implements no solver, accepts no phase, and does not close the register
+row.
+
 **Bounded correction — 2026-08-24 (the description follows the
 capability).** Executing the singular-capability-pin ruling left one
 live inconsistency the completed source slice cannot lawfully fix:
@@ -3559,6 +3603,10 @@ wrapper leaves every direct path byte-identical before M2 starts.
 - `docs/user_guide/backends.rst`
 - `docs/api/io.rst`
 - `output/benchmarks/reference/README.md` (new)
+- `.gitignore` (the negation rules un-ignoring the granted
+  `output/benchmarks/reference/README.md` and the
+  `output/benchmarks/reference/sci004/` record directory only, in the
+  established perf001 block form)
 
 `E3` may write only:
 
@@ -4718,7 +4766,8 @@ that still reports `SCI-004` as ROADMAP. These are required
 ### 14.4 Mandatory commit order
 
 The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 ->* S2 -> E2 -> A2
-->* G3 -> R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2` and `R2 ->* S2`
+->* G3 -> R3 ->* S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`, and
+`R3 ->* S3`
 stars are the
 concrete effects of the header's starred-edge correction records under
 the Section 13.7 rule above, which collectively enumerate each such
@@ -4744,7 +4793,7 @@ header enumerates the interval and the phase's `R` directly parents the
 operative correction commit. Each `S` directly parents its phase `R` —
 unless a Section 13.7 accepted correction has starred that edge, in
 which case `S` directly parents the operative correction commit per the
-Section 13.7 rule, as `S2` does here — and
+Section 13.7 rule, as `S2` and `S3` do here — and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
