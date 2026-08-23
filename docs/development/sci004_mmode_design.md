@@ -32,6 +32,60 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (guard rows in the retained
+projection).** The guard-interval correction ruled strict-validator
+checks over `guard_interval` rows — the endpoint-sign rule, the
+adjacency-and-position orphan rejection, and the census-reconstruction
+partition "together with the retained root enclosures" — while leaving
+Section 12.1's projection enumeration at its two-classification form, so
+the checks it mandated had no preimage in the retained evidence. The
+finished re-implementation surfaced the contradiction, and measured on
+the bounded driver that the guards are of order a thousand rows against
+the sixteen-million-row full array, so embedding them preserves the
+projection's economy. Section 12.1's projection now retains every
+`scan_crossing`, `excluded_upper_endpoint`, and `guard_interval` row
+verbatim, names the guard rows in the strict validator's embedded-row
+checks and Section 14.2's summary joins, and records the asymmetry
+this creates: a present guard is authenticated geometrically and
+positionally, but a deleted guard row, or a guard outer bound perturbed
+within the width cap, is invisible to the strict
+validator — the projection cannot distinguish a flank that classified
+completely from one whose guard was omitted, and retains nothing beyond
+a guard's outer bound to compare that bound against — and both are
+discharged,
+exactly as any omitted `ceiling_excludes_root` row is, by the mandatory
+`A1` re-derivation against `horizon_scan_ledger_sha256`. It supersedes
+the guard-interval landing
+`52d462668df6583efeceab74a459f83d8b7ea312` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. It reopens, as a `superseded red slice`
+interval commit for a rebind-only re-cut, the re-cut
+`039a057acbaf32ac2b531efc209dbaea2cfbb60a`, which touched exactly
+`tests/unit/test_sci004_phase1_dependency.py`; the standing
+`46b7703a727fdf3afd258034d274933e81ded289`
+superseded-implementation reopening already covers the solver-side
+changes, whose re-implementation has not yet landed. This correction is
+design-only: it implements no solver, accepts no phase, and does not
+close the register row. Its exact pre-landing file bytes
+(`sha256:f33b6ca221e65a761cb15d8def92884de6267b93fb6aad79c24d0fdcf1f6e3f9`)
+and parent-relative diff
+(`sha256:e3ad81f548aedf230a88719ad2a5a484f390978bde9f20e5de49acf6e1706d13`)
+received separate independent reviews on 2026-08-23 — computational and
+physics/governance, both `ACCEPT` after one applied fix round: the
+computational review's mechanical finding (a 7-hex commit citation in
+this record expanded to its full 40-hex form) and two advisories — the
+row-count figure aligned to the document's established sixteen-million
+measurement, and the disposition broadened to name the within-cap
+outer-bound perturbation as a second strict-validator-invisible class
+discharged by the same `A1` reconciliation — with the physics review
+re-deriving the inner-bound-pinned/outer-bound-free mechanism against
+the Section 12 cut rules, the computational review tracing the
+implemented orphan and width-cap checks to confirm the ruled scope, and
+both reviews confirming byte-untouched earlier records. This
+correction's landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-23 (guard intervals and independent
 membership).** The S1 re-implementation's dry-run rehearsal surfaced two
 defects at the scan's edges. First, the literal "gap-free, overlap-free
@@ -2242,7 +2296,8 @@ newline. `horizon_scan_ledger_sha256` is SHA-256 of exactly those bytes,
 computed streamingly at generation. The full terminal-cell array is of
 order ten million rows for the bounded driver, so the retained evidence
 embeds a bounded projection of it rather than the array itself: every
-`scan_crossing` and `excluded_upper_endpoint` row verbatim as
+`scan_crossing`, `excluded_upper_endpoint`, and `guard_interval` row
+verbatim as
 `horizon_scan_crossing_rows`, plus one per-direction summary row as
 `horizon_scan_summary_rows` with exactly `direction_id`,
 `terminal_cell_count`, `boundary_evaluation_count`, `crossing_count`, and
@@ -2251,7 +2306,8 @@ deterministic given the frozen constants, the retained grid object, and
 the public Astropy API, so the full array is reconstructible by replay:
 the `A1` reviewer's certificate re-derivation regenerates it per
 direction and re-digests it against `horizon_scan_ledger_sha256`, while
-the strict evidence validator checks the embedded crossing rows, the
+the strict evidence validator checks the embedded crossing and guard
+rows, the
 summary joins, the summary-count arithmetic
 (`horizon_isolation_interval_count` equals the summary rows'
 `terminal_cell_count` sum), and the digest's form — one of exactly two
@@ -2260,6 +2316,18 @@ transfer-sample concatenations, both made because a multi-gigabyte
 committed artifact and half-million-row ledgers would defeat review
 rather than serve it, and both discharged by the mandatory `A1`
 re-derivation.
+A present `guard_interval` row is authenticated by the reconstruction
+rules above — its adjacency to its crossing's enclosure or another
+guard, its position in the neighbouring terminal cell, its endpoint
+signs, its null root fields, and its width bound — but the projection
+cannot distinguish a flank whose refinement classified completely from
+one whose guard row was omitted, and it retains nothing beyond a
+guard's outer bound to compare that bound against; deleting a retained
+guard row, or perturbing its outer bound within the width cap, is
+therefore invisible to the strict validator, and both are discharged,
+exactly
+as any omitted `ceiling_excludes_root` row is, by that same `A1`
+re-derivation against `horizon_scan_ledger_sha256`.
 The scan identity is a second canonical JSON object with fields, in order,
 `schema_version`, `algorithm_id`, `implementation_files`, `constant_rows`,
 `astropy_version`, `erfa_version`, and `iers_table_sha256`. The first two
@@ -3810,7 +3878,7 @@ schema, order, join, and recomputation predicate. In particular,
 `evaluated_horizon_root_pair_row_count` and the root-pair array length equal
 `D`; `horizon_isolation_interval_count` equals the summary rows'
 `terminal_cell_count` sum across the identical ordered direction IDs, with
-every crossing row joined to its direction's summary and
+every embedded scan row joined to its direction's summary and
 `crossing_count` totals matching the census; and
 `expected_horizon_slab_row_count` equals the sum of all embedded pair-array
 lengths and `horizon_paired_root_count`. The evaluated slab-row count,
