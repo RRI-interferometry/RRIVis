@@ -211,12 +211,18 @@ def test_the_generator_refuses_before_the_evidence_commit_exists() -> None:
 
     At ``S1`` the phase evidence artifact does not exist yet, so the refusal
     names that; at ``E1`` the preflight passes and the empty review record is
-    refused as a malformed argument.  Either way the assertion names a *reason*
-    rather than accepting any non-zero exit, which a generator that refused
-    unconditionally would also produce, and the process always fails closed
-    with a frozen prefix rather than a traceback.
+    refused as a malformed argument; at ``A1`` and beyond ``HEAD`` no longer
+    adds the evidence artifact, so the refusal names that again.  In every
+    state the assertion names a *reason* rather than accepting any non-zero
+    exit, which a generator that refused unconditionally would also produce,
+    and the process always fails closed with a frozen prefix rather than a
+    traceback.  The refusing run must open no output: absent before ``A1``,
+    the acceptance artifact stays absent, and at ``A1`` where it legitimately
+    exists it stays byte-identical.
     """
     module = _tool()
+    artifact = REPOSITORY_ROOT / ARTIFACT
+    before = artifact.read_bytes() if artifact.exists() else None
     completed = subprocess.run(
         [
             sys.executable,
@@ -239,7 +245,8 @@ def test_the_generator_refuses_before_the_evidence_commit_exists() -> None:
     )
     assert completed.stderr.startswith(prefixes)
     assert "Traceback" not in completed.stderr
-    assert not (REPOSITORY_ROOT / ARTIFACT).exists()
+    after = artifact.read_bytes() if artifact.exists() else None
+    assert after == before
     reasons = (
         "not globally clean",
         "commit that adds the phase evidence artifact",
