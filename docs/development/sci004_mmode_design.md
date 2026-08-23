@@ -32,6 +32,58 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (two-tier acceptance gate).** Completing
+S1 against the corrected design proved the Section 7.3 every-run `1e-8`
+direct-equality gate mathematically unattainable: the transfer kernel
+carries the strict horizon step, the band-limited projection of a
+discontinuous kernel converges pointwise only algebraically (measured
+`L^-1`..`L^-1.5`; `1.52 Jy` deviation against a `2.35e-8 Jy` limit on the
+M1 point fixture, a `6.5e7`-fold excess), and reaching `1e-8` would need
+`lmax` of order `1e5` against the design's own `4096` ceiling; a
+pixel-measure sky inherits the same floor through the quadrature-sampled
+above-band remainder, and the fixed `4x`-per-level acceptance rule
+likewise assumed spectral convergence. The program owner ruled for the
+two-tier gate with point skies retained under honest budgets. This
+correction rewrites Section 7.3's gate (tier 1: quadrature-shell fidelity
+at `1e-8` plus the standing `5e-12` analytic oracles; tier 2: the
+truncation deficit computed against the complete frozen direct oracle on
+every run, gated on strict monotone quarter/half/full convergence with a
+`>= 2x` quarter-to-full factor, disclosed in provenance, and bounded per
+acceptance fixture by a reviewed `truncation_budget_jy`), re-rules
+Section 1's reading of Q5's "direct-RIME agreement" accordingly, updates
+the Section 11 `direct_comparison` object to
+`sci004_two_tier_direct.v2`, the Section 14.2 truncation and
+direct-convergence rows, the Section 12.2 family-6 oracle, and the
+Section 14.3 reviewer re-derivations, and adds the convergent-regime
+fixture rule. It supersedes the S1-feasibility-reconciliation landing
+`ef3aa7aac270068ac8ca3d275886ceb25e732d80` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. It also reopens, for one governed re-cut
+that will directly parent this correction's landing, the re-cut M1 red
+slice commit `fe3f7865ad4684de8bfa7a305661e4e4bf2fd233` — henceforth a
+`superseded red slice` interval commit touching only Section 13.3 `R1`
+paths — whose `tests/integration/test_sci004_mmode.py` pins the
+superseded single-predicate gate and whose fixture must be retuned into
+the convergent regime; the re-cut regenerates
+`docs/development/sci004_mmode_phase1_red_failures.json` under Section
+13.7's disposal rule and rebinds the dependency validator's operative-`D`
+constants. This correction is design-only: it implements no solver,
+accepts no phase, and does not close the register row. Its exact
+pre-landing file bytes
+(`sha256:437ae3a2e8cd0b733eb21a97435714dd70535038820c136fe39d4ead1dacd069`)
+and parent-relative diff
+(`sha256:f8ada4348e3ba3598f01510cd5ed10946721ad404ac0a847df37c61e2cc4a760`)
+received separate independent reviews on 2026-08-23 — physics/governance
+and computational, both `ACCEPT` after one applied blocker round (the
+`lmax >= 4` well-posedness floor for the tier-2 convergence levels, whose
+minimality both reviewers proved independently) — with one recorded
+clarification: the floor is enforced through the existing
+`mmode_truncation_check` semantic code, so "reject at schema level" in the
+floor paragraph reads as "reject at validation time". This correction's
+landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-22 (S1 feasibility reconciliation).**
 Implementing the M1 production slice against the corrected design proved
 three of its requirements defective and surfaced three more unlisted-pin
@@ -160,6 +212,14 @@ The observing regime is deliberately narrow:
   map making, pseudo-inverses, KL filtering, power-spectrum estimation,
   calibration, tracking, drift-and-shift, missing samples, and partial-day
   windows are not part of `SCI-004`.
+
+The driver's "direct-RIME agreement" is operationally the Section 7.3
+two-tier gate: harmonic-pipeline fidelity is gated at `1e-8` through
+same-truncation cross-quadrature and analytic oracles, while the
+comparison against the complete frozen direct oracle is computed on every
+run as a truncation deficit that must converge and is always disclosed —
+never asserted as numerical equality, which a band-limited representation
+of the strict-horizon kernel cannot attain at any admissible `lmax`.
 
 The driver's "HERA-like" label names the compact drift-scan core regime; it
 is not itself an admission rule. The sole admission authority for any
@@ -987,12 +1047,19 @@ The strict m-mode block declares `lmax`, `mmax`, and `quadrature_nside`.
 Validation requires
 
 ```text
-2 <= lmax <= 4088
+4 <= lmax <= 4088
 0 <= mmax <= lmax
 quadrature_nside is a power of two, at least 2
 lmax <= 2 * quadrature_nside
 sidereal_samples >= 2 * mmax + 1
 ```
+
+The `4` floor is a well-posedness requirement of the two-tier gate below:
+it is the smallest `lmax` for which the tier-2 convergence levels satisfy
+`L1 < L2 < lmax` unconditionally, so every legally configurable run can
+evaluate the mandatory gate as specified; `lmax` of `2` or `3` would leave
+`L2` at or beyond `lmax` and the strict monotone predicate structurally
+unsatisfiable, and both reject at schema level.
 
 A transfer grid of resolution `nside` is the **iso-Gauss grid**: `3*nside`
 Gauss-Legendre colatitude rings — the nodes and weights of the
@@ -1138,47 +1205,95 @@ four maxima, the largest field/block delta, and the reference value
 attribution. They are not a correctness bound: a finite local shell cannot
 exclude power in an arbitrarily more distant omitted `l` or signed-`m` block.
 
-The authoritative truncation gate instead compares `V0`, on **every
-production run**, with the complete final 128-node, horizon-split frozen-frame
-direct cube `F128` and its root-enclosure error cube `EF`, already retained in
-memory for that run's Section 4.2 certificate. Their model/order-qualified
-digests must equal the certificate's `frozen_gauss128_cube_sha256` and
-`frozen_enclosure_error_cube_sha256`; an alternate recomputation or subset is
-forbidden. In the canonical correlation view all cubes have shape
-`[N,B,F,4]`. Let
+The authoritative acceptance structure is the **two-tier gate**, executed on
+**every production run** before any result or output path is created. It
+replaces the earlier single `1e-8` direct-equality predicate, which is
+mathematically unattainable for this forward model: the transfer kernel
+carries the strict horizon step, a band-limited projection of a
+discontinuous kernel converges pointwise only algebraically
+(`L^-1`..`L^-1.5` measured), and reaching `1e-8` would need `lmax` of order
+`1e5`, far beyond the fixed `4096` transform ceiling. For a delta sky the
+forward product is exactly `S*K_L(n_s)` — the band-limited kernel sample —
+so the deficit against the exact direct sum is a property of the method,
+not an implementation defect; a pixel-measure sky inherits the same floor
+through the quadrature-sampled above-band remainder. The two tiers
+separate what must be numerically exact from what must be honestly
+attributed.
+
+**Tier 1 — harmonic-pipeline fidelity, gating at `1e-8`.** The quadrature
+local shell becomes a gate: with `V_q = V(lmax,mmax,qcheck)`,
+`K = 4*N*B*F`, and `S_num = max(1 Jy, max(abs(V_q)))`, both
 
 ```text
-K = 4*N*B*F
+max(abs(V0-V_q)) <= 1e-8*S_num + 1e-10 Jy
+norm(V0-V_q) / max(norm(V_q), sqrt(K)*1 Jy) <= 1e-8
+```
+
+must hold. `V_q` shares `V0`'s exact truncation and differs only in
+quadrature grid, so this bounds quadrature and pipeline fidelity without
+conflating truncation; the Section 12.2 analytic single-mode, DFT, and
+exposure-sinc oracles at `5e-12` remain the other half of this tier.
+
+**Tier 2 — attributed direct comparison, gating on convergence.** The
+complete final 128-node, horizon-split frozen-frame direct cube `F128` and
+its root-enclosure error cube `EF` are still computed and retained on
+every run; their model/order-qualified digests must equal the
+certificate's `frozen_gauss128_cube_sha256` and
+`frozen_enclosure_error_cube_sha256`, and an alternate recomputation or
+subset is forbidden. In the canonical correlation view all cubes have
+shape `[N,B,F,4]`. Define the **truncation deficit**
+
+```text
 S_direct = max(1 Jy, max(abs(F128)+EF))
 U_direct = abs(V0-F128) + EF
+deficit_max = max(U_direct)
+deficit_l2 = norm(U_direct) / max(norm(F128), sqrt(K)*1 Jy)
 ```
 
-Before any result or output path is created, both
+The deficit is never called agreement and has no universal numeric limit;
+its honesty obligations are convergence and disclosure. With the
+convergence levels `L1 = max(2, lmax//4)` and
+`L2 = max(L1+1, lmax//2)`, each paired with `min(mmax, level)` and the
+production quadrature, the run computes `deficit_max` at `L1`, `L2`, and
+`lmax` and requires
 
 ```text
-max(U_direct) <= 1e-8*S_direct + 1e-10 Jy
-norm(U_direct) / max(norm(F128), sqrt(K)*1 Jy) <= 1e-8
+deficit_max(L1) > deficit_max(L2) > deficit_max(lmax)
+deficit_max(L1) >= 2 * deficit_max(lmax)
 ```
 
-must hold. `F128.size`, `EF.size`, `V0.size`, and the compared finite-cell count
-must each equal `K` in canonical time/baseline/frequency/correlation order;
-`EF` is finite and non-negative. Their Section 14 qualified identities, all
-separately evaluated counts, both residuals, both fixed limits, exact direct
-output coverage ledger, complete shell/block diagnostic ledger, and counts
-enter provenance. This all-run direct gate, not the local
-shells, prevents a remote omitted mode or cancellation among fields from
-licensing a result.
+— strict monotone decrease and at least the factor an algebraic
+`L^-1/2` tail would produce over a quartering, so a non-converging or
+diverging harmonic representation cannot license a result while the
+attainable algebraic rates (`4x`..`8x` for `L^-1`..`L^-1.5`) pass with
+margin. A `deficit_max(lmax)` of exact zero satisfies both lines. The
+earlier fixed `4x`-per-level acceptance rule assumed spectral convergence
+and is withdrawn; this quarter-to-full factor replaces it.
+
+`F128.size`, `EF.size`, `V0.size`, `V_q.size`, and every compared
+finite-cell count must each equal `K` in canonical
+time/baseline/frequency/correlation order; `EF` is finite and
+non-negative. All Section 14 qualified identities, every separately
+evaluated count, both tier-1 residuals and their fixed limits, the three
+deficit values and the convergence factors, the exact direct output
+coverage ledger, and the complete shell/block diagnostic ledger enter
+provenance; `deficit_max` and `deficit_l2` also enter the result's solver
+provenance so no consumer can read an m-mode result without its measured
+deficit. Acceptance fixtures additionally declare, in the phase evidence,
+a per-fixture `truncation_budget_jy` that `deficit_max` must not exceed —
+a reviewed evidence field, never a YAML knob, and for a point-sky fixture
+an honestly macroscopic one. An acceptance fixture must also sit in the
+convergent regime: its transfer kernel's intrinsic band — of order
+`2*pi*nu_max*b_max/c` plus the beam's spectral width — must lie well
+inside its `lmax`, or the monotone-decrease predicate will honestly
+reject the run before any budget is consulted; a fixture is tuned by
+shrinking its physical scale, never by widening a predicate.
 
 `lmax=4096`, and every input above `4088`, is a typed rejection rather than a
 claim of convergence. The `4088` ceiling reserves at least eight additional
 multipoles within the fixed `4096` transform ceiling. The same ceiling and
 `mcheck` construction reserve a real signed-`m` tail even when `mmax=lmax`.
-
-Acceptance fixtures additionally require the final error to be at least four
-times smaller than each retained lower-`lmax`, lower-`mmax`, and lower-
-quadrature result. This convergence/non-vacuity predicate is additional to the
-same all-run direct maximum and L2 gates; it cannot replace them. These are new
-fixed `SCI-004` bounds; no existing tolerance is changed. The four local shell
+The remaining local shell
 values and their complete block coverage are disclosed as diagnostics and are
 not described as either a global truncation proof or direct-RIME equality.
 
@@ -1548,31 +1663,44 @@ estimated_host_peak_bytes <= working_memory_bytes
 
 ```text
 predicate_id, reference_cube_sha256, candidate_cube_sha256,
-reference_error_cube_sha256, expected_cell_count, compared_finite_cell_count,
-evaluated_error_cell_count, reference_scale_jy,
-maximum_absolute_deviation_jy, maximum_relative_deviation, normalized_l2,
-maximum_absolute_limit_jy, normalized_l2_limit, pass
+reference_error_cube_sha256, quadrature_shell_cube_sha256,
+expected_cell_count, compared_finite_cell_count,
+evaluated_error_cell_count, numerical_scale_jy,
+quadrature_shell_max_jy, quadrature_shell_l2,
+quadrature_shell_max_limit_jy, quadrature_shell_l2_limit,
+reference_scale_jy, deficit_max_jy, deficit_l2,
+deficit_max_quarter_jy, deficit_max_half_jy,
+convergence_factor, pass
 ```
 
-Its predicate ID is `sci004_complete_frozen_direct.v1`; reference and error
+Its predicate ID is `sci004_two_tier_direct.v2`; reference and error
 digests are the authenticated frame certificate's final 128-node frozen direct
-and frozen enclosure-error cubes; candidate equals `result_cube_sha256`. With
-`K=sidereal_samples*n_baselines*n_frequencies*4` and
-`S=max(1 Jy,max(abs(reference)+error))`, validation recomputes:
+and frozen enclosure-error cubes; candidate equals `result_cube_sha256`;
+`quadrature_shell_cube_sha256` is the retained `V(lmax,mmax,qcheck)` cube.
+With `K=sidereal_samples*n_baselines*n_frequencies*4`,
+`S_num=max(1 Jy,max(abs(V_q)))`, and
+`S=max(1 Jy,max(abs(reference)+error))`, validation recomputes every value
+from Section 7.3's two-tier formulas:
 
 ```text
 expected_cell_count = compared_finite_cell_count = evaluated_error_cell_count = K
-maximum_absolute_deviation_jy = max(abs(candidate-reference)+error)
-maximum_relative_deviation = maximum_absolute_deviation_jy / S
-normalized_l2 = norm(abs(candidate-reference)+error) /
+quadrature_shell_max_jy = max(abs(candidate-V_q))
+quadrature_shell_l2 = norm(candidate-V_q)/max(norm(V_q),sqrt(K)*1 Jy)
+quadrature_shell_max_limit_jy = 1e-8*S_num + 1e-10 Jy
+quadrature_shell_l2_limit = 1e-8
+deficit_max_jy = max(abs(candidate-reference)+error)
+deficit_l2 = norm(abs(candidate-reference)+error) /
     max(norm(reference),sqrt(K)*1 Jy)
-maximum_absolute_limit_jy = 1e-8*S + 1e-10 Jy
-normalized_l2_limit = 1e-8
+convergence_factor = deficit_max_quarter_jy / deficit_max_jy
 ```
 
-`normalized_l2` uses `abs(candidate-reference)+error`; `pass` is true exactly
-when all cells are finite, errors are non-negative, and both Section 7.3
-maximum and normalized-L2 predicates pass.
+`pass` is true exactly when all cells are finite, errors are non-negative,
+both tier-1 quadrature-shell predicates pass, and the Section 7.3
+convergence predicates hold
+(`deficit_max_quarter_jy > deficit_max_half_jy > deficit_max_jy` and
+`convergence_factor >= 2`, with an exact-zero `deficit_max_jy` passing
+both). The deficit values are recorded, never bounded by a universal
+limit.
 
 `backend_comparison` has exactly:
 
@@ -2175,8 +2303,9 @@ Minimum oracles are:
    `B_lm(alpha)=B_lm(0)*exp(i*m*alpha)`.
 6. **Direct agreement:** small unpolarized and polarized point, HEALPix, and
    hybrid skies through the common frozen-frame direct oracle and the exact
-   horizon-split procedure in Section 12.1; the every-run complete-direct
-   maximum/L2 gate and certificate-digest/count identity; retained local-shell,
+   horizon-split procedure in Section 12.1; the every-run two-tier gate
+   (quadrature-shell fidelity at `1e-8`, deficit convergence and
+   disclosure) and certificate-digest/count identity; retained local-shell,
    increasing-`lmax`, increasing-`mmax`, and higher-quadrature diagnostics plus
    wrong-sign controls.
 7. **Stationarity/rejections:** nonconstant gain, wrong time variant, Nyquist,
@@ -3336,10 +3465,13 @@ convergence row has exactly `fixture_id`, `input_identity_sha256`,
 `frozen_gauss128_cube_sha256`, `frozen_enclosure_error_cube_sha256`,
 `mmode_cube_sha256`, `gauss_change_max_jy`, `gauss_change_limit_jy`,
 `analytic_piecewise_residual`, `analytic_piecewise_limit`,
-`direct_scale_jy`, `direct_max_jy`, `direct_max_limit_jy`, `direct_l2`,
-`direct_l2_limit`, `wrong_sign_residuals`, and `pass`. Its three certificate
-digests and counts equal the unique same-fixture M2 frame row, and the direct
-maximum/L2 reduction includes its frozen error cube.
+`direct_scale_jy`, `deficit_max_jy`, `deficit_l2`,
+`deficit_max_quarter_jy`, `deficit_max_half_jy`, `convergence_factor`,
+`truncation_budget_jy`, `wrong_sign_residuals`, and `pass`. Its three
+certificate
+digests and counts equal the unique same-fixture M2 frame row, and every
+deficit reduction includes its frozen error cube per Section 7.3's tier-2
+formulas.
 
 Every row in M1 and M2 `truncation_cases` has exactly `fixture_id`,
 `input_identity_sha256`, `frame_certificate_sha256`,
@@ -3351,8 +3483,11 @@ Every row in M1 and M2 `truncation_cases` has exactly `fixture_id`,
 `mmode_cube_sha256`, `direct_scale_jy`, `expected_output_cell_count`,
 `evaluated_frozen_direct_cell_count`, `evaluated_frozen_error_cell_count`,
 `evaluated_mmode_cell_count`, `compared_output_cell_count`, `direct_coverage`,
-`direct_coverage_sha256`, `direct_max_jy`, `direct_max_limit_jy`, `direct_l2`,
-`direct_l2_limit`, `expected_shell_comparison_cell_count`,
+`direct_coverage_sha256`, `quadrature_shell_max_jy`,
+`quadrature_shell_l2`, `quadrature_shell_max_limit_jy`,
+`quadrature_shell_l2_limit`, `deficit_max_jy`, `deficit_l2`,
+`deficit_max_quarter_jy`, `deficit_max_half_jy`, `convergence_factor`,
+`truncation_budget_jy`, `expected_shell_comparison_cell_count`,
 `evaluated_shell_comparison_cell_count`, `expected_transfer_sample_row_count`,
 `evaluated_transfer_sample_row_count`, `expected_field_block_count`,
 `evaluated_field_block_count`, `shell_coverage`, `shell_coverage_sha256`,
@@ -3385,12 +3520,15 @@ row. Every grid ID resolves exactly once in its catalogue.
 
 `shell_coverage` is the complete embedded Section 7.3 preimage and its domain
 is `radiosim.mmode-shell-coverage.v1`; it is not replaceable by counts or a
-bare digest. `direct_scale_jy=max(1 Jy,max(abs(F128)+EF))`,
-`direct_max_limit_jy=1e-8*direct_scale_jy+1e-10`, and
-`direct_l2_limit=1e-8`. `pass` requires every identity, join, digest, count,
-finite-value, direct maximum/L2, and coverage predicate. The shell reference
-and five diagnostic magnitudes are exactly recomputed from embedded rows but
-remain non-gating attribution values.
+bare digest. `direct_scale_jy=max(1 Jy,max(abs(F128)+EF))`; the four
+quadrature-shell values and both limits, the three deficit values, and
+`convergence_factor` are exactly the Section 7.3 two-tier quantities,
+recomputed by the validator; `truncation_budget_jy` is the fixture's
+declared budget and `deficit_max_jy` must not exceed it. `pass` requires
+every identity, join, digest, count, finite-value, tier-1
+quadrature-shell, convergence, budget, and coverage predicate. The shell
+reference and remaining diagnostic magnitudes are exactly recomputed from
+embedded rows but remain non-gating attribution values.
 
 `wrong_sign_residuals` has exactly `fourier_sign_jy`, `v_bridge_jy`,
 `tangent_transport_jy`, and `east_x_permutation_jy`. A polarization row has
@@ -3577,8 +3715,9 @@ slices, active-frequency payload identities, all horizon ledger digests and
 joins, enclosure-based pairing and closed-hull slabs, every mismatch/count,
 internal-boundary ownership, every direct split cell row/preimage, all four
 qualified cube digests, both error cubes, and both certified reductions. It
-must also rederive direct-RIME byte identity, the scalar complete frozen-
-direct/m-mode maximum and L2 gate with exact direct/shell/transfer-sample
+must also rederive direct-RIME byte identity, the scalar two-tier gate —
+the quadrature-shell fidelity predicates and the deficit convergence and
+budget predicates — with exact direct/shell/transfer-sample
 coverage, and all six exact M1 scalar-capability rows.
 Its required `m1.wp7-dependency-gate` oracle authenticates D/G1/WP-7 ancestry,
 nonmerge and immutable-byte predicates, the raw retained certificate, and the
@@ -3586,7 +3725,8 @@ clean detached-worktree replay at the frozen replay descendant.
 `A2` must rederive
 the North/East-to-theta/phi V bridge, one polarized `B_lm` equation, one
 horizon-split exposure, its phase-local frame certificate and four direct/error
-cubes, complete frozen-direct/m-mode maximum and L2 gate, production/qcheck
+cubes, the two-tier gate's fidelity, convergence, and budget predicates,
+production/qcheck
 catalogue and four grid joins, exact direct/transfer-sample/shell/block
 coverage, and local shell diagnostics, plus backend/memory predicates and the
 deliberate Tier 7 capability flip. `A3` must authenticate the exact SCI-005
