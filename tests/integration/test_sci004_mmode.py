@@ -9,18 +9,54 @@ exact common fields ``solver``, ``sky_representation``, ``convention``,
 ``execution_path``, ``components`` and ``component_element_counts``, followed by
 the exact m-mode block this module pins. In M1 ``tangent_polarization_frame`` is
 the exact literal ``not_applicable_scalar_m1`` and ``stokes_v_basis_bridge`` is
-always ``radiosim.stokes-ne-theta-phi.v1``; neither field is nullable.
+always ``radiosim.stokes-ne-theta-phi.v1``; neither field is nullable. That
+twenty-key set is **unchanged** by the two-tier gate: the measured deficit enters
+the result's *provenance record*, never the Section 10 snapshot.
 
-Section 7.3's authoritative truncation gate is not a fixture-only diagnostic: it
-runs on **every production run**, comparing ``V0`` with the complete final
-128-node horizon-split frozen-frame direct cube ``F128`` and its root-enclosure
-error cube ``EF`` already retained for that run's Section 4.2 certificate, under
+**The Section 7.3 two-tier gate.** It executes on every production run before any
+result or output path is created, and it replaces the withdrawn single ``1e-8``
+direct-equality predicate, which is mathematically unattainable for this forward
+model: the transfer kernel carries the strict horizon step, a band-limited
+projection of a discontinuous kernel converges only algebraically, and for a
+delta sky the forward product is exactly ``S*K_L(n_s)`` -- the band-limited kernel
+sample -- so the deficit against the exact direct sum is a property of the
+method, not an implementation defect.
 
-``max(U_direct) <= 1e-8*S_direct + 1e-10 Jy`` and
-``norm(U_direct)/max(norm(F128), sqrt(K)*1 Jy) <= 1e-8``
+*Tier 1a* is the sharp half. The complete harmonic pipeline is evaluated once
+with the horizon factor replaced by ``H === 1`` and everything else identical --
+same grids, beam, fringe, packing, contraction and synthesis -- on both the
+production and ``qcheck`` quadratures, giving ``W0`` and ``W_q``. That integrand
+is smooth, Gauss-Legendre is spectrally exact through the band, and both
 
-*before any result or output path is created*. The local shells are attribution
-diagnostics and are explicitly not a correctness bound.
+``max(abs(W0-W_q)) <= 1e-8*S_num + 1e-10 Jy`` and
+``norm(W0-W_q)/max(norm(W_q), sqrt(K)*1 Jy) <= 1e-8``
+
+must hold, so any sign, normalization, weight, packing or dropped-mode defect in
+the shared pipeline fails sharply. *Tier 1b* still computes the with-horizon
+shell ``V_q`` and records its maximum and normalized L2 in provenance, bounded
+per acceptance fixture by a reviewed ``quadrature_budget_jy`` that lives in the
+phase evidence rather than here. *Tier 2* computes the truncation deficit
+``U = abs(V0-F128) + EF`` at the convergence levels ``L1 = max(2, lmax//4)`` and
+``L2 = max(L1+1, lmax//2)`` and at ``lmax``, and requires strict monotone
+decrease with ``deficit_max(L1) >= 2 * deficit_max(lmax)``. The deficit is never
+called agreement; its obligations are convergence and disclosure.
+
+**The qualified fixture.** Section 7.3 requires an acceptance fixture to sit in
+the convergent regime, whose governing conditions are geometric: every payload
+direction must stay well clear of the horizon over the whole cycle, and ``lmax``
+is pinned by the accepted evidence because the quarter-to-full factor is not
+monotone in ``lmax``. This fixture was qualified by measurement, not by
+argument. At the shipped site (latitude ``-30.72152``) a source pinned at
+declination ``-75`` is circumpolar between ``+15.7`` and ``+45.7`` degrees
+altitude, has **zero** frozen horizon roots, and therefore an exactly zero
+enclosure-error cube. Its measured three-level deficit sequence is
+``7.159e-1 -> 1.847e-1 -> 1.170e-1 Jy``: strict monotone with a quarter-to-full
+factor of ``6.12`` against the required ``2``. That margin is stable -- ``5.0``
+to ``6.5`` across declinations ``-74`` to ``-86``, ``6.06`` to ``6.12`` across
+``N`` of 49 to 97, ``6.12`` to ``7.23`` across the production grid, and ``5.26``
+to ``7.19`` across 45 to 55 MHz -- while the previously shipped transiting
+geometry measured ``1.53`` and a larger ``lmax`` measured ``1.65``. The
+horizon-free shell of the same pipeline measures at the ``1e-10`` level.
 
 This module is the M1 end-to-end red slice for a scalar (Stokes-I point source)
 ``full_sidereal`` run through the public :class:`radiosim.api.Simulator` API. It
@@ -47,7 +83,8 @@ MMODE_QUADRATURE_POLICY = "iso-gauss-ring-production-plus-qcheck.v1"
 MMODE_TRUNCATION_POLICY = "complete-frozen-direct-plus-local-shells.v1"
 MMODE_EXECUTION_POLICY = "host_harmonics_backend_native_dense_v1"
 
-#: Section 10's exact m-mode solver snapshot key set.
+#: Section 10's exact m-mode solver snapshot key set. The two-tier gate does not
+#: widen it: Section 7.3 puts the deficit in the provenance record instead.
 MMODE_SNAPSHOT_KEYS: tuple[str, ...] = (
     "solver",
     "sky_representation",
@@ -71,17 +108,72 @@ MMODE_SNAPSHOT_KEYS: tuple[str, ...] = (
     "transform_execution_policy",
 )
 
-#: Section 7.3's fixed all-run direct-gate limits.
-DIRECT_MAX_RELATIVE_LIMIT = 1e-8
-DIRECT_ABSOLUTE_FLOOR_JY = 1e-10
-DIRECT_L2_LIMIT = 1e-8
+#: Section 11's exact ``sci004_two_tier_direct.v3`` field surface, in order.
+TWO_TIER_GATE_KEYS: tuple[str, ...] = (
+    "predicate_id",
+    "reference_cube_sha256",
+    "candidate_cube_sha256",
+    "reference_error_cube_sha256",
+    "horizon_free_cube_sha256",
+    "horizon_free_qcheck_cube_sha256",
+    "quadrature_shell_cube_sha256",
+    "expected_cell_count",
+    "compared_finite_cell_count",
+    "evaluated_error_cell_count",
+    "numerical_scale_jy",
+    "horizon_free_shell_max_jy",
+    "horizon_free_shell_l2",
+    "horizon_free_shell_max_limit_jy",
+    "horizon_free_shell_l2_limit",
+    "quadrature_shell_max_jy",
+    "quadrature_shell_l2",
+    "reference_scale_jy",
+    "deficit_max_jy",
+    "deficit_l2",
+    "deficit_max_quarter_jy",
+    "deficit_max_half_jy",
+    "convergence_factor",
+    "pass",
+)
 
-SIDEREAL_SAMPLES = 33
-LMAX = 8
-MMAX = 8
+TWO_TIER_PREDICATE_ID = "sci004_two_tier_direct.v3"
+
+#: Section 7.3's fixed tier-1a limits and tier-2 convergence floor.
+HORIZON_FREE_RELATIVE_LIMIT = 1e-8
+HORIZON_FREE_ABSOLUTE_FLOOR_JY = 1e-10
+HORIZON_FREE_L2_LIMIT = 1e-8
+CONVERGENCE_FACTOR_FLOOR = 2.0
+
+#: The qualified fixture's dimensions. ``lmax`` is pinned by the accepted
+#: evidence, not chosen for convenience: Section 7.3 records that the
+#: quarter-to-full factor collapses once ``L1`` itself resolves the smooth
+#: kernel, which the measured ``lmax = 20`` and ``24`` variants confirm.
+SIDEREAL_SAMPLES = 49
+LMAX = 16
+MMAX = 16
 QUADRATURE_NSIDE = 8
 
+#: Section 7.3's derived convergence levels for this ``lmax``.
+CONVERGENCE_LEVEL_QUARTER = max(2, LMAX // 4)
+CONVERGENCE_LEVEL_HALF = max(CONVERGENCE_LEVEL_QUARTER + 1, LMAX // 2)
+
+#: The qualified compact geometry: a 4.0 m east-west baseline between two 2.5 m
+#: dishes at 50/51/52 MHz. ``b > D`` so the two antennas do not overlap.
+BASELINE_EAST_M = 4.0
+DISH_DIAMETER_M = 2.5
+STARTING_FREQUENCY_MHZ = 50.0
+
+#: The circumpolar declination that keeps every payload direction clear of the
+#: horizon over the whole cycle, and the flux the retained loader produces.
+SOURCE_DEC_DEG = -75.0
+MEASURED_SOURCE_FLUX_JY = 5.5
+
 _SCALAR_RUN_FIXTURE = f"""\
+_antenna_layout:
+  baseline_east_m: {BASELINE_EAST_M}
+  diameter_m: {DISH_DIAMETER_M}
+instrument:
+  default_diameter_m: {DISH_DIAMETER_M}
 execution:
   simulator: mmode
   mmode:
@@ -92,6 +184,13 @@ execution:
     mmax: {MMAX}
     quadrature_nside: {QUADRATURE_NSIDE}
     working_memory_bytes: 1073741824
+obs_frequency:
+  mode: grid
+  starting_frequency: {STARTING_FREQUENCY_MHZ}
+  frequency_interval: 1.0
+  frequency_bandwidth: 2.0
+  channel_width: 1.0
+  frequency_unit: MHz
 obs_time:
   mode: full_sidereal
   start_time: "2025-01-01T00:00:00"
@@ -105,6 +204,8 @@ sky_model:
       num_sources: 1
       distribution: uniform
       seed: 1
+      dec_deg: {SOURCE_DEC_DEG}
+      dec_range_deg: 0.0
       spectral_index: 0.0
       polarization_fraction: 0.0
       stokes_v_fraction: 0.0
@@ -141,9 +242,9 @@ SCI004_RED_CASES: tuple[dict[str, Any], ...] = (
         "test_a_scalar_full_sidereal_mmode_run_produces_the_receptor_cube",
     ),
     _case(
-        "m1.integration.every-run-direct-gate",
-        "sci004.section-7.3.all-run-complete-frozen-direct-gate",
-        "test_every_production_run_executes_the_complete_frozen_direct_gate",
+        "m1.integration.every-run-two-tier-gate",
+        "sci004.section-7.3.all-run-two-tier-gate",
+        "test_every_production_run_executes_the_two_tier_gate",
     ),
     _case(
         "m1.integration.solver-snapshot",
@@ -159,13 +260,30 @@ SCI004_RED_GREEN_CONTROLS: tuple[str, ...] = (_GREEN_CONTROL,)
 
 
 def _mmode_mapping(tmp_path: Path) -> dict[str, Any]:
-    """Deep-merge the exact fixture override into the shared valid mapping."""
+    """Deep-merge the exact fixture override into the shared valid mapping.
+
+    A key whose name begins with ``_`` is a fixture-local materialization
+    directive consumed here, never configuration: ``_antenna_layout`` rewrites
+    the shared two-antenna file to the qualified compact geometry, in place, so
+    the resolved ``instrument.source.path`` stays the one the base mapping
+    already points at and the retained fixture bytes stay reproducible.
+    """
     import yaml
 
     from tests.fixtures.configs import valid_config_mapping
 
     override = yaml.safe_load(_SCALAR_RUN_FIXTURE.decode("utf-8"))
     mapping = valid_config_mapping(tmp_path)
+
+    layout = override.pop("_antenna_layout")
+    Path(mapping["instrument"]["source"]["path"]).write_text(
+        "Name Number BeamID E N U Diameter\n"
+        f"ANT0 0 0 0.0 0.0 0.0 {layout['diameter_m']}\n"
+        f"ANT1 1 0 {layout['baseline_east_m']} 0.0 0.0 {layout['diameter_m']}\n"
+    )
+
+    mapping["instrument"] = {**mapping["instrument"], **override["instrument"]}
+    mapping["obs_frequency"] = override["obs_frequency"]
     mapping["obs_time"] = override["obs_time"]
     mapping["sky_model"] = override["sky_model"]
     mapping["execution"] = {**mapping["execution"], **override["execution"]}
@@ -239,12 +357,21 @@ def test_a_scalar_full_sidereal_mmode_run_produces_the_receptor_cube(
     assert float(np.max(np.abs(cube))) > 0.0
 
 
-def test_every_production_run_executes_the_complete_frozen_direct_gate(
-    tmp_path,
-) -> None:
-    """Section 7.3: the all-run gate, with its fixed limits and full coverage."""
+def test_every_production_run_executes_the_two_tier_gate(tmp_path) -> None:
+    """Section 7.3/11: the every-run two-tier gate on its ``v3`` field surface.
+
+    Tier 1a is the only half with a fixed numeric limit. Tier 1b is recorded and
+    carries no universal limit -- its budget is a reviewed phase-evidence field,
+    not a predicate here -- and tier 2 gates on convergence, never on equality.
+    """
+    import math
+
     result = _run(tmp_path)
     gate = result.solver.direct_gate
+    record = gate.as_mapping()
+
+    assert tuple(record) == TWO_TIER_GATE_KEYS
+    assert record["predicate_id"] == TWO_TIER_PREDICATE_ID
 
     expected_cells = (
         SIDEREAL_SAMPLES
@@ -252,25 +379,62 @@ def test_every_production_run_executes_the_complete_frozen_direct_gate(
         * len(result.frequencies_hz)
         * 4
     )
-    assert gate.expected_cell_count == expected_cells
-    assert gate.compared_finite_cell_count == expected_cells
-    assert gate.evaluated_error_cell_count == expected_cells
-    assert gate.maximum_absolute_limit_jy == (
-        DIRECT_MAX_RELATIVE_LIMIT * gate.reference_scale_jy + DIRECT_ABSOLUTE_FLOOR_JY
+    assert record["expected_cell_count"] == expected_cells
+    assert record["compared_finite_cell_count"] == expected_cells
+    assert record["evaluated_error_cell_count"] == expected_cells
+
+    # Tier 1a -- the horizon-free shell, gating at 1e-8 against S_num.
+    assert record["horizon_free_shell_max_limit_jy"] == (
+        HORIZON_FREE_RELATIVE_LIMIT * record["numerical_scale_jy"]
+        + HORIZON_FREE_ABSOLUTE_FLOOR_JY
     )
-    assert gate.normalized_l2_limit == DIRECT_L2_LIMIT
-    assert gate.maximum_absolute_deviation_jy <= gate.maximum_absolute_limit_jy
-    assert gate.normalized_l2 <= gate.normalized_l2_limit
-    assert gate.pass_ is True
-    # The gate reference is the certificate's own retained cube, not a recompute.
-    assert gate.reference_cube_sha256 == result.solver.frozen_gauss128_cube_sha256
-    assert gate.reference_error_cube_sha256 == (
+    assert record["horizon_free_shell_l2_limit"] == HORIZON_FREE_L2_LIMIT
+    assert (
+        record["horizon_free_shell_max_jy"] <= record["horizon_free_shell_max_limit_jy"]
+    )
+    assert record["horizon_free_shell_l2"] <= record["horizon_free_shell_l2_limit"]
+    assert (
+        record["horizon_free_cube_sha256"] != record["horizon_free_qcheck_cube_sha256"]
+    )
+
+    # Tier 1b -- the with-horizon shell is recorded, and deliberately unbounded
+    # here: the strict horizon step makes no finite quadrature exact, so this
+    # value carries a reviewed per-fixture budget in the phase evidence instead.
+    assert math.isfinite(record["quadrature_shell_max_jy"])
+    assert math.isfinite(record["quadrature_shell_l2"])
+    assert record["quadrature_shell_max_jy"] >= 0.0
+    assert record["quadrature_shell_cube_sha256"] != record["candidate_cube_sha256"]
+
+    # Tier 2 -- strict monotone decrease and the quarter-to-full factor.
+    assert (
+        record["deficit_max_quarter_jy"]
+        > record["deficit_max_half_jy"]
+        > record["deficit_max_jy"]
+    )
+    assert record["convergence_factor"] == (
+        record["deficit_max_quarter_jy"] / record["deficit_max_jy"]
+    )
+    assert record["convergence_factor"] >= CONVERGENCE_FACTOR_FLOOR
+    assert record["deficit_l2"] >= 0.0
+
+    assert record["pass"] is True
+    # The tier-2 reference is the certificate's own retained cube, not a
+    # recompute, and the tier-1a cubes are internals that never become a result.
+    assert record["reference_cube_sha256"] == (
+        result.solver.frozen_gauss128_cube_sha256
+    )
+    assert record["reference_error_cube_sha256"] == (
         result.solver.frozen_enclosure_error_cube_sha256
     )
 
 
 def test_the_mmode_solver_snapshot_carries_its_exact_tagged_fields(tmp_path) -> None:
-    """Section 10: the exact tagged snapshot key set, with no nullable field."""
+    """Section 10: the exact tagged snapshot key set, with no nullable field.
+
+    Section 7.3 is explicit that the measured deficit enters the result's
+    *provenance record* and not this key set, so the twenty keys below are
+    unchanged by the two-tier gate and the deficit is asserted absent from them.
+    """
     result = _run(tmp_path)
     snapshot = result.solver.as_mapping()
 
@@ -289,3 +453,5 @@ def test_the_mmode_solver_snapshot_carries_its_exact_tagged_fields(tmp_path) -> 
     assert (snapshot["lmax"], snapshot["mmax"]) == (LMAX, MMAX)
     assert snapshot["quadrature_nside"] == QUADRATURE_NSIDE
     assert all(value is not None for value in snapshot.values())
+    for absent in ("deficit_max_jy", "deficit_l2", "direct_gate"):
+        assert absent not in snapshot
