@@ -32,6 +32,86 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (the direct-RIME basis for constant
+receptor cells).** Implementing the celestial-tangent-transport
+prescription measured it reproducing the defect it diagnoses: with the
+shipped constant receptor matrix as the ground response,
+`J^{ground}·R(χ)` is the identity re-expression of the same
+zenith-singular field — `e^{2iχ}` winds twice about the local zenith,
+measured spread exactly `2.0000` at angular separations `1e-2`, `1e-4`,
+and `1e-6` — so the tier-1a shell fails at `7.45e-3` and `7.13e-3`
+under the two
+transport signs, refining algebraically as `N^{-1.6}`, while the
+untransported constant cells in the celestial tangent basis are
+machine-exact (`3.84e-15` Q-only) and a smooth projected-receptor
+ground field under the same transport is likewise (`1.33e-14`). The
+transport law survives as a correct identity for ground-anchored
+direction-dependent responses; its defective unstated premise — that
+the constant receptor matrix is the `J^{ground}` to transport — is
+superseded. Section 6 now anchors the accepted M2 scope to its own
+standing direct-RIME mandate: the coherency in the celestial North/East
+tangent basis, constant direction-independent chain terms in that same
+basis, every mount-dependent rotation owned by `P` — the exact identity
+for the shipped `fixed` and unspecified mounts — and the accepted M1
+scalar production path has evaluated its harmonics at these same
+celestial angles since its acceptance, so the transported-constant
+kernel was the sole divergence. Section 7.2's conversion sentence is
+re-anchored accordingly; Section 14.3's `A2` V-bridge and
+polarized-`B_lm` re-derivations now confirm the identity-`P` scope and
+the shared celestial basis instead of a transport sign that does not
+exist in the accepted scope (the cancellation premise was re-confirmed:
+`7.45e-3` versus `7.13e-3` under the two signs); Section 13.7 gains
+the general later-phase-commit form of the starred-edge rule and the
+measured-discharge disposal clause; and Section 14.4's order equation
+and its `S`-edge restatement now show the `R2 -> S2` edge starred. The
+successions: the celestial-tangent-transport landing's recorded
+reopening of the phase-2 red slice
+`27d2ba45db57eed3d86fae04ece8128131d2d10e` is discharged without a
+re-cut — the committed conjugate-placement transfer oracle is
+empirically insensitive to the corrected ruling (measured green against
+it), its constant-matrix reference is the admissible celestial-basis
+model, no sign-sensitive oracle is addable in the accepted scope, and
+the retained red record stands unchanged — so `27d2ba45...` remains the
+accepted live `R2` rather than becoming a superseded red slice,
+reversing that single designation of the transport record before any
+re-cut executed. The `R2 -> S2` edge is therefore the starred one:
+`S2` directly parents this correction's landing, and the interval
+commits are exactly the transport landing
+`e02f3975607b821b31c083a197cf7ea23865c062`, the resolved-input landing
+`3b28e615ba6e752ce040f0464e3e55c36604b4a3`, and this landing, the first
+two `superseded design` chain commits. The unit-level transfer helper's
+ENU-labelled quadrature attribute is inherited accepted M1 surface and
+keeps its name. It supersedes the resolved-input-route landing
+`3b28e615ba6e752ce040f0464e3e55c36604b4a3` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. This correction is design-only: it
+implements no solver, accepts no phase, and does not close the register
+row. Its exact pre-landing file bytes
+(`sha256:03e2d4a20e1d362651043b978086582d8cb1ab7e962dfd529e078120df05d112`)
+and parent-relative diff
+(`sha256:32843f801027139b0f34c98f526e528ceb6089396152565f63ed1e4c360e3265`)
+received separate independent reviews on 2026-08-23 — physics and
+computational, both `ACCEPT` after one applied fix round. The physics
+review independently derived the pole-compensation reconciliation — a
+spin-`s` constant field in the expansion's own celestial basis is
+exactly the `l=|s|` mode, machine-exact by finite-band representability,
+while the local zenith is an uncompensated interior point — re-ran every
+probe fresh (winding spread exactly `2.0000` at all three separations;
+`3.838e-15` / `7.448e-3` / `7.131e-3` / `1.329e-14`; the asymptotic
+`log2` refinement ratio `≈1.6`), verified the direct-RIME anchoring in
+the committed Jones code, and established by reading the committed
+oracle that its constant-matrix celestial-basis reference never was the
+local-basis shortcut the superseded prescription blamed it for — the
+load-bearing fact of the discharge. The computational review's blocking
+finding forced Section 14.4's two-star equation and `S`-edge qualifier
+after proving the draft claimed a 14.4 amendment it had not made, its
+advisories yielded the exact two-sign figures and the explicit Section
+13.7 measured-discharge clause, and both reviews confirmed the
+discharge's empirical predicate against the live oracle. This
+correction's landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-23 (resolved-input route for the tangent
 frame).** Implementing the Section 5.1 declaration surface proved the
 declared frame unroutable: `io/config.py` parses the six-key
@@ -1373,30 +1453,46 @@ machinery simultaneously. The canonical Jones order, half-power
 normalization, east-X/circular receptor semantics, beam normalization, and
 four row-major correlation labels are unchanged.
 The `θφ` components above are taken in the celestial tangent basis at
-`n̂` — the same basis the Section 5.3 spin expansions use — so
-`J_{p,θφ}(n̂)` carries the conversion Section 7.2's "tangent-basis
-contracts" phrase gestures at, here made exact. Both tangent bases at
-`n̂` come from the one pole-transport construction Section 5.1 fixes for
-the sky's `Q/U` tangent frame, each applied to its own frame's pole
-axis; `χ(n̂)` is the angle of the transported celestial North measured
-in the local tangent basis by `atan2` — measured, never assumed — with
-its sign fixed by the defining relation, confirmed numerically, that the
-sky's local-basis spin combination equals
-`e^{+2iχ(n̂)}` times its celestial-basis value:
-`(Q+iU)_local = e^{+2iχ}(Q+iU)_celestial`. The ground-frame response
-enters the kernel on its sky side through the rotation realizing that
-relation, `J_{p,θφ}(n̂) = J^{ground}_p(n̂)\,R(χ(n̂))`, so the kernel's
-celestial-basis spin-`±2` combinations carry `e^{±2iχ(n̂)}` — the
-matching sign — against
-their local-basis forms; the relation is pinned by an explicit numerical
-integral, under this section's standing rule that changing a library
-call until one test passes is not an alternative convention. A
-direction-independent receptor matrix applied in the rotating local
-`θφ` basis is not an admissible `J(n̂)`: it is singular at the zenith,
-carries no consistent spin weight, and breaks the Section 7.3 tier-1a
-spectral exactness for the spin-`±2` blocks while leaving the spin-0
-blocks machine-exact, so an implementation or an oracle reference built
-that way is defective rather than an alternative convention.
+`n̂` — the same basis the Section 5.3 spin expansions use — and the
+chain enters exactly as the accepted direct RIME applies it: the
+coherency is built in the celestial North/East tangent basis of each
+direction, the chain's direction-independent terms — the receptor
+factors among them — right-multiply it as constant matrices in that
+same basis, and the `P` term owns every mount-dependent tangent
+rotation, equal to the exact identity for the shipped `fixed` and
+unspecified mounts (the accepted parallactic invariant every instrument
+source except a pyuvdata dataset produces). For that accepted M2 scope
+no transport angle enters the kernel at all: constant cells are
+constant coefficients on spin-weighted fields, so they preserve the
+integrand's spin weight and the Section 7.3 spin-`±2` Gauss-Legendre
+quadrature stays spectrally exact — measured at `3.84e-15` (Q-only)
+against the `1.01e-8` limit — and the accepted M1 scalar production
+path has evaluated its harmonics at these same celestial angles since
+its acceptance. A genuinely ground-anchored, direction-dependent
+response — an alt-az mount rotating through a non-identity `P`, or a
+future non-scalar ground-frame beam — enters through the measured
+tangent transport: both tangent bases at `n̂` from the one
+pole-transport construction Section 5.1 fixes for the sky's `Q/U`
+tangent frame, each applied to its own frame's pole axis; `χ(n̂)` the
+angle of the transported celestial North measured in the local tangent
+basis by `atan2` — measured, never assumed — with its sign fixed by the
+numerically confirmed defining relation
+`(Q+iU)_local = e^{+2iχ}(Q+iU)_celestial`; and the composition
+`J_{p,θφ}(n̂) = J^{ground}_p(n̂)\,R(χ(n̂))`, admissible only when
+`J^{ground}_p(n̂)` is itself a smooth field on the sphere (measured
+machine-exact, `1.33e-14` Q-only, for the projected-receptor form). The
+inadmissible object is the local-basis-constant tensor field in any
+chart: `e^{2iχ}` winds twice about the local zenith — measured spread
+exactly `2.0000` at angular separations `1e-2`, `1e-4`, and `1e-6` — so
+transporting a constant `J^{ground}` by `R(χ)` is the identity
+re-expression of the same zenith-singular field and reproduces the
+defect (`7.45e-3` Q-only transported, refining algebraically as
+`N^{-1.6}`, never spectrally), exactly as applying that constant in the
+rotating local basis does. An implementation or an oracle reference
+built either way is defective rather than an alternative convention.
+Section 12.2's "omitted tangent transport" non-vacuity control names
+Section 4.1's one-time ICRS-to-CIRS position-and-tangent transport, not
+this mount rotation; it stays live and unchanged.
 Every SCI-004 cube therefore has `C=4` in the exact resolved matrix order;
 `n_correlations!=4`, an omitted cross-hand, or an evidence formula treating
 `C` as a free cardinality rejects before work.
@@ -1539,8 +1635,11 @@ never substitutes for, merges with, or removes a native direct contributor.
 ### 7.2 Per-antenna and baseline response
 
 For every antenna/frequency, the resolved `BeamSystem` is sampled in the
-reference ground frame and converted through the accepted receptor and
-tangent-basis contracts. The electric response harmonics are an auditable
+reference ground frame and converted through the accepted receptor
+contracts; a ground-anchored direction-dependent response additionally
+carries Section 6's measured tangent transport, while the shipped
+fixed-mount scope applies the constant receptor cells directly in the
+celestial tangent basis, per Section 6. The electric response harmonics are an auditable
 intermediate: their convention and digest are always recorded, while a
 materialized cache is retained only when the declared memory budget permits.
 The normative baseline `B_lm` is nevertheless formed from the full reference
@@ -3419,7 +3518,12 @@ slice, superseded implementation, superseded evidence, or
 post-acceptance repair — touching
 exactly the paths its kind allows, mirroring the accepted SCI-005
 Section 8.3 machinery; the reopened phase's `R` then directly parents the
-operative correction commit. A commit the header does not name invalidates
+operative correction commit, and when accepted corrections intervene
+between two already-defined phase commits without reopening the earlier
+one — between a landed `R` and its `S`, an `S` and its `E`, or an `E`
+and its `A` — the later phase commit likewise directly parents the
+operative correction commit, with the header enumerating the interval
+identically. A commit the header does not name invalidates
 the edge. A `post-acceptance repair` commit repairs an already-accepted
 phase's tracked tooling or validator defect discovered at or after that
 phase's acceptance; it may touch only that phase's Section 13 tool and
@@ -3447,6 +3551,12 @@ authority. The companion ledger row follows the same two stages: the
 reviewed bytes state the round's review as pending, and the verdict
 wording lands only in the same commit as the completed header record.
 
+A recorded reopening whose corrective target is measured not to exist —
+the reopened slice already satisfies the corrected design, verified
+empirically and recorded with the measurement — is discharged by a later
+accepted correction's record without a re-cut: the slice remains the
+phase's live commit, its recorded interval kind reverts, and its
+retained record stands unchanged.
 Disposal follows the accepted SCI-005 Section 7.5 rule exactly: when a
 header-recorded correction supersedes an evidence commit, the reopened
 slice's `S` restores that phase's Section 13 `S`-state — it deletes the
@@ -4450,10 +4560,14 @@ nonmerge and immutable-byte predicates, the raw retained certificate, and the
 clean detached-worktree replay at the frozen replay descendant.
 `A2` must rederive
 the North/East-to-theta/phi V bridge, one polarized `B_lm` equation —
-these two establishing the tangent-transport (parallactic) rotation and
-its sign independently of the implementation, because a consistent sign
-flip through kernel and sky cancels in every paired harmonic-versus-
-direct comparison and no red oracle can pin it — one
+these two confirming, independently of the implementation, that the
+accepted M2 scope carries no mount tangent rotation (`P` is exactly the
+identity for the shipped `fixed` and unspecified mounts) and that the
+kernel's constant receptor cells act in the same celestial tangent
+basis as the sky expansion; Section 6's transport-sign obligation binds
+only a future ground-anchored response, because a consistent sign flip
+through kernel and sky cancels in every paired comparison and no red
+oracle can pin it — one
 horizon-split exposure, its phase-local frame certificate and four direct/error
 cubes, the two-tier gate's fidelity, convergence, and budget predicates,
 production/qcheck
@@ -4478,10 +4592,12 @@ that still reports `SCI-004` as ROADMAP. These are required
 
 ### 14.4 Mandatory commit order
 
-The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 -> S2 -> E2 -> A2
-->* G3 -> R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2` star is the
-concrete effect of the header's starred-edge correction records under
-the Section 13.7 rule above, which collectively enumerate that edge's
+The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 ->* S2 -> E2 -> A2
+->* G3 -> R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2` and `R2 ->* S2`
+stars are the
+concrete effects of the header's starred-edge correction records under
+the Section 13.7 rule above, which collectively enumerate each such
+edge's
 interval commits. Each starred edge is inclusive ancestor
 reachability through separately authorized, independently accepted programme
 commits; every unstarred edge is the sole direct-parent edge. No commit in
@@ -4500,7 +4616,10 @@ the starred edge's enumerated interval standing between it and `A1`; an
 unstarred `R` edge's `R^` equals its `A` or `G` endpoint unless a
 Section 13.7 accepted correction stars that edge, in which case the
 header enumerates the interval and the phase's `R` directly parents the
-operative correction commit. Each `S` directly parents its phase `R` and
+operative correction commit. Each `S` directly parents its phase `R` —
+unless a Section 13.7 accepted correction has starred that edge, in
+which case `S` directly parents the operative correction commit per the
+Section 13.7 rule, as `S2` does here — and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
