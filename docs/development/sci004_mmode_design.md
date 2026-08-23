@@ -32,6 +32,84 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (celestial tangent transport in the
+transfer kernel).** Implementing the phase-2 source slice against the
+accepted `R2` proved one committed red oracle physically wrong, exactly
+as the Section 7.3 tier-1a gate is built to prove: with the receptor
+response modelled as a direction-independent matrix in the rotating
+local `θφ` basis, the horizon-free shell is machine-exact for the spin-0
+blocks (`1.5e-13` Stokes `I`, `1.1e-14` `V`) and fails at `4.65e-3` for
+the spin-`±2` blocks against a `1.01e-8` limit — figures measured by the
+implementation attempt that surfaced the defect, on the bounded
+acceptance fixture's diagnostic form, retained here as the surfacing
+observation — because the constant-in-ENU
+response is singular at the zenith and carries no consistent spin
+weight, so the spin-`±2` Gauss-Legendre quadrature loses its spectral
+exactness. Sections 6 and 7.2 already rule the correct model — the
+kernel's `θφ` components in the celestial tangent basis, the
+ground-frame response transported through the same pole-transport
+construction Section 5.1 fixes for the sky's `Q/U` tangent frame — and
+Section 6 now pins that reading exactly: the measured transport angle,
+its sign-defining relation, the kernel form
+`J_{p,θφ}(n̂)=J^{ground}_p(n̂)\,R(χ(n̂))`, and the rejection of the
+constant-local-basis shortcut as inadmissible rather than an alternative
+convention. The committed transfer oracle
+`test_the_spin_transfer_matches_the_section_6_conjugate_placement`
+builds its reference from exactly that shortcut, so this correction
+reopens, as a `superseded red slice` interval commit for a governed
+re-cut, the phase-2 red slice
+`27d2ba45db57eed3d86fae04ece8128131d2d10e`; the re-cut corrects the
+transfer oracle's reference to the transported construction, adds one
+oracle sensitive to the transport rotation's sign — the implementation
+proved the existing set invariant under a consistent kernel-and-sky sign
+flip — and regenerates the red record from a globally clean checkout of
+the re-cut candidate, Section 14.4's venue vocabulary, where every
+phase-2 oracle is genuinely red; uncommitted source work stays outside
+that observation tree. Section
+14.3's `A2` sentence now requires the V-bridge and polarized-`B_lm`
+re-derivations to establish the tangent-transport sign independently,
+because no surviving red oracle can. Separately, the same implementation
+round proved Section 13.4's `S2` grant of
+`src/radiosim/benchmarks/record.py` unexercisable:
+`tools/wp7_perf001_cpu_evidence.py` pins that file's live-tree bytes,
+and the WP-7 CPU-evidence validator recomputes the live file's digest
+against the accepted certificate, so any edit reddens a validator no
+SCI-004 phase may touch — a controlled single-byte experiment confirmed
+that one reddening and disconfirmed an initially reported second (the
+SCI-005 Stage-1 worktree replay reads only the frozen historical commit
+and passed with the byte in place);
+the grant is struck (the Section 11 benchmark surface lives in the
+still-granted `src/radiosim/benchmarks/__init__.py`), recording the same
+defect class Section 13.2 already documents for `pixi.toml`. It
+supersedes the post-acceptance-repairs landing
+`d8adeaaee1045b930fb7ca7e4bd0905655cd4725` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. This correction is design-only: it
+implements no solver, accepts no phase, and does not close the register
+row. Its exact pre-landing file bytes
+(`sha256:cb97177cec7d112fba492952ab6a4857995ed0e283797c9c4468925014e49d7a`)
+and parent-relative diff
+(`sha256:2e3e65737124d283a45c70093097511464cc48dcf998ef75195e163c851dee1e`)
+received separate independent reviews on 2026-08-23 — physics and
+computational, both `ACCEPT` after two fix rounds. The physics review
+re-derived the spin-transformation algebra from scratch, read the defect
+at its exact source lines in both the kernel and the committed oracle's
+reference, and reproduced the failure live by Stokes isolation on the
+acceptance fixture (`5.3e-14` I-only, `5.4e-15` V-only, `3.17e-3`
+Q-only), independently confirming the surfacing observation at the same
+orders. The computational review's controlled single-byte experiment
+narrowed the `record.py` reddening claim to the one true validator, and
+its phantom-citation finding forced the Section 6 paragraph to carry the
+complete transport mathematics; the physics review's reconfirmation then
+proved that paragraph's first consequence clause sign-inconsistent with
+its own verified defining relation and composition — by hand algebra and
+by random-Jones-matrix numerics — and the corrected matching-sign form
+was re-verified independently by both reviews before landing: the very
+defect class this correction eliminates, caught by its own review. This
+correction's landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-23 (post-acceptance repairs on the
 `A1 -> R2` edge).** Authoring the phase-2 red slice proved Section
 14.4's `R2^ == A1` sole direct-parent edge unsatisfiable: two commits
@@ -1242,6 +1320,31 @@ tier-1a horizon-free shell, the tier-2 budgets, and the Section 12 direct
 machinery simultaneously. The canonical Jones order, half-power
 normalization, east-X/circular receptor semantics, beam normalization, and
 four row-major correlation labels are unchanged.
+The `θφ` components above are taken in the celestial tangent basis at
+`n̂` — the same basis the Section 5.3 spin expansions use — so
+`J_{p,θφ}(n̂)` carries the conversion Section 7.2's "tangent-basis
+contracts" phrase gestures at, here made exact. Both tangent bases at
+`n̂` come from the one pole-transport construction Section 5.1 fixes for
+the sky's `Q/U` tangent frame, each applied to its own frame's pole
+axis; `χ(n̂)` is the angle of the transported celestial North measured
+in the local tangent basis by `atan2` — measured, never assumed — with
+its sign fixed by the defining relation, confirmed numerically, that the
+sky's local-basis spin combination equals
+`e^{+2iχ(n̂)}` times its celestial-basis value:
+`(Q+iU)_local = e^{+2iχ}(Q+iU)_celestial`. The ground-frame response
+enters the kernel on its sky side through the rotation realizing that
+relation, `J_{p,θφ}(n̂) = J^{ground}_p(n̂)\,R(χ(n̂))`, so the kernel's
+celestial-basis spin-`±2` combinations carry `e^{±2iχ(n̂)}` — the
+matching sign — against
+their local-basis forms; the relation is pinned by an explicit numerical
+integral, under this section's standing rule that changing a library
+call until one test passes is not an alternative convention. A
+direction-independent receptor matrix applied in the rotating local
+`θφ` basis is not an admissible `J(n̂)`: it is singular at the zenith,
+carries no consistent spin weight, and breaks the Section 7.3 tier-1a
+spectral exactness for the spin-`±2` blocks while leaving the spin-0
+blocks machine-exact, so an implementation or an oracle reference built
+that way is defective rather than an alternative convention.
 Every SCI-004 cube therefore has `C=4` in the exact resolved matrix order;
 `n_correlations!=4`, an omitted cross-hand, or an evidence formula treating
 `C` as a free cardinality rejects before work.
@@ -3105,7 +3208,6 @@ wrapper leaves every direct path byte-identical before M2 starts.
 - `src/radiosim/core/result.py`
 - `src/radiosim/io/config.py`
 - `src/radiosim/io/config_resolution.py`
-- `src/radiosim/benchmarks/record.py`
 - `src/radiosim/benchmarks/harness.py`
 - `src/radiosim/benchmarks/__init__.py`
 - `tools/sci004_mmode_phase2_evidence.py` (new)
@@ -4288,7 +4390,11 @@ Its required `m1.wp7-dependency-gate` oracle authenticates D/G1/WP-7 ancestry,
 nonmerge and immutable-byte predicates, the raw retained certificate, and the
 clean detached-worktree replay at the frozen replay descendant.
 `A2` must rederive
-the North/East-to-theta/phi V bridge, one polarized `B_lm` equation, one
+the North/East-to-theta/phi V bridge, one polarized `B_lm` equation —
+these two establishing the tangent-transport (parallactic) rotation and
+its sign independently of the implementation, because a consistent sign
+flip through kernel and sky cancels in every paired harmonic-versus-
+direct comparison and no red oracle can pin it — one
 horizon-split exposure, its phase-local frame certificate and four direct/error
 cubes, the two-tier gate's fidelity, convergence, and budget predicates,
 production/qcheck
@@ -4315,8 +4421,9 @@ that still reports `SCI-004` as ROADMAP. These are required
 
 The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 -> S2 -> E2 -> A2
 ->* G3 -> R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2` star is the
-concrete effect of the header's post-acceptance-repairs correction under
-the Section 13.7 rule above. Each starred edge is inclusive ancestor
+concrete effect of the header's starred-edge correction records under
+the Section 13.7 rule above, which collectively enumerate that edge's
+interval commits. Each starred edge is inclusive ancestor
 reachability through separately authorized, independently accepted programme
 commits; every unstarred edge is the sole direct-parent edge. No commit in
 either starred first-parent range is a merge. `G1` also has accepted WP-7 CPU
