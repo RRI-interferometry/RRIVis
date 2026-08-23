@@ -2851,8 +2851,18 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     # distinct py312 digests.  The osx-arm64-py312 value was reproduced
     # byte-identically on the acceptance host before recording.
     "point_full_efield_quadrupolar": {
+        # Second linux-64-py311 class adjudicated 2026-08-23 from run
+        # 32619708463 (job 97145891862): the first observation of the
+        # AVX-512 dispatch class in this cell, carrying the same ULP-scale
+        # signature the 2026-08-21 py312 adjudication isolated.  The
+        # mechanized failure-path verdict measured max|dV| = 2.24e-16,
+        # max rel = 8.04e-16 against the recorded cube -- Section 13.5
+        # WITHIN at tolerance ratio 8.5e-5 -- so the class is admitted
+        # under the pre-authorized ULP-scale conditional with its
+        # discriminator named.
         "linux-64-py311": (
             "6c50eabf45ed99284c594780502a32697a16ffac9ad1ec6afbbd426ddf782389",
+            "1dd695bb8dabe09f96036b8e5022654f77d981e778cbbd9d3f8bd3e4f2a108dc",
         ),
         # Second linux-64-py312 class adjudicated 2026-08-21 from run
         # 32409481776 (job 96556299885): AMD EPYC 9V45 dispatching the full
@@ -2929,8 +2939,14 @@ _WORKLOAD_DIGESTS: dict[str, dict[str, tuple[str, ...]]] = {
     # quadrupolar row above; the osx-arm64-py312 value was reproduced
     # byte-identically on the acceptance host before recording.
     "point_squint_rotated_linear_receptor": {
+        # Second linux-64-py311 class from the same 2026-08-23 adjudication
+        # (run 32619708463, job 97145891862): first AVX-512-class
+        # observation in this cell, measured max|dV| = 1.64e-16, max rel =
+        # 9.06e-15 against the recorded cube -- Section 13.5 WITHIN at
+        # tolerance ratio 1.6e-4.
         "linux-64-py311": (
             "b0bb910824ecbfba62f87a1885912a4c70e3b75f10134f459e81d79bdf3a9a8f",
+            "02b3b0a942272d4dc0984371c109818938b8ed047b6ecd57ad898733fda29fee",
         ),
         # Second linux-64-py312 class from the same 2026-08-21 adjudication
         # (run 32409481776): EPYC 9V45 full-AVX-512 dispatch, measured
