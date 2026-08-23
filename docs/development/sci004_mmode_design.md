@@ -32,6 +32,58 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (resolved-input route for the tangent
+frame).** Implementing the Section 5.1 declaration surface proved the
+declared frame unroutable: `io/config.py` parses the six-key
+`tangent_polarization_frame` object and Section 10 requires the M2
+snapshot to carry it exactly, but the resolved sky-source inputs live in
+`src/radiosim/core/runtime_config.py`, which Section 13.4's `S2` list
+did not grant — the closed `S1` list's own grant of that path belonged
+to the accepted M1 phase and conveys nothing to `S2` —
+and the only alternative route — attaching it through the loader — is
+closed because `core/sky/loaders/synthetic.py` is not granted either and
+the frame is a convention declaration, not a loader parameter (the
+implementation confirmed this concretely: the field auto-flowed into
+loader options and was rejected as an unexpected keyword until excluded).
+Section 13.4's `S2` list now grants
+`src/radiosim/core/runtime_config.py`, scoped to one optional
+`tangent_polarization_frame` field on the resolved sky-source inputs.
+Separately, Section 12.1's terminal-cell magnitude — "of order ten
+million rows", written before any measurement existed and left deferred
+by the guard-rows correction's review until an authoritative figure
+landed — now cites the accepted M1 evidence artifact's measured
+`16,835,749` rows. The Section 13.7 reopening of
+`27d2ba45db57eed3d86fae04ece8128131d2d10e` recorded by the
+celestial-tangent-transport correction stands unchanged; this correction
+adds no reopening, and the pending re-cut's validator rebind will
+enumerate this landing on the starred `A1 -> R2` interval alongside it.
+It supersedes the celestial-tangent-transport landing
+`e02f3975607b821b31c083a197cf7ea23865c062` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. This correction is design-only: it
+implements no solver, accepts no phase, and does not close the register
+row. Its exact pre-landing file bytes
+(`sha256:585f0d87e030cb726731ff849754add5b406b69d2df13a6803375c210619e8dd`)
+and parent-relative diff
+(`sha256:f06ea8c8684738086aa080f6cafbe7e5ef21cbbeba88f1d4730c6d34b94cc298`)
+received separate independent reviews on 2026-08-23 —
+physics/governance and computational, both `ACCEPT` after one applied
+fix round. The computational review verified the `16,835,749` figure
+twice over — the artifact's own counter field and an independent sum of
+all `3,841` summary rows' terminal-cell counts — and confirmed the
+unroutability empirically down to the loader's fixed keyword signature;
+its blocking finding established the two-stage ledger rule this
+correction now writes into Section 13.7, proven by the Phase-0
+candidate's own pinned "independent design approval pending" row — a
+round that then returned `REJECT`, which a pre-asserted verdict would
+have contradicted — and the governance review formally withdrew its
+earlier established-practice reading on that evidence. The fix round
+also disambiguated the closed `S1` list's own lapsed grant of the same
+path. This correction's landing commit is the operative `D` of
+Section 13.7.
+
 **Bounded correction — 2026-08-23 (celestial tangent transport in the
 transfer kernel).** Implementing the phase-2 source slice against the
 accepted `R2` proved one committed red oracle physically wrong, exactly
@@ -2453,8 +2505,10 @@ terminal rows across all directions, not a count of visited branch cells.
 The scan array is serialized as UTF-8 JSON with the row-field order above,
 `ensure_ascii=true`, separators `(',',':')`, and no whitespace or trailing
 newline. `horizon_scan_ledger_sha256` is SHA-256 of exactly those bytes,
-computed streamingly at generation. The full terminal-cell array is of
-order ten million rows for the bounded driver, so the retained evidence
+computed streamingly at generation. The full terminal-cell array is
+sixteen million rows for the bounded driver — `16,835,749` terminal rows
+including guards, measured by the accepted M1 evidence
+artifact — so the retained evidence
 embeds a bounded projection of it rather than the array itself: every
 `scan_crossing`, `excluded_upper_endpoint`, and `guard_interval` row
 verbatim as
@@ -3206,6 +3260,9 @@ wrapper leaves every direct path byte-identical before M2 starts.
 - `src/radiosim/core/beam/runtime.py`
 - `src/radiosim/core/jones/directions.py`
 - `src/radiosim/core/result.py`
+- `src/radiosim/core/runtime_config.py` (one optional
+  `tangent_polarization_frame` field on the resolved sky-source inputs
+  only)
 - `src/radiosim/io/config.py`
 - `src/radiosim/io/config_resolution.py`
 - `src/radiosim/benchmarks/harness.py`
@@ -3386,7 +3443,9 @@ its dual `ACCEPT` — the pinned pre-landing file and diff SHA-256 values
 and both verdicts; those pins name the reviewed bytes, which the
 appended sentence itself necessarily postdates and which are never
 separately committed, so the accepted header text is their only
-authority.
+authority. The companion ledger row follows the same two stages: the
+reviewed bytes state the round's review as pending, and the verdict
+wording lands only in the same commit as the completed header record.
 
 Disposal follows the accepted SCI-005 Section 7.5 rule exactly: when a
 header-recorded correction supersedes an evidence commit, the reopened
