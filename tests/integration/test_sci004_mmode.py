@@ -455,3 +455,269 @@ def test_the_mmode_solver_snapshot_carries_its_exact_tagged_fields(tmp_path) -> 
     assert all(value is not None for value in snapshot.values())
     for absent in ("deficit_max_jy", "deficit_l2", "direct_gate"):
         assert absent not in snapshot
+
+
+# =============================================================================
+# Phase M2 -- the polarized end-to-end slice (Sections 5.1, 9, 10)
+# =============================================================================
+#
+# Section 5.1 makes the canonical tangent-polarization frame mandatory for any
+# payload with non-zero ``Q`` or ``U``, and Section 8 reserves the exact semantic
+# code ``mmode_polarization_frame`` with the message
+#
+#     polarized m-mode input requires an explicit canonical tangent-polarization
+#     frame.
+#
+# for the input that omits it.  Section 10 then requires the accepted M2 solver
+# snapshot to carry that frame as the exact six-key Section 5.1 object in place of
+# M1's ``not_applicable_scalar_m1`` literal -- "Neither field is nullable" -- while
+# the twenty-key snapshot set itself is unchanged.
+#
+# At ``A1`` neither half exists: a polarized document validates and then silently
+# runs as a Stokes-``I`` sky, and the per-source frame declaration is not a
+# configuration field at all.  The phase-M2 cases are declared separately in
+# ``SCI004_PHASE2_RED_CASES`` so the retained M1 record's node set is untouched.
+
+#: Section 5.1's exact tangent-frame literal and its six-key surface.
+TANGENT_FRAME_SCHEMA = "radiosim.sky-tangent-polarization.v1"
+TANGENT_FRAME_KEYS: tuple[str, ...] = (
+    "schema_version",
+    "coordinate_frame",
+    "axes",
+    "position_angle",
+    "linear_complex",
+    "stokes_v",
+)
+
+#: Section 8's exact ``mmode_polarization_frame`` code and message.
+MMODE_POLARIZATION_FRAME_CODE = "mmode_polarization_frame"
+MMODE_POLARIZATION_FRAME_MESSAGE = (
+    "polarized m-mode input requires an explicit canonical tangent-polarization frame."
+)
+
+#: The polarized fixture's linear and circular fractions.  Both are non-zero so
+#: no field can be silently dropped, and the geometry stays the qualified
+#: circumpolar one Section 7.3's convergent-regime rule requires.
+POLARIZATION_FRACTION = 0.3
+STOKES_V_FRACTION = 0.1
+
+_CANONICAL_FRAME_BLOCK = f"""\
+      tangent_polarization_frame:
+        schema_version: {TANGENT_FRAME_SCHEMA}
+        coordinate_frame: icrs
+        axes: north_east
+        position_angle: north_through_east
+        linear_complex: q_plus_i_u
+        stokes_v: iau_incoming_r_minus_l
+"""
+
+_POLARIZED_SKY_BLOCK = f"""\
+sky_model:
+  flux_unit: Jy
+  sources:
+    - kind: test_sources
+      representation: point_sources
+      num_sources: 1
+      distribution: uniform
+      seed: 1
+      dec_deg: {SOURCE_DEC_DEG}
+      dec_range_deg: 0.0
+      spectral_index: 0.0
+      polarization_fraction: {POLARIZATION_FRACTION}
+      stokes_v_fraction: {STOKES_V_FRACTION}
+"""
+
+_UNDECLARED_FRAME_FIXTURE = (
+    _SCALAR_RUN_FIXTURE.decode("utf-8").split("sky_model:")[0] + _POLARIZED_SKY_BLOCK
+).encode()
+
+_DECLARED_FRAME_FIXTURE = (
+    _SCALAR_RUN_FIXTURE.decode("utf-8").split("sky_model:")[0]
+    + _POLARIZED_SKY_BLOCK
+    + _CANONICAL_FRAME_BLOCK
+).encode()
+
+_PURE_U_FIXTURE = (
+    _SCALAR_RUN_FIXTURE.decode("utf-8").split("sky_model:")[0]
+    + _POLARIZED_SKY_BLOCK.replace(
+        f"stokes_v_fraction: {STOKES_V_FRACTION}", "stokes_v_fraction: 0.0"
+    )
+    + _CANONICAL_FRAME_BLOCK
+    + "polarization_angle_deg: 45.0\n"
+).encode()
+
+_SCHEMA_FAILURE_PATTERN = (
+    r"ConfigSchemaError: sky_model\.sources\[0\]\.test_sources\."
+    r"tangent_polarization_frame: unknown or removed field"
+)
+
+
+def _phase2_case(
+    case_id: str,
+    requirement_id: str,
+    function: str,
+    kind: str,
+    pattern: str,
+    fixture: bytes,
+) -> dict[str, Any]:
+    return {
+        "case_id": case_id,
+        "requirement_id": requirement_id,
+        "test_nodeid": f"tests/integration/test_sci004_mmode.py::{function}",
+        "expected_failure_kind": kind,
+        "expected_failure_pattern": pattern,
+        "fixture_defect_excluded_by": _GREEN_CONTROL,
+        "fixture_bytes": fixture,
+    }
+
+
+SCI004_PHASE2_RED_CASES: tuple[dict[str, Any], ...] = (
+    _phase2_case(
+        "m2.integration.undeclared-tangent-frame",
+        "sci004.section-8.mmode-polarization-frame-rejection",
+        "test_a_polarized_mmode_input_without_a_tangent_frame_is_rejected",
+        "assertion",
+        (
+            r"AssertionError: polarized m-mode input requires an explicit "
+            r"canonical tangent-polarization frame\."
+        ),
+        _UNDECLARED_FRAME_FIXTURE,
+    ),
+    _phase2_case(
+        "m2.integration.six-key-tangent-frame",
+        "sci004.section-10.snapshot-carries-the-six-key-tangent-frame",
+        "test_a_full_stokes_point_run_carries_the_six_key_tangent_frame",
+        "schema",
+        _SCHEMA_FAILURE_PATTERN,
+        _DECLARED_FRAME_FIXTURE,
+    ),
+    _phase2_case(
+        "m2.integration.cross-hand-response",
+        "sci004.section-6.polarized-run-populates-the-cross-hands",
+        "test_a_polarized_source_populates_the_cross_hand_correlations",
+        "schema",
+        _SCHEMA_FAILURE_PATTERN,
+        _PURE_U_FIXTURE,
+    ),
+)
+
+SCI004_PHASE2_RED_GREEN_CONTROLS: tuple[str, ...] = (_GREEN_CONTROL,)
+
+
+def _polarized_mapping(tmp_path: Path, *, declare_frame: bool) -> dict[str, Any]:
+    """The qualified m-mode mapping with a genuinely polarized point source."""
+    mapping = _mmode_mapping(tmp_path)
+    source = dict(mapping["sky_model"]["sources"][0])
+    source["polarization_fraction"] = POLARIZATION_FRACTION
+    source["stokes_v_fraction"] = STOKES_V_FRACTION
+    if declare_frame:
+        source["tangent_polarization_frame"] = {
+            "schema_version": TANGENT_FRAME_SCHEMA,
+            "coordinate_frame": "icrs",
+            "axes": "north_east",
+            "position_angle": "north_through_east",
+            "linear_complex": "q_plus_i_u",
+            "stokes_v": "iau_incoming_r_minus_l",
+        }
+    mapping["sky_model"] = {**mapping["sky_model"], "sources": [source]}
+    return mapping
+
+
+# --- Section 5.1 / 8 / 10 phase-M2 red oracles --------------------------------
+
+
+def test_a_polarized_mmode_input_without_a_tangent_frame_is_rejected(tmp_path) -> None:
+    """Section 8: ``mmode_polarization_frame``, before any harmonic work.
+
+    Section 5.1 rejects "a programmatic polarized input without a declared source
+    convention"; Section 8 gives that rejection its exact code and message and
+    Section 8's closing paragraph puts it in the ``ConfigSemanticError`` family,
+    raised "before backend allocation, output path creation, or harmonic work".
+
+    Today the document validates and the run silently proceeds as a Stokes-``I``
+    sky, which is precisely the outcome a declared-convention rule exists to
+    prevent.
+    """
+    from radiosim.api import Simulator
+    from radiosim.io.config_resolution import ConfigSemanticError
+
+    raised: Exception | None = None
+    try:
+        Simulator.from_mapping(
+            _polarized_mapping(tmp_path, declare_frame=False), base_dir=tmp_path
+        )
+    except ConfigSemanticError as error:
+        raised = error
+
+    assert raised is not None, MMODE_POLARIZATION_FRAME_MESSAGE
+    assert MMODE_POLARIZATION_FRAME_CODE in str(raised)
+    assert MMODE_POLARIZATION_FRAME_MESSAGE in str(raised)
+
+
+def test_a_full_stokes_point_run_carries_the_six_key_tangent_frame(tmp_path) -> None:
+    """Section 10: the snapshot's frame is the exact six-key object after M2."""
+    import numpy as np
+
+    from radiosim.api import Simulator
+
+    result = Simulator.from_mapping(
+        _polarized_mapping(tmp_path, declare_frame=True), base_dir=tmp_path
+    ).run(progress=False)
+    snapshot = result.solver.as_mapping()
+
+    # The twenty-key set is unchanged; only the frame value stops being M1's
+    # ``not_applicable_scalar_m1`` literal.
+    assert tuple(snapshot) == MMODE_SNAPSHOT_KEYS
+    frame = snapshot["tangent_polarization_frame"]
+    assert isinstance(frame, dict)
+    assert tuple(frame) == TANGENT_FRAME_KEYS
+    assert frame["schema_version"] == TANGENT_FRAME_SCHEMA
+    assert frame["axes"] == "north_east"
+    assert frame["position_angle"] == "north_through_east"
+    assert frame["linear_complex"] == "q_plus_i_u"
+    assert frame["stokes_v"] == "iau_incoming_r_minus_l"
+    assert snapshot["stokes_v_basis_bridge"] == MMODE_STOKES_BRIDGE
+    assert all(value is not None for value in snapshot.values())
+
+    cube = np.asarray(result.visibilities)
+    assert cube.shape[-1] == 4
+    assert float(np.max(np.abs(cube))) > 0.0
+
+
+def test_a_polarized_source_populates_the_cross_hand_correlations(tmp_path) -> None:
+    """Section 6: a polarized sky reaches ``XY``/``YX``; a scalar one does not.
+
+    In the M1 scalar subset both Jones matrices are a scalar response times
+    ``I_2`` and ``P^I`` is ``(1/2) I_2``, so only the two parallel hands respond
+    -- the cross-hands are identically zero.  A linearly polarized source must
+    populate them, which is the end-to-end statement that the ``+2``/``-2``
+    fields actually reached the correlator.
+    """
+    import numpy as np
+
+    from radiosim.api import Simulator
+
+    polarized = Simulator.from_mapping(
+        _polarized_mapping(tmp_path, declare_frame=True), base_dir=tmp_path
+    ).run(progress=False)
+    scalar = Simulator.from_mapping(_mmode_mapping(tmp_path), base_dir=tmp_path).run(
+        progress=False
+    )
+
+    polarized_cube = np.asarray(polarized.visibilities)
+    scalar_cube = np.asarray(scalar.visibilities)
+    assert polarized_cube.shape == scalar_cube.shape
+
+    scalar_cross = float(
+        np.max(np.abs(scalar_cube[..., 1])) + np.max(np.abs(scalar_cube[..., 2]))
+    )
+    polarized_cross = float(
+        np.max(np.abs(polarized_cube[..., 1])) + np.max(np.abs(polarized_cube[..., 2]))
+    )
+    assert scalar_cross == 0.0
+    assert polarized_cross > 0.0
+    # The parallel hands must also move: a linear fraction changes ``XX - YY``.
+    parallel_difference = float(
+        np.max(np.abs(polarized_cube[..., 0] - scalar_cube[..., 0]))
+    )
+    assert parallel_difference > 0.0

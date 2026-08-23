@@ -2235,6 +2235,12 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
     ``docs/development/sci004_mmode_design.md`` Section 13.3 names for the
     m-mode red slice; that design's own Section 13.3/13.4 entries authorize
     exactly this listing widening.
+    SCI-004 phase M2 added ``tests/performance/test_sci004_mmode.py``, the one
+    performance file that design's Section 13.4 names for the ``R2`` slice --
+    the non-gating oracle for Section 11's ``radiosim.benchmark.sci004.v1``
+    record.  Section 13.4 scopes the ``R2`` grant on this file to exactly that
+    listing widening and nothing else, so the performance directory grows by
+    that one named file while every other assertion here is untouched.
     """
     performance = sorted(
         p.name for p in (REPO_ROOT / "tests" / "performance").glob("*.py")
@@ -2242,7 +2248,11 @@ def test_the_benchmark_harness_task_and_performance_test_now_exist() -> None:
     integration = sorted(
         p.name for p in (REPO_ROOT / "tests" / "integration").glob("*.py")
     )
-    assert performance == ["__init__.py", "test_backend_benchmarks.py"]
+    assert performance == [
+        "__init__.py",
+        "test_backend_benchmarks.py",
+        "test_sci004_mmode.py",
+    ]
     assert integration == [
         "__init__.py",
         "test_cli_end_to_end.py",
