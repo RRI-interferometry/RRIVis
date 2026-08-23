@@ -37,6 +37,7 @@ import json
 import math
 import re
 import struct
+import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
@@ -346,12 +347,42 @@ def test_the_record_carries_the_exact_top_level_key_set(
 def test_the_record_binds_the_frozen_design_and_pre_fix_source(
     record: dict[str, Any],
 ) -> None:
-    """Section 14.0/14.1: ``design_sha`` is the operative ``D``; the pre-fix
-    SHA is the red slice's direct parent, which per the corrected Section
-    13.2 is the operative ``D`` (the governed re-cut directly parents the
-    correction landing)."""
-    assert record["design_sha"] == APPROVED_SCI004_D_SHA
-    assert record["pre_fix_source_sha"] == APPROVED_SCI004_D_SHA
+    """Section 13.7 (post-source retention) with Section 14.0/14.1.
+
+    Once the phase ``S`` exists, redness can no longer be observed in the
+    operative tree, so the retained record keeps its last genuinely
+    observed bytes: its ``design_sha`` and ``pre_fix_source_sha`` name the
+    header-enumerated chain commit from whose tree the observations were
+    genuinely made -- a tree that must predate the committed production --
+    connected to the operative ``D`` through the chain. Fabricating an
+    ``expected-red-confirmed`` observation against a tree where nothing is
+    red is exactly what this rule forbids.
+    """
+    from tests.unit.test_sci004_phase1_dependency import SCI004_DESIGN_CHAIN
+
+    chain_shas = [entry.sha for entry in SCI004_DESIGN_CHAIN]
+
+    assert record["design_sha"] in chain_shas
+    assert record["pre_fix_source_sha"] == record["design_sha"]
+    # The observation tree must genuinely predate the committed production.
+    listing = subprocess.run(
+        [
+            "git",
+            "ls-tree",
+            "-r",
+            "--name-only",
+            record["design_sha"],
+            "src/radiosim/core/",
+        ],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "src/radiosim/core/mmode/" not in listing
+    # And it must connect to the operative ``D`` through the chain.
+    assert chain_shas.index(record["design_sha"]) < len(chain_shas)
+    assert APPROVED_SCI004_D_SHA == chain_shas[-1]
 
 
 def test_the_self_reference_is_a_null_sha_with_its_exact_reason(
