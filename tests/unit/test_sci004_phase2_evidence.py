@@ -55,8 +55,10 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 #: Section 14.2's two approved constants.  ``E2`` replaces exactly these two
 #: ``None`` literals and nothing else in this module.
-APPROVED_SOURCE_SHA: str | None = None
-APPROVED_ARTIFACT_SHA256: str | None = None
+APPROVED_SOURCE_SHA: str | None = "399245793e812ed549fac23c1b69b2c6c61aecd4"
+APPROVED_ARTIFACT_SHA256: str | None = (
+    "fc04d9a5115f1fc8609480c531bbf5b49cfc2d4933bd17e2a0d7612ebc91555a"
+)
 
 TOOL = "tools/sci004_mmode_phase2_evidence.py"
 ARTIFACT = "docs/development/sci004_mmode_phase2_evidence.json"
