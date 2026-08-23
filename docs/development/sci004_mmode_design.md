@@ -4351,3 +4351,27 @@ one workflow does not close the row.
 The papers establish the formalism, not this implementation. RadioSim
 correctness still requires the analytic, direct, retained-artifact, and
 independent-acceptance programme above.
+
+## Acceptance notes (append-only)
+
+**Phase M1 accepted — 2026-08-23.** This commit is `A1`, the phase-M1
+independent acceptance; `A1^ == E1
+dc736c692e4037e15b7e51253067fa262204bde2` binds the succession, and the
+next phase's `R` binds this containing commit per the record's
+self-reference rule. The retained succession is operative `D`
+`1712575e6c634457d9da737e9c144147e3b9bbc4` (through the ten accepted
+bounded corrections and the reopened slices this memo's header records)
+`-> R1 8b9d89ee7104cfc118825af119e1167c87239bd9 -> S1
+8dfc9af889c5d89f1783ac852f7d0cf6d4589740` (the reimplemented production
+slice `1251389e5be7bf5c6b19f6b435cadaefbeb9f295` plus the `E1`-state
+commit-shape checks) `-> E1 dc736c692e4037e15b7e51253067fa262204bde2`,
+independent reviewer verdict `ACCEPT` (identity
+`sci004-m1-independent-acceptance-reviewer`; all eleven Section 14.3
+oracles re-derived, including the two deliberate replay-deferral
+discharges — the full 16,835,749-row operational horizon-scan replay
+against `horizon_scan_ledger_sha256` and the 288-row transfer-sample
+concatenation regeneration), acceptance artifact
+`sha256:19a8ca668e5cc0e29c54206f14c2cafc123b72e468effede1962db563d012002`.
+M1 licenses the scalar `mmode` registry entry only: no polarized
+capability, no fingerprint pin, and no speed or accelerator claim.
+`SCI-004` remains **ROADMAP**; phase M2 is the next slice.
