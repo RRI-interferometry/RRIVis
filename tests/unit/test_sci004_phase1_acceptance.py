@@ -211,8 +211,9 @@ def test_the_generator_refuses_before_the_evidence_commit_exists() -> None:
 
     At ``S1`` the phase evidence artifact does not exist yet, so the refusal
     names that; at ``E1`` the preflight passes and the empty review record is
-    refused as a malformed argument; at ``A1`` and beyond ``HEAD`` no longer
-    adds the evidence artifact, so the refusal names that again.  In every
+    refused as a malformed argument; at ``A1`` and beyond the declared
+    acceptance output already exists, so the no-overwrite rule refuses first;
+    and a dirty tree refuses before any of those.  In every
     state the assertion names a *reason* rather than accepting any non-zero
     exit, which a generator that refused unconditionally would also produce,
     and the process always fails closed with a frozen prefix rather than a
@@ -251,6 +252,7 @@ def test_the_generator_refuses_before_the_evidence_commit_exists() -> None:
         "not globally clean",
         "commit that adds the phase evidence artifact",
         "is not UTF-8 JSON",
+        "already exists",
     )
     assert any(reason in completed.stderr for reason in reasons)
 
