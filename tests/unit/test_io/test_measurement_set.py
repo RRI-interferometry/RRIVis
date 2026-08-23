@@ -1075,3 +1075,141 @@ def test_a_scalar_peak_measurement_set_keeps_its_zero_cross_hands(
             np.zeros_like(loaded.visibilities[..., index]),
         )
     assert loaded.source_scientific_sha256 == workload.result.scientific_sha256
+
+
+# ==============================================================================
+# SCI-004 phase M3: Section 10's Measurement Set contract for an m-mode result
+# ==============================================================================
+#
+# ``docs/development/sci004_mmode_design.md`` Section 10 binds MS to the same
+# sentence as UVFITS: the canonical zenith phase centre, east-X/circular feed
+# metadata, four correlation products, UTC coordinates, and "history lines
+# naming the m-mode/frame/harmonic conventions", with a reader round trip that
+# "must reconstruct and authenticate the m-mode solver snapshot".
+
+_PHASE3_MS_GREEN_CONTROL = (
+    "tests/unit/test_io/test_measurement_set.py::"
+    "test_measurement_set_round_trip_and_raw_storage[complex128]"
+)
+
+_PHASE3_MS_PATTERN = r"has no attribute 'components'"
+
+
+def _phase3_ms_case(
+    case_id: str,
+    requirement_id: str,
+    function: str,
+) -> dict[str, object]:
+    from tests.unit.test_io.test_standard_visibility import MMODE_FIXTURE_BYTES
+
+    return {
+        "case_id": case_id,
+        "requirement_id": requirement_id,
+        "test_nodeid": f"tests/unit/test_io/test_measurement_set.py::{function}",
+        "expected_failure_kind": "missing-symbol",
+        "expected_failure_pattern": _PHASE3_MS_PATTERN,
+        "fixture_defect_excluded_by": _PHASE3_MS_GREEN_CONTROL,
+        "fixture_bytes": MMODE_FIXTURE_BYTES,
+    }
+
+
+SCI004_PHASE3_RED_CASES: tuple[dict[str, object], ...] = (
+    _phase3_ms_case(
+        "m3.ms.mmode-round-trip",
+        "sci004.section-10.ms-round-trips-an-mmode-result",
+        "test_an_mmode_result_round_trips_through_a_measurement_set",
+    ),
+    _phase3_ms_case(
+        "m3.ms.history-names-the-mmode-conventions",
+        "sci004.section-10.ms-history-names-the-mmode-conventions",
+        "test_the_published_measurement_set_history_names_the_mmode_conventions",
+    ),
+    _phase3_ms_case(
+        "m3.ms.synthesized-utc-grid",
+        "sci004.section-10.ms-carries-the-synthesized-utc-grid",
+        "test_the_published_measurement_set_carries_the_synthesized_utc_grid",
+    ),
+)
+
+SCI004_PHASE3_RED_GREEN_CONTROLS: tuple[str, ...] = (_PHASE3_MS_GREEN_CONTROL,)
+
+
+def test_an_mmode_result_round_trips_through_a_measurement_set(
+    tmp_path: Path,
+) -> None:
+    """Section 10: four correlation products and the reconstructed m-mode arm."""
+    from radiosim.core.result import MMODE_SOLVER_SNAPSHOT_KEYS
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    result = build_mmode_result(tmp_path)
+    target = tmp_path / "mmode.ms"
+
+    assert _write_checked(result, target) == target.absolute()
+    loaded = read_measurement_set(target)
+
+    assert type(loaded) is StandardVisibilityData
+    assert loaded.format == "ms"
+    assert len(loaded.correlations) == 4
+    assert loaded.source_scientific_sha256 == result.scientific_sha256
+
+    record_lines = [
+        item for item in loaded.history if item.startswith(PROJECTION_HISTORY_PREFIX)
+    ]
+    assert len(record_lines) == 1
+    record = json.loads(record_lines[0][len(PROJECTION_HISTORY_PREFIX) :])
+    solver = record["solver"]
+    assert tuple(solver) == MMODE_SOLVER_SNAPSHOT_KEYS
+    assert solver["solver"] == "mmode"
+    assert solver["solver"] != "rime"
+
+
+def test_the_published_measurement_set_history_names_the_mmode_conventions(
+    tmp_path: Path,
+) -> None:
+    """Section 10: "history lines naming the m-mode/frame/harmonic conventions"."""
+    from tests.unit.test_io.test_standard_visibility import (
+        MMODE_HISTORY_CONVENTIONS,
+        build_mmode_result,
+    )
+
+    result = build_mmode_result(tmp_path)
+    target = tmp_path / "mmode-history.ms"
+    _write_checked(result, target)
+
+    loaded = read_measurement_set(target)
+    # "History *lines*", so the embedded projection record does not count: that
+    # JSON already carried the snapshot before this phase.
+    plain = [
+        line
+        for line in loaded.history
+        if not line.startswith(PROJECTION_HISTORY_PREFIX)
+    ]
+
+    for literal in MMODE_HISTORY_CONVENTIONS:
+        assert any(literal in line for line in plain), literal
+
+
+def test_the_published_measurement_set_carries_the_synthesized_utc_grid(
+    tmp_path: Path,
+) -> None:
+    """Section 10: every path writes the same synthesized centres and widths."""
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    result = build_mmode_result(tmp_path)
+    grid = result.time_grid
+    widths = np.asarray(grid.integration_time_seconds, dtype=np.float64)
+    target = tmp_path / "mmode-time.ms"
+    _write_checked(result, target)
+
+    loaded = read_measurement_set(target)
+    exposures = np.asarray(loaded.exposure_seconds, dtype=np.float64)
+    centres = np.asarray(loaded.utc_jd1, dtype=np.float64) + np.asarray(
+        loaded.utc_jd2, dtype=np.float64
+    )
+    expected = np.asarray(grid.utc_jd1, dtype=np.float64) + np.asarray(
+        grid.utc_jd2, dtype=np.float64
+    )
+
+    assert len(set(widths.tolist())) > 1
+    assert np.allclose(np.unique(exposures), np.unique(widths), rtol=0.0, atol=1e-6)
+    assert np.allclose(np.unique(centres), np.unique(expected), rtol=0.0, atol=1e-9)

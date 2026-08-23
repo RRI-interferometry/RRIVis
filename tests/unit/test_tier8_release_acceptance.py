@@ -957,3 +957,131 @@ def test_the_directory_excluded_from_the_docs_build_is_gitignored() -> None:
         f"docs/conf.py excludes from the build. Move them into the documented "
         f"tree or drop the exclusion."
     )
+
+
+# ==============================================================================
+# SCI-004 phase M3: the release-acceptance scans the m-mode outputs owe
+# ==============================================================================
+#
+# ``docs/development/sci004_mmode_design.md`` Section 12.2's tenth oracle family
+# ends with "release scans that continue to say ``SCI-004`` is ROADMAP until
+# closure", and Section 14.3 makes that scan part of what the ``A3`` reviewer
+# must see: the acceptance "requires a release scan that still reports
+# ``SCI-004`` as ROADMAP".  That scan is green here and is this file's
+# fixture-defect exclusion.
+#
+# What is *not* green is the documented output surface. Section 13.5 grants
+# ``S3`` both ``docs/api/io.rst`` and ``docs/user_guide/configuration_support.rst``
+# precisely because Section 10's m-mode output contract is undocumented at this
+# tip, and Tier 8's own scans -- every documented symbol imports, every
+# documented path resolves -- only bind what the prose already says. These two
+# oracles bind what it must come to say.
+
+#: The register row Section 12.2 requires the release scan to keep reading
+#: ``ROADMAP`` until the whole-row closure successor.
+SCI004_REGISTER_ROW_PREFIX = "| SCI-004 |"
+
+#: The m-mode surface the documented output boundary has to name.
+MMODE_SIMULATOR_KEY = "mmode"
+MMODE_SOLVER_SNAPSHOT_TERMS = ("mmode", "solver snapshot")
+
+_PHASE3_RELEASE_GREEN_CONTROL = (
+    "tests/unit/test_tier8_release_acceptance.py::"
+    "test_the_release_scan_still_reports_sci004_as_roadmap"
+)
+
+#: The exact retained bytes this file's cases are observed against: the register
+#: row the scan reads, and the two documents the oracles bind.
+PHASE3_RELEASE_FIXTURE_BYTES = (
+    b"Fix.md::| SCI-004 |\ndocs/api/io.rst\ndocs/user_guide/configuration_support.rst\n"
+)
+
+
+def _phase3_release_case(
+    case_id: str,
+    requirement_id: str,
+    function: str,
+    pattern: str,
+) -> dict[str, object]:
+    return {
+        "case_id": case_id,
+        "requirement_id": requirement_id,
+        "test_nodeid": (f"tests/unit/test_tier8_release_acceptance.py::{function}"),
+        "expected_failure_kind": "assertion",
+        "expected_failure_pattern": pattern,
+        "fixture_defect_excluded_by": _PHASE3_RELEASE_GREEN_CONTROL,
+        "fixture_bytes": PHASE3_RELEASE_FIXTURE_BYTES,
+    }
+
+
+SCI004_PHASE3_RED_CASES: tuple[dict[str, object], ...] = (
+    _phase3_release_case(
+        "m3.release.io-api-documents-the-mmode-output-surface",
+        "sci004.section-10.documented-io-api-covers-the-mmode-arm",
+        "test_the_io_api_document_covers_the_mmode_arm_of_the_solver_union",
+        r"docs/api/io\.rst",
+    ),
+    _phase3_release_case(
+        "m3.release.configuration-support-documents-the-output-boundary",
+        "sci004.section-10.documented-output-boundary-names-the-mmode-simulator",
+        "test_the_configuration_support_output_boundary_names_the_mmode_simulator",
+        r"configuration_support\.rst",
+    ),
+)
+
+SCI004_PHASE3_RED_GREEN_CONTROLS: tuple[str, ...] = (_PHASE3_RELEASE_GREEN_CONTROL,)
+
+
+def test_the_release_scan_still_reports_sci004_as_roadmap() -> None:
+    """Section 12.2/14.3: the register keeps saying ROADMAP until closure.
+
+    Only Section 13.6's whole-row closure successor may flip it, and no phase-M3
+    commit is that successor. The scan reads the live register rather than a
+    copy, so a premature flip fails here before any acceptance can quote it.
+    """
+    register = (REPO_ROOT / "Fix.md").read_text(encoding="utf-8")
+    rows = [
+        line
+        for line in register.splitlines()
+        if line.startswith(SCI004_REGISTER_ROW_PREFIX)
+    ]
+
+    assert len(rows) == 1, "the register carries exactly one SCI-004 row"
+    assert rows[0].split("|")[2].strip() == "ROADMAP"
+
+
+def test_the_io_api_document_covers_the_mmode_arm_of_the_solver_union() -> None:
+    """Section 10: the published I/O surface documents the tagged solver union.
+
+    "HDF5 preserves the complete tagged solver snapshot [...] Reader round trips
+    must reconstruct and authenticate the m-mode solver snapshot; a reader that
+    silently labels it ``rime`` fails acceptance."  A user of the documented API
+    cannot act on a contract the document does not mention.
+    """
+    document = REPO_ROOT / "docs" / "api" / "io.rst"
+    text = document.read_text(encoding="utf-8").lower()
+
+    missing = [term for term in MMODE_SOLVER_SNAPSHOT_TERMS if term not in text]
+    assert not missing, (
+        "docs/api/io.rst does not document the m-mode arm of the Section 10 "
+        f"tagged solver union; missing: {missing}"
+    )
+
+
+def test_the_configuration_support_output_boundary_names_the_mmode_simulator() -> None:
+    """Section 10: the support matrix's output boundary covers m-mode results.
+
+    The matrix is the document that tells a user which writers accept which
+    runs; an m-mode run whose five output paths are supported has to appear
+    there, in the section that owns the boundary.
+    """
+    document = REPO_ROOT / "docs" / "user_guide" / "configuration_support.rst"
+    text = document.read_text(encoding="utf-8")
+    lowered = text.lower()
+
+    assert "output boundary" in lowered, "the matrix still has an output boundary"
+    boundary = lowered.split("output boundary", 1)[1]
+    assert MMODE_SIMULATOR_KEY in boundary, (
+        "docs/user_guide/configuration_support.rst does not name the m-mode "
+        "simulator in its output boundary section"
+    )

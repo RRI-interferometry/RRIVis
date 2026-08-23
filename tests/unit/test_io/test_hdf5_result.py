@@ -2874,3 +2874,156 @@ def test_a_scalar_peak_hdf5_run_keeps_the_pre_stage3_beam_payload(
         "stored_grid_peak_by_frequency",
     ):
         assert name not in provenance
+
+
+# ==============================================================================
+# SCI-004 phase M3: Section 10's HDF5 contract for an m-mode result
+# ==============================================================================
+#
+# ``docs/development/sci004_mmode_design.md`` Section 10: "HDF5 preserves the
+# complete tagged solver snapshot. [...] Reader round trips must reconstruct and
+# authenticate the m-mode solver snapshot; a reader that silently labels it
+# ``rime`` fails acceptance."
+#
+# Phase M1 taught the reader the m-mode arm's exact twenty-key set, in Section
+# 10's order.  The writer publishes the snapshot through the result's JSON-safe
+# projection, which sorts object keys, so the write-back verification the writer
+# performs on every publication reads back a *sorted* ``solver_json`` and
+# refuses it.  An m-mode result therefore cannot be written at all today, which
+# is what these oracles measure.
+
+_PHASE3_HDF5_GREEN_CONTROL = (
+    "tests/unit/test_io/test_hdf5_result.py::"
+    "test_versioned_hdf5_round_trip_is_scientifically_exact[complex128]"
+)
+
+_PHASE3_HDF5_PATTERN = r"HDF5 solver_json has unexpected fields"
+
+
+def _phase3_hdf5_case(
+    case_id: str,
+    requirement_id: str,
+    function: str,
+) -> dict[str, object]:
+    from tests.unit.test_io.test_standard_visibility import MMODE_FIXTURE_BYTES
+
+    return {
+        "case_id": case_id,
+        "requirement_id": requirement_id,
+        "test_nodeid": f"tests/unit/test_io/test_hdf5_result.py::{function}",
+        "expected_failure_kind": "exception",
+        "expected_failure_pattern": _PHASE3_HDF5_PATTERN,
+        "fixture_defect_excluded_by": _PHASE3_HDF5_GREEN_CONTROL,
+        "fixture_bytes": MMODE_FIXTURE_BYTES,
+    }
+
+
+SCI004_PHASE3_RED_CASES: tuple[dict[str, object], ...] = (
+    _phase3_hdf5_case(
+        "m3.hdf5.mmode-result-publishes",
+        "sci004.section-10.hdf5-publishes-an-mmode-result",
+        "test_an_mmode_result_publishes_and_reloads_from_hdf5",
+    ),
+    _phase3_hdf5_case(
+        "m3.hdf5.solver-json-keeps-section-10-key-order",
+        "sci004.section-10.hdf5-preserves-the-complete-tagged-snapshot",
+        "test_the_stored_solver_json_keeps_the_section_10_key_order",
+    ),
+    _phase3_hdf5_case(
+        "m3.hdf5.reader-reconstructs-the-mmode-arm",
+        "sci004.section-10.reader-reconstructs-and-authenticates-the-mmode-arm",
+        "test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it",
+    ),
+    _phase3_hdf5_case(
+        "m3.hdf5.fingerprints-survive-the-round-trip",
+        "sci004.section-10.mmode-fingerprints-survive-the-hdf5-round-trip",
+        "test_the_mmode_scientific_and_provenance_fingerprints_survive_hdf5",
+    ),
+)
+
+SCI004_PHASE3_RED_GREEN_CONTROLS: tuple[str, ...] = (_PHASE3_HDF5_GREEN_CONTROL,)
+
+
+def test_an_mmode_result_publishes_and_reloads_from_hdf5(tmp_path: Path) -> None:
+    """Section 10: an m-mode result is publishable through the versioned writer."""
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    result = build_mmode_result(tmp_path)
+    target = tmp_path / "mmode-result.h5"
+
+    assert write_result_hdf5(result, target) == target.absolute()
+    loaded = load_result_hdf5(target)
+
+    assert isinstance(loaded, LoadedSimulationResult)
+    assert np.array_equal(
+        np.asarray(loaded.visibilities), np.asarray(result.visibilities)
+    )
+    assert loaded.correlations == result.correlations
+
+
+def test_the_stored_solver_json_keeps_the_section_10_key_order(
+    tmp_path: Path,
+) -> None:
+    """Section 10: HDF5 preserves the *complete* tagged solver snapshot.
+
+    The M1 reader requires ``tuple(solver) == MMODE_SOLVER_SNAPSHOT_KEYS``, so
+    "complete" here is an ordered statement, not a set statement: a writer that
+    sorts the object alphabetically publishes a file its own reader rejects.
+    """
+    from radiosim.core.result import MMODE_SOLVER_SNAPSHOT_KEYS
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    result = build_mmode_result(tmp_path)
+    target = tmp_path / "mmode-order.h5"
+    write_result_hdf5(result, target)
+
+    with h5py.File(target, "r") as handle:
+        raw = handle["provenance/solver_json"][()]
+    stored = json.loads(raw.decode("utf-8") if isinstance(raw, bytes) else str(raw))
+
+    assert tuple(stored) == MMODE_SOLVER_SNAPSHOT_KEYS
+    assert stored["solver"] == "mmode"
+    assert stored == dict(result.solver.as_mapping())
+
+
+def test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it(
+    tmp_path: Path,
+) -> None:
+    """Section 10: "a reader that silently labels it ``rime`` fails acceptance"."""
+    from radiosim.core.result import (
+        MMODE_SOLVER_SNAPSHOT_KEYS,
+        MModeSolverResultProvenance,
+    )
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    result = build_mmode_result(tmp_path)
+    target = tmp_path / "mmode-reader.h5"
+    write_result_hdf5(result, target)
+
+    loaded = load_result_hdf5(target)
+    solver = loaded.solver
+
+    assert type(solver) is MModeSolverResultProvenance
+    assert solver.solver == "mmode"
+    assert solver.solver != "rime"
+    assert tuple(solver.as_mapping()) == MMODE_SOLVER_SNAPSHOT_KEYS
+    assert solver.as_mapping() == dict(result.solver.as_mapping())
+
+
+def test_the_mmode_scientific_and_provenance_fingerprints_survive_hdf5(
+    tmp_path: Path,
+) -> None:
+    """Section 12.2's ninth family: the round trip keeps fingerprint metadata."""
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    result = build_mmode_result(tmp_path)
+    target = tmp_path / "mmode-fingerprint.h5"
+    write_result_hdf5(result, target)
+
+    loaded = load_result_hdf5(target)
+
+    assert loaded.scientific_sha256 == result.scientific_sha256
+    assert loaded.provenance_sha256 == result.provenance_sha256
+    with h5py.File(target, "r") as handle:
+        stored = handle.attrs["scientific_sha256"]
+    assert str(stored) == result.scientific_sha256

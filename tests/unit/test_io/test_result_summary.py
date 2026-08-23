@@ -879,3 +879,151 @@ def test_a_scalar_peak_summary_beam_block_omits_every_full_efield_field(
         "stored_grid_peak_by_frequency",
     ):
         assert name not in provenance
+
+
+# ==============================================================================
+# SCI-004 phase M3: Section 10's summary-JSON contract for an m-mode result
+# ==============================================================================
+#
+# ``docs/development/sci004_mmode_design.md`` Section 10: "In-memory, summary
+# JSON, HDF5, UVFITS, and Measurement Set paths all write the same synthesized
+# UTC sample centres and integration widths. Summary JSON is still
+# metadata-only."  The m-mode grid's per-sample widths come from Section 3.1's
+# retained exposure edges, so for a full-sidereal run they are *not* one
+# repeated cadence -- the shared fixture publishes six distinct widths -- and a
+# summary that keeps describing them with the direct writer's
+# minimum-of-cadence rule states something the file itself contradicts.
+
+#: The exact rule literal ``io/summary_json.py`` publishes today. It is true of
+#: a UTC-uniform direct grid and false of a Section 3.1 ERA grid.
+DIRECT_EXPOSURE_RULE = "minimum of cadence_seconds and remaining observation duration"
+
+_PHASE3_SUMMARY_GREEN_CONTROL = (
+    "tests/unit/test_io/test_result_summary.py::"
+    "test_summary_json_is_exact_bounded_metadata_contract"
+)
+
+
+def _phase3_summary_case(
+    case_id: str,
+    requirement_id: str,
+    function: str,
+    *,
+    expected_failure_kind: str,
+    expected_failure_pattern: str,
+) -> dict[str, object]:
+    from tests.unit.test_io.test_standard_visibility import MMODE_FIXTURE_BYTES
+
+    return {
+        "case_id": case_id,
+        "requirement_id": requirement_id,
+        "test_nodeid": f"tests/unit/test_io/test_result_summary.py::{function}",
+        "expected_failure_kind": expected_failure_kind,
+        "expected_failure_pattern": expected_failure_pattern,
+        "fixture_defect_excluded_by": _PHASE3_SUMMARY_GREEN_CONTROL,
+        "fixture_bytes": MMODE_FIXTURE_BYTES,
+    }
+
+
+SCI004_PHASE3_RED_CASES: tuple[dict[str, object], ...] = (
+    _phase3_summary_case(
+        "m3.summary.mmode-exposure-rule-is-not-the-direct-rule",
+        "sci004.section-10.summary-publishes-the-synthesized-integration-widths",
+        "test_the_summary_publishes_the_synthesized_mmode_integration_widths",
+        expected_failure_kind="assertion",
+        expected_failure_pattern=(
+            r"minimum of cadence_seconds and remaining observation duration' !="
+        ),
+    ),
+    _phase3_summary_case(
+        "m3.summary.utc-centres-agree-with-the-hdf5-path",
+        "sci004.section-10.every-path-writes-the-same-synthesized-utc-grid",
+        "test_the_summary_and_hdf5_paths_publish_the_same_synthesized_utc_grid",
+        expected_failure_kind="exception",
+        expected_failure_pattern=r"HDF5 solver_json has unexpected fields",
+    ),
+)
+
+SCI004_PHASE3_RED_GREEN_CONTROLS: tuple[str, ...] = (_PHASE3_SUMMARY_GREEN_CONTROL,)
+
+
+def _summary_floats(value: object) -> set[float]:
+    """Return every finite float reachable inside one summary subtree.
+
+    The oracle pins the published *values*, not the key that carries them:
+    Section 10 requires the widths to be written, and leaves the summary's own
+    key vocabulary to the writer.
+    """
+    found: set[float] = set()
+    if isinstance(value, bool):
+        return found
+    if isinstance(value, (int, float)):
+        found.add(float(value))
+    elif isinstance(value, dict):
+        for item in value.values():
+            found |= _summary_floats(item)
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            found |= _summary_floats(item)
+    return found
+
+
+def test_the_summary_publishes_the_synthesized_mmode_integration_widths(
+    tmp_path: Path,
+) -> None:
+    """Section 10: the summary carries the synthesized widths, truthfully.
+
+    Two things are required and neither holds today: the observation block must
+    not describe an ERA-derived grid with the direct minimum-of-cadence rule,
+    and the exposure values it publishes must be the grid's own.
+    """
+    from radiosim.io.summary_json import write_result_summary_json
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    result = build_mmode_result(tmp_path)
+    widths = np.asarray(result.time_grid.integration_time_seconds, dtype=np.float64)
+    target = tmp_path / "mmode.summary.json"
+    write_result_summary_json(result, target)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    observation = payload["observation"]
+
+    assert len(set(widths.tolist())) > 1, "the ERA-derived widths are not uniform"
+    assert observation.get("exposure_rule") != DIRECT_EXPOSURE_RULE
+    published = _summary_floats(observation)
+    assert float(widths.min()) in published
+    assert float(widths.max()) in published
+
+
+def test_the_summary_and_hdf5_paths_publish_the_same_synthesized_utc_grid(
+    tmp_path: Path,
+) -> None:
+    """Section 10: "all write the same synthesized UTC sample centres and
+    integration widths"."""
+    import h5py
+
+    from radiosim.io.hdf5 import write_result_hdf5
+    from radiosim.io.summary_json import write_result_summary_json
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    result = build_mmode_result(tmp_path)
+    summary_path = tmp_path / "mmode.summary.json"
+    hdf5_path = tmp_path / "mmode.h5"
+    write_result_summary_json(result, summary_path)
+    write_result_hdf5(result, hdf5_path)
+
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    with h5py.File(hdf5_path, "r") as handle:
+        stored_widths = np.asarray(
+            handle["coordinates/time/integration_time_seconds"][()],
+            dtype=np.float64,
+        )
+        stored_jd1 = np.asarray(handle["coordinates/time/utc_jd1"][()])
+        stored_jd2 = np.asarray(handle["coordinates/time/utc_jd2"][()])
+
+    grid = result.time_grid
+    assert np.array_equal(stored_widths, np.asarray(grid.integration_time_seconds))
+    assert np.array_equal(stored_jd1, np.asarray(grid.utc_jd1))
+    assert np.array_equal(stored_jd2, np.asarray(grid.utc_jd2))
+    published = _summary_floats(payload["observation"])
+    assert float(stored_widths.min()) in published
+    assert float(stored_widths.max()) in published

@@ -1010,3 +1010,454 @@ def test_the_projection_carries_a_full_efield_run_in_the_declared_basis(
     assert record["polarization_basis"] == basis
     assert record["source_scientific_sha256"] == result.scientific_sha256
     assert record["receptor_sha256"] == result.receptors.provenance.receptor_sha256
+
+
+# ==============================================================================
+# SCI-004 phase M3: Section 10's standard-format outputs for an m-mode result
+# ==============================================================================
+#
+# ``docs/development/sci004_mmode_design.md`` Section 13.5 opens the phase-M3 red
+# slice on the five output writers, and Section 12.2's ninth oracle family is
+# "Results: in-memory, summary, HDF5, UVFITS, and MS round trips with phase,
+# feed, correlation, time, solver, and fingerprint metadata".  Section 10 fixes
+# what those paths must carry for the m-mode arm of the strict tagged solver
+# union:
+#
+#   "In-memory, summary JSON, HDF5, UVFITS, and Measurement Set paths all write
+#   the same synthesized UTC sample centres and integration widths. [...]
+#   UVFITS/MS keep the canonical zenith phase centre, east-X/circular feed
+#   metadata, four correlation products, UTC coordinates, and history lines
+#   naming the m-mode/frame/harmonic conventions. Reader round trips must
+#   reconstruct and authenticate the m-mode solver snapshot; a reader that
+#   silently labels it ``rime`` fails acceptance."
+#
+# This module owns the shared m-mode fixture the phase-M3 output oracles use,
+# because ``io/standard_visibility.py`` is the one seam UVFITS and MS both pass
+# through.  ``build_mmode_result`` is deliberately *not* a solver run: it
+# resolves a real full-sidereal m-mode configuration -- so the published UTC
+# sample centres and integration widths are the genuine Section 3.1 ERA-derived
+# ones, six distinct widths rather than one repeated cadence -- and pairs it
+# with a synthetic receptor cube and a production ``MModeSolverSnapshot``.  What
+# the output contract transports is metadata identity, not physics; the physics
+# of the cube and of the frame certificate is accepted M1/M2 scope and is
+# re-measured from real runs by the phase-M3 characterization families in
+# ``tests/characterization/test_sci004_mmode.py``.
+
+from radiosim.core.mmode.solver import (  # noqa: E402
+    DirectGateRecord,
+    MModeSolverSnapshot,
+)
+from radiosim.core.mmode.types import (  # noqa: E402
+    MMODE_CONVENTION,
+    MMODE_EXECUTION_POLICY,
+    MMODE_FRAME_MODEL,
+    MMODE_HARMONIC_CONVENTION,
+    MMODE_QUADRATURE_POLICY,
+    MMODE_STOKES_BRIDGE,
+    MMODE_TANGENT_FRAME_M1,
+    MMODE_TIME_GRID_CONVENTION,
+    MMODE_TRUNCATION_POLICY,
+)
+from radiosim.core.result import (  # noqa: E402
+    MMODE_SOLVER_SNAPSHOT_KEYS,
+    MModeSolverResultProvenance,
+)
+
+#: The shared phase-M3 fixture's exact m-mode dimensions.  ``sidereal_samples``
+#: is the smallest value Section 7.3's mandatory m-tail diagnostic admits for
+#: ``mmax = 4``: ``mcheck = min(lcheck, mmax + max(8, max(1, mmax // 8))) = 12``
+#: and the Nyquist rule needs ``2 * mcheck + 1``.
+MMODE_FIXTURE_LMAX = 4
+MMODE_FIXTURE_MMAX = 4
+MMODE_FIXTURE_QUADRATURE_NSIDE = 2
+MMODE_FIXTURE_SIDEREAL_SAMPLES = 25
+MMODE_FIXTURE_WORKING_MEMORY_BYTES = 1 << 26
+
+#: The exact retained bytes of the fixture's m-mode configuration override.  The
+#: phase-M3 red record hashes these as each case's
+#: ``invalid_config_raw_sha256``, so the record names the configuration the
+#: observation was made from rather than a description of it.
+MMODE_FIXTURE_BYTES = f"""\
+obs_time:
+  mode: full_sidereal
+  start_time: "2025-01-01T00:00:00"
+  sidereal_samples: {MMODE_FIXTURE_SIDEREAL_SAMPLES}
+  integration_fraction: 1.0
+execution:
+  simulator: mmode
+  mmode:
+    convention: {MMODE_CONVENTION}
+    frame_model: {MMODE_FRAME_MODEL}
+    harmonic_convention: {MMODE_HARMONIC_CONVENTION}
+    lmax: {MMODE_FIXTURE_LMAX}
+    mmax: {MMODE_FIXTURE_MMAX}
+    quadrature_nside: {MMODE_FIXTURE_QUADRATURE_NSIDE}
+    working_memory_bytes: {MMODE_FIXTURE_WORKING_MEMORY_BYTES}
+""".encode()
+
+
+def _mmode_fixture_digest(role: str) -> str:
+    """Return one deterministic 64-hex stand-in digest for a snapshot field.
+
+    Section 10 requires the m-mode snapshot to carry ``iers_table_sha256`` and
+    ``frame_certificate_sha256``; the *output* contract transports them and
+    never interprets them, so this fixture derives them from its own identity
+    instead of running the solver that would compute them.  The characterization
+    families measure the real ones from real runs.
+    """
+    import hashlib
+
+    return hashlib.sha256(
+        b"radiosim.sci004.phase3-output-fixture.v1\x00"
+        + role.encode("ascii")
+        + b"\x00"
+        + MMODE_FIXTURE_BYTES
+    ).hexdigest()
+
+
+def _mmode_direct_gate(cell_count: int) -> DirectGateRecord:
+    """Return a passing Section 7.3 gate record for the output fixture.
+
+    The values are the exact-agreement corner Section 7.3 admits explicitly --
+    "with an exact-zero ``deficit_max_jy`` passing both" -- so the fixture never
+    asserts a numerical claim it did not measure.
+    """
+    zero = "0" * 64
+    return DirectGateRecord(
+        predicate_id="sci004_two_tier_direct.v3",
+        reference_cube_sha256=zero,
+        candidate_cube_sha256=zero,
+        reference_error_cube_sha256=zero,
+        horizon_free_cube_sha256=zero,
+        horizon_free_qcheck_cube_sha256=zero,
+        quadrature_shell_cube_sha256=zero,
+        expected_cell_count=cell_count,
+        compared_finite_cell_count=cell_count,
+        evaluated_error_cell_count=cell_count,
+        numerical_scale_jy=1.0,
+        horizon_free_shell_max_jy=0.0,
+        horizon_free_shell_l2=0.0,
+        horizon_free_shell_max_limit_jy=1e-8,
+        horizon_free_shell_l2_limit=1e-8,
+        quadrature_shell_max_jy=0.0,
+        quadrature_shell_l2=0.0,
+        reference_scale_jy=1.0,
+        deficit_max_jy=0.0,
+        deficit_l2=0.0,
+        deficit_max_quarter_jy=0.0,
+        deficit_max_half_jy=0.0,
+        convergence_factor=2.0,
+        pass_=True,
+    )
+
+
+def build_mmode_result(
+    tmp_path: Path,
+    *,
+    dtype: str = "complex128",
+    frequencies_hz: tuple[float, ...] = (100e6, 101.5e6),
+    channel_widths_hz: tuple[float, ...] = (1.5e6, 1.5e6),
+    receptors: dict[str, object] | None = None,
+    sky_representation: str = "point_sources",
+    components: tuple[str, ...] = ("point",),
+    component_element_counts: tuple[int, ...] = (3,),
+    tangent_polarization_frame: object = MMODE_TANGENT_FRAME_M1,
+):
+    """Build one canonical m-mode result on a genuine full-sidereal UTC grid.
+
+    The configuration is resolved through the ordinary public path, so
+    ``result.time_grid`` is the Section 3.1 grid mapped from exact ERA turns and
+    its integration widths are the retained exposure-edge widths -- not a
+    repeated cadence.  That distinction is what several Section 10 oracles below
+    measure.
+    """
+    mapping = _result_mapping(
+        tmp_path,
+        frequencies_hz=frequencies_hz,
+        channel_widths_hz=channel_widths_hz,
+        receptors=receptors,
+    )
+    mapping["visibility"] = {"sky_representation": sky_representation}
+    mapping["obs_time"] = {
+        "mode": "full_sidereal",
+        "start_time": "2025-01-01T00:00:00",
+        "sidereal_samples": MMODE_FIXTURE_SIDEREAL_SAMPLES,
+        "integration_fraction": 1.0,
+    }
+    mapping["execution"] = {
+        "backend": "numpy",
+        "offline": True,
+        "simulator": "mmode",
+        "mmode": {
+            "convention": MMODE_CONVENTION,
+            "frame_model": MMODE_FRAME_MODEL,
+            "harmonic_convention": MMODE_HARMONIC_CONVENTION,
+            "lmax": MMODE_FIXTURE_LMAX,
+            "mmax": MMODE_FIXTURE_MMAX,
+            "quadrature_nside": MMODE_FIXTURE_QUADRATURE_NSIDE,
+            "working_memory_bytes": MMODE_FIXTURE_WORKING_MEMORY_BYTES,
+        },
+    }
+    simulator = Simulator.from_mapping(mapping, base_dir=tmp_path)
+    simulator._ensure_instrument_state()
+    simulator._ensure_receptor_set()
+    simulator._ensure_beam_system()
+    backend = get_backend("numpy")
+    baselines = simulator._instrument_state.selection.baselines
+    time_grid = simulator.config.observation.time_grid
+    shape = (len(time_grid), len(baselines), len(frequencies_hz), 2, 2)
+    real = np.arange(1, np.prod(shape) + 1, dtype=np.float64).reshape(shape)
+    receptor = (real + 1j * (real * 0.0625 + 0.015625)).astype(dtype)
+    for baseline_index, baseline in enumerate(baselines):
+        if baseline.ant1 == baseline.ant2:
+            receptor[:, baseline_index, :, 0, 0] = receptor[
+                :, baseline_index, :, 0, 0
+            ].real
+            receptor[:, baseline_index, :, 1, 1] = receptor[
+                :, baseline_index, :, 1, 1
+            ].real
+            receptor[:, baseline_index, :, 1, 0] = np.conj(
+                receptor[:, baseline_index, :, 0, 1]
+            )
+    snapshot = MModeSolverSnapshot(
+        sky_representation=sky_representation,
+        execution_path="polarized",
+        components=components,
+        component_element_counts=component_element_counts,
+        sidereal_samples=len(time_grid),
+        lmax=MMODE_FIXTURE_LMAX,
+        mmax=MMODE_FIXTURE_MMAX,
+        quadrature_nside=MMODE_FIXTURE_QUADRATURE_NSIDE,
+        iers_table_sha256=_mmode_fixture_digest("iers_table"),
+        frame_certificate_sha256=_mmode_fixture_digest("frame_certificate"),
+        direct_gate=_mmode_direct_gate(
+            len(time_grid) * len(baselines) * len(frequencies_hz) * 4
+        ),
+        frozen_gauss128_cube_sha256=_mmode_fixture_digest("frozen_gauss128_cube"),
+        frozen_enclosure_error_cube_sha256=_mmode_fixture_digest(
+            "frozen_enclosure_error_cube"
+        ),
+        tangent_polarization_frame=tangent_polarization_frame,
+    )
+    return build_simulation_result(
+        receptor_visibilities=receptor,
+        backend=backend,
+        time_grid=time_grid,
+        frequencies_hz=frequencies_hz,
+        channel_widths_hz=channel_widths_hz,
+        instrument=simulator.instrument,
+        selection=simulator._instrument_state.selection,
+        beam_state=simulator.beam_state,
+        receptors=simulator.receptors,
+        phase_center=PhaseCenter(),
+        backend_provenance=BackendResultProvenance(
+            requested_backend="numpy",
+            actual_backend="numpy",
+            requested_precision={"output": dtype},
+            actual_precision={"output": dtype},
+            result_dtype=dtype,
+        ),
+        solver_provenance=MModeSolverResultProvenance(snapshot=snapshot),
+        resolved_config=simulator.config.to_json_safe(),
+        configuration_provenance=None,
+        performance=ResultPerformance(
+            setup_seconds=1.0,
+            solver_seconds=2.0,
+            solver_point_seconds=2.0,
+            solver_healpix_seconds=0.0,
+            result_construction_seconds=0.5,
+            host_transfer_seconds=0.25,
+            total_seconds=3.75,
+        ),
+        history=("simulated",),
+    )
+
+
+#: The three convention literals Section 10 requires the projected HISTORY to
+#: name.  They are imported from production rather than restated, so the oracle
+#: cannot drift from the snapshot the solver publishes.
+MMODE_HISTORY_CONVENTIONS: tuple[str, ...] = (
+    MMODE_CONVENTION,
+    MMODE_FRAME_MODEL,
+    MMODE_HARMONIC_CONVENTION,
+)
+
+_PHASE3_GREEN_CONTROL = (
+    "tests/unit/test_io/test_standard_visibility.py::"
+    "test_shared_projection_has_canonical_blt_polarization_and_phase[uvfits]"
+)
+
+
+def _phase3_case(
+    case_id: str,
+    requirement_id: str,
+    function: str,
+    *,
+    module: str = "tests/unit/test_io/test_standard_visibility.py",
+    expected_failure_kind: str = "missing-symbol",
+    expected_failure_pattern: str = (r"has no attribute 'components'"),
+    green_control: str = _PHASE3_GREEN_CONTROL,
+) -> dict[str, object]:
+    return {
+        "case_id": case_id,
+        "requirement_id": requirement_id,
+        "test_nodeid": f"{module}::{function}",
+        "expected_failure_kind": expected_failure_kind,
+        "expected_failure_pattern": expected_failure_pattern,
+        "fixture_defect_excluded_by": green_control,
+        "fixture_bytes": MMODE_FIXTURE_BYTES,
+    }
+
+
+SCI004_PHASE3_RED_CASES: tuple[dict[str, object], ...] = (
+    _phase3_case(
+        "m3.standard.mmode-projects-to-four-correlations",
+        "sci004.section-10.mmode-projects-with-four-correlation-products",
+        "test_an_mmode_result_projects_with_four_correlation_products",
+    ),
+    _phase3_case(
+        "m3.standard.history-names-the-mmode-conventions",
+        "sci004.section-10.history-names-the-mmode-frame-and-harmonic-conventions",
+        "test_the_projected_history_names_the_mmode_frame_and_harmonic_conventions",
+    ),
+    _phase3_case(
+        "m3.standard.record-carries-the-tagged-mmode-snapshot",
+        "sci004.section-10.projection-record-carries-the-tagged-mmode-snapshot",
+        "test_the_projection_record_carries_the_complete_tagged_mmode_snapshot",
+    ),
+    _phase3_case(
+        "m3.standard.reader-never-relabels-mmode-as-rime",
+        "sci004.section-10.reader-never-relabels-mmode-as-rime",
+        "test_the_projection_reader_never_relabels_an_mmode_run_as_rime",
+    ),
+    _phase3_case(
+        "m3.standard.synthesized-utc-centres-and-widths",
+        "sci004.section-10.projection-writes-the-synthesized-utc-grid",
+        "test_the_projection_writes_the_synthesized_utc_centres_and_widths",
+    ),
+)
+
+SCI004_PHASE3_RED_GREEN_CONTROLS: tuple[str, ...] = (_PHASE3_GREEN_CONTROL,)
+
+
+def test_an_mmode_result_projects_with_four_correlation_products(
+    tmp_path: Path,
+) -> None:
+    """Section 10: the m-mode arm reaches the shared standard projection.
+
+    "Point, HEALPix, and hybrid remain solver provenance, not separate output
+    products", and the public result "keeps its existing strict ``(T, B, F, 4)``
+    visibility array in the four row-major correlation labels".  The projection
+    is the one seam UVFITS and MS share, so this is where the tagged union first
+    has to be representable.
+    """
+    result = build_mmode_result(tmp_path)
+
+    projected = project_simulation_result(result, format="uvfits")
+
+    assert projected.data.format == "uvfits"
+    assert len(projected.data.correlations) == 4
+    assert projected.data.visibilities.shape[-1] == 4
+    assert projected.data.visibilities.shape[0] == len(result.time_grid)
+    assert result.solver.solver == "mmode"
+
+
+def test_the_projected_history_names_the_mmode_frame_and_harmonic_conventions(
+    tmp_path: Path,
+) -> None:
+    """Section 10: "history lines naming the m-mode/frame/harmonic conventions".
+
+    The three literals are production's own, imported above, so a writer that
+    invented a fourth spelling would fail here rather than pass a paraphrase.
+    """
+    result = build_mmode_result(tmp_path)
+
+    projected = project_simulation_result(result, format="uvfits")
+    history = str(projected.uvdata.history)
+    # "History *lines*", so the embedded projection record does not count: that
+    # JSON already carried the snapshot before this phase, and reading the
+    # requirement as satisfied by it would make the sentence say nothing.
+    plain = [
+        line
+        for line in history.splitlines()
+        if not line.startswith(PROJECTION_HISTORY_PREFIX)
+    ]
+
+    for literal in MMODE_HISTORY_CONVENTIONS:
+        assert any(literal in line for line in plain), literal
+    assert (
+        len(history.encode("utf-8"))
+        <= standard_visibility_module._PROJECTION_HISTORY_LIMIT
+    )
+
+
+def test_the_projection_record_carries_the_complete_tagged_mmode_snapshot(
+    tmp_path: Path,
+) -> None:
+    """Section 10: HDF5 and the standard projection carry the *complete* snapshot.
+
+    The record's ``solver`` entry must be the exact twenty-key m-mode arm in
+    Section 10's order, never a truncated or re-sorted subset.
+    """
+    result = build_mmode_result(tmp_path)
+
+    projected = project_simulation_result(result, format="uvfits")
+    record, _lines = projection_record_from_history(projected.uvdata.history)
+    solver = record["solver"]
+
+    assert isinstance(solver, dict)
+    assert tuple(solver) == MMODE_SOLVER_SNAPSHOT_KEYS
+    assert solver["solver"] == "mmode"
+    assert solver["convention"] == MMODE_CONVENTION
+    assert solver["time_grid_convention"] == MMODE_TIME_GRID_CONVENTION
+    assert solver["frame_model"] == MMODE_FRAME_MODEL
+    assert solver["harmonic_convention"] == MMODE_HARMONIC_CONVENTION
+    assert solver["quadrature_policy"] == MMODE_QUADRATURE_POLICY
+    assert solver["truncation_policy"] == MMODE_TRUNCATION_POLICY
+    assert solver["stokes_v_basis_bridge"] == MMODE_STOKES_BRIDGE
+    assert solver["transform_execution_policy"] == MMODE_EXECUTION_POLICY
+    assert record["source_scientific_sha256"] == result.scientific_sha256
+
+
+def test_the_projection_reader_never_relabels_an_mmode_run_as_rime(
+    tmp_path: Path,
+) -> None:
+    """Section 10: "a reader that silently labels it ``rime`` fails acceptance".
+
+    The negative half is asserted as well as the positive one, because the
+    failure mode this sentence names is a *successful* read that quietly
+    produces the wrong arm.
+    """
+    result = build_mmode_result(tmp_path)
+
+    projected = project_simulation_result(result, format="uvfits")
+    record, _lines = projection_record_from_history(projected.uvdata.history)
+    solver = record["solver"]
+
+    assert solver["solver"] != "rime"
+    assert solver["convention"] != "radiosim.rime-zenith-drift.v1"
+    assert "sky_representation=" in str(projected.uvdata.history)
+    assert solver["sky_representation"] == result.solver.sky_representation
+
+
+def test_the_projection_writes_the_synthesized_utc_centres_and_widths(
+    tmp_path: Path,
+) -> None:
+    """Section 10: every path writes "the same synthesized UTC sample centres
+    and integration widths".
+
+    The m-mode grid's widths come from Section 3.1's retained exposure edges, so
+    they are *not* one repeated cadence; the fixture is chosen so that the
+    distinction is measurable rather than notional.
+    """
+    result = build_mmode_result(tmp_path)
+    widths = np.asarray(result.time_grid.integration_time_seconds, dtype=np.float64)
+
+    assert len(set(widths.tolist())) > 1, "the ERA-derived widths are not uniform"
+
+    projected = project_simulation_result(result, format="uvfits")
+    stored = np.asarray(projected.uvdata.integration_time, dtype=np.float64)
+    stored_by_time = stored.reshape(len(result.time_grid), -1)
+
+    for index, width in enumerate(widths):
+        assert np.all(stored_by_time[index] == width), index
