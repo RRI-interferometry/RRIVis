@@ -32,6 +32,60 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (evidence generation reconciliation).**
+Attempting E1 at the globally clean exact `S1` surfaced two defects. First,
+both tracked phase generators are stubs: their `generate` sub-commands
+unconditionally refuse after preflight, misreading Section 14.4's "runs
+only at its globally clean exact `S`" as a prohibition rather than the
+venue — Sections 14.2 and 14.3 now state the execution semantics
+explicitly. Second, the evidence-embedding letter had silently exploded in
+scale: the frame row was required to embed the complete scan terminal-cell
+array (measured sixteen million rows, of order gigabytes), the per-sample
+membership census (`D*N = 188,209` rows), and one transfer-sample row per
+direction and output cell (`552,960` rows), against a house evidence class
+of tens to hundreds of kilobytes. Section 12.1 now retains a bounded scan
+projection (every crossing row verbatim plus one per-direction summary
+row, with the full array's digest computed streamingly and the array
+reconstructed by deterministic replay in the `A1` re-derivation), the
+membership census in
+per-direction visibility-mask rows whose deterministic expansion the
+strict validator re-digests, and Section 7.3's transfer-sample ledger as
+one direction-concatenation digest row per catalogue grid and output cell,
+preserving every omission-detection guarantee at a fraction of the size;
+the scan array and the transfer concatenations are the exactly two ruled
+replay-deferral exceptions, both discharged by the mandatory `A1`
+re-derivation.
+It supersedes the ablation-clarification landing
+`b8333c52688e9358e4d1747173e70196a60209ab` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. It reopens, as a `superseded
+implementation` interval commit touching only Section 13.3 `S1` paths, the
+M1 source commit `46b7703a727fdf3afd258034d274933e81ded289`, whose
+generator completion and economy-schema alignment land in a governed
+re-implementation; and it reopens, as a `superseded red slice` interval
+commit, the re-cut `35db7fb16665e191feb5c6c4ced9aa3e52e5acaa`, solely for
+the operative-`D` rebinding of its dependency validator and the Section
+13.7 disposal-and-regeneration of
+`docs/development/sci004_mmode_phase1_red_failures.json`; the governed
+re-cut directly parents this correction's landing and the
+re-implementation directly parents the re-cut, preserving the
+`R -> S -> E` grammar. This correction is design-only: it implements no
+solver, accepts no phase, and does not close the register row. Its exact
+pre-landing file bytes
+(`sha256:f052a9654d2770edf2492a5f860617dc76b1326150e7b53354ffd436de3d807b`)
+and parent-relative diff
+(`sha256:22bde951688b9704ba7feeb61b4994e6b5fab0b91f1e77e8dc4d50cd7dd9d5c6`)
+received separate independent reviews on 2026-08-23 — physics/governance
+and computational, both `ACCEPT` after one applied advisory: the draft's
+claim of a single replay-deferral exception was corrected to the honest
+two-exceptions acknowledgment this record carries, the physics review
+having established that the earlier Section 7.3 letter performed the
+transfer-vector regeneration at `E1` while the concatenation form defers
+it to `A1`. This correction's landing commit is the operative `D` of
+Section 13.7.
+
 **Bounded correction — 2026-08-23 (ablation clarification and deferred
 advisories).** Completing S1 to a fully green suite surfaced one
 implementation finding requiring a design clarification: the resolved
@@ -1239,19 +1293,27 @@ field, or other deterministic subset. The shell-coverage preimage has exactly
 `field_block_rows`, with
 schema literal `radiosim.mmode-shell-coverage.v1`.
 
-`transfer_sample_rows` has exactly `grid_id`, `direction_id`,
-`baseline_index`, `frequency_index`, `correlation_index`, `field_index`,
-`field_name`, `resolved_lmax`, `resolved_mmax`, `block_table_sha256`,
-`packed_sample_value_count`, and `packed_sample_sha256`. It is
-ordered by production then diagnostic catalogue grid, iso-Gauss direction,
-baseline, frequency, correlation, and fixed field order. Each row is appended
-only after that exact direction was evaluated and accumulated into its grid's
-complete packed coefficient vector. The vector count equals the appropriate
-packed-table value count and its `A` identity uses domain
-`radiosim.mmode-transfer-sample-contribution.v1`, axes `["packed_value"]`, role
-`transfer_sample_contribution`, units `visibility_response_sr`, and dtype
-`complex128-be`. Thus a
-catalogued qcheck pixel cannot be omitted while preserving aggregate counts.
+`transfer_sample_rows` has exactly `grid_id`, `baseline_index`,
+`frequency_index`, `correlation_index`, `field_index`, `field_name`,
+`resolved_lmax`, `resolved_mmax`, `block_table_sha256`,
+`direction_count`, `packed_sample_value_count`, and
+`concatenation_sha256`: one row per catalogue grid, baseline, frequency,
+correlation, and fixed-order field, ordered by production then diagnostic
+grid, baseline, frequency, correlation, and field.
+`concatenation_sha256` is the `A` identity — domain
+`radiosim.mmode-transfer-sample-contribution.v1`, axes
+`["direction","packed_value"]`, role `transfer_sample_contribution`, units
+`visibility_response_sr`, dtype `complex128-be` — over the
+direction-ledger-ordered concatenation of every catalogued direction's
+packed contribution vector for that cell, appended only as each direction
+is evaluated and accumulated. `direction_count` is that grid's catalogue
+count and the array's leading dimension. Thus a catalogued node cannot be
+omitted, reordered, or substituted while preserving the digest — the same
+per-direction guarantee the earlier one-row-per-direction form carried, at
+a fraction of the retained size — and the reconstruction of each
+concatenation is a per-grid transfer replay the `A1` re-derivation
+performs while the strict validator checks the row set, counts, ordering,
+and digest form.
 For a production row, `resolved_lmax=lmax` and `resolved_mmax=mmax`. For a
 diagnostic row they equal `lcheck` and `mcheck`, and the row authenticates the
 complete largest diagnostic vector. Every lower-`l` or lower-signed-`m`
@@ -1285,7 +1347,9 @@ complex128 time vector with domain
 after all four zero-extended vectors are finite.
 
 The ledger requires exactly
-`(D_prod+D_diag)*B*F*C*4` transfer-sample rows,
+`(1+len(Q_diag))*B*F*C*4` transfer-sample rows — one per catalogue grid
+and output cell, each carrying its complete direction-concatenation
+digest —
 `4*N*B*F*C` shell-comparison rows and
 `B*F*C*4*(2*mcheck+1)` field/block rows. All operand/delta cube digests in the
 four join rows use Section 14's visibility-cube primitive.
@@ -1293,10 +1357,12 @@ four join rows use Section 14's visibility-cube primitive.
 `D("radiosim.mmode-shell-coverage.v1",J(shell_coverage))`. Missing, duplicate, reordered,
 non-finite, grid-dangling, or uncovered work rejects the record, while its
 magnitude does not license or reject scientific correctness. The
-strict validator independently regenerates every transfer-sample packed
-vector and every field/block diagnostic time vector, rebuilds all child `A`
-digests and maxima, reconstructs the complete three embedded row arrays, and
-requires exact ordered equality before rebuilding `shell_coverage_sha256`. The
+strict validator independently regenerates every field/block diagnostic
+time vector, rebuilds their child `A` digests and maxima, reconstructs the
+complete embedded row arrays, and requires exact ordered equality before
+rebuilding `shell_coverage_sha256`; the transfer-sample concatenation
+digests are validated in form, count, and ordering by the strict validator
+and reconstructed by per-grid transfer replay in the `A1` re-derivation. The
 four maxima, the largest field/block delta, and the reference value
 `1e-6*max(1 Jy,max(abs(V(lcheck,mcheck,qcheck))))` are recorded for
 attribution. They are not a correctness bound: a finite local shell cannot
@@ -2053,7 +2119,28 @@ terminal rows across all directions, not a count of visited branch cells.
 
 The scan array is serialized as UTF-8 JSON with the row-field order above,
 `ensure_ascii=true`, separators `(',',':')`, and no whitespace or trailing
-newline. `horizon_scan_ledger_sha256` is SHA-256 of exactly those bytes.
+newline. `horizon_scan_ledger_sha256` is SHA-256 of exactly those bytes,
+computed streamingly at generation. The full terminal-cell array is of
+order ten million rows for the bounded driver, so the retained evidence
+embeds a bounded projection of it rather than the array itself: every
+`scan_crossing` and `excluded_upper_endpoint` row verbatim as
+`horizon_scan_crossing_rows`, plus one per-direction summary row as
+`horizon_scan_summary_rows` with exactly `direction_id`,
+`terminal_cell_count`, `boundary_evaluation_count`, `crossing_count`, and
+`min_ceiling_margin_f64be`, in direction-ledger order. The scan itself is
+deterministic given the frozen constants, the retained grid object, and
+the public Astropy API, so the full array is reconstructible by replay:
+the `A1` reviewer's certificate re-derivation regenerates it per
+direction and re-digests it against `horizon_scan_ledger_sha256`, while
+the strict evidence validator checks the embedded crossing rows, the
+summary joins, the summary-count arithmetic
+(`horizon_isolation_interval_count` equals the summary rows'
+`terminal_cell_count` sum), and the digest's form — one of exactly two
+deliberate replay-deferral rulings, alongside Section 7.3's
+transfer-sample concatenations, both made because a multi-gigabyte
+committed artifact and half-million-row ledgers would defeat review
+rather than serve it, and both discharged by the mandatory `A1`
+re-derivation.
 The scan identity is a second canonical JSON object with fields, in order,
 `schema_version`, `algorithm_id`, `implementation_files`, `constant_rows`,
 `astropy_version`, `erfa_version`, and `iers_table_sha256`. The first two
@@ -2071,12 +2158,13 @@ them — sorted by `name`; each row has exactly `name`, `type`, and
 and `value` is respectively f64be hex, a base-10 integer string, `p/q` in
 reduced base-10 integers, or the exact string literal. This object uses
 the same JSON serialization rule as the scan array. `horizon_scan_sha256`
-is SHA-256 of its exact bytes. The strict evidence validator rebuilds both
-digests and requires the isolation count to equal the scan-array length.
+is SHA-256 of its exact bytes. The strict evidence validator rebuilds the
+manifest digest and validates the embedded scan projection as above.
 The canonical `FrameApplicabilityCertificate` and every retained frame
-evidence row embed this exact object as `horizon_scan_manifest` and the
-exact array as `horizon_scan_rows`; retaining only their digests is
-forbidden. The frozen analytic census keeps its exact-rational
+evidence row embed this exact object as `horizon_scan_manifest` together
+with `horizon_scan_crossing_rows` and `horizon_scan_summary_rows`;
+retaining the manifest or the crossing/summary projection only as digests
+is forbidden. The frozen analytic census keeps its exact-rational
 construction above unchanged: only the operational census is scan-based,
 its enclosure width `1e-11 rad` and residual `5e-12` are its own new fixed
 constants rather than a widening of any frozen-model constant, and both
@@ -2211,7 +2299,8 @@ midpoint_rad_f64be, frozen_sign, operational_sign, match
 
 `midpoint_turn` is the exact rational midpoint and must be strictly interior;
 the radian field is its one-round view. Both signs are in `{-1,1}`. Finally,
-one membership row exists for every direction and sample centre, with exactly:
+the membership census evaluates one row for every direction and sample
+centre, with exactly:
 
 ```text
 direction_id, sample_index, sample_turn, alpha_rad_f64be,
@@ -2219,20 +2308,35 @@ frozen_visible, operational_visible, match
 ```
 
 Sample indices are contiguous over the exact retained centre turns. Both
-models independently evaluate strict numerator `>0`. Root-pair rows use
+models independently evaluate strict numerator `>0`.
+`horizon_membership_ledger_sha256` digests this complete canonical
+per-sample array, but the retained evidence embeds it in the compact
+per-direction mask form `horizon_membership_mask_rows`: one row per
+direction with exactly `direction_id`, `sample_count`,
+`frozen_visible_mask_hex`, `operational_visible_mask_hex`, and
+`mismatch_count`, where each mask is the lowercase hex encoding of the
+sample-ordered visibility bits, most significant bit first, zero-padded to
+whole bytes. The expansion from masks to the per-sample rows is
+deterministic — `sample_turn` and `alpha_rad_f64be` come from the one
+retained grid object — so the strict validator expands the masks,
+rebuilds the per-sample array bytes, and re-digests them against the
+ledger digest cheaply; nothing is lost, only redundant per-row grid
+repetition. Root-pair rows use
 direction-ledger order; slab rows then pair index; sign rows exact lower-bound
-order with contiguous interval indices; membership rows direction then sample.
+order with contiguous interval indices; mask rows direction order.
 No field in these five ledgers is nullable, and unknown or missing keys reject.
 
 The embedded arrays are named `direction_rows`, `horizon_root_pair_rows`,
 `horizon_slab_rows`, `horizon_sign_interval_rows`, and
-`horizon_membership_rows`. Each array is serialized alone with Section 14's
+`horizon_membership_mask_rows`. Each array is serialized alone with Section
+14's
 lexicographic object-key sorting, `ensure_ascii=true`, separators
 `(',',':')`, UTF-8 encoding, and no whitespace or trailing newline. Their
 respective SHA-256 fields are `direction_ledger_sha256`,
 `horizon_root_pair_ledger_sha256`, `horizon_slab_ledger_sha256`,
 `horizon_sign_interval_ledger_sha256`, and
-`horizon_membership_ledger_sha256`. They use Section 14 `D` with, in that
+`horizon_membership_ledger_sha256`, the last computed over the expanded
+per-sample array as above. They use Section 14 `D` with, in that
 order, domains `radiosim.mmode-direction-ledger.v1`,
 `radiosim.mmode-horizon-root-pairs.v1`,
 `radiosim.mmode-horizon-slabs.v1`,
@@ -3258,8 +3362,9 @@ Section 11 rows. A named
 digest not covered by this paragraph, a narrower rule, or a raw-file rule is a
 schema error; implementations may not invent a preimage.
 
-The sole discriminated-format exception is the embedded Section 12.1
-`horizon_scan_rows` array. Its `classification` is the null reason for the
+The sole discriminated-format exception is the Section 12.1 scan-row form
+carried by `horizon_scan_crossing_rows` and reconstructed for the
+scan-ledger digest. Its `classification` is the null reason for the
 three root fields, so adjacent reason keys are forbidden there. Non-null
 root-turn bounds use canonical rationals. Its `*_f64be` values are exact
 strings rather than JSON numbers; every value must decode to a finite
@@ -3349,7 +3454,17 @@ each a normalized version string. Evidence `commands` uses Section 14.1's exact
 command-row shape and requires exit code zero. `limitations` and
 `claims_not_licensed` are sorted unique non-empty string arrays.
 
-The tracked phase generator is part of `S`. Before opening any output, it
+The tracked phase generator is part of `S`, and it **executes at the
+globally clean exact `S` checkout**: that execution is the `E`-time
+generation, and the artifact it writes is precisely what the following
+`E` commit adds. A tracked generator whose `generate` refuses to produce
+at clean `S` — reading "runs only at its globally clean exact `S`" as a
+prohibition instead of the venue — violates this section. Generation
+streams its embedded ledgers rather than materializing them wholesale, and
+the committed artifact's size stays within the tens of megabytes the
+Section 12.1 scan projection, membership masks, and transfer-sample
+concatenation rows are designed to permit.
+Before opening any output, the generator
 requires `git rev-parse HEAD == source_sha`, an empty index/worktree/untracked
 set from `git status --porcelain=v1 --untracked-files=all`, the exact Pixi
 manifest/lock, and an absent declared output set. For M1 and M2 that set is
@@ -3393,11 +3508,12 @@ M1 `results` has exactly `dependency_certificate`, `time_grid_cases`, `frame_cer
   `diagnostic_qcheck_nsides`, `transfer_grid_catalog`,
   `transfer_grid_catalog_sha256`, `direction_rows`,
   `direction_ledger_sha256`, `horizon_scan_manifest`,
-  `horizon_scan_sha256`, `horizon_scan_rows`,
+  `horizon_scan_sha256`, `horizon_scan_crossing_rows`,
+  `horizon_scan_summary_rows`,
   `horizon_scan_ledger_sha256`, `horizon_root_pair_rows`,
   `horizon_root_pair_ledger_sha256`, `horizon_slab_rows`,
   `horizon_slab_ledger_sha256`, `horizon_sign_interval_rows`,
-  `horizon_sign_interval_ledger_sha256`, `horizon_membership_rows`,
+  `horizon_sign_interval_ledger_sha256`, `horizon_membership_mask_rows`,
   `horizon_membership_ledger_sha256`, `direct_split_rows`,
   `direct_split_ledger_sha256`, `direct_integrand_enclosure_manifest`,
   `direct_integrand_enclosure_sha256`, `sidereal_samples`, `quadrature_nside`,
@@ -3561,18 +3677,22 @@ coverage.
 The embedded horizon ledgers and their digests must satisfy every Section 12.1
 schema, order, join, and recomputation predicate. In particular,
 `evaluated_horizon_root_pair_row_count` and the root-pair array length equal
-`D`; `horizon_isolation_interval_count` equals the scan-row array length
-across the identical ordered direction IDs; and
+`D`; `horizon_isolation_interval_count` equals the summary rows'
+`terminal_cell_count` sum across the identical ordered direction IDs, with
+every crossing row joined to its direction's summary and
+`crossing_count` totals matching the census; and
 `expected_horizon_slab_row_count` equals the sum of all embedded pair-array
 lengths and `horizon_paired_root_count`. The evaluated slab-row count,
 `horizon_mismatch_slab_count`, and embedded slab-array length must all equal
 that expected value. `expected_horizon_sign_interval_count` is the number of
 canonical non-empty outside-slab complement pieces recomputed from those slab
 rows, and its evaluated count and embedded sign-row length must match.
-The membership-row length is exactly `D*N`.
+The membership mask-row length is exactly `D`, each row's `sample_count`
+is exactly `N`, and the expanded per-sample array has exactly `D*N` rows.
 
 `horizon_membership_mismatches` counts false `match` values across exactly
-those `D*N` sample-centre rows, including centres inside mismatch slabs;
+those `D*N` expanded sample-centre rows — the sum of the mask rows'
+`mismatch_count` values — including centres inside mismatch slabs;
 `horizon_outside_slab_sign_mismatches` counts false `match` values in the sign
 rows. `horizon_root_count_mismatches` is the number of root-pair rows whose two
 root counts differ, `horizon_root_orientation_mismatches` is the sum of their
@@ -3663,7 +3783,9 @@ validator reconstructs and replays all rows.
 
 `cube_shape` is exactly `[N,B,F,4]`; `K=4*N*B*F`; all four evaluated or
 compared direct counts equal `K`; shell comparison count is `4*K`; transfer-
-sample count is `(D_prod+D_diag)*B*F*4*4`; and field-
+sample count is `(1+len(Q_diag))*B*F*4*4`, with every row's
+`direction_count` equal to its grid's `12*nside**2` catalogue count; and
+field-
 block count is `B*F*4*4*(2*mcheck+1)`. All observed counts equal expected.
 The certificate, input, direction, catalogue, production grid ID, exact
 diagnostic grid ID array `['diagnostic:<qcheck>']`, four grid joins, final
@@ -3846,8 +3968,12 @@ string arrays. `observed` and `fixed_limit` in a rederived-oracle row are
 finite numbers in the oracle's units, which the `method` string names.
 
 The acceptance generator and validator are already tracked at `S`. After an
-independent reviewer finishes, the generator runs only from a globally clean
-exact `E`, requires the active evidence validator to authenticate that `E` and
+independent reviewer finishes, the generator **executes at the globally
+clean exact `E` checkout** — that execution is the `A`-time generation, and
+the artifact it writes is precisely what the following `A` commit adds; a
+tracked generator whose `generate` refuses to produce at clean `E` violates
+this section. It requires the active evidence validator to authenticate
+that `E` and
 its approved `S`, and atomically creates the absent acceptance JSON. In its
 pre-A state the acceptance validator's null approved-digest constants require
 that JSON to be absent while synthetic schema tests pass. `A` adds the JSON,
