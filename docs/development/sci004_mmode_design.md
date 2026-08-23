@@ -32,6 +32,54 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-24 (the description follows the
+capability).** Executing the singular-capability-pin ruling left one
+live inconsistency the completed source slice cannot lawfully fix:
+`MModeSimulator.description` still returns the string naming the
+strategy "phase M1, scalar", byte-frozen by a live doctest in
+`src/radiosim/simulator/__init__.py` that Section 13.4 grants to no
+active list, while the class now truthfully reports
+`supports_polarization is True` at accepted M2 — a capability truth
+asserted in code and contradicted in its own user-facing description;
+`src/radiosim/core/mmode/__init__.py` carries the same scalar-M1 prose.
+Both `__init__` modules are granted, unscoped, by Section 13.3's `S1`
+list, whose grant belonged to the closed M1 phase and conveys nothing
+to `S2`. Section 9's closing sentence read either as phase-local
+("while M1 is the accepted phase") or as an unconditional freeze; this
+correction resolves that ambiguity in the sentence itself: until
+accepted M2 the prose reports scalar-only support, and accepted M2
+updates that same prose — including the registry-reported strategy
+description — to the polarized truth alongside the two licensed flips,
+because capability truth is phase-local and a description contradicting
+the flipped property would itself be the defect. Section
+13.4's `S2` list accordingly grants the two `__init__` modules, scoped
+to the
+description doctest and the scalar-M1 prose only. It supersedes the
+singular-capability-pin landing
+`d806854997cbaf9469c4cf33e36c277e287c37c3` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain (joining the starred `R2 -> S2`
+interval), and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. This correction is design-only: it
+implements no solver, accepts no phase, and does not close the register
+row. Its exact pre-landing file bytes
+(`sha256:be58258c75cdf88e4d838e4fe7753a415d642295e328ba86a3508f540bfc297e`)
+and parent-relative diff
+(`sha256:d64a4de836331186c3eaa69b45a3d9bdb4b9879ff353e9705b1c47dfb9724d85`)
+received separate independent reviews on 2026-08-24 —
+physics/governance and computational, both `ACCEPT` after one applied
+fix round: both reviews demanded the Section 13.3 `S1`-grant disclosure
+in the precedent form, and the governance review proved Section 9's
+closing sentence read literally as an unconditional freeze forbidding
+this very correction while the computational review had read the same
+sentence as phase-local — the ambiguity now resolved in the sentence
+itself, which licenses the prose update alongside the two flips while
+keeping the description strictly derivative of the one authoritative
+pin. Both reviews verified no validator pins Section 9's prose and
+re-ran the five phase validator suites green against the fixed bytes.
+This correction's landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-24 (the singular capability pin).**
 Implementing the phase-2 capability flip proved the red slice's
 capability oracle — retained case
@@ -2114,8 +2162,14 @@ value and the unchanged `RIMESimulator.supports_polarization is True`; a new
 simulator registry entry may not inherit the base class's permissive default.
 Only accepted M2, after point, HEALPix, and hybrid full-Stokes direct oracles
 pass, may deliberately flip the m-mode property and the named Tier 7
-characterization assertion to `True`. M1 documentation, result provenance, and
-registry introspection must all continue to report scalar-only support.
+characterization assertion to `True`. Until accepted M2, documentation,
+result provenance, and
+registry introspection must all continue to report scalar-only support;
+accepted M2 updates that same prose — including the m-mode strategy
+description the registry reports — to the polarized truth alongside the
+two licensed flips, because capability truth is phase-local and a
+description contradicting the flipped property would itself be the
+defect.
 
 Harmonic geometry is computed in float64 and reference coefficients in
 complex128. Before dense work, arrays are cast to the resolved accumulation
@@ -3428,6 +3482,11 @@ wrapper leaves every direct path byte-identical before M2 starts.
   authoritative capability pin licensed to flip at accepted M2; the
   three M1 non-zero-Stokes rejection nodes bound into the accepted M1
   evidence stay byte-untouched)
+- `src/radiosim/simulator/__init__.py` (the m-mode strategy description
+  doctest and the scalar-M1 module prose only: update the phase-scalar
+  wording to the accepted M2 truth)
+- `src/radiosim/core/mmode/__init__.py` (the scalar-M1 module prose
+  only, likewise)
 - `src/radiosim/io/config.py`
 - `src/radiosim/io/config_resolution.py`
 - `src/radiosim/benchmarks/harness.py`
