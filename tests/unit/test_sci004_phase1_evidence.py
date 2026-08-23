@@ -32,10 +32,12 @@ them.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
 import subprocess
 import sys
+import tokenize
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +55,21 @@ ARTIFACT = "docs/development/sci004_mmode_phase1_evidence.json"
 REPRODUCTION = "docs/development/sci004_mmode_phase1_evidence.md"
 RED_RECORD = "docs/development/sci004_mmode_phase1_red_failures.json"
 DEPENDENCY = "docs/development/sci004_mmode_phase1_wp7_dependency.json"
+
+VALIDATOR = "tests/unit/test_sci004_phase1_evidence.py"
+
+#: Section 13.3's complete ``E1`` write authority.  The commit that introduces
+#: the artifact may touch these paths and nothing else.
+E1_AUTHORIZED_PATHS: frozenset[str] = frozenset({ARTIFACT, REPRODUCTION, VALIDATOR})
+
+#: Section 14.2's exact MyST front matter for the reproduction record.
+REPRODUCTION_FRONT_MATTER = "---\norphan: true\n---"
+
+#: The two spans Section 13.3 lets ``E1`` rewrite inside this module.
+APPROVED_CONSTANT_NAMES: tuple[str, ...] = (
+    "APPROVED_SOURCE_SHA",
+    "APPROVED_ARTIFACT_SHA256",
+)
 
 GIT_SHA = re.compile(r"\A[0-9a-f]{40}\Z")
 SHA256 = re.compile(r"\A[0-9a-f]{64}\Z")
@@ -1412,6 +1429,199 @@ def test_a_distinct_domain_gives_a_distinct_digest() -> None:
 # ---------------------------------------------------------------------------
 # E1 state: authenticate the retained artifact
 # ---------------------------------------------------------------------------
+
+
+def _git(*arguments: str) -> str:
+    """Return the stdout of one hermetic ``git`` invocation in this repository.
+
+    The validator carries no package dependency, so ancestry facts are read from
+    ``git`` itself rather than from a library, exactly as the dirty-tree probe
+    above runs the generator itself rather than trusting a description of it.
+    """
+    completed = subprocess.run(
+        ["git", *arguments],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, (
+        f"git {' '.join(arguments)} failed: {completed.stderr.strip()}"
+    )
+    return completed.stdout
+
+
+def _locate_evidence_commit() -> str:
+    """Return the unique commit that introduced the phase evidence artifact.
+
+    Section 14.2 requires ``E1`` to be *located*, not assumed: the artifact is
+    an added path, so the introducing commits on the current history are read
+    with ``--diff-filter=A`` and there must be exactly one.  Two introductions
+    would mean the artifact had been deleted and re-added, which is precisely
+    the substitution the uniqueness clause exists to refuse.
+    """
+    introductions = _git(
+        "log", "--diff-filter=A", "--format=%H", "HEAD", "--", ARTIFACT
+    ).split()
+    assert len(introductions) == 1, (
+        f"{ARTIFACT} must be introduced by exactly one commit on HEAD's "
+        f"ancestry; observed {introductions}"
+    )
+    located = introductions[0]
+    assert GIT_SHA.fullmatch(located)
+    return located
+
+
+def _constant_spans(source: str) -> tuple[list[tuple[int, int]], list[list[Any]]]:
+    """Return the token ranges of the two approved-constant assignments.
+
+    A span runs from the constant's own ``NAME`` token to the ``NEWLINE`` that
+    ends its logical line, so a value that the formatter wrapped in parentheses
+    -- which it does for the 64-hex digest, whose inline form exceeds the line
+    length -- is still exactly one span.
+    """
+    tokens = [
+        token
+        for token in tokenize.generate_tokens(io.StringIO(source).readline)
+        if token.type not in (tokenize.ENCODING, tokenize.ENDMARKER)
+    ]
+    spans: list[tuple[int, int]] = []
+    bodies: list[list[Any]] = []
+    for index, token in enumerate(tokens):
+        if (
+            token.type != tokenize.NAME
+            or token.string not in APPROVED_CONSTANT_NAMES
+            or token.start[1] != 0
+        ):
+            continue
+        stop = index
+        while tokens[stop].type != tokenize.NEWLINE:
+            stop += 1
+        spans.append((index, stop + 1))
+        bodies.append(tokens[index : stop + 1])
+    assert len(spans) == len(APPROVED_CONSTANT_NAMES), (
+        f"expected one assignment per approved constant; found {len(spans)}"
+    )
+    return spans, bodies
+
+
+def _outside_spans(source: str) -> list[tuple[int, str]]:
+    """Return the ``(type, string)`` token stream outside the two spans."""
+    spans, _bodies = _constant_spans(source)
+    tokens = [
+        token
+        for token in tokenize.generate_tokens(io.StringIO(source).readline)
+        if token.type not in (tokenize.ENCODING, tokenize.ENDMARKER)
+    ]
+    excised = {index for start, stop in spans for index in range(start, stop)}
+    return [
+        (token.type, token.string)
+        for index, token in enumerate(tokens)
+        if index not in excised
+    ]
+
+
+def _assigned_literal(body: list[Any]) -> str:
+    """Return the single value token of one approved-constant assignment."""
+    values = [
+        token
+        for token in body
+        if token.type in (tokenize.STRING, tokenize.NAME)
+        and token.string not in (*APPROVED_CONSTANT_NAMES, "str", "None")
+    ]
+    names = [token for token in body if token.string == "None"]
+    if not values:
+        assert names, "an approved-constant assignment carries no value token"
+        return "None"
+    assert len(values) == 1, (
+        "an approved-constant assignment must carry exactly one value token"
+    )
+    return values[0].string
+
+
+def test_the_artifact_introducing_commit_directly_parents_the_approved_source() -> None:
+    """Section 14.2's ``E1`` ancestry clause, skipped until the constants flip.
+
+    ``E1`` is located from history rather than named, and its **direct** parent
+    must be the approved ``S1``.  A merge commit is refused outright: an
+    artifact introduced on a merge has no single source tree it was generated
+    from, which is the whole point of binding the two.
+    """
+    if APPROVED_ARTIFACT_SHA256 is None or APPROVED_SOURCE_SHA is None:
+        pytest.skip("the M1 evidence artifact is authorized at E1")
+    located = _locate_evidence_commit()
+    lineage = _git("rev-list", "--parents", "-n", "1", located).split()
+    assert lineage[0] == located
+    assert len(lineage) == 2, (
+        f"the artifact-introducing commit {located} must be a non-merge commit "
+        f"with exactly one parent; observed {lineage[1:]}"
+    )
+    assert lineage[1] == APPROVED_SOURCE_SHA, (
+        f"the direct parent of {located} is {lineage[1]}, not the approved "
+        f"source {APPROVED_SOURCE_SHA}"
+    )
+    # The located commit is the one the approved digest authenticates.
+    payload = _git("show", f"{located}:{ARTIFACT}")
+    assert (
+        hashlib.sha256(payload.encode("utf-8")).hexdigest() == APPROVED_ARTIFACT_SHA256
+    )
+
+
+def test_the_e1_diff_writes_only_the_section_13_3_authorized_paths() -> None:
+    """Section 13.3/14.2: ``E1`` adds the artifact and its record, nothing else."""
+    if APPROVED_ARTIFACT_SHA256 is None or APPROVED_SOURCE_SHA is None:
+        pytest.skip("the M1 evidence artifact is authorized at E1")
+    located = _locate_evidence_commit()
+    changed = set(
+        _git("diff-tree", "--no-commit-id", "--name-only", "-r", located).split()
+    )
+    assert ARTIFACT in changed
+    unauthorized = sorted(changed - E1_AUTHORIZED_PATHS)
+    assert not unauthorized, (
+        f"the E1 commit {located} writes {unauthorized}, which Section 13.3 "
+        f"does not authorize; it may write only {sorted(E1_AUTHORIZED_PATHS)}"
+    )
+    if REPRODUCTION in changed:
+        record = _git("show", f"{located}:{REPRODUCTION}")
+        assert record.startswith(REPRODUCTION_FRONT_MATTER), (
+            "the reproduction record must open with Section 14.2's exact MyST "
+            "front matter"
+        )
+
+
+def test_the_e1_diff_changes_only_the_two_approved_constant_assignments() -> None:
+    """Section 14.2: this module's own ``E1`` diff is the two constants alone.
+
+    The comparison is a token stream taken **outside** the two assignment spans,
+    which is what makes it survive the formatter wrapping the 64-hex digest in
+    parentheses while still refusing any other edit -- an added import, a
+    reworded docstring, a relaxed assertion, a deleted test.  Inside the spans
+    only the value may move, from the ``None`` sentinel to the approved literal.
+    """
+    if APPROVED_ARTIFACT_SHA256 is None or APPROVED_SOURCE_SHA is None:
+        pytest.skip("the M1 evidence artifact is authorized at E1")
+    located = _locate_evidence_commit()
+    parent = _git("rev-list", "--parents", "-n", "1", located).split()[1]
+    before = _git("show", f"{parent}:{VALIDATOR}")
+    after = _git("show", f"{located}:{VALIDATOR}")
+
+    assert _outside_spans(before) == _outside_spans(after), (
+        f"the E1 commit {located} changed this module outside the two approved "
+        "constant assignments"
+    )
+
+    _spans_before, bodies_before = _constant_spans(before)
+    _spans_after, bodies_after = _constant_spans(after)
+    approved = (APPROVED_SOURCE_SHA, APPROVED_ARTIFACT_SHA256)
+    for name, body_before, body_after, value in zip(
+        APPROVED_CONSTANT_NAMES, bodies_before, bodies_after, approved, strict=True
+    ):
+        assert _assigned_literal(body_before) == "None", (
+            f"{name} must be the null sentinel at the direct parent {parent}"
+        )
+        assert _assigned_literal(body_after) == f'"{value}"', (
+            f"{name} at {located} is not the approved literal"
+        )
 
 
 def test_the_retained_artifact_authenticates_against_the_approved_constants() -> None:
