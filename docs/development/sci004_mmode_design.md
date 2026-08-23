@@ -32,6 +32,63 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (post-acceptance repairs on the
+`A1 -> R2` edge).** Authoring the phase-2 red slice proved Section
+14.4's `R2^ == A1` sole direct-parent edge unsatisfiable: two commits
+legitimately repaired the accepted M1 acceptance validator's refusal
+probe after `A1` — `fea87708dd8bb4557a11970d4e350e66c58ca4d6` (the
+probe's unconditional artifact-absence assertion made state-aware) and
+`1d31baac111ec62ec45f73e355d8ad7b83b5fda8` (the preflight's no-overwrite
+refusal admitted as a legitimate reason), each touching exactly
+`tests/unit/test_sci004_phase1_acceptance.py` — and Section 13.7's five
+interval-commit kinds had no category for them, so the edge could be
+satisfied only by fabricating history or leaving a defective probe red
+at every clean post-`A1` tree. Section 13.7 now records a sixth kind,
+`post-acceptance repair` — a repair of an already-accepted phase's
+tracked tooling or validator defect, touching only that phase's
+Section 13 tool and validator test paths, never production source, a
+retained artifact, or this memo, authenticated by the next phase's red
+validator by full SHA and exact touched paths, with the enumerating
+correction's own dual review obliged to diff each repair against its
+pre-repair blob and confirm nothing was relaxed, widened, or removed
+without a compensating equal-or-stronger check — and this record
+enumerates both commits above under it on the now-starred `A1 -> R2`
+edge. Section 14.4's order equation and its `R^` restatement now show
+that edge starred, and per its rule the phase-2 `R2` directly
+parents this correction's landing commit. Section 13.7 also now states
+explicitly what Section 14.0 already implied: an accepted phase
+acceptance commit inside the `D0 -> D` range — here `A1`
+`445bc83edcf7073511c41b3485ad5d326d4e1552`, whose memo diff is exactly
+its authorized append-only acceptance note — is not a chain commit and
+needs no interval kind. It supersedes the guard-rows-in-the-retained-
+projection landing `1712575e6c634457d9da737e9c144147e3b9bbc4` as the
+operative `D`; that commit becomes a `superseded design` interval commit
+on the header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. It reopens no slice: the phase-2 red
+slice is uncommitted working-tree state whose record regenerates at this
+landing, and no committed artifact is disposed. This correction is
+design-only: it implements no solver, accepts no phase, and does not
+close the register row. Its exact pre-landing file bytes
+(`sha256:45b3a939ab588ce636bf29613cae3e582f73e5d5cb40935ac8cf40ee5f395646`)
+and parent-relative diff
+(`sha256:239b1a0fa127be99d41c407d936ded9686baa98e868ead4001e59b0e5ab125a1`)
+received separate independent reviews on 2026-08-23 — physics/governance
+and computational, both `ACCEPT` after one fix round and one one-word
+round: the governance review's two blocking findings (Section 14.4's
+order equation and `R^` restatement still asserted the unstarred
+`R2^==A1` fact this record contradicts, now starred and qualified; and
+the sixth kind's only safeguard was mechanical SHA/path authentication,
+now paired with the enumerating correction's mandatory diff-level
+non-weakening confirmation) plus the computational review's advisories
+(the phase-generic acceptance-note citation, the companion-ledger pin
+scope, and this very two-stage record-process sentence made explicit),
+with both reviews then discharging the new confirmation duty for the two
+enumerated repairs — each diffed in full against its pre-repair blob and
+confirmed non-weakening — and the final round fixing one directional
+word. This correction's landing commit is the operative `D` of
+Section 13.7.
+
 **Bounded correction — 2026-08-23 (guard rows in the retained
 projection).** The guard-interval correction ruled strict-validator
 checks over `guard_interval` rows — the endpoint-sign rule, the
@@ -3199,11 +3256,35 @@ direct-parent edge it displaces is replaced by a starred edge whose
 interval commits this memo's header must enumerate exhaustively by SHA.
 Every interval commit is a single-parent non-merge of exactly one
 header-recorded kind — status-prose, superseded design, superseded red
-slice, superseded implementation, or superseded evidence — touching
+slice, superseded implementation, superseded evidence, or
+post-acceptance repair — touching
 exactly the paths its kind allows, mirroring the accepted SCI-005
 Section 8.3 machinery; the reopened phase's `R` then directly parents the
 operative correction commit. A commit the header does not name invalidates
-the edge.
+the edge. A `post-acceptance repair` commit repairs an already-accepted
+phase's tracked tooling or validator defect discovered at or after that
+phase's acceptance; it may touch only that phase's Section 13 tool and
+validator test paths — never production source, never a retained
+artifact, never this memo — and the next phase's red validator
+authenticates each enumerated repair by full SHA and exact touched
+paths. The correction that enumerates a repair must, in its own dual
+review, diff that repair against its pre-repair blob and confirm that no
+assertion, tolerance, or accepted-value set was relaxed, widened, or
+removed without a compensating equal-or-stronger check; a repair that
+cannot be so confirmed is not enumerable under this kind and requires
+the applicable supersession-and-regeneration path instead. An accepted
+phase acceptance commit inside the `D0 -> D` range is
+not a chain commit and needs no interval kind: its memo diff is exactly
+its own phase's Section 13 append-only acceptance note, authenticated by
+its own
+phase machinery under the Section 14.0 rule that tools authenticate the
+operative `D` blob plus the separately authorized `A` diffs. A
+correction's header record lands with one final sentence appended after
+its dual `ACCEPT` — the pinned pre-landing file and diff SHA-256 values
+and both verdicts; those pins name the reviewed bytes, which the
+appended sentence itself necessarily postdates and which are never
+separately committed, so the accepted header text is their only
+authority.
 
 Disposal follows the accepted SCI-005 Section 7.5 rule exactly: when a
 header-recorded correction supersedes an evidence commit, the reopened
@@ -4232,8 +4313,10 @@ that still reports `SCI-004` as ROADMAP. These are required
 
 ### 14.4 Mandatory commit order
 
-The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 -> R2 -> S2 -> E2 -> A2
-->* G3 -> R3 -> S3 -> E3 -> A3 -> C`. Each starred edge is inclusive ancestor
+The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 -> S2 -> E2 -> A2
+->* G3 -> R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2` star is the
+concrete effect of the header's post-acceptance-repairs correction under
+the Section 13.7 rule above. Each starred edge is inclusive ancestor
 reachability through separately authorized, independently accepted programme
 commits; every unstarred edge is the sole direct-parent edge. No commit in
 either starred first-parent range is a merge. `G1` also has accepted WP-7 CPU
@@ -4245,7 +4328,13 @@ interval commits the memo header enumerates exhaustively under
 Section 13.7's recorded kinds; the reopened phase's `R` then directly
 parents the operative correction commit.
 
-Thus `R1^==G1`, `R2^==A1`, and `R3^==G3`. Each `S` directly parents its phase `R` and
+Thus `R1^==G1` and `R3^==G3`, while `R2` directly parents the operative
+commit of the header's `A1 -> R2` post-acceptance-repairs correction,
+the starred edge's enumerated interval standing between it and `A1`; an
+unstarred `R` edge's `R^` equals its `A` or `G` endpoint unless a
+Section 13.7 accepted correction stars that edge, in which case the
+header enumerates the interval and the phase's `R` directly parents the
+operative correction commit. Each `S` directly parents its phase `R` and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
