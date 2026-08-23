@@ -363,15 +363,6 @@ def test_mmode_simulator_resolves_from_the_registry() -> None:
     assert callable(getattr(simulator, "solve", None))
 
 
-def test_mmode_simulator_reports_scalar_only_support_in_m1() -> None:
-    """Section 9: the override is explicit; the permissive base default is not
-    inherited."""
-    from radiosim.simulator import MModeSimulator
-
-    assert MModeSimulator.supports_polarization is False
-    assert "supports_polarization" in vars(MModeSimulator)
-
-
 def test_mmode_simulator_does_not_claim_gpu_support() -> None:
     """Section 9: no end-to-end accelerator record exists, so the flag is False."""
     from radiosim.simulator import MModeSimulator

@@ -14,13 +14,14 @@ Current Implementations
       ``RIMESimulator.supports_gpu`` is ``False`` and every measured JAX run is
       slower than NumPy (records: ``output/benchmarks/reference/``,
       register row ``PERF-001``)
-- **mmode**: m-mode full-sidereal harmonic forward model, SCI-004 phase M1
+- **mmode**: m-mode full-sidereal harmonic forward model, SCI-004
     - A second *complete* forward model, not an optimization of the direct sum
-    - Scalar in M1: ``supports_polarization`` is ``False`` and non-zero Stokes
-      ``Q``, ``U`` or ``V`` is rejected with ``mmode_m1_scalar_only``
+    - Full Stokes: ``supports_polarization`` is ``True``, and a payload with
+      non-zero ``Q``, ``U`` or ``V`` takes the polarized execution path
     - ``supports_gpu`` is ``False``; the recorded transform execution policy
       ``host_harmonics_backend_native_dense_v1`` splits host-side harmonics from
-      backend-native dense work and is **not** an accelerator claim
+      backend-native dense work and is **not** an accelerator claim. A
+      polarized capability is not a speed claim
 
 Registry
 --------
@@ -189,7 +190,7 @@ def list_simulators() -> dict[str, str]:
     >>> print(sims["rime"])
     Direct RIME summation (accurate reference implementation)
     >>> print(sims["mmode"])
-    m-mode full-sidereal harmonic forward model (phase M1, scalar)
+    m-mode full-sidereal harmonic forward model (full Stokes)
     >>>
     >>> # Check if a specific simulator is available
     >>> if "fft" in list_simulators():

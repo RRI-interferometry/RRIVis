@@ -122,10 +122,67 @@ Simulator accelerator capability
 --------------------------------
 
 The inherited :attr:`radiosim.simulator.VisibilitySimulator.supports_gpu`
-value is ``False``, and :class:`radiosim.simulator.RIMESimulator` states the
-same value explicitly. A future simulator may return ``True`` only when an
-independently accepted end-to-end accelerator record names that exact
-implementation. No such record exists yet (``PERF-001``).
+value is ``False``, and both :class:`radiosim.simulator.RIMESimulator` and
+:class:`radiosim.simulator.MModeSimulator` state the same value explicitly. A
+simulator may return ``True`` only when an independently accepted end-to-end
+accelerator record names that exact implementation. No such record exists yet
+(``PERF-001``). ``MModeSimulator.supports_polarization`` is ``True``; that is a
+statement about which sky the solver integrates, and carries no speed or device
+claim of any kind.
+
+The m-mode execution split
+--------------------------
+
+The m-mode solver records where its work runs as the literal
+``host_harmonics_backend_native_dense_v1``, reported by
+:attr:`radiosim.simulator.MModeSimulator.transform_execution_policy`. It is a
+description, not an advantage:
+
+- **Host-side NumPy for every backend.** Astropy frame work, the IERS mapping,
+  beam sampling, HEALPix geometry, and both the scalar and spin harmonic
+  transforms. NumPy is the scientific reference for all of them.
+- **Backend-native.** Only the dense per-``m`` contractions and the time
+  synthesis -- :func:`radiosim.core.mmode.solver.contract_per_m_block` and
+  :func:`radiosim.core.mmode.solver.synthesize_time_series`.
+
+Harmonic geometry is computed in float64 and reference coefficients in
+complex128; arrays are cast to the resolved accumulation dtype only before the
+dense work, and the final cube uses the resolved output dtype. Complex128 on
+JAX requires ``x64`` and fails **explicitly** if it is unavailable rather than
+silently demoting to complex64.
+
+Backend parity for the dense stages uses a fixed scale-aware predicate,
+``rtol = 1e-12`` and ``atol = 1e-12 * max(1, max|reference|)`` against the NumPy
+reference. A separately named complex64 row uses the wider ``rtol = 5e-5``,
+``atol = 5e-6 * max(1, max|reference|)``; it is its own low-precision contract
+and never substitutes for the complex128 one.
+
+``execution.solver.workers`` owns independent frequency-block construction and
+is clamped to the frequency count. Blocks are assembled in canonical frequency
+order, so one worker and many workers meet the same predicate -- the worker
+count is a scheduling choice, never a numerical one.
+
+Bounded m-mode memory
+---------------------
+
+The complete baseline transfer is never materialized. A deterministic scheduler
+orders frequency, signed-``m`` and baseline blocks and takes the largest block
+that fits ``execution.mmode.working_memory_bytes`` under a component-by-component
+estimate, streaming and discarding each transfer block after its contraction.
+It never inspects free RAM and never reorders blocks after an allocation
+failure, so the schedule is a function of the declared budget alone.
+
+:meth:`radiosim.simulator.MModeSimulator.get_memory_estimate` reports seven
+components separately -- sky coefficients, quadrature directions and sampled
+Jones fields, the optional per-antenna harmonic cache, the largest
+baseline-transfer block, the retained m-mode visibilities, the time-domain
+output and synthesis assembly, and the backend or native allocations that the
+host estimate deliberately excludes -- beside the logical and scheduled
+dimensions and a one-block minimum. A budget below that minimum is rejected
+before allocation rather than discovered during it. The full-Stokes path scales
+the packed axis by the four science fields ``("I", "+2", "-2", "V")``, so the
+same budget schedules smaller blocks for a polarized sky than for a scalar one;
+the covered work is identical either way.
 
 The compilation boundary
 ------------------------

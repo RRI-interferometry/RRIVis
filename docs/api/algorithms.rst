@@ -41,16 +41,80 @@ inverse map making, pseudo-inverses, KL filtering, power-spectrum estimation,
 calibration, tracking, drift-and-shift, missing samples and partial-day windows
 are outside its scope.
 
-Phase M1 is **scalar only**: ``MModeSimulator.supports_polarization`` is
-explicitly ``False``, and a sky with any non-zero Stokes ``Q``, ``U`` or ``V``
-is rejected with issue ``mmode_m1_scalar_only``.
+The forward model is **full Stokes**: ``MModeSimulator.supports_polarization``
+is explicitly ``True``. Capability truth here is phase-local and is stated
+together with the unchanged ``RIMESimulator.supports_polarization``, so the
+override is a statement about the m-mode phase rather than a weakening of the
+direct solver.
 ``MModeSimulator.supports_gpu`` is ``False``: no end-to-end accelerator run of
 this solver has been measured, and the recorded transform execution policy
 ``host_harmonics_backend_native_dense_v1`` describes where the work runs -- the
 Astropy frame work, IERS mapping, beam sampling, HEALPix geometry and harmonic
 transforms are host-side NumPy for every backend -- rather than claiming an
-accelerator advantage. Register row ``PERF-001`` governs every RadioSim
-performance statement.
+accelerator advantage. A polarized capability is not a speed claim. Register
+row ``PERF-001`` governs every RadioSim performance statement.
+
+Polarization in the harmonic forward model
+------------------------------------------
+
+The m-mode kernel is the *same* reference-phase response the direct RIME
+builds, expanded in harmonics rather than summed over sources:
+
+.. code-block:: text
+
+   K^X_pqfc(n) = [J_p(n) P^X J_q^H(n)]_c  K_pq(n)  H(n)
+
+one cell per Stokes component ``X`` in ``(I, Q, U, V)``. Three properties of
+that line are load-bearing and are not free choices.
+
+*The receptor matrix is part of the kernel.* An antenna's Jones matrix in the
+celestial (North, East) tangent basis is ``J_p(n) = M_p E_p(n)``, where
+``E_p`` is the sampled beam response and ``M_p = H_p C_p`` is the resolved,
+direction-independent receptor and basis-transform pair -- built from the same
+``radiosim.core.jones.receptor`` code objects the direct chain uses, so a
+receptor, feed rotation or output basis cannot mean one thing to one solver and
+something else to the other. Dropping ``M_p`` is invisible in Stokes ``I``,
+because ``M P^I M^H = (1/2) M M^H = (1/2) I2`` for a unitary receptor, and
+wrong for every polarized component.
+
+*The Shaw convention enters exactly once.* The spin expansions are written in
+the spherical ``(theta, phi)`` basis, whose ``theta`` points South, while
+RadioSim's brightness matrix is ordered (North, East). The bridge is the single
+matrix ``D = diag(-1, 1)``: the kernel uses ``D P^X D`` and the sky uses the
+matching field relabelling ``U_H = -U``. There is no second, fitted or
+configurable sign, and ``D`` is *not* the SCI-006 east-X permutation, which
+stays inside the antenna Jones matrix and is antidiagonal.
+
+*The constant cells act in the celestial tangent basis.* The coherency is built
+in the celestial (North, East) basis of each direction; the chain's
+direction-independent terms right-multiply it as constant matrices in that same
+basis; and every mount-dependent tangent rotation belongs to the ``P`` term,
+which is exactly the identity for the shipped ``fixed`` and unspecified mounts.
+Constant coefficients on spin-weighted fields preserve the integrand's spin
+weight, so the spin-``±2`` Gauss-Legendre quadrature stays spectrally exact. A
+genuinely ground-anchored, direction-dependent response would need a measured
+tangent transport instead; transporting a *constant* matrix into the rotating
+local basis is the identity re-expression of a zenith-singular field, not an
+alternative convention.
+
+The transfer is expanded per science field in the fixed order
+``("I", "+2", "-2", "V")``,
+
+.. code-block:: text
+
+   B^(+2)_lm = integral( (K^Q - i K^U)  {+2}Y_lm  dOmega )
+   B^(-2)_lm = integral( (K^Q + i K^U)  {-2}Y_lm  dOmega )
+
+with ``I`` and ``V`` carrying the scalar harmonics, and the forward per-``m``
+product weights the two spin terms by ``1/2`` each. Those halves are a theorem
+rather than a normalization: substituting a delta sky's coefficients collapses
+the pair to exactly ``K^Q Q_H + K^U U_H``, and dropping either factor doubles
+that contribution.
+
+A run whose resolved payload has no non-zero ``Q``, ``U`` or ``V`` takes the
+scalar execution path, records ``execution_path: "scalar"``, and evaluates only
+the ``I`` field -- not as an approximation, but because the other three
+contribute exactly zero.
 
 Truncation is gated, not assumed
 --------------------------------

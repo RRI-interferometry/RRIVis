@@ -60,8 +60,12 @@ __all__ = [
     "MMODE_TRUNCATION_POLICY",
     "SCALAR_BLOCK_TABLE_DOMAIN",
     "SPIN_ORDER",
+    "STOKES_COMPONENT_ORDER",
     "TAU",
     "MModeDimensions",
+    "PolarizedHarmonicCoefficients",
+    "PolarizedPackedCube",
+    "PolarizedPackedTable",
     "ScalarHarmonicCoefficients",
     "ScalarPackedCube",
     "ScalarPackedTable",
@@ -101,6 +105,12 @@ SCALAR_BLOCK_TABLE_DOMAIN: Final = "radiosim.mmode-packed-block-table.v1"
 #: Section 5.3's science field order and its spin labels.
 FIELD_ORDER: Final[tuple[str, ...]] = ("I", "+2", "-2", "V")
 SPIN_ORDER: Final[tuple[int, ...]] = (0, 2, -2, 0)
+
+#: Section 6's four Stokes brightness components, in the RadioSim IAU order the
+#: resolved payload and the Section 5.2 bridge both use.  It is *not* the
+#: Section 5.3 field order: the kernel is built per Stokes component and the two
+#: spin fields are the ``K^Q -+ i K^U`` combinations of two of these.
+STOKES_COMPONENT_ORDER: Final[tuple[str, ...]] = ("I", "Q", "U", "V")
 
 #: Section 14.0's ``convention_identity`` object, verbatim.  No listed
 #: convention is implementation-selected, so the mapping is a literal.
@@ -605,4 +615,207 @@ class ScalarPackedCube:
         return ScalarHarmonicCoefficients(
             table=self.table,
             values=self.values[baseline, frequency, correlation],
+        )
+
+
+# ---------------------------------------------------------------------------
+# Section 5.3 packed polarized representation
+# ---------------------------------------------------------------------------
+
+
+#: Section 5.3's exact polarized block-row field order.  The row is the scalar
+#: row plus the three field-identifying columns; ``field_index`` is the position
+#: in :data:`FIELD_ORDER` and ``spin`` the matching :data:`SPIN_ORDER` entry.
+POLARIZED_BLOCK_FIELDS: Final[tuple[str, ...]] = (
+    "m",
+    "field_index",
+    "field_name",
+    "spin",
+    "l_start",
+    "l_stop",
+    "value_start",
+    "value_stop",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PolarizedPackedTable:
+    """Section 5.3's polarized packed block table.
+
+    "For each signed ``m`` in the inclusive ascending range ``-mmax..mmax``, and
+    then for each field in that fixed order, one immutable
+    ``PackedHarmonicBlock`` row contains exactly these fields in this order:
+    ``m, field_index, field_name, spin, l_start, l_stop, value_start,
+    value_stop``."  The layout is therefore **signed-m-major, field-minor**, with
+    ``l_start = max(abs(m), abs(spin))`` and ``l_stop = lmax + 1``; each row
+    starts at the preceding row's ``value_stop``, beginning at zero.
+
+    The ``abs(spin)`` floor is the only structural difference from the scalar
+    table M1 ships, and it is what makes a spin row genuinely shorter: a spin
+    ``+-2`` field has no ``l = 0`` or ``l = 1`` cell, and Section 5.3 is explicit
+    that "invalid ``(l, m, s)`` cells do not exist and are not represented by
+    padding whose value could enter a digest".
+
+    The table is serialized under Section 14's exact block-table domain -- the
+    same ``radiosim.mmode-packed-block-table.v1`` the scalar table uses -- so a
+    scalar and a polarized table are distinguished by their rows rather than by
+    a second domain literal.
+    """
+
+    lmax: int
+    mmax: int
+    block_rows: tuple[Mapping[str, Any], ...]
+    packed_value_count: int
+    block_table_sha256: str
+
+    @property
+    def field_order(self) -> tuple[str, ...]:
+        """Return Section 5.3's fixed science field order."""
+        return FIELD_ORDER
+
+    @property
+    def spin_order(self) -> tuple[int, ...]:
+        """Return the spin label of each field, in the same fixed order."""
+        return SPIN_ORDER
+
+    @property
+    def block_table_domain(self) -> str:
+        """Return the Section 14.0 domain the table digest is taken under."""
+        return SCALAR_BLOCK_TABLE_DOMAIN
+
+    @property
+    def invalid_cell_count(self) -> int:
+        """Return zero: an unpadded table represents no invalid cell."""
+        return 0
+
+    @property
+    def block_count(self) -> int:
+        """Return the row count, ``(2 * mmax + 1) * len(FIELD_ORDER)``."""
+        return len(self.block_rows)
+
+    def field_index(self, field: str) -> int:
+        """Return the fixed position of one science field name."""
+        try:
+            return FIELD_ORDER.index(str(field))
+        except ValueError:  # pragma: no cover - defensive
+            raise KeyError(
+                f"{field!r} is not one of Section 5.3's fields {FIELD_ORDER}"
+            ) from None
+
+    def row(self, field: str, order: int) -> Mapping[str, Any]:
+        """Return the block row of one ``(field, signed m)`` pair."""
+        if abs(int(order)) > self.mmax:
+            raise IndexError(f"signed m={order} is outside the retained band")
+        position = (int(order) + self.mmax) * len(FIELD_ORDER) + self.field_index(field)
+        return self.block_rows[position]
+
+    def index(self, field: str, degree: int, order: int) -> int:
+        """Return the packed offset of one ``(field, l, m)`` cell.
+
+        Raises
+        ------
+        IndexError
+            If the cell is outside the retained band or below the spin floor.
+            Section 5.3's absent cell is absent, never silently zero.
+        """
+        row = self.row(field, int(order))
+        start, stop = int(row["l_start"]), int(row["l_stop"])
+        if not start <= int(degree) < stop:
+            raise IndexError(
+                f"cell (field={field!r}, l={degree}, m={order}) is not represented"
+            )
+        return int(row["value_start"]) + int(degree) - start
+
+
+def _freeze_packed(values: np.ndarray, expected_last: int, rank: int) -> np.ndarray:
+    """Return a read-only complex128 copy with its packed axis checked."""
+    array = np.asarray(values, dtype=np.complex128)
+    if array.ndim != rank or array.shape[-1] != expected_last:
+        raise ValueError("packed values do not match the block table")
+    return np.ndarray(array.shape, dtype=array.dtype, buffer=array.tobytes(order="C"))
+
+
+@dataclass(frozen=True, slots=True)
+class PolarizedHarmonicCoefficients:
+    """A packed full-Stokes coefficient buffer bound to its table.
+
+    Section 5.3 makes the block table and the packed value buffer inseparable,
+    so the table travels with the values and :meth:`coefficient` never infers a
+    layout from a buffer length.
+    """
+
+    table: PolarizedPackedTable
+    values: np.ndarray
+    component_order: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "values",
+            _freeze_packed(self.values, self.table.packed_value_count, 1),
+        )
+
+    def coefficient(self, field: str, degree: int, order: int) -> complex:
+        """Return one ``(field, l, m)`` coefficient."""
+        return complex(self.values[self.table.index(field, degree, order)])
+
+    def field_values(self, field: str, order: int) -> np.ndarray:
+        """Return the ascending-``l`` slice of one ``(field, signed m)`` block."""
+        row = self.table.row(field, int(order))
+        return np.array(
+            self.values[int(row["value_start"]) : int(row["value_stop"])], copy=True
+        )
+
+    def __array__(self, dtype: Any = None, copy: Any = None) -> np.ndarray:
+        array = np.array(self.values, copy=True)
+        return array if dtype is None else array.astype(dtype)
+
+    def __len__(self) -> int:
+        return int(self.values.shape[0])
+
+
+@dataclass(frozen=True, slots=True)
+class PolarizedPackedCube:
+    """A ``(baseline, frequency, correlation, packed_value)`` polarized cube."""
+
+    table: PolarizedPackedTable
+    values: np.ndarray
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "values",
+            _freeze_packed(self.values, self.table.packed_value_count, 4),
+        )
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """Return the dense cube shape ``(B, F, C, packed_value)``."""
+        return tuple(int(extent) for extent in self.values.shape)
+
+    def __array__(self, dtype: Any = None, copy: Any = None) -> np.ndarray:
+        array = np.array(self.values, copy=True)
+        return array if dtype is None else array.astype(dtype)
+
+    def __getitem__(self, key: tuple[int, int, int]) -> PolarizedHarmonicCoefficients:
+        baseline, frequency, correlation = key
+        return PolarizedHarmonicCoefficients(
+            table=self.table,
+            values=self.values[baseline, frequency, correlation],
+        )
+
+    def coefficient(
+        self,
+        baseline: int,
+        frequency: int,
+        correlation: int,
+        field: str,
+        degree: int,
+        order: int,
+    ) -> complex:
+        """Return one ``(baseline, frequency, correlation, field, l, m)`` value."""
+        return complex(
+            self.values[
+                baseline, frequency, correlation, self.table.index(field, degree, order)
+            ]
         )

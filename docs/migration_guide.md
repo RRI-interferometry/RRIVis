@@ -1078,3 +1078,72 @@ the `mmode` path; the direct solvers' HEALPix handling is unchanged.
 `SCI-004` remains `ROADMAP`. The design gate is accepted and the production
 phases are separately gated; registering the strategy does not close the row,
 and phase M1 makes no polarized, fingerprint, speed or accelerator claim.
+
+## The m-mode solver became full Stokes (2026-08-24)
+
+### `MModeSimulator.supports_polarization` is now `True`
+
+Capability truth for this solver is phase-local, and phase M2 is the phase whose
+acceptance changes it. `MModeSimulator.supports_polarization` is now `True`,
+declared on the class itself, beside the unchanged
+`RIMESimulator.supports_polarization is True`. Both values are still stated
+together in one Tier 7 characterization assertion, which is what makes the pair
+checkable.
+
+`MModeSimulator.supports_gpu` is unchanged and remains `False`. A polarized
+capability is not a speed claim: no end-to-end accelerator run of this solver
+has been measured, and register row `PERF-001` governs every RadioSim
+performance statement.
+
+| Was | Now |
+| --- | --- |
+| `MModeSimulator.supports_polarization is False` | `MModeSimulator.supports_polarization is True` |
+| a sky with non-zero `Q`, `U` or `V` was rejected | a full-Stokes sky is integrated |
+| every m-mode snapshot carried `execution_path: "scalar"` | `execution_path` is `"scalar"` or `"polarized"`, from the resolved payload |
+| `tangent_polarization_frame` was always the literal `not_applicable_scalar_m1` | a linearly polarized run carries the six-key `TangentPolarizationFrame` block |
+
+### A polarized m-mode sky must declare its tangent-polarization frame
+
+`stokes_q` and `stokes_u` are components in a tangent basis, not self-describing
+numbers, so a polarized m-mode source now requires the six-key
+`tangent_polarization_frame` block described in
+[the sky-model guide](user_guide/sky_models.rst). A source that declares linear
+polarization without it is rejected during config resolution with the
+`mmode_polarization_frame` issue code, before backend allocation, output-path
+creation or any harmonic work. An `I`/`V`-only payload may omit the block,
+because `V` is a scalar with no tangent-basis dependence.
+
+### The resolved receptor matrix now enters the m-mode kernel
+
+The m-mode kernel is the same reference-phase response the direct RIME builds,
+and it now composes each antenna's resolved `M_p = H_p C_p` into the sampled
+beam response before forming the coherency, using the same
+`radiosim.core.jones.receptor` code objects the direct chain uses.
+
+**Stokes-`I` results are unchanged by this.** For a unitary receptor
+`M P^I M^H = (1/2) M M^H = (1/2) I2`, so the factor cancels exactly; every
+accepted phase-M1 scalar result, digest and gate value is preserved bit for bit.
+It is load-bearing for polarized components only, where omitting it would report
+the wrong correlation for any array that is not the default unrotated linear
+one.
+
+Two conventions are worth stating explicitly because they are easy to conflate:
+
+- The RadioSim-to-Shaw basis bridge is `D = diag(-1, 1)`; the kernel uses
+  `D P^X D` and the sky uses the matching `U_H = -U`. `D` is **not** the SCI-006
+  east-X permutation and does not replace it — that permutation is antidiagonal
+  and stays inside the antenna Jones matrix. There is no additional fitted or
+  configurable `V` flip.
+- The constant chain terms act in the **celestial** tangent basis of each
+  direction, which is the basis the spin expansions use. Every mount-dependent
+  tangent rotation belongs to the `P` term, which is exactly the identity for
+  the shipped `fixed` and unspecified mounts. A ground-anchored,
+  direction-dependent response would need a measured tangent transport; that is
+  not in this scope.
+
+### Nothing about a direct run changes
+
+`rime` remains the default. Its arithmetic, component order, source reduction,
+result bytes and fingerprints are unchanged, and `SCI-004` remains `ROADMAP`:
+the production phases are separately gated and no phase of this work closes the
+row or adds a fingerprint, speed or accelerator claim.

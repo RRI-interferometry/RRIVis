@@ -255,6 +255,53 @@ an array with no rotating mount that configures ``jones.P`` is rejected as well,
 because the term would be exactly :math:`I_2`. See :doc:`jones_terms` for both
 messages.
 
+How the m-mode solver reads the same terms
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``execution.simulator: mmode`` (:doc:`../api/algorithms`) is a second complete
+forward model, not a second convention. It builds the *same* reference-phase
+response the direct RIME builds and then expands it in spherical harmonics, so
+the receptor terms above enter it unchanged:
+
+.. math::
+
+   J_{p}(\hat n) = M_p\,E_p(\hat n), \qquad M_p = H_p\,C_p,
+
+with :math:`M_p` read from the same
+:func:`~radiosim.core.jones.receptor.receptor_matrix` and
+:func:`~radiosim.core.jones.receptor.basis_transform_matrix` the chain uses. The
+kernel per Stokes component is
+:math:`\bigl[J_p P^X J_q^H\bigr]_c K_{pq} H`, so a receptor permutation, a feed
+rotation or a cross-basis output changes an m-mode run exactly as it changes a
+direct one. Omitting :math:`M_p` would be invisible in Stokes :math:`I`, because
+:math:`M P^I M^H = \tfrac12 M M^H = \tfrac12 I_2` for a unitary receptor, and
+wrong in every polarized component -- which is why it is part of the kernel
+rather than a relabelling applied to the finished correlations.
+
+Two constraints follow from the harmonic expansion rather than from the chain.
+
+First, the spin expansions are written in the spherical :math:`(\theta,\phi)`
+basis, whose :math:`\theta` points *South*, while RadioSim's brightness matrix
+is ordered ``(North, East)``. The bridge is one matrix,
+:math:`D = \operatorname{diag}(-1, 1)`: the kernel uses :math:`D P^X D` and the
+sky uses the matching field relabelling :math:`U_H = -U`. :math:`D` is
+**not** the SCI-006 east-X permutation :math:`P` and does not replace it --
+:math:`P` is antidiagonal and stays inside :math:`J_{NE}`, :math:`D` is diagonal
+and is applied on both sides of the same brightness matrix. No further fitted or
+configurable :math:`V` flip exists.
+
+Second, the constant chain terms act in the **celestial** tangent basis of each
+direction -- the same basis the spin expansions use -- because that is where the
+direct RIME builds its coherency, and every mount-dependent tangent rotation
+belongs to ``P``, which is exactly :math:`I_2` for the shipped ``fixed`` and
+unspecified mounts. Constant coefficients on spin-weighted fields preserve the
+integrand's spin weight, which is what keeps the spin-:math:`\pm2` quadrature
+spectrally exact. A genuinely ground-anchored, direction-dependent response --
+an alt-az mount rotating through a non-identity ``P``, or a future non-scalar
+ground-frame beam -- needs a measured tangent transport instead; transporting a
+*constant* matrix into the rotating local basis is the identity re-expression of
+a zenith-singular field and reproduces the defect it is meant to remove.
+
 Chain order
 -----------
 

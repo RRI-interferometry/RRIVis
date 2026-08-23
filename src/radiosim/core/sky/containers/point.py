@@ -16,6 +16,7 @@ local.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import field
 from typing import TypedDict
 
@@ -841,3 +842,192 @@ class PointSourceData:
         if not isinstance(other, PointSourceData):
             return False
         return self._compare(other, close=True, rtol=rtol, atol=atol)
+
+
+# ---------------------------------------------------------------------------
+# SCI-004 Section 5.1: canonical tangent-polarization metadata
+# ---------------------------------------------------------------------------
+
+#: Section 5.1's exact schema literal.
+TANGENT_POLARIZATION_SCHEMA = "radiosim.sky-tangent-polarization.v1"
+
+#: Section 5.1's exact six-key surface, in the order the design prints it.
+TANGENT_POLARIZATION_KEYS: tuple[str, ...] = (
+    "schema_version",
+    "coordinate_frame",
+    "axes",
+    "position_angle",
+    "linear_complex",
+    "stokes_v",
+)
+
+#: The two coordinate frames Section 5.1 admits.
+TANGENT_COORDINATE_FRAMES: frozenset[str] = frozenset({"icrs", "galactic"})
+
+#: The canonical position-angle convention, and the HEALPix/CMB one that must be
+#: converted into it before canonical storage.
+POSITION_ANGLE_NORTH_THROUGH_EAST = "north_through_east"
+POSITION_ANGLE_NORTH_THROUGH_WEST = "north_through_west"
+
+
+@dataclass(frozen=True, config=ConfigDict(arbitrary_types_allowed=True))
+class TangentPolarizationFrame:
+    """SCI-004 Section 5.1's strict frozen tangent-polarization record.
+
+    ``docs/development/sci004_mmode_design.md`` Section 5.1 requires exactly six
+    fields, and requires every point or HEALPix payload with non-zero ``Q`` or
+    ``U`` to carry them: "Today point and HEALPix containers carry numerical
+    ``Q``/``U`` arrays but no complete tangent-basis record. That is insufficient
+    for spin harmonics."
+
+    Point ``Q``/``U`` are defined in the local tangent plane of each catalogue
+    direction and HEALPix ``Q``/``U`` in the local tangent plane of each pixel.
+    A HEALPix/CMB ``U`` convention -- position angle measured North *through
+    West* -- is converted explicitly to RadioSim IAU North-through-East before
+    canonical storage; relabelling the payload is forbidden.  An ``I``/``V``-only
+    payload may omit the block entirely.
+
+    Examples
+    --------
+    >>> frame = TangentPolarizationFrame.canonical("icrs")
+    >>> tuple(frame.as_mapping())
+    ('schema_version', 'coordinate_frame', 'axes', 'position_angle', 'linear_complex', 'stokes_v')
+    >>> frame.position_angle
+    'north_through_east'
+    """
+
+    schema_version: str = TANGENT_POLARIZATION_SCHEMA
+    coordinate_frame: str = "icrs"
+    axes: str = "north_east"
+    position_angle: str = POSITION_ANGLE_NORTH_THROUGH_EAST
+    linear_complex: str = "q_plus_i_u"
+    stokes_v: str = "iau_incoming_r_minus_l"
+
+    @model_validator(mode="after")
+    def _validate_literals(self) -> TangentPolarizationFrame:
+        if self.schema_version != TANGENT_POLARIZATION_SCHEMA:
+            raise ValueError(
+                f"tangent frame schema_version must be {TANGENT_POLARIZATION_SCHEMA!r}"
+            )
+        if self.coordinate_frame not in TANGENT_COORDINATE_FRAMES:
+            raise ValueError(
+                "tangent frame coordinate_frame must be 'icrs' or 'galactic'"
+            )
+        if self.axes != "north_east":
+            raise ValueError("tangent frame axes must be 'north_east'")
+        if self.position_angle != POSITION_ANGLE_NORTH_THROUGH_EAST:
+            raise ValueError(
+                "a stored tangent frame is canonical IAU north_through_east; a "
+                "HEALPix/CMB payload is converted with to_canonical() first"
+            )
+        if self.linear_complex != "q_plus_i_u":
+            raise ValueError("tangent frame linear_complex must be 'q_plus_i_u'")
+        if self.stokes_v != "iau_incoming_r_minus_l":
+            raise ValueError("tangent frame stokes_v must be 'iau_incoming_r_minus_l'")
+        return self
+
+    @classmethod
+    def canonical(cls, coordinate_frame: str = "icrs") -> TangentPolarizationFrame:
+        """Return the canonical frame for one coordinate system."""
+        return cls(coordinate_frame=str(coordinate_frame))
+
+    def as_mapping(self) -> dict[str, str]:
+        """Return the exact six-key object, in Section 5.1's order."""
+        return {
+            "schema_version": self.schema_version,
+            "coordinate_frame": self.coordinate_frame,
+            "axes": self.axes,
+            "position_angle": self.position_angle,
+            "linear_complex": self.linear_complex,
+            "stokes_v": self.stokes_v,
+        }
+
+    @classmethod
+    def from_mapping(cls, payload: object) -> TangentPolarizationFrame:
+        """Build a frame from a declared mapping, rejecting unknown keys."""
+        if isinstance(payload, TangentPolarizationFrame):
+            return payload
+        if not isinstance(payload, Mapping):
+            raise ValueError("a declared tangent frame must be a mapping")
+        unknown = set(payload) - set(TANGENT_POLARIZATION_KEYS)
+        if unknown:
+            raise ValueError(f"unknown tangent frame keys {sorted(unknown)}")
+        missing = set(TANGENT_POLARIZATION_KEYS) - set(payload)
+        if missing:
+            raise ValueError(f"missing tangent frame keys {sorted(missing)}")
+        return cls(**{key: str(payload[key]) for key in TANGENT_POLARIZATION_KEYS})
+
+    @staticmethod
+    def to_canonical(
+        *,
+        stokes_q: object,
+        stokes_u: object,
+        position_angle: str,
+    ) -> tuple[object, object]:
+        r"""Convert a declared source convention to IAU North-through-East.
+
+        Section 5.1: "a HEALPix/CMB ``U`` convention is converted explicitly to
+        RadioSim IAU North-through-East before canonical storage; tests pin the
+        sign with a rotated pure-Q map."  A position angle ``chi`` measured
+        North through East gives ``Q = p cos(2 chi)``, ``U = p sin(2 chi)``;
+        measuring it North through West reverses the sense of ``chi`` and
+        therefore the sign of ``U`` alone, leaving ``Q`` untouched.
+
+        Copying ``U`` through unchanged, or rotating only pixel indices, is a
+        different sky object and is forbidden.
+        """
+        convention = str(position_angle)
+        if convention == POSITION_ANGLE_NORTH_THROUGH_EAST:
+            return (stokes_q, stokes_u)
+        if convention == POSITION_ANGLE_NORTH_THROUGH_WEST:
+            return (
+                stokes_q,
+                -np.asarray(stokes_u)
+                if isinstance(stokes_u, np.ndarray)
+                else -stokes_u,
+            )
+        raise ValueError(
+            "position_angle must be 'north_through_east' or 'north_through_west'"
+        )
+
+    @staticmethod
+    def require_for(
+        *,
+        stokes_q: object,
+        stokes_u: object,
+        stokes_v: object = 0.0,
+        frame: object = None,
+    ) -> TangentPolarizationFrame | None:
+        """Resolve the frame a payload must carry, or reject an undeclared one.
+
+        Section 5.1: "Every point or HEALPix payload with non-zero ``Q`` or ``U``
+        must carry it. ... A programmatic polarized input without a declared
+        source convention is rejected. An I/V-only payload may omit the tangent
+        block."  ``V`` is deliberately not part of the trigger: it is a scalar
+        (spin-0) field with no tangent-basis dependence.
+        """
+        del stokes_v
+        linear = _has_nonzero_component(stokes_q) or _has_nonzero_component(stokes_u)
+        if not linear:
+            return (
+                TangentPolarizationFrame.from_mapping(frame)
+                if frame is not None
+                else None
+            )
+        if frame is None:
+            raise ValueError(
+                "a polarized sky payload with non-zero Q or U requires an explicit "
+                "canonical tangent-polarization frame (SCI-004 Section 5.1)"
+            )
+        return TangentPolarizationFrame.from_mapping(frame)
+
+
+def _has_nonzero_component(value: object) -> bool:
+    """Return whether a Stokes payload has any finite non-zero element."""
+    if value is None:
+        return False
+    array = np.atleast_1d(np.asarray(value, dtype=np.float64))
+    if array.size == 0:
+        return False
+    finite = array[np.isfinite(array)]
+    return bool(np.any(finite != 0.0))

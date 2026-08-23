@@ -414,6 +414,41 @@ class SkyProvenanceInput(StrictFrozenModel):
         return _nonblank(value, field_name="source_subtraction_method")
 
 
+class TangentPolarizationFrameConfig(StrictFrozenModel):
+    """SCI-004 Section 5.1's declared per-source tangent-polarization frame.
+
+    ``docs/development/sci004_mmode_design.md`` Section 5.1 fixes exactly six
+    fields and requires "every point or HEALPix payload with non-zero ``Q`` or
+    ``U``" to carry them.  A document declares the *source* convention, which is
+    why ``position_angle`` admits the HEALPix/CMB ``north_through_west`` sense
+    beside the canonical IAU one: "a HEALPix/CMB ``U`` convention is converted
+    explicitly to RadioSim IAU North-through-East before canonical storage".
+    The stored frame is always canonical; only the declaration may differ.
+    """
+
+    schema_version: Literal["radiosim.sky-tangent-polarization.v1"] = (
+        "radiosim.sky-tangent-polarization.v1"
+    )
+    coordinate_frame: Literal["icrs", "galactic"] = "icrs"
+    axes: Literal["north_east"] = "north_east"
+    position_angle: Literal["north_through_east", "north_through_west"] = (
+        "north_through_east"
+    )
+    linear_complex: Literal["q_plus_i_u"] = "q_plus_i_u"
+    stokes_v: Literal["iau_incoming_r_minus_l"] = "iau_incoming_r_minus_l"
+
+    def as_mapping(self) -> dict[str, str]:
+        """Return the exact six-key object in Section 5.1's order."""
+        return {
+            "schema_version": self.schema_version,
+            "coordinate_frame": self.coordinate_frame,
+            "axes": self.axes,
+            "position_angle": self.position_angle,
+            "linear_complex": self.linear_complex,
+            "stokes_v": self.stokes_v,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class SkyLoaderRequestContext:
     """Resolved global context used to build one loader request."""
@@ -432,6 +467,23 @@ class SkySourceConfig(StrictFrozenModel):
     region: SkyRegionInput = None
     brightness_conversion: Literal["planck", "rayleigh-jeans"] | None = None
     provenance_override: SkyProvenanceInput | None = None
+    #: SCI-004 Section 5.1's declared source convention.  It is optional here
+    #: because "an I/V-only payload may omit the tangent block"; the m-mode
+    #: semantic contract below rejects a *declared* polarized payload without
+    #: one, and the container-level ``TangentPolarizationFrame.require_for``
+    #: rejects a programmatic one whose polarization is only known after load.
+    tangent_polarization_frame: TangentPolarizationFrameConfig | None = None
+
+    def declares_linear_polarization(self) -> bool:
+        """Return whether this document entry declares non-zero ``Q`` or ``U``.
+
+        Only a source kind that carries an explicit linear-polarization control
+        can answer at document level.  Every other kind's polarization is a
+        property of the data it loads, so Section 5.1's rule is enforced for
+        those at the container boundary instead of guessed at here.
+        """
+        fraction = getattr(self, "polarization_fraction", None)
+        return fraction is not None and float(fraction) != 0.0
 
     @field_validator("kind")
     @classmethod
@@ -2692,9 +2744,15 @@ MMODE_LMAX_CEILING = 4088
 MMODE_LMAX_FLOOR = 2
 
 
-def _mmode_issue(path: str, code: str) -> ConfigIssue:
-    """Return one Section 8 issue with its exact frozen message."""
-    return ConfigIssue(path, code, MMODE_ISSUE_MESSAGES[code])
+def _mmode_issue(path: str, code: str, hint: str | None = None) -> ConfigIssue:
+    """Return one Section 8 issue with its exact frozen message.
+
+    The message is the frozen Section 8 table entry and is never reworded.  A
+    ``hint`` is rendered after it and may name the issue code and the remedy,
+    which is what makes a typed rejection actionable without touching the
+    frozen text.
+    """
+    return ConfigIssue(path, code, MMODE_ISSUE_MESSAGES[code], hint)
 
 
 def _mmode_semantic_issues(config: RadioSimConfig) -> list[ConfigIssue]:
@@ -2761,6 +2819,28 @@ def _mmode_semantic_issues(config: RadioSimConfig) -> list[ConfigIssue]:
                 issues.append(
                     _mmode_issue("jones.G.time_model.kind", "mmode_static_gain")
                 )
+
+    # Section 5.1: "A programmatic polarized input without a declared source
+    # convention is rejected."  A document that *declares* linear polarization
+    # can be judged here, before any loader runs; a payload whose polarization
+    # is only known after loading is judged at the container boundary by
+    # ``TangentPolarizationFrame.require_for``.  The two checks are the same
+    # rule applied at the two points where the answer is knowable.
+    for index, source in enumerate(config.sky_model.sources):
+        if not source.declares_linear_polarization():
+            continue
+        if source.tangent_polarization_frame is not None:
+            continue
+        issues.append(
+            _mmode_issue(
+                f"sky_model.sources[{index}].tangent_polarization_frame",
+                "mmode_polarization_frame",
+                "declare the Section 5.1 six-key block (schema_version, "
+                "coordinate_frame, axes, position_angle, linear_complex, "
+                "stokes_v) on this source, or remove its linear polarization; "
+                "issue code mmode_polarization_frame.",
+            )
+        )
 
     # Section 1: the phase centre and boresight are the existing fixed zenith.
     # A ``beams.pointing`` block only validates when at least one authored

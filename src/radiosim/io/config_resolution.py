@@ -967,6 +967,12 @@ def _resolve_sky_source(
                 "region",
                 "brightness_conversion",
                 "provenance_override",
+                # SCI-004 Section 5.1's declared source convention describes the
+                # payload's tangent basis, not the loader's inputs.  Every
+                # registered loader signature predates it, so it is consumed by
+                # the container and solver layers rather than passed through as
+                # a loader keyword.
+                "tangent_polarization_frame",
             }
         }
     options = dict(alias_defaults)
@@ -1000,6 +1006,14 @@ def _resolve_sky_source(
         region=_source_common_value(source.region),
         brightness_conversion=source.brightness_conversion,
         provenance_override=_source_common_value(source.provenance_override),
+        # SCI-004 Section 5.1's declared convention survives resolution as the
+        # exact six-key object rather than being dropped with the loader-keyword
+        # exclusion above; a source that declares none stays ``None``.
+        tangent_polarization_frame=(
+            source.tangent_polarization_frame.as_mapping()
+            if source.tangent_polarization_frame is not None
+            else None
+        ),
     )
 
 

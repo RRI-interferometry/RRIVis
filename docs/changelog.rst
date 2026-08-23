@@ -64,21 +64,70 @@ Added
   neither classification rejects the whole certificate.
 - ``SimulationResult.solver`` is a strict tagged union. The ``rime`` arm is
   unchanged; an m-mode result carries ``MModeSolverResultProvenance``, whose
-  ``tangent_polarization_frame`` is the exact literal
-  ``not_applicable_scalar_m1`` in phase M1 and whose ``stokes_v_basis_bridge``
-  is always ``radiosim.stokes-ne-theta-phi.v1``.
+  ``stokes_v_basis_bridge`` is always ``radiosim.stokes-ne-theta-phi.v1`` and
+  whose ``tangent_polarization_frame`` is the exact literal
+  ``not_applicable_scalar_m1`` for a payload with no linear polarization and
+  the six-key canonical block otherwise.
+- ``SCI-004`` phase M2: the m-mode forward model is **full Stokes**.
+  ``MModeSimulator.supports_polarization`` is now ``True``, and a resolved
+  payload with any non-zero ``Q``, ``U`` or ``V`` takes the polarized execution
+  path and reports ``execution_path: "polarized"``.
+
+  - Spin-weighted harmonics and the four-field packed block table in Section
+    5.3's fixed order ``("I", "+2", "-2", "V")``, with the paired spin-reality
+    relation and an unpadded signed-``m``-major layout in which invalid
+    ``(l, m, s)`` cells do not exist.
+  - The RadioSim-to-Shaw basis bridge as one matrix
+    ``D = diag(-1, 1)``: the kernel uses ``D P^X D`` and the sky the matching
+    ``U_H = -U``. It is not the SCI-006 east-X permutation, which stays inside
+    the antenna Jones matrix, and no additional fitted or configurable ``V``
+    flip exists.
+  - The **resolved receptor matrix** ``M_p = H_p C_p`` now enters the m-mode
+    kernel, from the same ``radiosim.core.jones.receptor`` code objects the
+    direct chain uses. Stokes-``I`` results are unchanged by this -- for a
+    unitary receptor ``M P^I M^H = (1/2) I2``, so every accepted phase-M1
+    scalar result, digest and gate value is preserved bit for bit -- and it is
+    load-bearing for every polarized component.
+  - The polarized transfer ``B^(+2) = integral((K^Q - i K^U) {+2}Y_lm)`` and
+    ``B^(-2) = integral((K^Q + i K^U) {-2}Y_lm)``, the two ``1/2`` factors on
+    the spin pair in the forward per-``m`` product, and the full-Stokes
+    frozen-frame direct oracle that the every-run two-tier gate compares
+    against.
+  - Analytic full-Stokes point coefficients, the polarized HEALPix pixel
+    measure, and hybrid addition in the fixed ``("point", "healpix")`` order.
+  - ``TangentPolarizationFrame``: the six-key tangent-basis record a polarized
+    payload carries, with the ``north_through_west`` source convention
+    converted to IAU north-through-east before storage. A polarized m-mode
+    input that declares none is rejected with ``mmode_polarization_frame``,
+    before backend allocation, output-path creation, or harmonic work.
+  - ``MModeSimulator.get_memory_estimate`` overrides the direct-RIME shape with
+    Section 9's seven named components, the logical and scheduled dimensions,
+    and a one-block minimum that a smaller budget is rejected against before
+    allocation.
 
 Notes
 ^^^^^
 
-- Phase M1 is **scalar only**. ``MModeSimulator.supports_polarization`` is
-  explicitly ``False`` and any non-zero Stokes ``Q``, ``U`` or ``V`` is rejected
-  with ``mmode_m1_scalar_only``. ``MModeSimulator.supports_gpu`` is ``False``:
-  no end-to-end accelerator run of this solver has been measured, and the
-  recorded ``host_harmonics_backend_native_dense_v1`` policy describes where the
-  work runs rather than claiming an advantage. Register row ``PERF-001`` governs
-  every performance statement. ``SCI-004`` remains ``ROADMAP``: registering the
-  strategy does not close the row, and this phase adds no fingerprint pin.
+- The constant chain terms act in the **celestial** tangent basis of each
+  direction -- the basis the spin expansions use and the basis the direct RIME
+  builds its coherency in -- and every mount-dependent tangent rotation belongs
+  to the ``P`` term, exactly the identity for the shipped ``fixed`` and
+  unspecified mounts. Constant coefficients on spin-weighted fields preserve the
+  integrand's spin weight, keeping the spin-``±2`` quadrature spectrally exact.
+  A ground-anchored, direction-dependent response would need a measured tangent
+  transport; that is outside this scope, and transporting a *constant* matrix
+  into the rotating local basis is the identity re-expression of a
+  zenith-singular field rather than an alternative convention.
+- ``MModeSimulator.supports_gpu`` remains ``False``: no end-to-end accelerator
+  run of this solver has been measured, and the recorded
+  ``host_harmonics_backend_native_dense_v1`` policy describes where the work
+  runs -- Astropy frame work, IERS mapping, beam sampling, HEALPix geometry and
+  both harmonic transforms are host-side NumPy for every backend, while only the
+  dense per-``m`` contractions and time synthesis are backend-native -- rather
+  than claiming an advantage. A polarized capability is not a speed claim.
+  Register row ``PERF-001`` governs every performance statement. ``SCI-004``
+  remains ``ROADMAP``: no phase of this work closes the row, and none adds a
+  fingerprint pin.
 - Truncation is gated, not assumed. Every production run executes a two-tier
   gate before any result exists. Tier 1a gates the harmonic pipeline at
   ``1e-8`` on a horizon-free cross-quadrature shell -- the same pipeline with

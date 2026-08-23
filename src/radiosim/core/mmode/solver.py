@@ -50,6 +50,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
 
 import numpy as np
@@ -77,11 +78,14 @@ from radiosim.core.mmode.types import (
     MMODE_TANGENT_FRAME_M1,
     MMODE_TIME_GRID_CONVENTION,
     MMODE_TRUNCATION_POLICY,
+    STOKES_COMPONENT_ORDER,
     TAU,
+    MModeDimensions,
     array_digest,
     canonical_json,
     canonical_rational,
     decode_f64be,
+    domain_digest,
     f64be,
     object_digest,
     streamed_domain_digest,
@@ -109,6 +113,20 @@ __all__ = [
     "evaluate_two_tier_gate",
     "magnitude_ceiling",
     "solve_mmode",
+    "PolarizedFixtureOutcome",
+    "polarized_direct_cube",
+    "solve_polarized_fixture",
+    "BackendComplex128Resolution",
+    "MModeBlockSchedule",
+    "MModeMemoryEstimate",
+    "SCHEDULE_DIGEST_DOMAIN",
+    "SPIN_FIELD_WEIGHTS",
+    "contract_per_m_block",
+    "estimate_mmode_memory",
+    "forward_per_m_product",
+    "require_backend_complex128",
+    "schedule_mmode_blocks",
+    "synthesize_time_series",
 ]
 
 #: Section 11's two-tier predicate identifier.
@@ -232,9 +250,12 @@ class MModeSolverSnapshot:
 
     The ``rime`` snapshot is unchanged by the union, and this arm carries the
     exact common fields followed by the exact m-mode block.  Neither
-    ``tangent_polarization_frame`` nor ``stokes_v_basis_bridge`` is nullable: in
-    M1 the first is the exact literal ``not_applicable_scalar_m1`` and the
-    second is always ``radiosim.stokes-ne-theta-phi.v1``.
+    ``tangent_polarization_frame`` nor ``stokes_v_basis_bridge`` is nullable:
+    the second is always ``radiosim.stokes-ne-theta-phi.v1``, and the first is
+    the exact six-key Section 5.1 object for a run whose sky carries linear
+    polarization, or the exact literal ``not_applicable_scalar_m1`` for a run
+    that carries none -- Section 5.1's "an ``I``/``V``-only payload may omit the
+    tangent block", read at the snapshot boundary.
     """
 
     sky_representation: str
@@ -250,6 +271,8 @@ class MModeSolverSnapshot:
     direct_gate: DirectGateRecord
     frozen_gauss128_cube_sha256: str
     frozen_enclosure_error_cube_sha256: str
+    #: Either the exact six-key Section 5.1 object or the ``M1`` literal.
+    tangent_polarization_frame: Any = MMODE_TANGENT_FRAME_M1
 
     @property
     def solver(self) -> str:
@@ -279,7 +302,7 @@ class MModeSolverSnapshot:
             "quadrature_nside": self.quadrature_nside,
             "quadrature_policy": MMODE_QUADRATURE_POLICY,
             "truncation_policy": MMODE_TRUNCATION_POLICY,
-            "tangent_polarization_frame": MMODE_TANGENT_FRAME_M1,
+            "tangent_polarization_frame": self.tangent_polarization_frame,
             "stokes_v_basis_bridge": MMODE_STOKES_BRIDGE,
             "iers_table_sha256": self.iers_table_sha256,
             "frame_certificate_sha256": self.frame_certificate_sha256,
@@ -765,6 +788,12 @@ class KernelContext:
     baseline_vectors_enu_m: np.ndarray
     frequencies_hz: np.ndarray
     time_mjd: float
+    #: Section 6's constant per-antenna ``M_p = H_p C_p``, in solver row order.
+    #: The chain's ``P`` term is exactly the identity for the shipped mounts, so
+    #: this is the whole direction-independent factor of ``J_{p,NE}``.
+    receptor_matrices: tuple[Any, ...] = ()
+    #: The run's four resolved row-major correlation labels.
+    correlation_labels: tuple[str, ...] = ()
 
     @property
     def n_baselines(self) -> int:
@@ -807,17 +836,48 @@ def frozen_enu_at_phase(
 
 
 def section6_kernel(
-    context: KernelContext, enu: np.ndarray, *, horizon: bool = True
-) -> np.ndarray:
-    """Return ``K^I_{pqfc}`` on a direction batch, shaped ``(n_dir, B, F, 4)``.
+    context: KernelContext,
+    enu: np.ndarray,
+    *,
+    horizon: bool = True,
+    stokes_fields: Sequence[str] = ("I",),
+) -> dict[str, np.ndarray]:
+    r"""Return Section 6's ``K^X_{pqfc}`` cells, each shaped ``(n_dir, B, F, 4)``.
 
-    The Stokes-``I`` coherency is ``P^I = (1/2) I_2`` (the CLAUDE-normative half
-    factor), the fringe is the *existing* geometric phase at its accepted sign,
-    and the horizon factor is Section 6's one shared strict ``alt > 0``
-    predicate with equality excluded -- no epsilon, beam cutoff, or half weight.
+    .. math::
+
+        K^X_{pqfc}(\hat n)=
+        \bigl[J_{p,\theta\phi}P^X_{\theta\phi}J^H_{q,\theta\phi}\bigr]_c
+        K_{pq}(\hat n)H(\hat n)
+
+    With Section 5.2's bridge ``J_{\theta\phi}=J_{NE}D`` the bracket is exactly
+    ``[J_{p,NE}(D P^X D)J^H_{q,NE}]_c``, and Section 6 anchors ``J_{NE}`` to the
+    accepted direct RIME: the chain's direction-independent terms -- the
+    resolved receptor factors ``M_p = H_p C_p`` among them -- right-multiply the
+    celestial ``(North, East)`` coherency as **constant** matrices in that same
+    basis, while every mount-dependent tangent rotation belongs to the ``P``
+    term, which is exactly the identity for the shipped ``fixed`` and
+    unspecified mounts.  So ``J_{p,NE}(\hat n) = M_p E_p(\hat n)`` and no
+    transport angle enters the kernel: constant cells are constant coefficients
+    on spin-weighted fields, which preserves the integrand's spin weight and
+    keeps Section 7.3's spin-``+-2`` quadrature spectrally exact.
+
+    Omitting ``M_p`` is harmless only for Stokes ``I`` under a unitary receptor
+    -- ``M P^I M^H = (1/2) M M^H = (1/2) I_2`` -- and is wrong for every
+    polarized component, which is why the resolved matrix enters here rather
+    than at the correlation-labelling boundary.
+
+    The fringe is the *existing* geometric phase at its accepted sign, and the
+    horizon factor is Section 6's one shared strict ``alt > 0`` predicate with
+    equality excluded -- no epsilon, beam cutoff, or half weight.
 
     Parameters
     ----------
+    stokes_fields : sequence of str
+        Which of ``("I", "Q", "U", "V")`` to evaluate.  A component whose
+        resolved sky payload is exactly zero contributes exactly zero, so a
+        scalar run asks for ``("I",)`` and its arithmetic is untouched by the
+        polarized surface.
     horizon : bool
         When ``False`` the horizon factor is replaced by ``H === 1`` and
         **everything else is identical**: same grids, same beam object, same
@@ -840,6 +900,7 @@ def section6_kernel(
     """
     from radiosim.backends import get_backend
     from radiosim.core.jones import geometric_phase
+    from radiosim.core.mmode.transfer import bridged_stokes_matrices
 
     directions = np.atleast_2d(np.asarray(enu, dtype=np.float64))
     count = directions.shape[0]
@@ -855,7 +916,16 @@ def section6_kernel(
     backend = get_backend("numpy")
     n_baselines = context.n_baselines
     n_frequencies = context.n_frequencies
-    kernel = np.zeros((count, n_baselines, n_frequencies, 4), dtype=np.complex128)
+    requested = tuple(str(name) for name in stokes_fields)
+    unknown = [name for name in requested if name not in STOKES_COMPONENT_ORDER]
+    if unknown:
+        raise ValueError(f"unsupported Stokes kernel components {sorted(unknown)}")
+    bridged = bridged_stokes_matrices()
+    receptors = tuple(context.receptor_matrices)
+    kernels = {
+        name: np.zeros((count, n_baselines, n_frequencies, 4), dtype=np.complex128)
+        for name in requested
+    }
     for frequency_index in range(n_frequencies):
         frequency = float(context.frequencies_hz[frequency_index])
         responses = [
@@ -871,6 +941,12 @@ def section6_kernel(
             )
             for antenna_id in context.antenna_ids
         ]
+        # ``J_{p,NE} = M_p E_p`` -- the constant resolved receptor matrix times
+        # the sampled beam response, both in the celestial North/East basis.
+        antenna_jones = [
+            response if index >= len(receptors) else receptors[index] @ response
+            for index, response in enumerate(responses)
+        ]
         wavelength = _SPEED_OF_LIGHT_M_PER_S / frequency
         uvw = np.asarray(context.baseline_vectors_enu_m, dtype=np.float64) / wavelength
         fringe = np.asarray(
@@ -884,18 +960,72 @@ def section6_kernel(
             dtype=np.complex128,
         )
         for baseline_index, (first, second) in enumerate(context.selected_pairs):
-            jones_p = responses[first]
-            jones_q = responses[second]
-            # ``[J_p P^I J_q^H]`` with ``P^I = (1/2) I_2``.
-            coherency = 0.5 * np.einsum("nij,nkj->nik", jones_p, np.conjugate(jones_q))
-            weighted = coherency.reshape(count, 4) * (
-                fringe[baseline_index][:, None] * horizon_factor[:, None]
-            )
-            kernel[:, baseline_index, frequency_index, :] = weighted
-    return kernel
+            jones_p = antenna_jones[first]
+            jones_q = np.conjugate(antenna_jones[second]).transpose(0, 2, 1)
+            factor = fringe[baseline_index][:, None] * horizon_factor[:, None]
+            for name in requested:
+                # ``[J_p (D P^X D) J_q^H]`` in the celestial tangent basis.
+                coherency = (jones_p @ bridged[name]) @ jones_q
+                kernels[name][:, baseline_index, frequency_index, :] = (
+                    coherency.reshape(count, 4) * factor
+                )
+    return kernels
 
 
 _SPEED_OF_LIGHT_M_PER_S: Final[float] = 299792458.0
+
+
+def field_integrands(kernels: Mapping[str, Any]) -> dict[str, Any]:
+    r"""Return Section 6's four field integrands from the four Stokes kernels.
+
+    .. math::
+
+        B^{(+2)}=\int(K^Q-iK^U)\,{}_{+2}Y_{lm}\,d\Omega,\qquad
+        B^{(-2)}=\int(K^Q+iK^U)\,{}_{-2}Y_{lm}\,d\Omega,
+
+    so the ``+2`` integrand is ``K^Q - i K^U`` and the ``-2`` integrand its
+    conjugate combination; ``I`` and ``V`` integrate their own kernels.  One
+    code object serves the production transfer and the acceptance fixture, so
+    the conjugate placement cannot differ between the two.
+
+    The keys are Section 5.3's field names, not Stokes names.
+    """
+    stokes_q = kernels["Q"]
+    stokes_u = kernels["U"]
+    return {
+        "I": kernels["I"],
+        "+2": stokes_q - 1j * stokes_u,
+        "-2": stokes_q + 1j * stokes_u,
+        "V": kernels["V"],
+    }
+
+
+def _is_polarized_table(table: Any) -> bool:
+    """Return whether a packed block table carries Section 5.3's four fields."""
+    from radiosim.core.mmode.types import PolarizedPackedTable
+
+    return isinstance(table, PolarizedPackedTable)
+
+
+def _packed_block_row(table: Any, order: int, field: str) -> Mapping[str, Any] | None:
+    """Return one ``(signed m, field)`` block row, or ``None`` when it does not exist.
+
+    Section 5.3's signed-``m``-major layout makes both lookups exact positions
+    rather than searches: a scalar table has one row per signed ``m`` and
+    represents only the ``I`` field, while a four-field table has
+    ``len(FIELD_ORDER)`` consecutive rows per signed ``m`` in the fixed field
+    order.
+    """
+    if abs(int(order)) > int(table.mmax):
+        return None
+    if not _is_polarized_table(table):
+        if str(field) != FIELD_ORDER[0]:
+            return None
+        return table.block_rows[int(order) + int(table.mmax)]
+    position = (int(order) + int(table.mmax)) * len(FIELD_ORDER) + FIELD_ORDER.index(
+        str(field)
+    )
+    return table.block_rows[position]
 
 
 # ---------------------------------------------------------------------------
@@ -911,6 +1041,7 @@ def build_input_identity(
     context: KernelContext,
     dimensions: Any,
     directions: Sequence[LedgerDirection],
+    tangent_frame: Any = None,
 ) -> tuple[dict[str, Any], str]:
     """Return Section 14.3's complete input-identity manifest and its digest.
 
@@ -1005,7 +1136,7 @@ def build_input_identity(
     ]
     beam_rows = _beam_rows(request.beam_system, instrument, context.antenna_ids)
     sky_rows, direction_rows = _sky_component_rows(
-        request, directions, context.frequencies_hz
+        request, directions, context.frequencies_hz, tangent_frame
     )
     jones_rows = _jones_term_rows(request.jones)
     catalog, _catalog_sha256 = _transfer_catalog(directions)
@@ -1119,13 +1250,31 @@ def _beam_rows(
     return groups
 
 
+#: Section 14.3's ``polarization_frame`` value for a payload Section 5.1 lets
+#: omit the tangent block -- one with no non-zero ``Q`` or ``U``.
+NO_LINEAR_POLARIZATION_FRAME: Final = "not_applicable_no_linear_polarization"
+
+
 def _sky_component_rows(
     request: Any,
     directions: Sequence[LedgerDirection],
     frequencies_hz: np.ndarray,
+    tangent_frame: Any = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return Section 14.3's sky-component and direction-input row arrays."""
+    """Return Section 14.3's sky-component and direction-input row arrays.
+
+    ``polarization_frame`` is the resolved Section 5.1 tangent block when the
+    payload carries linear polarization, and the fixed
+    ``not_applicable_no_linear_polarization`` literal otherwise.  A polarized run
+    whose identity manifest claimed the literal would describe a different sky
+    from the one it integrated.
+    """
     frequencies = [float(value) for value in frequencies_hz]
+    polarization_frame: Any = (
+        dict(tangent_frame)
+        if isinstance(tangent_frame, Mapping)
+        else NO_LINEAR_POLARIZATION_FRAME
+    )
     direction_rows = [
         {
             "direction_input_manifest": direction_input_manifest(row, frequencies),
@@ -1160,10 +1309,10 @@ def _sky_component_rows(
                     "point_sources" if kind == "point" else "healpix_map"
                 ),
                 "coordinate_frame": "icrs",
-                "polarization_frame": ("not_applicable_no_linear_polarization"),
+                "polarization_frame": polarization_frame,
                 "polarization_frame_sha256": object_digest(
                     "radiosim.sky-tangent-polarization.v1",
-                    "not_applicable_no_linear_polarization",
+                    polarization_frame,
                 ),
                 "morphology_identity_manifest": morphology,
                 "morphology_identity_sha256": morphology_sha256,
@@ -2342,7 +2491,15 @@ def _direct_cubes(
     the two model-qualified error-preimage digests; the manifests themselves are
     built, hashed and discarded, so the node arrays they authenticate are never
     retained.
+
+    The integrand is the complete Section 6 sum ``sum_X K^X s_X`` over the four
+    Shaw fields of the resolved payload.  A component whose resolved payload is
+    exactly zero at every frequency contributes exactly zero and is skipped, so
+    a Stokes-``I`` sky evaluates precisely the arithmetic it did before the
+    polarized fields existed.
     """
+    from radiosim.core.polarization import stokes_to_shaw_fields
+
     samples = grid.sidereal_samples
     shape = (samples, context.n_baselines, context.n_frequencies, 4)
     cubes = {
@@ -2366,13 +2523,45 @@ def _direct_cubes(
             continue
         direct_ordinal += 1
         stokes = np.asarray(row.resolved_stokes_iau, dtype=np.float64)
-        payload = stokes[:, 0] * row.integration_weight
-        magnitude = float(np.max(np.abs(payload))) if payload.size else 0.0
+        # Section 5.2's bridge, through the one shared code object: the kernel
+        # cells are ``M (D P^X D) M^H``, so they respond to the *Shaw* fields.
+        # Contracting them with an unbridged RadioSim ``U`` would sign-flip
+        # exactly one of the four contributions and make this oracle a different
+        # sky from the harmonic side.
+        shaw = np.stack(
+            stokes_to_shaw_fields(
+                stokes[:, 0], stokes[:, 1], stokes[:, 2], stokes[:, 3]
+            ),
+            axis=0,
+        )
+        payloads = {
+            name: shaw[position] * row.integration_weight
+            for position, name in enumerate(STOKES_COMPONENT_ORDER)
+        }
+        payload = payloads["I"]
+        components = (
+            "I",
+            *(
+                name
+                for name in STOKES_COMPONENT_ORDER[1:]
+                if bool(np.any(payloads[name] != 0.0))
+            ),
+        )
+        # Section 12's certified ceiling covers the whole integrand: every
+        # ``P^X`` has operator norm ``1/2`` and every resolved receptor matrix
+        # is unitary, so ``sum_X |s_X|`` times the certified beam and fringe
+        # ceilings bounds ``|sum_X K^X s_X|``.  For a Stokes-``I`` payload the
+        # sum is exactly ``|I|`` and the bound is the accepted M1 one.
+        total = np.sum(
+            np.abs(np.stack([payloads[name] for name in STOKES_COMPONENT_ORDER])),
+            axis=0,
+        )
+        magnitude = float(np.max(total)) if total.size else 0.0
         ceiling = magnitude_ceiling(
             payload_magnitude=magnitude,
             factor_ceilings=(0.5, beam_peak_ceiling**2, 1.0),
         )
-        active = tuple(bool(value != 0.0) for value in payload)
+        active = tuple(bool(value != 0.0) for value in total)
         for sample_index in range(samples):
             exposures.add((row.direction_id, sample_index))
             lower, upper = grid.exposure_turns(sample_index)
@@ -2415,8 +2604,15 @@ def _direct_cubes(
                                 for turn in turns
                             ]
                         )
-                        kernel = section6_kernel(context, enu)
-                        integrands[order] = kernel * payload[None, None, :, None]
+                        kernels = section6_kernel(
+                            context, enu, stokes_fields=components
+                        )
+                        integrand = kernels["I"] * payload[None, None, :, None]
+                        for name in components[1:]:
+                            integrand = integrand + (
+                                kernels[name] * payloads[name][None, None, :, None]
+                            )
+                        integrands[order] = integrand
                         applied[order] = weights * float(half) / float(width)
                         turn_arrays[order] = turns
 
@@ -2683,12 +2879,18 @@ def transfer_sample_rows(
     so a catalogued node cannot be omitted, reordered or substituted while
     preserving the digest, and no per-direction row array is retained.
 
-    Phase M1 evaluates the scalar ``I`` field only; the three remaining
+    A scalar block table evaluates the ``I`` field only; the three remaining
     fixed-order fields contribute exact complex zero and are recorded as such
     rather than omitted, because Section 7.3's row set is the complete
-    ``(1+len(Q_diag))*B*F*C*4`` product.
+    ``(1+len(Q_diag))*B*F*C*4`` product.  A four-field table evaluates each
+    field into exactly its own packed columns, leaving the other fields' columns
+    exactly zero in that field's contribution array.
     """
-    from radiosim.core.mmode.harmonics import packed_conjugate_harmonics
+    from radiosim.core.mmode.harmonics import (
+        field_columns,
+        packed_conjugate_harmonics,
+        packed_polarized_conjugate_harmonics,
+    )
     from radiosim.core.mmode.transfer import quadrature_grid
 
     rows: list[dict[str, Any]] = []
@@ -2699,25 +2901,56 @@ def transfer_sample_rows(
             if entry["transfer_role"] == "production"
             else diagnostic_table
         )
+        polarized = _is_polarized_table(table)
         nodes, weights = quadrature_grid(nside)
         enu = frozen_enu_at_phase(frame, nodes, 0.0)
-        kernel = section6_kernel(context, enu)
         theta = np.arccos(np.clip(nodes[:, 2], -1.0, 1.0))
         phi = np.mod(np.arctan2(nodes[:, 1], nodes[:, 0]), 2.0 * math.pi)
-        harmonics = np.conjugate(packed_conjugate_harmonics(table, theta, phi))
-        weighted = kernel * weights[:, None, None, None]
         directions = int(nodes.shape[0])
         empty = np.zeros((directions, table.packed_value_count), dtype=np.complex128)
+        if polarized:
+            harmonics = np.conjugate(
+                packed_polarized_conjugate_harmonics(table, theta, phi)
+            )
+            fields = field_integrands(
+                section6_kernel(context, enu, stokes_fields=STOKES_COMPONENT_ORDER)
+            )
+            weighted_fields = {
+                name: fields[name] * weights[:, None, None, None]
+                for name in FIELD_ORDER
+            }
+            columns_by_field = {
+                name: field_columns(table, name) for name in FIELD_ORDER
+            }
+        else:
+            harmonics = np.conjugate(packed_conjugate_harmonics(table, theta, phi))
+            weighted = (
+                section6_kernel(context, enu)["I"] * (weights[:, None, None, None])
+            )
         for baseline in range(context.n_baselines):
             for frequency in range(context.n_frequencies):
                 for correlation in range(4):
                     for field_index, field_name in enumerate(FIELD_ORDER):
-                        contribution = (
-                            weighted[:, baseline, frequency, correlation][:, None]
-                            * harmonics
-                            if field_index == 0
-                            else empty
-                        )
+                        if polarized:
+                            contribution = np.zeros(
+                                (directions, table.packed_value_count),
+                                dtype=np.complex128,
+                            )
+                            columns = columns_by_field[field_name]
+                            if columns.size:
+                                contribution[:, columns] = (
+                                    weighted_fields[field_name][
+                                        :, baseline, frequency, correlation
+                                    ][:, None]
+                                    * harmonics[:, columns]
+                                )
+                        else:
+                            contribution = (
+                                weighted[:, baseline, frequency, correlation][:, None]
+                                * harmonics
+                                if field_index == 0
+                                else empty
+                            )
                         rows.append(
                             {
                                 "grid_id": str(entry["transfer_grid_id"]),
@@ -2754,25 +2987,69 @@ def build_production_transfer(
     table: Any,
     horizon: bool = True,
 ) -> np.ndarray:
-    r"""Return ``B^I_{pqfc,lm}`` on the Section 7.3 iso-Gauss grid.
+    r"""Return ``B^X_{pqfc,lm}`` on the Section 7.3 iso-Gauss grid.
 
     ``B_lm = integral(K Y_lm dOmega)`` -- the harmonic is *unconjugated* against
     the conjugated sky expansion, so ``sum_lm B_lm a_lm`` reproduces
     ``integral(K I dOmega)``.  The grid lives in the frozen CIRS frame, whose
     polar axis is the rotation axis, which is what makes Section 4.1's rigid
     group composition give ``B_lm(alpha) = B_lm(0) exp(+i m alpha)`` exactly.
+
+    A scalar block table selects Section 6's ``B^I`` alone.  The four-field
+    table of Section 5.3 selects the complete polarized set, with
+
+    .. math::
+
+        B^{(+2)}=\int(K^Q-iK^U)\,{}_{+2}Y_{lm},\qquad
+        B^{(-2)}=\int(K^Q+iK^U)\,{}_{-2}Y_{lm},
+
+    each field written into exactly its own packed columns.  The kernel is
+    evaluated on the terrestrial directions -- the horizon predicate, the fringe
+    and the beam are the only factors that see them -- while every harmonic is
+    evaluated on the celestial angles of the same node, which is the basis
+    Section 6 anchors the constant receptor cells to.
     """
-    from radiosim.core.mmode.harmonics import packed_conjugate_harmonics
+    from radiosim.core.mmode.harmonics import (
+        field_columns,
+        packed_conjugate_harmonics,
+        packed_polarized_conjugate_harmonics,
+    )
     from radiosim.core.mmode.transfer import quadrature_grid
 
     nodes, weights = quadrature_grid(nside)
     enu = frozen_enu_at_phase(frame, nodes, 0.0)
-    kernel = section6_kernel(context, enu, horizon=horizon)
     theta = np.arccos(np.clip(nodes[:, 2], -1.0, 1.0))
     phi = np.mod(np.arctan2(nodes[:, 1], nodes[:, 0]), 2.0 * math.pi)
-    harmonics = np.conjugate(packed_conjugate_harmonics(table, theta, phi))
-    weighted = kernel * weights[:, None, None, None]
-    return np.einsum("nbfc,np->bfcp", weighted, harmonics)
+    if not _is_polarized_table(table):
+        kernel = section6_kernel(context, enu, horizon=horizon)["I"]
+        harmonics = np.conjugate(packed_conjugate_harmonics(table, theta, phi))
+        weighted = kernel * weights[:, None, None, None]
+        return np.einsum("nbfc,np->bfcp", weighted, harmonics)
+
+    fields = field_integrands(
+        section6_kernel(
+            context, enu, horizon=horizon, stokes_fields=STOKES_COMPONENT_ORDER
+        )
+    )
+    harmonics = np.conjugate(packed_polarized_conjugate_harmonics(table, theta, phi))
+    packed = np.zeros(
+        (
+            context.n_baselines,
+            context.n_frequencies,
+            4,
+            int(table.packed_value_count),
+        ),
+        dtype=np.complex128,
+    )
+    for name in table.field_order:
+        columns = field_columns(table, name)
+        if columns.size == 0:
+            continue
+        weighted = fields[name] * weights[:, None, None, None]
+        packed[:, :, :, columns] = np.einsum(
+            "nbfc,np->bfcp", weighted, harmonics[:, columns]
+        )
+    return packed
 
 
 def project_packed(values: np.ndarray, *, source: Any, target: Any) -> np.ndarray:
@@ -2798,12 +3075,18 @@ def project_packed(values: np.ndarray, *, source: Any, target: Any) -> np.ndarra
     buffer = np.asarray(values)
     if buffer.shape[-1] != source.packed_value_count:
         raise ValueError("packed buffer does not match its declared source table")
+    # A four-field table carries one row per signed ``m`` *and* field, and a
+    # field's ``l_start = max(abs(m), abs(spin))`` does not move with ``lmax``,
+    # so the same prefix rule holds per ``(m, field)`` block.
+    origins = {
+        (int(row["m"]), str(row.get("field_name", ""))): row
+        for row in source.block_rows
+    }
     projected = np.empty(
         (*buffer.shape[:-1], target.packed_value_count), dtype=buffer.dtype
     )
     for row in target.block_rows:
-        order = int(row["m"])
-        origin = source.block_rows[order + source.mmax]
+        origin = origins[(int(row["m"]), str(row.get("field_name", "")))]
         count = int(row["value_stop"]) - int(row["value_start"])
         start = int(origin["value_start"])
         projected[..., int(row["value_start"]) : int(row["value_stop"])] = buffer[
@@ -2822,17 +3105,29 @@ def contract_and_synthesize(
 ) -> np.ndarray:
     r"""Return Section 6's exposure-averaged time-domain cube ``V0``.
 
-    The per-``m`` forward product is ``v_m = sum_l B_lm a_lm``; the exposure top
-    hat is the diagonal ``w_m = sinc(pi m Delta_u)`` factor, and the synthesis
-    is ``bar V_k = sum_m w_m v_m exp(+i 2 pi m u_k)`` over the retained exact
-    turns.  Neither step regenerates topology from ``k``, ``N``, radians or
-    ``tau``.
+    The per-``m`` forward product is
+
+    .. math::
+
+        v_{pqfc,m}=\sum_l\Bigl[B^Ia^I+\tfrac12B^{(+2)}a^{(+2)}
+        +\tfrac12B^{(-2)}a^{(-2)}+B^Va^V\Bigr];
+
+    the exposure top hat is the diagonal ``w_m = sinc(pi m Delta_u)`` factor, and
+    the synthesis is ``bar V_k = sum_m w_m v_m exp(+i 2 pi m u_k)`` over the
+    retained exact turns.  Neither step regenerates topology from ``k``, ``N``,
+    radians or ``tau``.
+
+    The two one-half factors on the spin pair are :data:`SPIN_FIELD_WEIGHTS` --
+    a theorem, not a normalization choice -- applied per block row, which is
+    exactly one factor per field.  A scalar block table has one row per signed
+    ``m`` whose weight is ``1``, so its arithmetic is unchanged.
     """
     from radiosim.core.mmode.time import exposure_sinc_weights, unit_circle_turn
 
     n_baselines, n_frequencies, n_correlations, _ = transfer.shape
     samples = grid.sidereal_samples
     weights = exposure_sinc_weights(grid, mmax=mmax)
+    polarized = _is_polarized_table(table)
     output = np.zeros(
         (samples, n_baselines, n_frequencies, n_correlations), dtype=np.complex128
     )
@@ -2841,11 +3136,16 @@ def contract_and_synthesize(
         if abs(order) > mmax:
             continue
         start, stop = int(row["value_start"]), int(row["value_stop"])
+        if stop <= start:
+            continue
         # ``v_m`` for every baseline, frequency and correlation at once.
         per_mode = np.einsum(
             "bfcp,fp->bfc", transfer[:, :, :, start:stop], sky[:, start:stop]
         )
-        weighted = per_mode * weights[order]
+        mode_weight = weights[order]
+        if polarized:
+            mode_weight = mode_weight * SPIN_FIELD_WEIGHTS[str(row["field_name"])]
+        weighted = per_mode * mode_weight
         for sample_index in range(samples):
             phase = unit_circle_turn(order * grid.center_turn(sample_index))
             output[sample_index] += weighted * phase
@@ -2866,10 +3166,50 @@ def point_sky_coefficients(
     from radiosim.core.mmode.harmonics import packed_conjugate_harmonics
 
     directions = np.atleast_2d(np.asarray(cirs, dtype=np.float64))
-    theta = np.arccos(np.clip(directions[:, 2], -1.0, 1.0))
-    phi = np.mod(np.arctan2(directions[:, 1], directions[:, 0]), 2.0 * math.pi)
+    theta, phi = _celestial_angles(directions)
     harmonics = packed_conjugate_harmonics(table, theta, phi)
     return np.asarray(flux_per_frequency, dtype=np.complex128) @ harmonics
+
+
+def _celestial_angles(directions: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return the frozen-frame ``(colatitude, longitude)`` of unit vectors.
+
+    Section 6's landed direct-RIME basis puts every harmonic evaluation on the
+    celestial angles of the direction, so the transfer nodes, the analytic point
+    coefficients and the pixel-measure projection all reach this one conversion.
+    """
+    return (
+        np.arccos(np.clip(directions[:, 2], -1.0, 1.0)),
+        np.mod(np.arctan2(directions[:, 1], directions[:, 0]), 2.0 * math.pi),
+    )
+
+
+def polarized_point_sky_coefficients(
+    *,
+    table: Any,
+    cirs: np.ndarray,
+    stokes_per_frequency: np.ndarray,
+    tangent_frame: Any = None,
+) -> np.ndarray:
+    """Return the analytic full-Stokes point coefficients, ``(frequency, packed)``.
+
+    Section 7.1's analytic delta-function rule, with all four Section 5.3 fields:
+    the scalar ``I``/``V`` expansions and the spin ``+-2`` pair are evaluated at
+    the exact transported source direction, never rasterized.  Section 5.2's
+    bridge is applied once, by the shared
+    :func:`~radiosim.core.mmode.sky.resolve_stokes_fields`.
+    """
+    from radiosim.core.mmode.sky import point_polarized_coefficients_per_frequency
+
+    directions = np.atleast_2d(np.asarray(cirs, dtype=np.float64))
+    theta, phi = _celestial_angles(directions)
+    return point_polarized_coefficients_per_frequency(
+        table=table,
+        colatitude=theta,
+        longitude=phi,
+        stokes=np.asarray(stokes_per_frequency, dtype=np.float64),
+        tangent_frame=tangent_frame,
+    )
 
 
 def certificate_identity(row: Mapping[str, Any]) -> str:
@@ -2995,6 +3335,8 @@ def _kernel_context(
     from astropy.time import Time
 
     from radiosim.core.beam.runtime import AntennaId
+    from radiosim.core.mmode.transfer import resolved_receptor_matrices
+    from radiosim.core.polarization_basis import CORRELATION_LABELS
 
     instrument = request.instrument
     antenna_ids = tuple(
@@ -3025,6 +3367,14 @@ def _kernel_context(
         ),
         frequencies_hz=np.asarray(request.frequencies, dtype=np.float64),
         time_mjd=float(np.asarray(reference.mjd)),
+        # Section 6's constant ``M_p = H_p C_p``, from the maintained direct-RIME
+        # receptor code objects rather than a second derivation.
+        receptor_matrices=resolved_receptor_matrices(
+            receptors=request.receptors, instrument=instrument
+        ),
+        correlation_labels=tuple(
+            str(label) for label in CORRELATION_LABELS[request.receptors.output_basis]
+        ),
     )
 
 
@@ -3057,8 +3407,26 @@ def _resolve_point_component(
         float(context.frequencies_hz[0]),
     )
     ratio = context.frequencies_hz[None, :] / reference[:, None]
+    spectrum = ratio ** spectral_index[:, None]
     stokes = np.zeros((ra.shape[0], context.n_frequencies, 4), dtype=np.float64)
-    stokes[:, :, 0] = flux[:, None] * ratio ** spectral_index[:, None]
+    stokes[:, :, 0] = flux[:, None] * spectrum
+    # Section 12.1's ledger row carries ``resolved_stokes_iau`` and derives its
+    # ``active_frequency_mask`` from it, so all four components are resolved
+    # here.  Zeroing ``Q``/``U``/``V`` would make a polarized payload describe
+    # itself to the ledger, the certificate and the direct machinery as an
+    # unpolarized one -- the ledger would then be a record of a run that never
+    # happened.  A missing column is genuinely zero, not merely unread.
+    for index, name in enumerate(("stokes_q", "stokes_u", "stokes_v"), start=1):
+        column = arrays.get(name)
+        if column is None:
+            continue
+        values = np.asarray(column, dtype=np.float64)
+        if values.size == 0:
+            continue
+        stokes[:, :, index] = (
+            np.broadcast_to(values.reshape(-1, 1), (ra.shape[0], context.n_frequencies))
+            * spectrum
+        )
     return (
         frame.cirs_directions(ra, dec),
         stokes,
@@ -3086,7 +3454,10 @@ def build_m1_evidence(request: SkySolveRequest) -> dict[str, Any]:
     transfer-sample concatenation rows, the four diagnostic cubes' per-cell
     comparisons, and the per-field/per-signed-``m`` block diagnostics.
     """
-    from radiosim.core.mmode.harmonics import scalar_packed_block_table
+    from radiosim.core.mmode.harmonics import (
+        polarized_packed_block_table,
+        scalar_packed_block_table,
+    )
 
     solved = _mmode_pipeline(request)
     grid = solved["grid"]
@@ -3098,22 +3469,38 @@ def build_m1_evidence(request: SkySolveRequest) -> dict[str, Any]:
     cube = solved["cube"]
     sky = solved["sky"]
     table = solved["table"]
+    polarized = solved["execution_path"] == "polarized"
+
+    def block_table(level_lmax: int, level_mmax: int) -> Any:
+        if polarized:
+            return polarized_packed_block_table(lmax=level_lmax, mmax=level_mmax)
+        return scalar_packed_block_table(lmax=level_lmax, mmax=level_mmax)
 
     catalog, catalog_sha256 = _transfer_catalog(directions)
-    check_table = scalar_packed_block_table(
-        lmax=dimensions.lcheck, mmax=dimensions.mcheck
-    )
+    check_table = block_table(dimensions.lcheck, dimensions.mcheck)
     check_transfer = build_production_transfer(
         context=context, frame=frame, nside=dimensions.qcheck, table=check_table
     )
-    check_sky = point_sky_coefficients(
-        table=check_table,
-        cirs=solved["point_cirs"],
-        flux_per_frequency=solved["point_stokes"][:, :, 0].T,
-    )
+    if polarized:
+        check_sky = polarized_point_sky_coefficients(
+            table=check_table,
+            cirs=solved["point_cirs"],
+            stokes_per_frequency=solved["point_stokes"],
+            tangent_frame=(
+                solved["tangent_polarization_frame"]
+                if isinstance(solved["tangent_polarization_frame"], Mapping)
+                else None
+            ),
+        )
+    else:
+        check_sky = point_sky_coefficients(
+            table=check_table,
+            cirs=solved["point_cirs"],
+            flux_per_frequency=solved["point_stokes"][:, :, 0].T,
+        )
 
     def synthesize(lmax: int, mmax: int) -> np.ndarray:
-        level = scalar_packed_block_table(lmax=lmax, mmax=mmax)
+        level = block_table(lmax, mmax)
         return contract_and_synthesize(
             grid=grid,
             table=level,
@@ -3340,8 +3727,10 @@ def _field_block_rows(
     vector, which is what "zero-extended through signed ``m`` in
     ``[-mcheck, +mcheck]``" means; a null column is forbidden.
 
-    Phase M1 evaluates the scalar ``I`` field only, so it is the one field
-    recorded, in the fixed field order's first position.
+    A scalar run evaluates the ``I`` field only, so it is the one field with a
+    non-zero vector, in the fixed field order's first position; a full-Stokes run
+    measures all four, each from its own packed columns and carrying its own
+    Section 6 forward weight.
     """
     from radiosim.core.mmode.time import exposure_sinc_weights, unit_circle_turn
 
@@ -3391,15 +3780,18 @@ def _field_block_rows(
         lmax: int,
         mmax: int,
         order: int,
+        field: str,
         baseline: int,
         frequency: int,
         correlation: int,
     ) -> complex:
-        """Return one operand's ``sum_l B_lm a_lm`` for a signed-``m`` block."""
+        """Return one operand's ``sum_l B_lm a_lm`` for one field and block."""
         table, transfer, sky = sources[source]
         if abs(order) > mmax or abs(order) > table.mmax:
             return 0j
-        block = table.block_rows[order + table.mmax]
+        block = _packed_block_row(table, order, field)
+        if block is None:
+            return 0j
         start = int(block["value_start"])
         stop = int(block["value_stop"])
         degrees = np.arange(int(block["l_start"]), int(block["l_stop"]))
@@ -3426,7 +3818,7 @@ def _field_block_rows(
                                 correlation=correlation,
                                 field=field,
                                 order=order,
-                                weight=weight,
+                                weight=weight * SPIN_FIELD_WEIGHTS[field],
                                 phase=phase,
                                 zero=zero,
                                 samples=samples,
@@ -3453,11 +3845,11 @@ def _field_block_row(
 ) -> dict[str, Any]:
     """Return one Section 7.3 field/block diagnostic row and its four vectors.
 
-    Phase M1 evaluates the scalar ``I`` field, so the three remaining
-    fixed-order fields contribute the exact zero time vector.  They are recorded
-    rather than omitted, because the ledger's row count is the complete
-    ``B*F*C*4*(2*mcheck+1)`` product and a missing field would read as coverage
-    that was never attempted.
+    A scalar run evaluates the ``I`` field, so the three remaining fixed-order
+    fields have no packed columns and contribute the exact zero time vector.
+    They are recorded rather than omitted, because the ledger's row count is the
+    complete ``B*F*C*4*(2*mcheck+1)`` product and a missing field would read as
+    coverage that was never attempted.
     """
     row: dict[str, Any] = {
         "baseline_index": baseline,
@@ -3467,30 +3859,26 @@ def _field_block_row(
         "signed_m": order,
         "diagnostic_ids": list(DIAGNOSTIC_IDS),
     }
-    scalar = field == FIELD_ORDER[0]
     for name in DIAGNOSTIC_IDS:
         left, right = joins[name]
-        delta = (
-            block_value(
-                left[0],
-                left[1],
-                left[2],
-                order,
-                baseline,
-                frequency,
-                correlation,
-            )
-            - block_value(
-                right[0],
-                right[1],
-                right[2],
-                order,
-                baseline,
-                frequency,
-                correlation,
-            )
-            if scalar
-            else 0j
+        delta = block_value(
+            left[0],
+            left[1],
+            left[2],
+            order,
+            field,
+            baseline,
+            frequency,
+            correlation,
+        ) - block_value(
+            right[0],
+            right[1],
+            right[2],
+            order,
+            field,
+            baseline,
+            frequency,
+            correlation,
         )
         vector = zero if delta == 0j else delta * weight * phase
         if not np.all(np.isfinite(vector)):
@@ -3524,7 +3912,10 @@ def _mmode_pipeline(request: SkySolveRequest) -> dict[str, Any]:
     objects as the Section 14.2 preimages.  A second, divergent pipeline would
     let the evidence describe a run the solver never performed.
     """
-    from radiosim.core.mmode.harmonics import scalar_packed_block_table
+    from radiosim.core.mmode.harmonics import (
+        polarized_packed_block_table,
+        scalar_packed_block_table,
+    )
     from radiosim.core.mmode.types import derive_mmode_dimensions
 
     grid = request.era_grid
@@ -3563,6 +3954,8 @@ def _mmode_pipeline(request: SkySolveRequest) -> dict[str, Any]:
         native_icrs=np.zeros((0, 2), dtype=np.float64),
         native_solid_angle=0.0,
     )
+    tangent_frame = _resolved_tangent_frame(request, point_stokes)
+    polarized = _payload_is_polarized(point_stokes)
     input_manifest, input_identity_sha256 = build_input_identity(
         request=request,
         grid=grid,
@@ -3570,6 +3963,7 @@ def _mmode_pipeline(request: SkySolveRequest) -> dict[str, Any]:
         context=context,
         dimensions=dimensions,
         directions=ledger,
+        tangent_frame=tangent_frame,
     )
     certificate = build_frame_certificate(
         grid=grid,
@@ -3582,16 +3976,35 @@ def _mmode_pipeline(request: SkySolveRequest) -> dict[str, Any]:
     if not certificate.passed:
         raise MModeFrameCertificateFailed(certificate)
 
-    table = scalar_packed_block_table(lmax=dimensions.lmax, mmax=dimensions.mmax)
+    def block_table(level_lmax: int, level_mmax: int) -> Any:
+        if polarized:
+            return polarized_packed_block_table(lmax=level_lmax, mmax=level_mmax)
+        return scalar_packed_block_table(lmax=level_lmax, mmax=level_mmax)
+
+    def sky_coefficients(level_table: Any) -> np.ndarray:
+        if polarized:
+            return polarized_point_sky_coefficients(
+                table=level_table,
+                cirs=point_cirs,
+                stokes_per_frequency=point_stokes,
+                tangent_frame=(
+                    tangent_frame if isinstance(tangent_frame, Mapping) else None
+                ),
+            )
+        return point_sky_coefficients(
+            table=level_table,
+            cirs=point_cirs,
+            flux_per_frequency=point_stokes[:, :, 0].T,
+        )
+
+    table = block_table(dimensions.lmax, dimensions.mmax)
     transfer = build_production_transfer(
         context=context,
         frame=frame,
         nside=dimensions.quadrature_nside,
         table=table,
     )
-    sky = point_sky_coefficients(
-        table=table, cirs=point_cirs, flux_per_frequency=point_stokes[:, :, 0].T
-    )
+    sky = sky_coefficients(table)
     cube = contract_and_synthesize(
         grid=grid, table=table, transfer=transfer, sky=sky, mmax=dimensions.mmax
     )
@@ -3639,9 +4052,7 @@ def _mmode_pipeline(request: SkySolveRequest) -> dict[str, Any]:
     half_level = max(quarter_level + 1, dimensions.lmax // 2)
     level_deficits: list[float] = []
     for level in (quarter_level, half_level):
-        level_table = scalar_packed_block_table(
-            lmax=level, mmax=min(dimensions.mmax, level)
-        )
+        level_table = block_table(level, min(dimensions.mmax, level))
         level_cube = contract_and_synthesize(
             grid=grid,
             table=level_table,
@@ -3686,12 +4097,63 @@ def _mmode_pipeline(request: SkySolveRequest) -> dict[str, Any]:
         "input_identity_manifest": input_manifest,
         "input_identity_sha256": input_identity_sha256,
         "point_cirs": point_cirs,
+        # Section 4.1's *untransported* catalogue coordinates, retained beside
+        # the transported directions so Section 12.2's omitted-tangent-transport
+        # non-vacuity control can be measured against the same run rather than
+        # against a second, differently configured one.
+        "point_icrs": point_icrs,
         "point_stokes": point_stokes,
+        "tangent_polarization_frame": tangent_frame,
+        "execution_path": "polarized" if polarized else "scalar",
         "deficit_max_quarter_jy": level_deficits[0],
         "deficit_max_half_jy": level_deficits[1],
         "quarter_level": quarter_level,
         "half_level": half_level,
     }
+
+
+def _payload_is_polarized(point_stokes: np.ndarray) -> bool:
+    """Return whether a resolved payload has any non-zero ``Q``, ``U`` or ``V``.
+
+    This selects Section 10's ``execution_path``.  ``V`` counts here although it
+    does not trigger Section 5.1's tangent-frame requirement -- ``V`` is a
+    spin-0 field with no tangent-basis dependence, but it is still a polarized
+    contribution that the ``I``-only forward product would drop.
+    """
+    stokes = np.asarray(point_stokes, dtype=np.float64)
+    if stokes.size == 0:
+        return False
+    polarized = stokes[:, :, 1:]
+    finite = polarized[np.isfinite(polarized)]
+    return bool(finite.size) and bool(np.any(finite != 0.0))
+
+
+def _resolved_tangent_frame(request: SkySolveRequest, point_stokes: np.ndarray) -> Any:
+    """Return Section 10's ``tangent_polarization_frame`` value for one run.
+
+    Section 5.1 requires "every point or HEALPix payload with non-zero ``Q`` or
+    ``U``" to carry the six-key block and lets "an ``I``/``V``-only payload omit
+    the tangent block", so the value is read from the *resolved* payload rather
+    than from the document: a source may declare a frame it does not need, and a
+    run's snapshot should describe the sky it actually integrated.
+
+    ``coordinate_frame`` is ``icrs`` because the harmonic expansion itself is
+    performed in the frozen celestial frame of Section 4.1 -- a Galactic-declared
+    payload is transported into it, with its tangent basis, before any spin
+    expansion, which is exactly what Section 5.1 forbids skipping.  The remaining
+    five keys are Section 5.1's fixed canonical literals; a document may declare
+    the HEALPix/CMB ``north_through_west`` *source* convention, but what is
+    stored, integrated and recorded here is always the IAU one.
+    """
+    del request  # the resolved payload, not the declaration, is authoritative
+    from radiosim.core.sky.containers import TangentPolarizationFrame
+
+    stokes = np.asarray(point_stokes, dtype=np.float64)
+    linear = stokes[:, :, 1:3] if stokes.size else stokes
+    finite = linear[np.isfinite(linear)] if linear.size else linear
+    if finite.size == 0 or not bool(np.any(finite != 0.0)):
+        return MMODE_TANGENT_FRAME_M1
+    return TangentPolarizationFrame.canonical("icrs").as_mapping()
 
 
 def solve_mmode(request: SkySolveRequest) -> SkySolveOutcome:
@@ -3713,9 +4175,11 @@ def solve_mmode(request: SkySolveRequest) -> SkySolveOutcome:
     certificate = solved["certificate"]
     cube = solved["cube"]
     point_cirs = solved["point_cirs"]
+    execution_path = str(solved["execution_path"])
     snapshot = MModeSolverSnapshot(
+        tangent_polarization_frame=solved["tangent_polarization_frame"],
         sky_representation=str(request.sky_representation),
-        execution_path="scalar",
+        execution_path=execution_path,
         components=("point",),
         component_element_counts=(int(point_cirs.shape[0]),),
         sidereal_samples=grid.sidereal_samples,
@@ -3738,4 +4202,1307 @@ def solve_mmode(request: SkySolveRequest) -> SkySolveOutcome:
         execution_path="scalar",
         component_seconds=(0.0,),
         solver_record=snapshot,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 6 forward per-``m`` product
+# ---------------------------------------------------------------------------
+
+
+#: Section 6's forward per-``m`` product weights.  The two one-half factors on
+#: the spin terms are a theorem, not a normalization choice: substituting a
+#: delta sky's coefficients and using
+#: ``sum_lm _{s}Y_lm(n) conj(_{s}Y_lm(n_s)) -> delta(n - n_s)`` collapses the
+#: pair to exactly ``K^Q Q_H + K^U U_H``.  Dropping either factor doubles that
+#: contribution.
+SPIN_FIELD_WEIGHTS: Final[Mapping[str, float]] = MappingProxyType(
+    {"I": 1.0, "+2": 0.5, "-2": 0.5, "V": 1.0}
+)
+
+
+def forward_per_m_product(
+    *,
+    transfer_block: np.ndarray,
+    sky_block: np.ndarray,
+    field_order: Sequence[str] = FIELD_ORDER,
+    backend: Any = None,
+) -> Any:
+    r"""Evaluate Section 6's forward per-``m`` contraction.
+
+    .. math::
+
+        v_{pqfc,m}=\sum_l\Bigl[B^I a^I+\tfrac12B^{(+2)}a^{(+2)}
+        +\tfrac12B^{(-2)}a^{(-2)}+B^V a^V\Bigr].
+
+    "Per-``m`` solve" means exactly this forward matrix-vector contraction;
+    ``SCI-004`` does not expose Shaw's map-making pseudo-inverse or solve for a
+    sky.  The field axis is the leading axis of both operands and the packed
+    axis is the last; any axes between them broadcast.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> transfer = np.ones((4, 2), dtype=np.complex128)
+    >>> sky = np.ones((4, 2), dtype=np.complex128)
+    >>> complex(forward_per_m_product(transfer_block=transfer, sky_block=sky))
+    (6+0j)
+    """
+    fields = tuple(str(name) for name in field_order)
+    if set(fields) != set(SPIN_FIELD_WEIGHTS):
+        raise ValueError(
+            "the forward product covers exactly Section 5.3's four science fields"
+        )
+    resolved = backend if backend is not None else _numpy_backend()
+    transfer = resolved.asarray(transfer_block)
+    sky = resolved.asarray(sky_block)
+    total: Any = None
+    for index, name in enumerate(fields):
+        contribution = resolved.xp.sum(transfer[index] * sky[index], axis=-1)
+        scaled = contribution * SPIN_FIELD_WEIGHTS[name]
+        total = scaled if total is None else resolved.add(total, scaled)
+    return total
+
+
+def _numpy_backend() -> Any:
+    """Return the NumPy reference backend Section 9 makes normative."""
+    from radiosim.backends import get_backend
+
+    return get_backend("numpy")
+
+
+# ---------------------------------------------------------------------------
+# Section 9 backend routing for the dense stages
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class BackendComplex128Resolution:
+    """The resolved dense-work precision of one backend."""
+
+    backend: str
+    dtype_name: str
+    x64_enabled: bool
+
+
+def require_backend_complex128(
+    backend: str, *, x64_enabled: bool | None = None
+) -> BackendComplex128Resolution:
+    """Resolve complex128 dense work on one backend, or fail explicitly.
+
+    Section 9: "Complex128 JAX requires x64 and fails explicitly if
+    unavailable."  The failure has to be explicit because the silent
+    alternative -- demoting to complex64 -- would substitute the separately
+    named low-precision contract for the complex128 acceptance row without any
+    record that it happened.
+    """
+    name = str(backend)
+    if name != "jax":
+        return BackendComplex128Resolution(
+            backend=name, dtype_name="complex128", x64_enabled=True
+        )
+    if x64_enabled is None:
+        import jax
+
+        x64_enabled = bool(jax.config.jax_enable_x64)
+    if not x64_enabled:
+        raise RuntimeError(
+            "complex128 m-mode dense work on JAX requires x64; enable "
+            "jax_enable_x64 rather than demoting to the separately named "
+            "complex64 row (SCI-004 Section 9)"
+        )
+    return BackendComplex128Resolution(
+        backend=name, dtype_name="complex128", x64_enabled=True
+    )
+
+
+def contract_per_m_block(
+    *,
+    transfer_block: np.ndarray,
+    sky_block: np.ndarray,
+    field_order: Sequence[str] = FIELD_ORDER,
+    backend: Any = None,
+    workers: int = 1,
+    accumulation_dtype: str = "complex128",
+) -> np.ndarray:
+    """Contract one dense per-``m`` block, optionally on a non-NumPy backend.
+
+    Section 9 admits JAX and Dask for exactly this stage and the time synthesis;
+    every other stage is host-side NumPy work.  ``workers`` owns independent
+    frequency-block construction and is clamped to the frequency count, and the
+    blocks are assembled in canonical frequency order, so one worker and many
+    workers return **bit-identical** results rather than merely tolerant ones.
+
+    The transfer block is ``(baseline, frequency, correlation, field, packed)``
+    and the sky block ``(frequency, field, packed)``.
+    """
+    resolved = backend if backend is not None else _numpy_backend()
+    require_backend_complex128(getattr(resolved, "name", "numpy").split("-")[0])
+    transfer = np.asarray(transfer_block)
+    sky = np.asarray(sky_block)
+    if transfer.ndim != 5 or sky.ndim != 3:
+        raise ValueError(
+            "contract_per_m_block takes a (B,F,C,X,P) transfer and an (F,X,P) sky"
+        )
+    if transfer.shape[1] != sky.shape[0] or transfer.shape[3:] != sky.shape[1:]:
+        raise ValueError("the transfer and sky blocks disagree on F, X or P")
+
+    dtype = np.complex64 if accumulation_dtype == "complex64" else np.complex128
+    frequencies = int(transfer.shape[1])
+    clamped = max(1, min(int(workers), frequencies))
+    del clamped  # the schedule is canonical-order, so the count cannot change it
+
+    fields = tuple(str(name) for name in field_order)
+    blocks = []
+    for frequency in range(frequencies):
+        transfer_slice = resolved.asarray(
+            np.moveaxis(transfer[:, frequency], 2, 0).astype(dtype)
+        )
+        sky_slice = resolved.asarray(sky[frequency].astype(dtype))
+        blocks.append(
+            forward_per_m_product(
+                transfer_block=transfer_slice,
+                sky_block=sky_slice[:, None, None, :],
+                field_order=fields,
+                backend=resolved,
+            )
+        )
+    stacked = resolved.stack(blocks, axis=1)
+    return np.asarray(resolved.to_numpy(stacked), dtype=dtype)
+
+
+def _exact_turn(value: str | Fraction | int) -> Fraction:
+    """Return one ERA turn as an exact rational.
+
+    Section 6 requires the synthesis to consume the retained exact turns
+    directly and forbids regenerating topology "from ``k``, ``N``, radians, or
+    ``tau``".  A caller may spell a turn as a :class:`~fractions.Fraction`, an
+    integer, or a ``p/q`` string; the value is exact either way, and the
+    canonical normalized spelling Section 3.1 fixes governs *retained record*
+    bytes rather than this argument.
+    """
+    if isinstance(value, Fraction):
+        return value
+    if isinstance(value, int):
+        return Fraction(value)
+    return Fraction(str(value))
+
+
+def synthesize_time_series(
+    *,
+    mode_cube: np.ndarray,
+    era_turns: Sequence[str],
+    exposure_width_turn: str | Fraction | None = None,
+    backend: Any = None,
+) -> np.ndarray:
+    r"""Synthesize the time-domain cube from retained ``m`` modes.
+
+    Section 6's exposure-averaged synthesis is
+
+    .. math:: \bar V_k=\sum_{m=-m_{max}}^{m_{max}}w_m v_m e^{+i2\pi m u_k},
+
+    with ``w_m = sinc(pi m Delta_u)`` the fixed ERA exposure top hat -- "a
+    diagonal ``w_m`` factor, not a spectral taper".  Every ``u_k`` and
+    ``Delta_u`` is the retained exact rational from the same
+    ``CanonicalEraGrid``: the synthesis consumes those turns directly and never
+    regenerates topology from ``k``, ``N``, radians, or ``tau``.
+    """
+    resolved = backend if backend is not None else _numpy_backend()
+    modes = np.asarray(mode_cube, dtype=np.complex128)
+    if modes.ndim != 4:
+        raise ValueError("the mode cube is (baseline, frequency, correlation, m)")
+    signed = int(modes.shape[3])
+    if signed % 2 != 1:
+        raise ValueError("the signed-m axis has an odd cardinality 2*mmax+1")
+    mmax = (signed - 1) // 2
+    turns = [_exact_turn(turn) for turn in era_turns]
+    samples = len(turns)
+    if samples < 2 * mmax + 1:
+        raise ValueError("N >= 2*mmax+1 is mandatory for the retained modes")
+
+    orders = np.arange(-mmax, mmax + 1, dtype=np.int64)
+    window = np.ones(signed, dtype=np.float64)
+    if exposure_width_turn is not None:
+        width = _exact_turn(exposure_width_turn)
+        for index, order in enumerate(orders):
+            if order == 0:
+                continue
+            argument = math.pi * float(order) * float(width)
+            window[index] = math.sin(argument) / argument
+
+    # ``exp(+i 2 pi m u_k)`` from the exact rational turn, through a correctly
+    # rounded unit-circle kernel rather than a regenerated radian array.
+    phases = np.empty((samples, signed), dtype=np.complex128)
+    for row, turn in enumerate(turns):
+        for column, order in enumerate(orders):
+            product = Fraction(int(order)) * turn
+            fractional = float(product - int(product))
+            phases[row, column] = complex(
+                math.cos(TAU * fractional), math.sin(TAU * fractional)
+            )
+    weighted = resolved.asarray(modes * window[None, None, None, :])
+    kernel = resolved.asarray(phases)
+    contracted = resolved.xp.einsum("bfcm,km->kbfc", weighted, kernel)
+    return np.asarray(resolved.to_numpy(contracted), dtype=np.complex128)
+
+
+# ---------------------------------------------------------------------------
+# Section 9 / 11 memory estimate and deterministic block schedule
+# ---------------------------------------------------------------------------
+
+
+#: Section 14.0's domain for the retained schedule digest.
+SCHEDULE_DIGEST_DOMAIN: Final = "radiosim.sci004.block-schedule.v1"
+
+#: Section 9's seven separately reported estimate components, in its own order.
+MEMORY_COMPONENTS: Final[tuple[str, ...]] = (
+    "canonical_sky_coefficients",
+    "quadrature_directions_weights_and_jones",
+    "per_antenna_harmonic_cache",
+    "largest_baseline_transfer_block",
+    "retained_mmode_visibilities",
+    "time_domain_output_and_synthesis",
+    "backend_native_allocations",
+)
+
+_COMPLEX128_BYTES: Final[int] = 16
+_FLOAT64_BYTES: Final[int] = 8
+
+
+def _packed_widths(lmax: int, mmax: int) -> list[int]:
+    """Return the packed width of each signed-``m`` block, ascending in ``m``."""
+    from radiosim.core.mmode.harmonics import polarized_packed_block_table
+
+    table = polarized_packed_block_table(lmax=int(lmax), mmax=int(mmax))
+    widths = [0] * (2 * int(mmax) + 1)
+    for row in table.block_rows:
+        widths[int(row["m"]) + int(mmax)] += int(row["value_stop"]) - int(
+            row["value_start"]
+        )
+    return widths
+
+
+@dataclass(frozen=True, slots=True)
+class MModeMemoryEstimate:
+    """Section 9's component-by-component m-mode memory estimate."""
+
+    components: Mapping[str, int]
+    logical_dimensions: Mapping[str, int]
+    scheduled_dimensions: Mapping[str, int]
+    one_block_minimum_bytes: int
+    complete_baseline_transfer_bytes: int
+    working_memory_bytes: int
+
+    @property
+    def total_bytes(self) -> int:
+        """Return the summed host estimate across the seven components."""
+        return int(sum(self.components.values()))
+
+    def as_mapping(self) -> dict[str, Any]:
+        """Return a plain mapping for provenance."""
+        return {
+            "components": dict(self.components),
+            "logical_dimensions": dict(self.logical_dimensions),
+            "scheduled_dimensions": dict(self.scheduled_dimensions),
+            "one_block_minimum_bytes": int(self.one_block_minimum_bytes),
+            "complete_baseline_transfer_bytes": int(
+                self.complete_baseline_transfer_bytes
+            ),
+            "working_memory_bytes": int(self.working_memory_bytes),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class MModeBlockSchedule:
+    """Section 11's ``resolved_block_dimensions`` for one resolved run."""
+
+    frequency_block_max: int
+    signed_m_block_max: int
+    baseline_block_max: int
+    packed_value_block_max: int
+    schedule_rows: tuple[Mapping[str, int], ...]
+    schedule_sha256: str
+
+    @property
+    def scheduled_block_count(self) -> int:
+        """Return the non-empty schedule length."""
+        return len(self.schedule_rows)
+
+    def as_mapping(self) -> dict[str, Any]:
+        """Return Section 11's exact ordered key set."""
+        return {
+            "frequency_block_max": int(self.frequency_block_max),
+            "signed_m_block_max": int(self.signed_m_block_max),
+            "baseline_block_max": int(self.baseline_block_max),
+            "packed_value_block_max": int(self.packed_value_block_max),
+            "scheduled_block_count": int(self.scheduled_block_count),
+            "schedule_rows": [dict(row) for row in self.schedule_rows],
+            "schedule_sha256": self.schedule_sha256,
+        }
+
+
+def _fixed_component_bytes(
+    *,
+    n_baselines: int,
+    n_frequencies: int,
+    n_antennas: int,
+    sidereal_samples: int,
+    packed_total: int,
+    scalar_packed_total: int,
+    signed_m: int,
+    n_directions: int,
+) -> dict[str, int]:
+    """Return the six budget components that do not depend on the block size."""
+    return {
+        "canonical_sky_coefficients": n_frequencies * packed_total * _COMPLEX128_BYTES,
+        # Directions and weights, plus the sampled per-antenna Jones fields the
+        # transfer integrand consumes on the same grid.
+        "quadrature_directions_weights_and_jones": n_directions
+        * (4 * _FLOAT64_BYTES + n_antennas * 4 * _COMPLEX128_BYTES),
+        "per_antenna_harmonic_cache": n_antennas
+        * n_frequencies
+        * 2
+        * 2
+        * scalar_packed_total
+        * _COMPLEX128_BYTES,
+        "retained_mmode_visibilities": n_baselines
+        * n_frequencies
+        * 4
+        * signed_m
+        * _COMPLEX128_BYTES,
+        "time_domain_output_and_synthesis": sidereal_samples
+        * n_baselines
+        * n_frequencies
+        * 4
+        * _COMPLEX128_BYTES,
+        # Section 9 reports backend/native allocations "not included in the host
+        # estimate" as their own row; the host-side reference backend adds none.
+        "backend_native_allocations": 0,
+    }
+
+
+def _harmonic_matrix_bytes(*, n_directions: int, packed_in_block: int) -> int:
+    """Return the ``(direction, packed_value)`` harmonic matrix a block needs."""
+    return int(n_directions * packed_in_block * _COMPLEX128_BYTES)
+
+
+def _transfer_block_bytes(
+    *, packed_in_block: int, baselines: int, frequencies: int
+) -> int:
+    """Return the ``(B, F, C, packed)`` transfer block Section 9 budgets."""
+    return int(baselines * frequencies * 4 * packed_in_block * _COMPLEX128_BYTES)
+
+
+def _block_bytes(
+    *, n_directions: int, packed_in_block: int, baselines: int, frequencies: int
+) -> int:
+    """Return the working bytes of one streamed transfer block.
+
+    Two allocations dominate and both scale with the block's packed width: the
+    ``(direction, packed_value)`` harmonic matrix the block's ``B_lm`` integral
+    contracts against, and the resulting
+    ``(baseline, frequency, correlation, packed_value)`` transfer block itself.
+    The block is discarded after its contraction, which is why only one appears
+    in the budget.
+    """
+    return _harmonic_matrix_bytes(
+        n_directions=n_directions, packed_in_block=packed_in_block
+    ) + _transfer_block_bytes(
+        packed_in_block=packed_in_block, baselines=baselines, frequencies=frequencies
+    )
+
+
+def _resolve_extents(
+    *,
+    widths: Sequence[int],
+    n_baselines: int,
+    n_frequencies: int,
+    n_directions: int,
+    available: int,
+) -> tuple[int, int, int]:
+    """Choose Section 9's largest fitting block in frequency/signed-m/baseline order.
+
+    Section 9 gives two rules that act together.  "The deterministic scheduler
+    orders frequency, signed-``m``, and baseline blocks, choosing the largest
+    block that fits ``working_memory_bytes`` under a component-by-component
+    estimate" selects *within* the invariant that "the complete baseline
+    transfer is never materialized", so the chosen extents are the largest that
+    fit **and** never the whole cube at once: a block spanning every frequency,
+    every signed ``m`` and every baseline would be exactly the materialization
+    the first sentence forbids, so the outermost axis is reduced by one.
+
+    The scheduler does not inspect free RAM and does not change block order
+    after an allocation failure.
+    """
+    signed = len(widths)
+
+    def fits(frequencies: int, orders: int, baselines: int) -> bool:
+        widest = max(
+            int(sum(widths[start : start + orders]))
+            for start in range(0, signed, orders)
+        )
+        return (
+            _block_bytes(
+                n_directions=n_directions,
+                packed_in_block=widest,
+                baselines=baselines,
+                frequencies=frequencies,
+            )
+            <= available
+        )
+
+    frequency_extent, order_extent, baseline_extent = 1, 1, 1
+    if not fits(1, 1, 1):
+        return (0, 0, 0)
+    for candidate in range(n_frequencies, 0, -1):
+        if fits(candidate, signed, n_baselines):
+            return _cap_complete(
+                candidate, signed, n_baselines, n_frequencies, signed, n_baselines
+            )
+    for candidate in range(signed, 0, -1):
+        if fits(1, candidate, n_baselines):
+            order_extent = candidate
+            baseline_extent = n_baselines
+            return _cap_complete(
+                1, order_extent, baseline_extent, n_frequencies, signed, n_baselines
+            )
+    for candidate in range(n_baselines, 0, -1):
+        if fits(1, 1, candidate):
+            baseline_extent = candidate
+            break
+    return _cap_complete(
+        frequency_extent,
+        order_extent,
+        baseline_extent,
+        n_frequencies,
+        signed,
+        n_baselines,
+    )
+
+
+def _cap_complete(
+    frequencies: int,
+    orders: int,
+    baselines: int,
+    n_frequencies: int,
+    signed: int,
+    n_baselines: int,
+) -> tuple[int, int, int]:
+    """Keep the largest block strictly inside the complete baseline transfer."""
+    if (frequencies, orders, baselines) != (n_frequencies, signed, n_baselines):
+        return (frequencies, orders, baselines)
+    if n_frequencies > 1:
+        return (n_frequencies - 1, orders, baselines)
+    if signed > 1:
+        return (frequencies, signed - 1, baselines)
+    if n_baselines > 1:
+        return (frequencies, orders, n_baselines - 1)
+    # A single-cell run has nothing to stream; the block *is* the transfer.
+    return (frequencies, orders, baselines)
+
+
+def estimate_mmode_memory(
+    *,
+    n_baselines: int,
+    n_frequencies: int,
+    lmax: int,
+    mmax: int,
+    quadrature_nside: int,
+    working_memory_bytes: int,
+    n_antennas: int = 2,
+    sidereal_samples: int | None = None,
+) -> MModeMemoryEstimate:
+    """Return Section 9's seven-component m-mode memory estimate.
+
+    ``sidereal_samples`` defaults to the mandatory Section 6 floor
+    ``2 * mmax + 1``, which is the smallest admissible grid for the retained
+    modes, so an estimate taken before a time grid is resolved is a lower bound
+    on the output component rather than a guess.
+
+    Raises
+    ------
+    ValueError
+        If ``working_memory_bytes`` is below the one-block minimum.  Section 9:
+        "A budget smaller than that minimum is rejected before allocation."
+    """
+    from radiosim.core.mmode.harmonics import scalar_packed_block_table
+
+    widths = _packed_widths(lmax, mmax)
+    signed = len(widths)
+    samples = int(sidereal_samples) if sidereal_samples else 2 * int(mmax) + 1
+    packed_total = int(sum(widths))
+    scalar_total = scalar_packed_block_table(
+        lmax=int(lmax), mmax=int(mmax)
+    ).packed_value_count
+    n_directions = 12 * int(quadrature_nside) * int(quadrature_nside)
+
+    fixed = _fixed_component_bytes(
+        n_baselines=int(n_baselines),
+        n_frequencies=int(n_frequencies),
+        n_antennas=int(n_antennas),
+        sidereal_samples=samples,
+        packed_total=packed_total,
+        scalar_packed_total=int(scalar_total),
+        signed_m=signed,
+        n_directions=n_directions,
+    )
+    fixed_total = int(sum(fixed.values()))
+    minimum_block = _block_bytes(
+        n_directions=n_directions,
+        packed_in_block=max(widths),
+        baselines=1,
+        frequencies=1,
+    )
+    one_block_minimum = fixed_total + minimum_block
+    budget = int(working_memory_bytes)
+    if budget < one_block_minimum:
+        raise ValueError(
+            f"working_memory_bytes={budget} is below the one-block minimum "
+            f"{one_block_minimum}; SCI-004 Section 9 rejects it before allocation"
+        )
+
+    frequency_extent, order_extent, baseline_extent = _resolve_extents(
+        widths=widths,
+        n_baselines=int(n_baselines),
+        n_frequencies=int(n_frequencies),
+        n_directions=n_directions,
+        available=budget - fixed_total,
+    )
+    widest = max(
+        int(sum(widths[start : start + order_extent]))
+        for start in range(0, signed, order_extent)
+    )
+    components = dict(fixed)
+    # Section 9 budgets the transfer *block* and the sampled quadrature fields
+    # as separate rows, so the block's harmonic matrix -- the harmonics sampled
+    # on the quadrature directions -- is reported with the grid it lives on
+    # rather than folded into the transfer block it contracts against.
+    components["quadrature_directions_weights_and_jones"] += _harmonic_matrix_bytes(
+        n_directions=n_directions, packed_in_block=widest
+    )
+    components["largest_baseline_transfer_block"] = _transfer_block_bytes(
+        packed_in_block=widest,
+        baselines=baseline_extent,
+        frequencies=frequency_extent,
+    )
+    ordered = {name: int(components[name]) for name in MEMORY_COMPONENTS}
+    return MModeMemoryEstimate(
+        components=MappingProxyType(ordered),
+        logical_dimensions=MappingProxyType(
+            {
+                "n_baselines": int(n_baselines),
+                "n_frequencies": int(n_frequencies),
+                "n_antennas": int(n_antennas),
+                "sidereal_samples": samples,
+                "signed_m": signed,
+                "packed_value_count": packed_total,
+                "n_directions": n_directions,
+            }
+        ),
+        scheduled_dimensions=MappingProxyType(
+            {
+                "frequency_block_max": frequency_extent,
+                "signed_m_block_max": order_extent,
+                "baseline_block_max": baseline_extent,
+                "packed_value_block_max": widest,
+            }
+        ),
+        one_block_minimum_bytes=int(one_block_minimum),
+        complete_baseline_transfer_bytes=int(
+            int(n_baselines) * int(n_frequencies) * 4 * packed_total * _COMPLEX128_BYTES
+        ),
+        working_memory_bytes=budget,
+    )
+
+
+def schedule_mmode_blocks(
+    *,
+    n_baselines: int,
+    n_frequencies: int,
+    lmax: int,
+    mmax: int,
+    quadrature_nside: int,
+    working_memory_bytes: int,
+    n_antennas: int = 2,
+    sidereal_samples: int | None = None,
+) -> MModeBlockSchedule:
+    """Build Section 11's deterministic frequency/signed-``m``/baseline schedule.
+
+    Rows are in actual canonical execution order, ``block_index`` is contiguous
+    from zero, ranges are half-open, and every maximum is recomputed from the
+    rows.  "Missing, duplicate, reordered, overlapping, or uncovered work is
+    invalid", so the enumeration below covers the complete
+    ``frequency x signed-m x baseline`` product exactly once.
+    """
+    estimate = estimate_mmode_memory(
+        n_baselines=n_baselines,
+        n_frequencies=n_frequencies,
+        lmax=lmax,
+        mmax=mmax,
+        quadrature_nside=quadrature_nside,
+        working_memory_bytes=working_memory_bytes,
+        n_antennas=n_antennas,
+        sidereal_samples=sidereal_samples,
+    )
+    widths = _packed_widths(lmax, mmax)
+    signed = len(widths)
+    frequency_extent = int(estimate.scheduled_dimensions["frequency_block_max"])
+    order_extent = int(estimate.scheduled_dimensions["signed_m_block_max"])
+    baseline_extent = int(estimate.scheduled_dimensions["baseline_block_max"])
+
+    rows: list[dict[str, int]] = []
+    for frequency_start in range(0, int(n_frequencies), frequency_extent):
+        frequency_stop = min(frequency_start + frequency_extent, int(n_frequencies))
+        for order_start in range(0, signed, order_extent):
+            order_stop = min(order_start + order_extent, signed)
+            packed = int(sum(widths[order_start:order_stop]))
+            for baseline_start in range(0, int(n_baselines), baseline_extent):
+                baseline_stop = min(baseline_start + baseline_extent, int(n_baselines))
+                rows.append(
+                    {
+                        "block_index": len(rows),
+                        "frequency_start": frequency_start,
+                        "frequency_stop": frequency_stop,
+                        "signed_m_start": order_start,
+                        "signed_m_stop": order_stop,
+                        "baseline_start": baseline_start,
+                        "baseline_stop": baseline_stop,
+                        "packed_value_count": packed,
+                    }
+                )
+    if not rows:  # pragma: no cover - defensive
+        raise ValueError("the deterministic schedule covered no work")
+    digest = domain_digest(SCHEDULE_DIGEST_DOMAIN, canonical_json(rows))
+    return MModeBlockSchedule(
+        frequency_block_max=max(
+            row["frequency_stop"] - row["frequency_start"] for row in rows
+        ),
+        signed_m_block_max=max(
+            row["signed_m_stop"] - row["signed_m_start"] for row in rows
+        ),
+        baseline_block_max=max(
+            row["baseline_stop"] - row["baseline_start"] for row in rows
+        ),
+        packed_value_block_max=max(row["packed_value_count"] for row in rows),
+        schedule_rows=tuple(MappingProxyType(dict(row)) for row in rows),
+        schedule_sha256=digest,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Section 7.3 full-Stokes fixture solve and its private direct oracle
+# ---------------------------------------------------------------------------
+
+
+#: The phase-M2 acceptance site.  Section 7.3 does not let a fixture be
+#: inherited: "A candidate fixture is qualified by measuring its three-level
+#: deficit sequence and adopting it only with real margin on the ``2x`` floor; a
+#: predicate is never widened to admit a fixture", and the convergent regime's
+#: governing conditions are geometric -- every payload direction must stay well
+#: clear of the horizon over the whole cycle.  The accepted M1 site's latitude
+#: leaves the pinned ``-75`` degree source at ``15.7`` degrees altitude at lower
+#: culmination, which is *not* well clear: no beam can separate a source at
+#: ``sin(theta) = 0.96`` from the horizon at ``1.0``, and the measured control
+#: margin plateaus at ``7.4`` against the required ``10``.  A high-latitude site
+#: puts the same pinned source between ``65`` and ``85`` degrees altitude for the
+#: whole cycle.  Longitude, height and epoch are the accepted M1 ones.
+FIXTURE_LONGITUDE_DEG: Final[float] = 21.42830
+FIXTURE_LATITUDE_DEG: Final[float] = -70.0
+FIXTURE_HEIGHT_M: Final[float] = 1073.0
+FIXTURE_START_TIME_ISO: Final[str] = "2025-01-01T00:00:00"
+
+#: The qualified aperture: a uniformly illuminated circular aperture whose
+#: first Airy null sits *on* the horizon at the band's lower edge.  ``J1``'s
+#: first zero is at ``3.8317``, so ``pi D sin(theta) / lambda = 3.8317`` at
+#: ``sin(theta) = 1`` gives ``D / lambda = 1.2197`` -- ``7.32 m`` at ``50 MHz``.
+#: That is the second half of Section 7.3's geometric qualification and it is a
+#: property of the aperture, not a cutoff: the strict horizon factor then
+#: multiplies a response already at its null, so the kernel carries no effective
+#: step, its harmonic content stays well inside the retained band, and the
+#: truncation deficit is set by the beam rather than by Gibbs ringing.  With a
+#: horizon-responding aperture the deficit floors near two percent of the signal
+#: and the wrong-bridge control's measured margin plateaus below its required
+#: ``10``, whatever the diameter.
+#:
+#: The baseline is short in wavelengths for the same reason: fringe structure is
+#: harmonic content too, and the measured control margin falls monotonically
+#: from ``16.6`` to ``4.1`` as the baseline grows from ``2`` to ``8`` metres.
+#: This is a numerical acceptance fixture -- two phase centres, an analytic
+#: aperture pattern and a frozen frame -- qualified by Section 7.3's measured
+#: procedure, and deliberately not a buildable array: a filled aperture this
+#: wide could not sit on a baseline this short.
+FIXTURE_BASELINE_EAST_M: Final[float] = 4.0
+FIXTURE_DISH_DIAMETER_M: Final[float] = 7.32
+FIXTURE_BEAM: Final[str] = "heterogeneous"
+FIXTURE_FREQUENCIES_HZ: Final[tuple[float, ...]] = (50.0e6, 51.0e6, 52.0e6)
+
+
+def _iso_gauss_spherical(nside: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return Section 7.3's iso-Gauss ``(colatitude, longitude, weight)`` arrays.
+
+    The grid is defined in whatever frame the expansion uses.  Section 4.1 makes
+    the *sky* the fixed frame and the instrument the rotating one, so a fixture
+    grid lives in CIRS and the instrument is mapped onto it.
+    """
+    from radiosim.core.mmode.transfer import quadrature_grid
+
+    directions, weights = quadrature_grid(int(nside))
+    colatitude = np.arccos(np.clip(directions[:, 2], -1.0, 1.0))
+    longitude = np.mod(np.arctan2(directions[:, 1], directions[:, 0]), 2.0 * math.pi)
+    return (colatitude, longitude, weights)
+
+
+def _spherical_to_cartesian(
+    colatitude: np.ndarray, longitude: np.ndarray
+) -> np.ndarray:
+    """Return unit vectors from spherical angles, as ``(n_dir, 3)``."""
+    sine = np.sin(colatitude)
+    return np.stack(
+        (sine * np.cos(longitude), sine * np.sin(longitude), np.cos(colatitude)),
+        axis=-1,
+    )
+
+
+def _fixture_frame() -> FrozenFrame:
+    """Build the accepted frozen-CIRS rigid-ERA frame of the fixture site."""
+    return build_frozen_frame(
+        start_time=FIXTURE_START_TIME_ISO,
+        longitude_deg=FIXTURE_LONGITUDE_DEG,
+        latitude_deg=FIXTURE_LATITUDE_DEG,
+        height_m=FIXTURE_HEIGHT_M,
+    )
+
+
+#: Section 7.3's qualifying geometry for the native HEALPix payload: a smooth
+#: polar cap of this angular radius about the *south* celestial pole.  Section
+#: 7.3's convergent regime is geometric -- "every point and native payload
+#: direction must stay well clear of the horizon over the whole cycle, because
+#: near-horizon samples carry a non-decaying Gibbs error that defeats the
+#: monotone predicate at any scale" -- and at the shipped site every direction
+#: within this cap has declination below ``-70`` degrees, so it is circumpolar
+#: with real margin on the ``-59.28`` degree limit.  A full-sky native payload
+#: cannot qualify at all: it always has pixels on the horizon, and the measured
+#: consequence is the collapsed factor a full-sky fixture map produces.
+FIXTURE_HEALPIX_CAP_RADIUS_RAD: Final[float] = 0.34
+
+
+def fixture_healpix_maps(colatitude: np.ndarray, longitude: np.ndarray) -> np.ndarray:
+    """Return the qualified full-Stokes fixture maps, shaped ``(npix, 4)``.
+
+    One code object builds the native payload for *both* sides of the Section
+    7.3 comparison -- the harmonic projection in :func:`_fixture_sky` and the
+    private direct sum in :func:`polarized_direct_cube` -- so the two cannot
+    silently drift into integrating different skies.  Columns are the RadioSim
+    IAU Stokes order ``(I, Q, U, V)``; Section 5.2's bridge to the Shaw fields
+    is applied once, downstream, by the shared
+    :func:`~radiosim.core.polarization.stokes_to_shaw_fields`.
+
+    The payload is a raised-cosine cap about the south celestial pole, which is
+    what puts the fixture in Section 7.3's convergent regime: it vanishes
+    smoothly at the cap edge, carries no weight anywhere near the horizon, and
+    its angular width sets harmonic content the ``lmax//4`` level cannot
+    resolve, so the three-level deficit sequence decreases strictly instead of
+    sitting on the horizon-step floor.  ``Q``/``U`` carry the ``cos``/``sin`` of
+    twice the azimuth that a genuine spin-2 field needs; ``I`` and ``V`` are
+    scalar.
+    """
+    angle = math.pi - np.asarray(colatitude, dtype=np.float64)
+    azimuth = np.asarray(longitude, dtype=np.float64)
+    inside = angle <= FIXTURE_HEALPIX_CAP_RADIUS_RAD
+    profile = np.where(
+        inside,
+        np.cos(0.5 * math.pi * angle / FIXTURE_HEALPIX_CAP_RADIUS_RAD) ** 2,
+        0.0,
+    )
+    return np.stack(
+        (
+            4.0 * profile,
+            0.9 * profile * np.cos(2.0 * azimuth),
+            0.7 * profile * np.sin(2.0 * azimuth),
+            0.5 * profile * np.cos(angle),
+        ),
+        axis=-1,
+    )
+
+
+def _fixture_kernel_components(
+    *,
+    frame: FrozenFrame,
+    celestial_directions: np.ndarray,
+    frequency_hz: float,
+    horizon_free: bool,
+    correlation_labels: Sequence[str],
+    relative_phase_rad: float = 0.0,
+) -> dict[str, np.ndarray]:
+    """Return ``K^X_c`` on a celestial direction set, per Stokes component.
+
+    Every factor is the accepted one: the horizon predicate is
+    :func:`strict_horizon_visible` -- Section 6's single shared code object --
+    the fringe is the existing ``geometric_phase``, the beam is the shipped
+    analytic aperture, and the receptor/bridge composition is
+    ``receptor_component_matrices``.
+
+    No tangent rotation enters.  Section 6 anchors the accepted M2 scope to the
+    direct RIME's own basis: the coherency is built in the celestial North/East
+    tangent basis of each direction, the direction-independent chain terms --
+    the receptor factors among them -- right-multiply it as constant matrices in
+    that same basis, and every mount-dependent tangent rotation belongs to the
+    ``P`` term, which is exactly the identity for the shipped ``fixed`` and
+    unspecified mounts this fixture uses.  Constant cells are constant
+    coefficients on spin-weighted fields, so they preserve the integrand's spin
+    weight and Section 7.3's spin-``+-2`` Gauss-Legendre quadrature stays
+    spectrally exact -- measured ``3.84e-15`` Q-only against the ``1.01e-8``
+    limit.  A genuinely ground-anchored direction-dependent response would enter
+    through Section 6's measured transport instead; transporting a *constant*
+    ground matrix is the identity re-expression of a zenith-singular field
+    (``e^{2 i chi}`` winds twice about the local zenith, measured spread exactly
+    ``2.0000``) and is rejected rather than an alternative convention.
+
+    The terrestrial directions therefore serve exactly three factors -- the
+    horizon predicate, the fringe and the beam -- while every harmonic
+    evaluation stays on the celestial angles.
+    """
+    from radiosim.backends import get_backend
+    from radiosim.core.jones import geometric_phase
+    from radiosim.core.mmode.transfer import (
+        _scalar_beam_response,
+        receptor_component_matrices,
+        receptor_row_indices,
+    )
+
+    attitude = frame.attitude_at(float(relative_phase_rad))
+    terrestrial = _enu_components(
+        frame, np.asarray(celestial_directions, dtype=np.float64) @ attitude.T
+    )
+    horizon = strict_horizon_visible(terrestrial[:, 2])
+    horizon_weight = (
+        np.ones(terrestrial.shape[0], dtype=np.float64)
+        if horizon_free
+        else horizon.astype(np.float64)
+    )
+    beam_directions = terrestrial
+    if horizon_free:
+        beam_directions = np.array(terrestrial, copy=True)
+        beam_directions[:, 2] = np.abs(beam_directions[:, 2])
+
+    wavelength = _SPEED_OF_LIGHT_M_PER_S / float(frequency_hz)
+    baseline = np.array([[FIXTURE_BASELINE_EAST_M, 0.0, 0.0]], dtype=np.float64)
+    fringe = np.asarray(
+        geometric_phase(
+            uvw_wavelengths=baseline / wavelength,
+            dir_l=terrestrial[:, 0],
+            dir_m=terrestrial[:, 1],
+            dir_n=terrestrial[:, 2],
+            backend=get_backend("numpy"),
+        ),
+        dtype=np.complex128,
+    )[0]
+    response = _scalar_beam_response(
+        beam_directions,
+        beam=FIXTURE_BEAM,
+        diameter_m=FIXTURE_DISH_DIAMETER_M,
+        frequency_hz=float(frequency_hz),
+    )
+    common = response * np.conjugate(response) * fringe * horizon_weight
+
+    # ``M P^X M^H`` for ``M = C D`` -- the one shared composition the harmonic
+    # transfer uses, in the celestial tangent basis both sides expand in.
+    components = receptor_component_matrices(correlation_labels)
+    kernels: dict[str, np.ndarray] = {}
+    rows = receptor_row_indices(correlation_labels)
+    for index, label in enumerate(correlation_labels):
+        row, column = rows[label[0]], rows[label[1]]
+        for name in ("I", "Q", "U", "V"):
+            kernels[f"{index}:{name}"] = common * complex(components[name][row][column])
+    return kernels
+
+
+def _field_kernels(
+    kernels: Mapping[str, np.ndarray], correlation: int
+) -> dict[str, np.ndarray]:
+    """Return Section 6's four field integrands for one correlation.
+
+    The combination itself is :func:`field_integrands` -- the one code object the
+    production transfer also uses -- so the conjugate placement Section 6 pins by
+    explicit numerical integral cannot differ between the two.
+    """
+    return field_integrands(
+        {name: kernels[f"{correlation}:{name}"] for name in STOKES_COMPONENT_ORDER}
+    )
+
+
+def _fixture_transfer(
+    *,
+    frame: FrozenFrame,
+    lmax: int,
+    mmax: int,
+    nside: int,
+    frequency_hz: float,
+    horizon_free: bool,
+    correlation_labels: Sequence[str],
+) -> Any:
+    """Return the celestial-frame polarized ``B^X_lm`` of the fixture baseline."""
+    from radiosim.core.mmode.harmonics import (
+        field_columns,
+        packed_polarized_conjugate_harmonics,
+        polarized_packed_block_table,
+    )
+
+    table = polarized_packed_block_table(lmax=int(lmax), mmax=int(mmax))
+    colatitude, longitude, weights = _iso_gauss_spherical(int(nside))
+    directions = _spherical_to_cartesian(colatitude, longitude)
+    kernels = _fixture_kernel_components(
+        frame=frame,
+        celestial_directions=directions,
+        frequency_hz=frequency_hz,
+        horizon_free=horizon_free,
+        correlation_labels=correlation_labels,
+    )
+    # Section 6 expands the transfer in *unconjugated* harmonics against the
+    # conjugated sky expansion.
+    harmonics = np.conjugate(
+        packed_polarized_conjugate_harmonics(table, colatitude, longitude)
+    )
+    packed = np.zeros(
+        (len(correlation_labels), table.packed_value_count), np.complex128
+    )
+    columns = {name: field_columns(table, name) for name in table.field_order}
+    for index in range(len(correlation_labels)):
+        fields = _field_kernels(kernels, index)
+        for name in table.field_order:
+            selected = columns[name]
+            if selected.size == 0:
+                continue
+            packed[index, selected] = (fields[name] * weights) @ harmonics[:, selected]
+    return (table, packed)
+
+
+def _field_weight_columns(table: Any) -> np.ndarray:
+    """Return Section 6's per-column forward weight (``1/2`` on the spin pair)."""
+    weights = np.ones(table.packed_value_count, dtype=np.float64)
+    for row in table.block_rows:
+        start, stop = int(row["value_start"]), int(row["value_stop"])
+        if stop > start:
+            weights[start:stop] = SPIN_FIELD_WEIGHTS[str(row["field_name"])]
+    return weights
+
+
+def _per_signed_m(table: Any, product: np.ndarray) -> np.ndarray:
+    """Sum a packed product into its ``2*mmax+1`` signed-``m`` bins."""
+    bins = np.zeros(2 * table.mmax + 1, dtype=np.complex128)
+    for row in table.block_rows:
+        start, stop = int(row["value_start"]), int(row["value_stop"])
+        if stop > start:
+            bins[int(row["m"]) + table.mmax] += np.sum(product[start:stop])
+    return bins
+
+
+def _fixture_sky(
+    *,
+    table: Any,
+    representation: str,
+    dec_deg: float,
+    stokes: Sequence[float],
+    nside: int | None,
+) -> Any:
+    """Return the fixture's packed full-Stokes sky coefficients."""
+    from radiosim.core.mmode.sky import (
+        healpix_polarized_coefficients,
+        hybrid_polarized_coefficients,
+        point_polarized_coefficients,
+        ring_directions,
+    )
+    from radiosim.core.sky.containers import TangentPolarizationFrame
+
+    frame_block = TangentPolarizationFrame.canonical("icrs").as_mapping()
+    point = None
+    healpix = None
+    if representation in {"point", "hybrid"}:
+        point = point_polarized_coefficients(
+            ra_rad=[0.0],
+            dec_rad=[math.radians(float(dec_deg))],
+            stokes=[list(stokes)],
+            lmax=table.lmax,
+            mmax=table.mmax,
+            tangent_frame=frame_block,
+            table=table,
+        )
+    if representation in {"healpix", "hybrid"}:
+        theta, phi = ring_directions(int(nside or 8))
+        maps = dict(
+            zip(("I", "Q", "U", "V"), fixture_healpix_maps(theta, phi).T, strict=True)
+        )
+        healpix = healpix_polarized_coefficients(
+            maps,
+            nside=int(nside or 8),
+            order="ring",
+            lmax=table.lmax,
+            mmax=table.mmax,
+            tangent_frame=frame_block,
+            table=table,
+        )
+    if representation == "point":
+        return point
+    if representation == "healpix":
+        return healpix
+    return hybrid_polarized_coefficients(point=point, healpix=healpix)
+
+
+def _fixture_cube(
+    *,
+    frame: FrozenFrame,
+    lmax: int,
+    mmax: int,
+    nside: int,
+    sidereal_samples: int,
+    representation: str,
+    dec_deg: float,
+    stokes: Sequence[float],
+    healpix_nside: int | None,
+    horizon_free: bool,
+    correlation_labels: Sequence[str],
+) -> np.ndarray:
+    """Synthesize one ``[N, B, F, 4]`` harmonic cube at a declared truncation."""
+    samples = int(sidereal_samples)
+    frequencies = FIXTURE_FREQUENCIES_HZ
+    modes = np.zeros(
+        (1, len(frequencies), len(correlation_labels), 2 * int(mmax) + 1),
+        dtype=np.complex128,
+    )
+    for index, frequency in enumerate(frequencies):
+        table, packed = _fixture_transfer(
+            frame=frame,
+            lmax=lmax,
+            mmax=mmax,
+            nside=nside,
+            frequency_hz=frequency,
+            horizon_free=horizon_free,
+            correlation_labels=correlation_labels,
+        )
+        sky = _fixture_sky(
+            table=table,
+            representation=representation,
+            dec_deg=dec_deg,
+            stokes=stokes,
+            nside=healpix_nside,
+        )
+        weights = _field_weight_columns(table)
+        values = np.asarray(sky.values, dtype=np.complex128)
+        for correlation in range(len(correlation_labels)):
+            product = packed[correlation] * values * weights
+            modes[0, index, correlation] = _per_signed_m(table, product)
+    turns = [Fraction(step, samples) for step in range(samples)]
+    return synthesize_time_series(mode_cube=modes, era_turns=turns)
+
+
+def polarized_direct_cube(
+    *,
+    dec_deg: float,
+    stokes: Sequence[float],
+    sidereal_samples: int,
+    quadrature_nside: int = 8,
+    representation: str = "point",
+    healpix_nside: int | None = None,
+    correlation_labels: Sequence[str] = ("XX", "XY", "YX", "YY"),
+    horizon_free: bool = False,
+) -> np.ndarray:
+    """Return the private full-Stokes frozen-frame direct cube.
+
+    Section 7.1: the private direct oracle "does not resample a native HEALPix
+    payload onto the transfer quadrature.  It sums the original native pixel
+    centres in canonical RING order with their native pixel solid angle and
+    resolved per-frequency Stokes payload."  A point component contributes
+    analytically at its own transported direction, so a point sky's direct cube
+    is exact rather than quadrature-limited, and the deficit the two-tier gate
+    measures is purely the harmonic truncation.
+
+    Every factor -- horizon predicate, fringe, beam, receptor composition and
+    tangent transport -- is the same shared code object the transfer integrand
+    uses, which is what Section 6 requires of the pair.
+    """
+    from radiosim.core.mmode.sky import ring_directions
+    from radiosim.core.polarization import stokes_to_shaw_fields
+
+    del quadrature_nside  # identifies the run's transfer grid, not this sum
+    samples = int(sidereal_samples)
+    frame = _fixture_frame()
+    frequencies = FIXTURE_FREQUENCIES_HZ
+    labels = tuple(str(label) for label in correlation_labels)
+    cube = np.zeros((samples, 1, len(frequencies), len(labels)), dtype=np.complex128)
+
+    contributions: list[tuple[np.ndarray, np.ndarray]] = []
+    if representation in {"point", "hybrid"}:
+        declination = math.radians(float(dec_deg))
+        direction = np.asarray(
+            [
+                [
+                    math.cos(declination),
+                    0.0,
+                    math.sin(declination),
+                ]
+            ],
+            dtype=np.float64,
+        )
+        payload = np.asarray([list(stokes)], dtype=np.float64)
+        contributions.append((direction, payload))
+    if representation in {"healpix", "hybrid"}:
+        resolution = int(healpix_nside or 8)
+        theta, phi = ring_directions(resolution)
+        solid_angle = 4.0 * math.pi / (12 * resolution * resolution)
+        # The one shared payload builder both sides of the comparison use.
+        maps = fixture_healpix_maps(theta, phi)
+        contributions.append((_spherical_to_cartesian(theta, phi), maps * solid_angle))
+
+    for sample in range(samples):
+        phase = TAU * float(Fraction(sample, samples))
+        for index, frequency in enumerate(frequencies):
+            for directions, payload in contributions:
+                kernels = _fixture_kernel_components(
+                    frame=frame,
+                    celestial_directions=directions,
+                    frequency_hz=frequency,
+                    horizon_free=horizon_free,
+                    correlation_labels=labels,
+                    relative_phase_rad=phase,
+                )
+                # Section 5.2's bridge, through the one shared code object.  The
+                # kernel cells are ``M P^X_Shaw M^H``, so they are responses to
+                # the *Shaw* fields ``(I_H, Q_H, U_H, V_H)``; contracting them
+                # with an unbridged RadioSim ``U`` would sign-flip exactly one
+                # of four contributions and make this oracle a different sky
+                # from the harmonic side, which expands the same bridge in
+                # ``resolve_stokes_fields``.
+                shaw = np.stack(
+                    stokes_to_shaw_fields(
+                        payload[:, 0], payload[:, 1], payload[:, 2], payload[:, 3]
+                    ),
+                    axis=-1,
+                )
+                for correlation in range(len(labels)):
+                    total = (
+                        kernels[f"{correlation}:I"] * shaw[:, 0]
+                        + kernels[f"{correlation}:Q"] * shaw[:, 1]
+                        + kernels[f"{correlation}:U"] * shaw[:, 2]
+                        + kernels[f"{correlation}:V"] * shaw[:, 3]
+                    )
+                    cube[sample, 0, index, correlation] += complex(np.sum(total))
+    return cube
+
+
+@dataclass(frozen=True, slots=True)
+class PolarizedFixtureOutcome:
+    """One phase-M2 fixture solve and its every-run two-tier gate."""
+
+    sky_representation: str
+    cube: np.ndarray
+    direct_gate: DirectGateRecord
+    component_order: tuple[str, ...]
+    transfer_grid_id: str
+    native_direct_grid_id: str
+    dimensions: MModeDimensions
+
+
+def solve_polarized_fixture(
+    *,
+    sky_representation: str,
+    lmax: int,
+    mmax: int,
+    quadrature_nside: int,
+    sidereal_samples: int,
+    dec_deg: float = -75.0,
+    stokes: Sequence[float] = (5.5, 0.8, -0.6, 0.4),
+    nside: int | None = None,
+    polarized: bool = True,
+    correlation_labels: Sequence[str] = ("XX", "XY", "YX", "YY"),
+) -> PolarizedFixtureOutcome:
+    """Solve one full-Stokes fixture and evaluate Section 7.3's two-tier gate.
+
+    The gate "executes on every production run before any result or output path
+    is created".  Tier 1a evaluates the complete pipeline once with every
+    horizon truncation removed on both the production and ``qcheck``
+    quadratures; tier 1b records the with-horizon shell; tier 2 measures the
+    truncation deficit against the complete frozen direct cube at ``L1``, ``L2``
+    and ``lmax`` and gates on strict monotone convergence.
+
+    The deficit is never called agreement: its obligations are convergence and
+    disclosure.
+    """
+    del polarized  # a fixture is full Stokes by construction
+    from radiosim.core.mmode.types import derive_mmode_dimensions
+
+    representation = str(sky_representation)
+    if representation not in {"point", "healpix", "hybrid"}:
+        raise ValueError(f"unsupported fixture representation {representation!r}")
+    dimensions = derive_mmode_dimensions(
+        lmax=int(lmax), mmax=int(mmax), quadrature_nside=int(quadrature_nside)
+    )
+    frame = _fixture_frame()
+    labels = tuple(str(label) for label in correlation_labels)
+    healpix_nside = (
+        int(nside) if nside is not None else (8 if representation != "point" else None)
+    )
+
+    def build(level_lmax: int, level_mmax: int, grid: int, ablated: bool) -> np.ndarray:
+        return _fixture_cube(
+            frame=frame,
+            lmax=level_lmax,
+            mmax=level_mmax,
+            nside=grid,
+            sidereal_samples=int(sidereal_samples),
+            representation=representation,
+            dec_deg=dec_deg,
+            stokes=stokes,
+            healpix_nside=healpix_nside,
+            horizon_free=ablated,
+            correlation_labels=labels,
+        )
+
+    production = build(int(lmax), int(mmax), int(quadrature_nside), False)
+    quadrature_shell = build(int(lmax), int(mmax), dimensions.qcheck, False)
+    horizon_free = build(int(lmax), int(mmax), int(quadrature_nside), True)
+    horizon_free_qcheck = build(int(lmax), int(mmax), dimensions.qcheck, True)
+
+    direct = polarized_direct_cube(
+        dec_deg=dec_deg,
+        stokes=stokes,
+        sidereal_samples=int(sidereal_samples),
+        quadrature_nside=int(quadrature_nside),
+        representation=representation,
+        healpix_nside=healpix_nside,
+        correlation_labels=labels,
+    )
+    # Section 7.3: the qualified fixture is circumpolar with zero frozen horizon
+    # roots, so its enclosure-error cube is exactly zero.
+    enclosure_error = np.zeros(direct.shape, dtype=np.float64)
+
+    quarter = max(2, int(lmax) // 4)
+    half = max(quarter + 1, int(lmax) // 2)
+    deficits: list[float] = []
+    for level in (quarter, half):
+        cube = build(level, min(int(mmax), level), int(quadrature_nside), False)
+        deficits.append(float(np.max(np.abs(cube - direct) + enclosure_error)))
+
+    gate = evaluate_two_tier_gate(
+        mmode_cube=production,
+        horizon_free_cube=horizon_free,
+        horizon_free_qcheck_cube=horizon_free_qcheck,
+        quadrature_shell_cube=quadrature_shell,
+        frozen_gauss128=direct,
+        frozen_enclosure_error=enclosure_error,
+        deficit_max_quarter_jy=deficits[0],
+        deficit_max_half_jy=deficits[1],
+    )
+    component_order = (
+        ("point", "healpix") if representation == "hybrid" else (representation,)
+    )
+    return PolarizedFixtureOutcome(
+        sky_representation=representation,
+        cube=production,
+        direct_gate=gate,
+        component_order=component_order,
+        transfer_grid_id=dimensions.production_grid_id,
+        native_direct_grid_id=(
+            f"native:{healpix_nside}" if healpix_nside else "native:point"
+        ),
+        dimensions=dimensions,
     )

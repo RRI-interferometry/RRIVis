@@ -418,3 +418,73 @@ def jones_matrix_power(jones):
     power_x = np.abs(jones[..., 0, 0]) ** 2 + np.abs(jones[..., 0, 1]) ** 2
     power_y = np.abs(jones[..., 1, 0]) ** 2 + np.abs(jones[..., 1, 1]) ** 2
     return power_x, power_y
+
+
+# ---------------------------------------------------------------------------
+# SCI-004 Section 5.2: the RadioSim-to-Shaw basis bridge
+# ---------------------------------------------------------------------------
+
+#: Section 10's ``stokes_v_basis_bridge`` literal, which is never nullable.
+STOKES_V_BASIS_BRIDGE = "radiosim.stokes-ne-theta-phi.v1"
+
+
+def shaw_basis_bridge(*, xp=np):
+    r"""Return Section 5.2's exact basis bridge ``D = diag(-1, 1)``.
+
+    ``docs/development/sci004_mmode_design.md`` Section 5.2: RadioSim's sky
+    electric vector is ordered ``(North, East)`` while Shaw et al. use the
+    spherical ``(theta, phi)`` basis with ``theta`` pointing *South* and ``phi``
+    East, so
+
+    .. math::
+
+        D=\operatorname{diag}(-1,1),\qquad e_{\theta\phi}=De_{NE},\qquad
+        J_{\theta\phi}=J_{NE}D.
+
+    ``D`` is **not** the SCI-006 east-X permutation and does not replace it: the
+    receptor permutation stays inside ``J_NE`` and is antidiagonal, while ``D``
+    is diagonal.  Applying ``D`` in place of the permutation is precisely the
+    defect SCI-006 ruled on.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> bridge = shaw_basis_bridge()
+    >>> bool(np.array_equal(bridge, np.array([[-1.0, 0.0], [0.0, 1.0]])))
+    True
+    >>> bool(np.array_equal(bridge @ bridge, np.eye(2)))
+    True
+    """
+    return xp.asarray([[-1.0, 0.0], [0.0, 1.0]], dtype=xp.float64)
+
+
+def stokes_to_shaw_fields(stokes_I, stokes_Q, stokes_U, stokes_V):
+    r"""Return ``(I_H, Q_H, U_H, V_H)`` for Section 5.2's Shaw-form equations.
+
+    Transporting RadioSim's ``(North, East)`` brightness matrix with
+    ``D P D^T`` and reading the result against Shaw's own ``(theta, phi)``
+    matrix -- whose ``P^V`` carries the opposite matrix sign in one unchanged
+    ordered basis -- gives
+
+    .. math:: I_H=I_{RS},\quad Q_H=Q_{RS},\quad U_H=-U_{RS},\quad V_H=V_{RS}.
+
+    Only ``U`` flips.  Section 5.2 forbids any additional fitted or configurable
+    ``V`` flip: after the bridge the physical IAU ``V`` field has the same sign.
+
+    Parameters
+    ----------
+    stokes_I, stokes_Q, stokes_U, stokes_V : float or array
+        The RadioSim-convention Stokes payload.  Arrays broadcast elementwise
+        and the caller's dtype is preserved.
+
+    Returns
+    -------
+    tuple
+        ``(I_H, Q_H, U_H, V_H)`` in the Shaw ``(theta, phi)`` basis.
+
+    Examples
+    --------
+    >>> stokes_to_shaw_fields(1.0, 0.2, 0.3, 0.4)
+    (1.0, 0.2, -0.3, 0.4)
+    """
+    return (stokes_I, stokes_Q, -stokes_U, stokes_V)

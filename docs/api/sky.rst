@@ -24,6 +24,15 @@ arrays with their morphology, polarization, metadata and per-channel spectrum
 sub-blocks, ``HealpixData`` with first-class sparse support, the coverage
 footprint, and ``SkyProvenance``.
 
+``TangentPolarizationFrame`` is the tangent-basis record a polarized payload
+carries beside its ``Q``/``U`` arrays: six fixed keys naming the coordinate
+frame, the (North, East) axes, the IAU north-through-east position angle, the
+``Q + iU`` linear pairing, and the Stokes-``V`` sense. ``canonical()`` builds it,
+``from_mapping()`` parses a declared block and rejects unknown or missing keys,
+``to_canonical()`` converts a north-through-west source convention before
+storage, and ``require_for()`` rejects a polarized payload that declares none.
+See :doc:`../user_guide/sky_models` for the document surface.
+
 .. automodule:: radiosim.core.sky.containers
    :members:
    :undoc-members:

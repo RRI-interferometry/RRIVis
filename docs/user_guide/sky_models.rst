@@ -257,6 +257,86 @@ rotation measure along the line of sight belongs to the ``jones.Z`` term
 (:doc:`jones_terms`), is configured separately, and composes with this one
 rather than duplicating it.
 
+Declaring the tangent-polarization frame
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``stokes_q`` and ``stokes_u`` are not self-describing numbers. They are the
+components of a linear-polarization tensor in a **tangent basis at each
+direction**, and two catalogs that disagree about that basis disagree about the
+sky while carrying identical columns. RadioSim therefore stores the convention
+explicitly, in the frozen ``TangentPolarizationFrame`` record:
+
+.. code-block:: python
+
+   from radiosim.core.sky.containers import TangentPolarizationFrame
+
+   frame = TangentPolarizationFrame.canonical("icrs")
+   tuple(frame.as_mapping())
+   # ('schema_version', 'coordinate_frame', 'axes', 'position_angle',
+   #  'linear_complex', 'stokes_v')
+
+The six keys are exhaustive and each carries a fixed meaning:
+
+``schema_version``
+   The literal ``radiosim.sky-tangent-polarization.v1``.
+``coordinate_frame``
+   ``icrs`` or ``galactic`` -- the frame whose pole defines the tangent basis.
+``axes``
+   ``north_east``: the basis is (North, East) at each direction, pole-transported
+   from that frame's own pole.
+``position_angle``
+   ``north_through_east``, the IAU sense, for anything RadioSim stores.
+``linear_complex``
+   ``q_plus_i_u``: the linear pair is combined as ``Q + iU``.
+``stokes_v``
+   ``iau_incoming_r_minus_l``.
+
+Point ``Q``/``U`` are defined in the local tangent plane of each catalog
+direction and HEALPix ``Q``/``U`` in the local tangent plane of each pixel. A
+payload with non-zero ``Q`` or ``U`` must carry the frame; an ``I``/``V``-only
+payload may omit it, because ``V`` is a scalar with no tangent-basis dependence.
+Constructing a polarized payload without one is rejected rather than defaulted.
+
+A **source** may use the HEALPix/CMB sense, in which the position angle runs
+North through *West*. That reverses the sign of ``U`` alone. Declare the source
+convention and let RadioSim convert it; the stored frame is always canonical:
+
+.. code-block:: python
+
+   stokes_q, stokes_u = TangentPolarizationFrame.to_canonical(
+       stokes_q=stokes_q,
+       stokes_u=stokes_u,
+       position_angle="north_through_west",
+   )
+
+Relabelling a Galactic polarized map ``icrs``, rotating only pixel indices, or
+copying ``Q``/``U`` through a coordinate conversion without the accompanying
+spin-2 rotation are all different sky objects, not shortcuts.
+
+In a YAML document the block sits on a sky source, with the same six keys:
+
+.. code-block:: yaml
+
+   sky_model:
+     sources:
+       - kind: test_sources
+         polarization_fraction: 0.12
+         stokes_v_fraction: 0.03
+         tangent_polarization_frame:
+           schema_version: radiosim.sky-tangent-polarization.v1
+           coordinate_frame: icrs
+           axes: north_east
+           position_angle: north_through_east
+           linear_complex: q_plus_i_u
+           stokes_v: iau_incoming_r_minus_l
+
+A source that declares linear polarization without the block is rejected during
+config validation with the ``mmode_polarization_frame`` issue code, before any
+backend allocation or output path is created. ``position_angle`` is the one key
+whose document value may differ from the stored one: a document may declare
+``north_through_west`` to describe its own source, and the conversion above is
+applied before storage.
+
 HEALPix Sky Maps
 ----------------
 

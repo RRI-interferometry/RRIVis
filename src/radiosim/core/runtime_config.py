@@ -242,6 +242,13 @@ class ResolvedSkySourceRequest:
     region: Any = None
     brightness_conversion: str | None = None
     provenance_override: Any = None
+    #: SCI-004 Section 5.1's declared tangent-polarization convention, when the
+    #: document carried one.  It is a *convention declaration* about the payload's
+    #: ``Q``/``U`` basis, not a loader parameter -- every registered loader
+    #: signature predates it -- so it is resolved onto this request rather than
+    #: passed through ``options``, and stays ``None`` for an ``I``/``V``-only
+    #: source, which Section 5.1 lets omit the block.
+    tangent_polarization_frame: Any = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "options", FrozenMapping(self.options))
@@ -250,6 +257,11 @@ class ResolvedSkySourceRequest:
             self,
             "provenance_override",
             freeze_runtime_value(self.provenance_override),
+        )
+        object.__setattr__(
+            self,
+            "tangent_polarization_frame",
+            freeze_runtime_value(self.tangent_polarization_frame),
         )
 
 

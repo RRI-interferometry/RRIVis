@@ -14,11 +14,12 @@ sidereal and fixed over one Earth rotation; sample centres are a complete,
 unflagged, uniformly spaced Earth Rotation Angle cycle with no duplicated
 endpoint; and the output remains a simulated visibility cube.
 
-Phase M1 -- the slice this package implements -- is **scalar only**.
-``MModeSimulator.supports_polarization`` is explicitly ``False``, non-zero
-``Q``, ``U`` or ``V`` is rejected with ``mmode_m1_scalar_only``, and no
-polarized capability claim, fingerprint pin, speed claim or accelerator claim is
-made anywhere (``PERF-001`` governs every performance statement).
+The slice this package implements is **full Stokes**.
+``MModeSimulator.supports_polarization`` is explicitly ``True``, a payload with
+non-zero ``Q``, ``U`` or ``V`` takes the polarized execution path, and no
+fingerprint pin, speed claim or accelerator claim is made anywhere: a polarized
+capability is a statement about which sky the solver integrates, never a
+performance one (``PERF-001`` governs every performance statement).
 
 Modules
 -------

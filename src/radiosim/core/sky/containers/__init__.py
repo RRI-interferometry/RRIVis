@@ -22,6 +22,7 @@ from .point import (
     PointSourceData,
     PointSpectrum,
     SourceArrays,
+    TangentPolarizationFrame,
     empty_source_arrays,
 )
 from .provenance import SkyProvenance
@@ -39,6 +40,7 @@ __all__ = [
     "SkyCoverage",
     "SkyFootprint",
     "SkyProvenance",
+    "TangentPolarizationFrame",
     "SourceArrays",
     "SourceSubtractionStatus",
     "empty_source_arrays",
