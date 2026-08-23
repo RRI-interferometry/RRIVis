@@ -32,6 +32,42 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (post-source record retention).**
+Executing the previous correction's pending re-cut proved one of its
+obligations self-contradictory: it required the Section 13.7
+disposal-and-regeneration of the red-failure record, but the operative
+tree now contains the committed `S1` production, every red oracle passes
+there, and the tracked red generator correctly refuses ("pytest exited
+zero, so nothing was red") — a record regenerated against such a tree
+would fabricate `expected-red-confirmed` observations. Section 13.7 now
+rules the truthful semantics: when the reopened phase's `S` already
+exists, the rebind-only re-cut retains the record's last genuinely
+observed bytes and the strict validator authenticates its `design_sha`
+as a header-enumerated chain commit connected to the operative `D` —
+the same chain-advance rule Section 14.0 already applies to phase
+bindings. The pending re-cut's obligation is restated accordingly:
+rebind the dependency validator, extend the red-record validator's
+`design_sha` authentication to the chain rule, and retain the record
+unchanged. It supersedes the evidence-generation-reconciliation landing
+`1ae7d5a94434cea35534647d4dbcef692b9e245c` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. The standing reopenings are unchanged: the
+same pending re-cut of `35db7fb16665e191feb5c6c4ced9aa3e52e5acaa` and the
+same `46b7703a727fdf3afd258034d274933e81ded289` superseded
+implementation. This correction is design-only: it implements no solver,
+accepts no phase, and does not close the register row. Its exact
+pre-landing file bytes
+(`sha256:d63cf1419678a60bacc7d5cd286a536e61c6fbcfbf5ae3098c7cb280bea9d8ea`)
+and parent-relative diff
+(`sha256:65daba30fab2db1f064c3bd860ad361d9e01866b5d7d7e74975f3b0226bfb44d`)
+received separate independent reviews on 2026-08-23 — computational and
+physics/governance, both `ACCEPT`, each reproducing the generator's
+refusal empirically and the latter additionally proving the
+stash-production alternative a chain-of-custody violation. This
+correction's landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-23 (evidence generation reconciliation).**
 Attempting E1 at the globally clean exact `S1` surfaced two defects. First,
 both tracked phase generators are stubs: their `generate` sub-commands
@@ -3025,7 +3061,15 @@ header records as superseded; the `A` that would have accepted it returned
 `REJECT`, so removing it is disposal of a rejected draft, not replacement
 of a record. The same rule governs a superseded phase red-failure record:
 the governed re-cut deletes and regenerates it, since the record was never
-accepted. An accepted artifact is immutable and no commit may touch one.
+accepted — **unless the reopened phase's `S` already exists**, in which
+case redness can no longer be observed anywhere in the operative tree and
+the record is not regenerated: the rebind-only re-cut retains the record's
+last genuinely observed bytes, and the strict red-record validator
+authenticates the record's `design_sha` as a header-enumerated chain
+commit from whose tree the observations were genuinely made, connected to
+the operative `D` through the chain — never as a licence to fabricate an
+`expected-red-confirmed` observation against a tree where nothing is red.
+An accepted artifact is immutable and no commit may touch one.
 
 ## 14. Evidence schema and commit succession
 
