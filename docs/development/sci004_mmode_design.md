@@ -32,6 +32,49 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-23 (ablation clarification and deferred
+advisories).** Completing S1 to a fully green suite surfaced one
+implementation finding requiring a design clarification: the resolved
+`BeamSystem` applies its own below-horizon cut independent of the explicit
+`H` factor, so ablating the factor alone leaves a discontinuous integrand
+and the tier-1a shell measures at the with-horizon level (`5.80e-2`);
+sampling the beam at its exact even continuation `abs(alt)` — the unique
+smooth continuation, since an aperture pattern depends on the altitude
+through the even `sin(theta) = cos(alt)` — lands the shell at `1.29e-13`.
+Section 7.3's tier-1a now rules the ablation as the removal of every
+horizon truncation with the beam on its even continuation. This
+correction also closes every deferred advisory of the earlier rounds: the
+Section 12.1 `5e-12` residual bound is recorded as the deliberate
+marginally-stricter rounding of its own `5.005e-12` derivation; the
+`2**-44` turn unresolved floor receives its own justification; Section
+13.2's commit-identity "gate anchor" is disambiguated from Section 4.1's
+coordinate-frame anchor record; and the `lmax` floor paragraph now names
+its enforcement through the existing `mmode_truncation_check` semantic
+code rather than "schema level". It supersedes the tier-1-horizon-free-
+shell landing `a67f3c8401e6d6ca4e6f531757df8cdf1598e941` as the operative
+`D`; that commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. It also reopens, for one governed re-cut
+that will directly parent this correction's landing, the re-cut M1 red
+slice commit `b5af3539324bfc0784dd544d935cb479289692c4` — henceforth a
+`superseded red slice` interval commit touching only Section 13.3 `R1`
+paths — solely for the operative-`D` rebinding of its dependency
+validator and the Section 13.7 disposal-and-regeneration of
+`docs/development/sci004_mmode_phase1_red_failures.json`; no red oracle's
+content is reopened. This correction is design-only: it implements no
+solver, accepts no phase, and does not close the register row. Its exact
+pre-landing file bytes
+(`sha256:757224b46ae36240020444863043c07ea82b04e6da7e3e5fa32138c1e01f6258`)
+and parent-relative diff
+(`sha256:f24b8c183709ff3b734a82e5ee558e48720a85f2662ed0f3136b347f95fed9a0`)
+received separate independent reviews on 2026-08-23 — physics/governance
+and computational, both `ACCEPT`, the former re-deriving the even
+continuation for general direction-cosine patterns and the latter
+verifying the beam evaluator's independent horizon gate and the working
+`abs(alt)` ablation at their exact source lines. This correction's
+landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-23 (tier-1 horizon-free shell).**
 Qualifying the retuned acceptance fixture against the two-tier gate proved
 tier 1 as first drafted unattainable by the same mechanism as the gate it
@@ -1112,7 +1155,8 @@ it is the smallest `lmax` for which the tier-2 convergence levels satisfy
 `L1 < L2 < lmax` unconditionally, so every legally configurable run can
 evaluate the mandatory gate as specified; `lmax` of `2` or `3` would leave
 `L2` at or beyond `lmax` and the strict monotone predicate structurally
-unsatisfiable, and both reject at schema level.
+unsatisfiable, and both reject at validation time through the existing
+`mmode_truncation_check` semantic code.
 
 A transfer grid of resolution `nside` is the **iso-Gauss grid**: `3*nside`
 Gauss-Legendre colatitude rings — the nodes and weights of the
@@ -1281,10 +1325,17 @@ and the measured cross-quadrature residual converges only as `nside^-2`
 therefore has a sharp half and a recorded half.
 
 **Tier 1a — horizon-free shell, gating at `1e-8`.** The run evaluates the
-complete harmonic pipeline once with the horizon factor replaced by
-`H === 1` and everything else identical — the same grids, beam, fringe,
+complete harmonic pipeline once with **every horizon truncation** removed
+and everything else identical — the same grids, beam object, fringe,
 packing, contraction, and synthesis — on both the production and `qcheck`
-quadratures. With `W0` and `W_q` those two horizon-free cubes,
+quadratures. Removing the explicit `H` factor alone is insufficient: the
+resolved `BeamSystem` applies its own below-horizon cut, and with only the
+factor ablated the shell measures at the with-horizon level. The ablation
+therefore samples the beam at the exact even continuation `abs(alt)` — an
+aperture pattern depends on the zenith angle through
+`sin(theta) = cos(alt)`, an even function of the altitude, so this is its
+unique smooth continuation, not a model change — while the fringe, entire
+in the direction cosines, stays on the true direction. With `W0` and `W_q` those two horizon-free cubes,
 `K = 4*N*B*F`, and `S_num = max(1 Jy, max(abs(W_q)))`, both
 
 ```text
@@ -1936,13 +1987,22 @@ Isolation is the deterministic **certified-ceiling scan**:
   its exactly representable midpoint until the sign-changing bracket's
   outward radian width is at most `1e-11 rad`, giving a certified
   operational root enclosure classified `scan_crossing`. The retained root
-  must satisfy `|f_o(midpoint)| <= 5e-12`, consistent with
-  `L_op * (1e-11/2/(2*pi))`; a larger residual rejects.
+  must satisfy `|f_o(midpoint)| <= 5e-12`; the cited derivation
+  `L_op * (1e-11/2/(2*pi))` evaluates to `5.005e-12`, and the retained
+  `5e-12` is deliberately the marginally stricter rounding — the safe
+  direction, reachable only by a trajectory saturating the ceiling
+  uniformly across the half-enclosure. A larger residual rejects.
 - Any other cell is bisected at its exactly representable midpoint and
   both children re-enter the queue. A cell whose exact width reaches
   `2**-44` turn with neither classification — the deep-tangency
   signature — rejects the entire certificate as
-  `mmode_horizon_unresolved`. No root is silently merged or discarded.
+  `mmode_horizon_unresolved`. The `2**-44` turn floor is a constant of
+  this scan, spelled in turns because every scan bound is an exact-turn
+  quantity: at roughly `3.6e-13 rad` it sits nearly thirty times below
+  the `1e-11 rad` refinement target, so a transverse crossing is isolated
+  long before any cell reaches it and only a genuine near-tangency can
+  drive the queue that deep. No root
+  is silently merged or discarded.
 - Each retained root's census orientation comes from the signs of `f_o` at
   the two probe turns exactly `1e-8` turn outside its enclosure on either
   side: `rising` for a negative-to-positive transit and `setting` for the
@@ -2539,8 +2599,9 @@ exit, stderr byte, differing stdout, missing LF, or cleanup failure rejects.
 
 A Section 13.7 correction accepted after a gate has run does not re-run
 that gate: the commit that was the operative `D` when the gate ran is the
-**gate anchor**, the retained certificate and ancestry facts stay bound to
-it, and the dependency validator authenticates the gate anchor as an
+**gate anchor** — a commit identity, unrelated to Section 4.1's
+coordinate-frame anchor record — the retained certificate and ancestry
+facts stay bound to it, and the dependency validator authenticates the gate anchor as an
 ancestor of the operative `D` through the header-enumerated chain instead
 of requiring the operative `D` to precede `G1`. A correction that reopens
 an already-committed red slice makes that red commit a header-recorded
