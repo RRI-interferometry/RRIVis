@@ -32,6 +32,65 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-24 (the singular capability pin).**
+Implementing the phase-2 capability flip proved the red slice's
+capability oracle — retained case
+`m2.capability.mmode-supports-polarization`, whose Tier-7
+characterization node asserts `MModeSimulator.supports_polarization is
+True` at accepted M2 — unreachable inside the writable law:
+`tests/unit/test_simulator/test_sci004_strategy.py`'s M1-era test
+asserts `is False`, two committed tests asserting opposite values of one
+attribute, measured as `1 failed, 1 passed` under either value; and the
+strategy file is granted only by Section 13.3's `R1` red-oracle list,
+whose grant belonged to the closed M1 phase and conveys nothing to
+`S2`. Section 9 already rules this topic in the singular: the
+authoritative Tier-7 characterization file pins the capability value,
+and only accepted M2 may deliberately flip the m-mode property and the
+named Tier-7 characterization assertion to `True` — it licenses no
+second pin. The strategy file's duplicate assertion was therefore never
+an authoritative capability pin, and the ruling follows Section 9 rather
+than creating a parallel pin to keep in lockstep: Section 13.4's `S2`
+list now grants the strategy file for exactly the deletion of that
+single duplicate test (its capability assertion and its own-attribute
+presence check together), while the three M1 non-zero-Stokes rejection
+nodes whose IDs the accepted M1 evidence binds in `capability_cases`
+stay byte-untouched, the M1 artifacts themselves being immutable
+history; the phase-1 validator suites remaining green after the deletion
+is part of `S2`'s own gates. The scoped-grant form mirrors the Section
+13.4 Tier-6 D15 directory-pin idiom; no prior grant handed an
+`R1`-authored oracle file to an implementation phase, so the scope is
+deliberately the narrowest possible: a deletion Section 9 already
+implies, never an edit to any assertion the phase-2 record binds. Its
+exact pre-landing file bytes
+(`sha256:bd23d410b2a69e7376ca715e303a591b90d043427f68b40c23ff9efc000be44c`)
+and parent-relative diff
+(`sha256:b24dd5616e669f74c6e1be93738f1aa91d402b7780b3a3051ffbab7b927dfb6a`)
+received separate independent reviews on 2026-08-24 —
+physics/governance and computational, both `ACCEPT` after one applied
+fix round in which each review rejected a distinct falsifiable claim:
+the governance review proved the draft's granting-list citation false
+(the strategy file sits in Section 13.3's `R1` block, machine-confirmed
+by the phase-1 validator's own `R1` path constant) and proved Section
+9's singular-pin language rules for deletion over the draft's
+flip-in-lockstep principle, while the computational review proved the
+draft's ordinal claim false against the retained record's own array
+order and both re-verified the corrected citations byte-exactly. The
+governance reconfirmation additionally proved the deletion safe against
+every accepted M1 artifact and live validator: the M1 records name the
+doomed function only as string data never live-collected, and the
+authoritative Tier-7 assertion already carries the own-attribute check,
+so no coverage is lost. This correction's landing commit is the
+operative `D` of Section 13.7. It
+supersedes the direct-RIME-basis landing
+`d0ccab7718959dc06a5fb66bc16af9b0524c4546` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain (joining the starred `R2 -> S2`
+interval), and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. This correction is design-only: it
+implements no solver, accepts no phase, and does not close the register
+row.
+
 **Bounded correction — 2026-08-23 (the direct-RIME basis for constant
 receptor cells).** Implementing the celestial-tangent-transport
 prescription measured it reproducing the defect it diagnoses: with the
@@ -3362,6 +3421,13 @@ wrapper leaves every direct path byte-identical before M2 starts.
 - `src/radiosim/core/runtime_config.py` (one optional
   `tangent_polarization_frame` field on the resolved sky-source inputs
   only)
+- `tests/unit/test_simulator/test_sci004_strategy.py` (delete the
+  single duplicate scalar-capability test
+  `test_mmode_simulator_reports_scalar_only_support_in_m1` only —
+  Section 9 names the Tier-7 characterization assertion as the one
+  authoritative capability pin licensed to flip at accepted M2; the
+  three M1 non-zero-Stokes rejection nodes bound into the accepted M1
+  evidence stay byte-untouched)
 - `src/radiosim/io/config.py`
 - `src/radiosim/io/config_resolution.py`
 - `src/radiosim/benchmarks/harness.py`
