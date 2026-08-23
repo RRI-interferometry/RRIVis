@@ -4874,3 +4874,34 @@ concatenation regeneration), acceptance artifact
 M1 licenses the scalar `mmode` registry entry only: no polarized
 capability, no fingerprint pin, and no speed or accelerator claim.
 `SCI-004` remains **ROADMAP**; phase M2 is the next slice.
+
+
+**Phase M2 accepted — 2026-08-24.** This commit is `A2`, the phase-M2
+independent acceptance; `A2^ == E2
+50772ec1462c3561e350b46be404c5de9e74b8f7` binds the succession, and the
+next phase's `R` binds this containing commit per the record's
+self-reference rule. The retained succession is operative `D`
+`b9a9d7a8a49974bae4634f24fbc805077cdc4ef8` (through the sixteen accepted
+bounded corrections and the discharged reopening this memo's header
+records) with the live `R2 27d2ba45db57eed3d86fae04ece8128131d2d10e`
+reached over the starred `A1 -> R2` edge and `S2
+399245793e812ed549fac23c1b69b2c6c61aecd4` directly parenting the
+operative correction commit over the starred `R2 -> S2` edge whose
+interval the header enumerates, `-> E2
+50772ec1462c3561e350b46be404c5de9e74b8f7`, independent reviewer verdict
+`ACCEPT` (identity `sci004-m2-independent-acceptance-reviewer`; all ten
+Section 14.3 oracles re-derived, including the identity-`P` and
+shared-celestial-basis confirmations that replaced the rescoped
+transport sign, the phase-local frame certificate, both replay-deferral
+discharges — the horizon-scan ledger digest reproduced by fresh-process
+replay and all `288` transfer-sample concatenations exact — the
+re-qualified fixture's two-tier gate predicates recomputed from
+hand-decoded cells, and the deliberate Tier-7 capability flip
+authenticated at exactly its nine licensed lines with the full M1
+machinery green), acceptance artifact
+`sha256:2de45da5ad35caa2105340ce0870f5370e0f840958b51ac424c938a8fbe4b0dd`.
+M2 licenses the full-Stokes `mmode` capability: `supports_polarization`
+is `True` under the singular Tier-7 pin, with no accelerator claim, no
+ground-anchored transport exercised, and the acceptance fixture a
+numerical fixture rather than a buildable array. `SCI-004` remains
+**ROADMAP**; phase M3 is the next slice.
