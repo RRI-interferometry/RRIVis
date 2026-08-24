@@ -32,6 +32,65 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-25 (the honest memory boolean).**
+Executing the phase-3 evidence generator measured Section 11's memory
+predicate unsatisfiable: it required
+`measured_host_peak_bytes <= estimated_host_peak_bytes`, but Section
+9's `get_memory_estimate()` models the dense pipeline's seven
+components by design (`13.8 MiB` on all three acceptance fixtures,
+`14,180,352` bytes of it the quadrature directions/weights/Jones term),
+while `_mmode_pipeline` builds the every-run Section 4.2 frame
+certificate on the same call and its retained row — the complete
+Section 14.2 row with its Section 12.1 ledgers — deep-measures
+`29,396,321`–`32,629,309` bytes, a strict lower bound on the scoped
+tracemalloc peak, so the inequality fails on every one of the nine rows
+(`2.0×`–`2.25×`) while both budget inequalities hold with a
+thirty-fold margin. Closing it inside the implementation would need an
+estimator change no Section 13.5 grant covers, and choosing the
+estimate after seeing the measurement would be the condemned
+self-comparison form. The ruling makes the boolean honest:
+`estimate_covers_measured_host_peak` is the measured relation, retained
+as observed and `false` by construction at this phase with its reason
+mandatory in `host_measurement_limitations`; the hard predicates are
+the two budget inequalities; and Section 9 states the exclusion plainly
+— the certificate's retained ledgers are outside the dense estimate and
+measured separately. No grant, oracle, or schema-key change is needed:
+the memory key list is unchanged and nothing committed pins the
+boolean's expected value — verified against the workload-key pins, the
+characterization preimage, and the red record. It supersedes the
+scalar-table-kernel-exception landing
+`2422c5765a82e55328c25bb3b8fc08e8377c176f` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. The starred `R3 -> S3` interval grows to
+exactly `[2422c576…, this landing]`; `S3` directly parents this
+landing per the unchanged rule, and Section 14.4 needs no edit. This
+correction is design-only: it implements no solver, accepts no phase,
+and does not close the register row. Its exact pre-landing file bytes
+(`sha256:1f51e88500392f8c33ff92646ac52e44d755ef1d554a7256bc99a4a43d75ad29`)
+and parent-relative diff
+(`sha256:b349f03fb48739550b6f8b50881d8bcff9cbf85aaa04a1fa82f3ec615086c40d`)
+received separate independent reviews on 2026-08-25 —
+physics/governance and computational, both `ACCEPT` with no blocking
+findings on the first round. Both reviews reproduced the estimator
+figures live at the pinned dimensions (`total_bytes = 14,471,104`,
+the quadrature term `14,180,352`, byte-exact), verified the
+certificate's unconditional in-call construction and the estimator's
+seven-component exclusion by direct code reading, verified the
+no-change-needed claim at whole-repository scope (the boolean's
+expected value pinned nowhere committed), judged the honest-boolean
+disposition the least dishonest of the three options — the estimator
+change being literally ungranted and the scope narrowing making the
+number misdescribe its own literal — and enumerated the exact
+uncommitted `S3` tool lines that still enforce the superseded
+predicate as the bounded follow-up work this correction licenses.
+Neither review completed an independent end-to-end tracemalloc
+reproduction of the measured peak inside its window; the structural
+lower-bound argument and the internal ratio arithmetic were verified
+instead, and the `E3` run itself retains the measured value. This
+correction's landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-24 (the scalar-table kernel exception).**
 Implementing the honest-backend-axis record measured a second gap in
 the same area: the routed per-`m` contraction kernel hard-refuses a
@@ -2608,9 +2667,15 @@ change block order after an allocation failure.
 - backend/native allocations not included in the host estimate.
 
 It records logical and scheduled dimensions and a one-block minimum. A budget
-smaller than that minimum is rejected before allocation. Acceptance measures
-host peak and, where available, backend-native peak, and proves the estimate is
-not smaller than the measured scoped peak. No speed, scaling, or memory
+smaller than that minimum is rejected before allocation. The seven
+components model the dense pipeline by design; the every-run Section 4.2
+frame certificate's retained row — the complete Section 14.2 row with
+its Section 12.1 ledgers — is excluded from the estimate and measured
+separately by the Section 11 record's scoped host peak. Acceptance
+measures
+host peak and, where available, backend-native peak, and retains the
+measured relation between estimate and peak as observed under
+Section 11's memory predicate. No speed, scaling, or memory
 advantage is claimed without the retained record in Section 11.
 
 ## 10. Result, provenance, and existing output formats
@@ -2905,12 +2970,23 @@ exactly `measured` and the native method is not `unavailable`. If it is null,
 its reason is non-empty, the method is `unavailable`, and the same reason
 occurs in `native_measurement_limitations`. Host/native peaks are scoped
 increments over a synchronized pre-call baseline. Validation requires
-`estimate_covers_measured_host_peak` to be true and
 
 ```text
-measured_host_peak_bytes <= estimated_host_peak_bytes
+measured_host_peak_bytes <= working_memory_bytes
 estimated_host_peak_bytes <= working_memory_bytes
 ```
+
+and `estimate_covers_measured_host_peak` to be the measured boolean
+`measured_host_peak_bytes <= estimated_host_peak_bytes` — retained as
+observed, never chosen. At this phase it is `false` by construction,
+and the record says why: Section 9's estimate models the dense
+pipeline's seven components, while the every-run Section 4.2 frame
+certificate's retained row dominates the scoped whole-call peak
+(measured `29.4`–`32.6 MB` deep against the `13.8 MiB` estimate on the
+three acceptance fixtures, `2.0×`–`2.25×`); `host_measurement_limitations`
+must carry that reason, and an `estimated_host_peak_bytes` chosen after
+seeing the measurement to force the boolean true is the condemned
+self-comparison form.
 
 `direct_comparison` has exactly:
 
