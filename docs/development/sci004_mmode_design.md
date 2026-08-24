@@ -32,6 +32,80 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-24 (the scalar-table kernel exception).**
+Implementing the honest-backend-axis record measured a second gap in
+the same area: the routed per-`m` contraction kernel hard-refuses a
+one-field block table — `ValueError: the forward product covers exactly
+Section 5.3's four science fields`, reproduced live — and two of the
+three fixture groups resolve scalar payloads (measured
+`max|QUV| = 0.0` for `mmode_single_scalar_mode` and
+`mmode_point_stokes_i`; `2.0` for `mmode_point_full_stokes`), so the
+`kernel_backend_block` ruled `measured` on every JAX and Dask row is
+unconstructible for the two scalar groups, and running the kernel on
+synthetic four-field data instead would be a microbenchmark describing
+nothing the group's own solve does — the condemned class. Separately,
+the shared row series named `per_m_contraction` and `synthesis` have no
+in-solve split point: production's `contract_and_synthesize` interleaves
+the contraction with the sample accumulation, so a per-stage split of
+the shared series would be an invented number. The rulings: the kernel
+block gains a third uniform status, `not_applicable_scalar_table`, on
+the JAX and Dask rows of scalar groups — the polarized group carries
+the real kernel evidence, exactly what its own solve exercises — and
+the shared timing series fuses to one honest
+`dense_contraction_and_synthesis` series, with the two stage names
+reserved to the kernel blocks where they are real. No grant or
+red-oracle change is needed, verified completely rather than cited
+partially: the committed characterization preimage's
+`kernel_stages` line names the kernel-block stages, which are
+unchanged; its adjacent
+`kernel_backend_block_status: not_applicable|measured` line states the
+enumeration true at the retained record's own frozen binding
+`923ae332…` — a retained record is immutable truth at its `design_sha`,
+exactly as every superseded record before it — and the preimage bytes
+are consumed by the tracked generator solely as a `sha256` provenance
+preimage, never parsed or asserted against live values, so the third
+status falsifies no committed oracle; the workload-key and claims pins
+carry `timings` and `kernel_backend_block` only as opaque keys, never
+sub-key literals. The next governed re-cut, whenever one occurs for its
+own reasons, refreshes the enumeration line as ordinary red-slice
+work. It supersedes the honest-backend-axis
+landing `923ae332c02d9b2d4edfddf09d1d61241e9d5a63` as the operative
+`D`; that commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. Because this landing sits between the
+third re-cut `7070cc3ddb1c2557d02e4a3f2a89b907575bed0b` and the future
+`S3`, the `R3 -> S3` edge is starred per Section 13.7's
+later-phase-commit rule with this landing its exactly one interval
+commit, `S3` directly parents this landing, and Section 14.4's order
+equation, star attribution, and `S`-edge qualifier are amended
+accordingly in this same diff; the third re-cut's frozen
+`APPROVED_SCI004_D_SHA` binding (`923ae332…`) is unchanged per the
+Section 14.0 rule. This correction is design-only: it implements no
+solver, accepts no phase, and does not close the register row. Its
+exact pre-landing file bytes
+(`sha256:b7f69e7aff9945ea9c35a22062ccfad7f9c63beabf1a53fcabfc6c7997a0b33e`)
+and parent-relative diff
+(`sha256:49100c3684d088273382316ef2e0dba6079c411065cca6140b28c50588cbba9b`)
+received separate independent reviews on 2026-08-24 —
+physics/governance and computational, both `ACCEPT` after one applied
+fix round that settled a genuine reviewer split: the governance review
+found the retained preimage's adjacent two-value status enumeration and
+held the draft's partial citation to the standard its predecessor was
+rejected under, while the computational review traced the same bytes to
+their sole `sha256` consumption and the record's own `923ae332…`
+binding where the enumeration was true; the completed verification
+sentence carries all four facts, and the governance reconfirmation then
+identified the dispositive rule — live, forward-consumed pins trigger
+re-cuts; archival, `sha256`-only preimages are immutable truth at their
+binding, Section 13.7's superseded-record clause firing only when the
+generating commit itself is reopened — verifying it against the rule
+text and every prior re-cut precedent rather than accepting the
+reconciliation on faith, with one advisory that the "every superseded
+record" phrasing rests on the M2 pattern precedent rather than a
+literal in-flight-record precedent. This correction's landing commit is
+the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-24 (the honest backend axis).** Building
 the Section 11 performance-record generator measured the nine-row
 backend axis vacuous end to end: the public solve path's
@@ -2735,7 +2809,7 @@ reordered, overlapping, or uncovered work is invalid.
 
 ```text
 clock, warmup_iterations, synchronization_method, frame, sky_transform,
-beam_transfer, per_m_contraction, synthesis, host_transfer, total,
+beam_transfer, dense_contraction_and_synthesis, host_transfer, total,
 direct_reference
 ```
 
@@ -2748,9 +2822,15 @@ finite non-negative samples in execution order. A non-measured series has
 exactly `status` and `reason`, where status is `not_applicable` or
 `not_measured` and reason is non-empty. No timing-series field is nullable.
 
-`frame`, `sky_transform`, `beam_transfer`, `per_m_contraction`, `synthesis`,
+`frame`, `sky_transform`, `beam_transfer`,
+`dense_contraction_and_synthesis`,
 and `total` are measured and have identical sample cardinality and indexed
-iterations. `host_transfer` is measured or `not_applicable`.
+iterations. The dense series is deliberately fused: production's
+`contract_and_synthesize` interleaves the per-`m` contraction with the
+sample accumulation and has no sequential split point, so a separate
+per-stage split of the shared series would be an invented number; the
+stage names `per_m_contraction` and `synthesis` denote exactly the
+kernel-block stages below, never shared row series. `host_transfer` is measured or `not_applicable`.
 `direct_reference` is measured with at least five samples or `not_measured`;
 the correctness comparison remains mandatory either way. Each total sample
 begins at solver entry after fixture construction and ends after synchronized
@@ -2790,7 +2870,15 @@ object's native method is `process_rss_sampled_delta_v1` or
 methods appear only inside kernel blocks. `kernel_backend_block` is a
 status-discriminated object for row uniformity: on the NumPy row it has
 exactly `status` and `reason` with status `not_applicable`; on the JAX
-and Dask rows it has exactly `status`, `per_m_contraction`, and
+and Dask rows of a fixture group whose resolved payload is scalar — the
+production block table carries one field, and the routed contraction
+kernel's contract covers exactly Section 5.3's four science fields, so
+a per-`m` kernel measurement for such a group would describe nothing
+its own solve does — it has exactly `status` and `reason` with status
+`not_applicable_scalar_table`, the reason naming that kernel contract;
+on the JAX
+and Dask rows of a polarized group it has exactly `status`,
+`per_m_contraction`, and
 `synthesis` with status `measured`, each stage object having exactly
 `sample_seconds` (at least five finite non-negative samples in
 execution order, separate objects never merged into the row's shared
@@ -5154,8 +5242,8 @@ that still reports `SCI-004` as ROADMAP. These are required
 ### 14.4 Mandatory commit order
 
 The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 ->* S2 -> E2 -> A2
-->* G3 ->* R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`, and
-`G3 ->* R3`
+->* G3 ->* R3 ->* S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`,
+`G3 ->* R3`, and `R3 ->* S3`
 stars are the
 concrete effects of the header's starred-edge correction records under
 the Section 13.7 rule above, which collectively enumerate each such
@@ -5182,7 +5270,7 @@ header enumerates the interval and the phase's `R` directly parents the
 operative correction commit. Each `S` directly parents its phase `R` —
 unless a Section 13.7 accepted correction has starred that edge, in
 which case `S` directly parents the operative correction commit per the
-Section 13.7 rule, as `S2` does here — and
+Section 13.7 rule, as `S2` and `S3` do here — and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
