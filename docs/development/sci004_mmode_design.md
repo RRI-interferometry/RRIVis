@@ -32,6 +32,85 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-24 (the retained-evidence surfaces follow
+the envelope).** Implementing the phase-3 evidence machinery measured
+four ruled surfaces the accepted-capability correction left
+contradicting its own amended Section 11, and one accepted red oracle
+its performance-product successor falsifies. Section 14.2's M3
+`fingerprint_rows` demanded "exactly seven rows" against the four-family
+envelope; its `ci_artifacts` demanded the seven-family × six-CI-cell
+Cartesian with `run_id`/`job_id`/`artifact_id` fields only a remote
+workflow can mint, against the amended harvest sentence binding the
+initially run cells and against a local `E3` venue that neither pushes
+nor runs workflows — the accepted re-cut `R3` already implements the
+narrowed reading (its observation-set oracle quotes the amended harvest
+sentence verbatim and no remote-artifact oracle exists); Section 15's
+gate sentence and Section 12.2's item 10 repeated the six-cell and
+remote-artifact demands; and Section 14.3's `A3` sentence required
+"every fingerprint/remote artifact". All five are conformed: four
+fingerprint rows in the amended family order; `ci_artifacts` narrowed to
+the harvested cells authenticated from the retained observation-set
+surface, with remote cells and their workflow artifacts entering
+afterwards by the standing admission discipline; the Section 15 and
+12.2 sentences and the `A3` clause conformed to match. Separately, the
+performance-product alignment the previous correction ordered falsifies
+`tests/performance/test_sci004_mmode.py::test_the_official_v1_inventory_is_the_exact_nine_row_product`,
+an accepted M2 red oracle that pins the superseded product by value
+through an import — invisible to the standard gate because the file is
+`performance`+`slow`-marked, and invisible to the previous reviews'
+live-byte checks because the pin is import-mediated, a recorded lesson;
+Section 13.5's own rule — "No `S` commit
+may edit a red oracle or its record. A proved-defective oracle requires
+a bounded design successor and a fresh `R`" — decides the repair route:
+this correction is the bounded design successor, Section 13.5's `R3`
+list now grants that file scoped to the pinned fixture-product literals
+only (a red-oracle edit belonging to an `R` commit, with the lapsed
+`R2`-grant disclosure), and the phase-3 red slice
+`a07279f4e1220f4e064d747406350df6fd1190fb` is reopened as a `superseded
+red slice` interval commit for a governed re-cut. The re-cut applies
+exactly that literal update as red-slice work, rebinds
+`APPROVED_SCI004_D_SHA` to this correction's landing (Section 14.0's
+"the operative `D` current at that phase's `R`" — a fresh `R` takes the
+`D` current at its own cut, superseding the performance-product
+record's frozen-binding note for phase 3), rebinds the derived anchor
+to the first successor of this landing, and regenerates the red record
+from a globally clean checkout of the re-cut candidate, Section 14.4's
+venue vocabulary, where every phase-3 oracle is genuinely red;
+uncommitted source work stays outside that observation tree. The
+succession therefore folds: the `G3 -> R3` starred interval grows to
+exactly `[62a7d3d9…, e7902d04…, 53ee53c3…, a07279f4…, 29c702cf…, this
+landing]`, the re-cut `R3` directly parents this landing, the
+performance-product correction's `R3 -> S3` star reverts — `S3` plainly
+parents the re-cut `R3` — and Section 14.4's equation, attribution, and
+`S`-edge qualifier are amended accordingly in this same diff. It supersedes the
+performance-product landing
+`29c702cfc824ad73b2e0aeacd5b4b23bcc6c18cf` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. This correction is design-only: it
+implements no solver, accepts no phase, and does not close the register
+row. Its exact pre-landing file bytes
+(`sha256:d53ed7f0de129ec2dd6f7ca760b110d83b2fbcbc2527aac744a084ba38a40b5a`)
+and parent-relative diff
+(`sha256:80fe0e816c7b3fba169736f92aa23f0983de36224420913eb3e106b1a5a067d2`)
+received separate independent reviews on 2026-08-24 —
+physics/governance and computational, both `ACCEPT` after one applied
+fix round: the governance review proved the draft's `S3` grant of the
+falsified red oracle violated Section 13.5's own twice-stated rule —
+which the computational review's first pass had read without
+cross-checking, its reconfirmation says so plainly — and the repair
+pivoted to the ruled route quoted verbatim in this record: the bounded
+design successor plus a fresh `R`. Both reconfirmations verified the
+folded six-commit interval against real git ancestry, the star
+reversion's document-wide consistency, and — substantively — that the
+oracle is genuinely red at a clean re-cut checkout because the aligned
+constant exists only in the uncommitted source tree. One advisory
+carries to the re-cut author: the dependency validator's
+`R3_AUTHORIZED_PATHS` frozenset must gain the granted performance file
+in the same re-cut, or the derived anchor will reject its own commit.
+This correction's landing commit is the operative `D` of Section 13.7.
+
 **Bounded correction — 2026-08-24 (the performance product follows the
 envelope).** Preparing the phase-3 evidence machinery surfaced the one
 committed constant the accepted-capability correction left contradicting
@@ -3381,7 +3460,8 @@ Minimum oracles are:
 9. **Results:** in-memory, summary, HDF5, UVFITS, and MS round trips with phase,
    feed, correlation, time, solver, and fingerprint metadata.
 10. **Characterization:** every new family, unchanged direct pins, two dispatch
-    classes where applicable, exact-SHA remote artifacts, and release scans
+    classes where applicable, the retained harvested-cell observation
+    sets (remote artifacts by later admission), and release scans
     that continue to say `SCI-004` is ROADMAP until closure.
 
 The analytic complex128 DFT/single-mode residual is at most `5e-12`. The
@@ -3734,6 +3814,12 @@ wrapper leaves every direct path byte-identical before M2 starts.
   upstream certificate line)
 - `docs/development/sci004_mmode_phase3_red_failures.json` (new)
 - `tests/unit/test_sci004_phase3_red_failures.py` (new validator)
+- `tests/performance/test_sci004_mmode.py` (the pinned fixture-product
+  literals only: align the nine-row product pin to the amended Section
+  11 three point groups — a red-oracle edit, so it belongs to an `R`
+  commit under this section's own rule; the closed `R2` list's own
+  grant of this path belonged to the accepted M2 phase and conveys
+  nothing to `R3`)
 
 `S3` may write only:
 
@@ -4736,20 +4822,28 @@ row has exactly `format`, `fixture_id`, `written_solver_sha256`,
 Each `fingerprint_rows` entry has exactly `family_id`, `fixture_id`,
 `input_identity_sha256`, `canonical_era_grid_sha256`,
 `solver_snapshot_sha256`, `cube_sha256`, `scientific_sha256`,
-`expected_change_reason`, and `pass`. There are exactly seven rows in the
-Section 11 family order, one local retained pin per family; each fixture joins
+`expected_change_reason`, and `pass`. There are exactly four rows in the
+amended Section 11 family order, one local retained pin per family; each
+fixture joins
 the phase input set and each identity recomputes under Section 14.0.
 
 Each `ci_artifacts` entry has exactly `family_id`, `fixture_id`, `source_sha`,
-`environment`, `dispatch_identity`, `run_id`,
-`job_id`, `artifact_id`, `artifact_sha256`, `cube_sha256`,
+`environment`, `dispatch_identity`, `cube_sha256`,
 `scientific_sha256`, `numeric_delta`, `expected_change_reason`,
-`ci001_verdict`, and `pass`. Family order is the exact seven-name Section 11
-order; for each family, CI rows use the accepted six CI-001 platform/Python cells
-and then the accepted dispatch-identity observation order. The validator
-reconstructs that complete Cartesian inventory from the CI-001 artifact,
+`ci001_verdict`, and `pass`. Family order is the exact four-name amended
+Section 11
+order; for each family, rows cover exactly the platform/Python cells the
+amended Section 11 harvest sentence binds — the cells this phase's
+acceptance actually runs on — and then the accepted dispatch-identity
+observation order, each row authenticated against the retained
+observation-set surface at the clean `S3` checkout. The validator
+reconstructs that complete inventory from the retained rows,
 rejects a missing/extra/duplicate family-cell-dispatch tuple, and joins each
-fixture ID to the phase input set.
+fixture ID to the phase input set. Remote CI cells and their
+`run_id`/`job_id`/`artifact_id`/`artifact_sha256` artifacts enter
+afterwards by the
+standing admission discipline, exactly as the accepted AVX-512
+admissions did; the local `E3` venue can retain only what it runs.
 
 The `performance_record` object has exactly `path`, `sha256`,
 `schema_version`, `source_sha`, `workload_count`, `workload_identities`,
@@ -4913,7 +5007,7 @@ catalogue and four grid joins, exact direct/transfer-sample/shell/block
 coverage, and local shell diagnostics, plus backend/memory predicates and the
 deliberate Tier 7 capability flip. `A3` must authenticate the exact SCI-005
 Stage-2 `SCI004.M3` dependency fields, one standard-output round trip, and
-every fingerprint/remote artifact. Its required oracle IDs additionally
+every fingerprint and retained observation-set artifact. Its required oracle IDs additionally
 include `m3.sci005-dependency-gate`, `m3.performance-schema`,
 `m3.performance-provenance`,
 `m3.performance-inventory`, `m3.performance-schedule`,
@@ -4931,8 +5025,8 @@ that still reports `SCI-004` as ROADMAP. These are required
 ### 14.4 Mandatory commit order
 
 The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 ->* S2 -> E2 -> A2
-->* G3 ->* R3 ->* S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`,
-`G3 ->* R3`, and `R3 ->* S3`
+->* G3 ->* R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`, and
+`G3 ->* R3`
 stars are the
 concrete effects of the header's starred-edge correction records under
 the Section 13.7 rule above, which collectively enumerate each such
@@ -4959,7 +5053,7 @@ header enumerates the interval and the phase's `R` directly parents the
 operative correction commit. Each `S` directly parents its phase `R` —
 unless a Section 13.7 accepted correction has starred that edge, in
 which case `S` directly parents the operative correction commit per the
-Section 13.7 rule, as `S2` and `S3` do here — and
+Section 13.7 rule, as `S2` does here — and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
@@ -5007,9 +5101,12 @@ git diff --check
 ```
 
 M2/M3 also run the non-gating performance suite. M3 runs all output
-characterizations, all six remote environment cells, relevant dispatch
-classes, and a green exact-pin-SHA rerun. Every artifact is downloaded and
-authenticated rather than inferred from a green workflow summary.
+characterizations on the cells its acceptance actually runs, the
+relevant dispatch
+classes, and a green exact-pin-SHA rerun; remote environment cells enter
+afterwards by the standing admission discipline. A retained artifact is
+authenticated from its bytes rather than inferred from a green workflow
+summary.
 
 For each phase, an independent reviewer inspects the exact `R`, `S`, and `E`
 commits, performs that phase's Section 14.3 re-derivations without the
