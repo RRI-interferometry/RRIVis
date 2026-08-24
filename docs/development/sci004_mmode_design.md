@@ -32,6 +32,53 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-24 (the performance product follows the
+envelope).** Preparing the phase-3 evidence machinery surfaced the one
+committed constant the accepted-capability correction left contradicting
+it: the accepted `S2` slice's `SCI004_FIXTURE_IDS` in
+`src/radiosim/benchmarks/__init__.py` still enumerates the superseded
+point/HEALPix/hybrid performance product, the file is granted only by
+the closed `S2` list — that grant belonged to the accepted M2 phase and
+conveys nothing to `S3` — and the `E3` generator must consume that
+surface rather than work around a committed constant that contradicts
+the operative design. Section 13.5's `S3` list now grants the file,
+scoped to the `SCI004_FIXTURE_IDS` constant and its dependent fixture
+literals only, aligning the product to the envelope's three point
+groups. The constant is superseded design fallout, not an `S2` defect:
+`S2` implemented Section 11 exactly as then ruled, so no phase artifact
+is touched and no reopening occurs. Because this landing sits between
+the re-cut `R3` `a07279f4e1220f4e064d747406350df6fd1190fb` and the
+future `S3`, the `R3 -> S3` edge is starred per Section 13.7's
+later-phase-commit rule with this landing its exactly one interval
+commit, `S3` directly parents this landing, and Section 14.4's order
+equation, star attribution, and `S`-edge qualifier are amended
+accordingly in this same diff; the phase's frozen `R3` binding
+(`APPROVED_SCI004_D_SHA` = the accepted-capability landing) is
+unchanged per the Section 14.0 rule, so every phase-3 `design_sha`
+still names that frozen binding while this landing holds the operative
+`D`. It supersedes the accepted-capability-characterization-envelope
+landing `53ee53c3b829512ef02f81215238090be63937d9` as the operative
+`D`; that commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. This correction is design-only: it
+implements no solver, accepts no phase, and does not close the register
+row. Its exact pre-landing file bytes
+(`sha256:f32a4f6793abb983c42f6605b444f9eecaf706be09843dd914b952f4cae43e14`)
+and parent-relative diff
+(`sha256:f2b5f1abfe7891dc40788713db106c5ef6bbcedb65d6f8fa1b36b92ab142b975`)
+received separate independent reviews on 2026-08-24 —
+physics/governance and computational, both `ACCEPT` with no blocking
+findings on the first round. Both reviews verified the superseded
+constant at its source lines, the S2-only lapsed grant, the four-star
+Section 14.4 consistency, the frozen `R3` binding's independence from
+this landing (the anchor derivation's sole successor is fixed at the
+re-cut as a structural git fact), and that nothing accepted pins the
+granted file's live bytes; the governance review additionally confirmed
+the fallout-not-defect classification against Section 13.7's own
+kind definitions. This correction's landing commit is the operative `D`
+of Section 13.7.
+
 **Bounded correction — 2026-08-24 (the accepted-capability
 characterization envelope).** Implementing the phase-3 source slice
 fired Section 13.5's pause rule with measurements on every point. The
@@ -3719,6 +3766,12 @@ wrapper leaves every direct path byte-identical before M2 starts.
   non-scalar resolved beam system with `mmode_public_beam`, each with
   its exact Section 8 message before any solver work; no other solver
   change)
+- `src/radiosim/benchmarks/__init__.py` (the `SCI004_FIXTURE_IDS`
+  constant and its dependent fixture literals only: align the Section 11
+  performance-record fixture product to the accepted-capability
+  envelope's three point groups; the closed `S2` list's own grant of
+  this path belonged to the accepted M2 phase and conveys nothing to
+  `S3`)
 
 `E3` may write only:
 
@@ -4878,8 +4931,8 @@ that still reports `SCI-004` as ROADMAP. These are required
 ### 14.4 Mandatory commit order
 
 The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 ->* S2 -> E2 -> A2
-->* G3 ->* R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`, and
-`G3 ->* R3`
+->* G3 ->* R3 ->* S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`,
+`G3 ->* R3`, and `R3 ->* S3`
 stars are the
 concrete effects of the header's starred-edge correction records under
 the Section 13.7 rule above, which collectively enumerate each such
@@ -4906,7 +4959,7 @@ header enumerates the interval and the phase's `R` directly parents the
 operative correction commit. Each `S` directly parents its phase `R` —
 unless a Section 13.7 accepted correction has starred that edge, in
 which case `S` directly parents the operative correction commit per the
-Section 13.7 rule, as `S2` does here — and
+Section 13.7 rule, as `S2` and `S3` do here — and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
