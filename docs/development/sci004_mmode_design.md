@@ -32,6 +32,88 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-24 (the accepted-capability
+characterization envelope).** Implementing the phase-3 source slice
+fired Section 13.5's pause rule with measurements on every point. The
+public m-mode solve path carries only point components — the HEALPix and
+hybrid harmonic machinery accepted at M2 lives in the bounded evidence
+fixture — so the two former HEALPix families produced identically zero
+cubes passing the Section 7.3 gate vacuously with one shared
+`scientific_sha256` (`eb570f32…`), the former hybrid family silently
+dropped its diffuse half while its gate passed (`components=['point']`
+for a two-representation payload), and a `beams.squint` fixture failed
+after `108.8 s` with a `BeamEvaluationError`; separately, three former
+family fixtures could not construct their configured skies, the former
+`mmode_nonscalar_east_x` reproduced `mmode_point_full_stokes` byte for
+byte (`3d88dab0…`) because the shipped default receptor set is east-X,
+and two output oracles are defective against accepted literals — the
+UVFITS oracle asserts a phase-centre frame the accepted
+`ProjectedPhaseCenter` forbids (`icrs` is the ruled literal, with the
+original zenith-drift snapshot retained and measured equal), and the
+HDF5 fingerprint oracle omits the accepted bytes-decode idiom. The
+rulings: Section 11's characterization set narrows to the four-family
+accepted-capability envelope (with `mmode_circular_receptor` replacing
+the byte-identical duplicate, subject to Section 7.3 qualification at
+`S3`), the performance record's fixture product becomes the three
+point-family groups, the public path gains two fail-fast Section 8
+rejections (`mmode_public_components`, `mmode_public_beam`) under a
+scoped `S3` solver grant — closing the silent-drop defect by rejection,
+never by unreviewed wiring through an outputs phase — the harvest
+sentence binds the initially run cells with later cells entering by the
+standing admission discipline, and the family record's derived digests
+receive their namespaced characterization domains. The deferrals are
+recorded: public diffuse, hybrid, and non-scalar-beam m-mode runs are
+future red-sliced work, and `A3`'s `claims_not_licensed` must carry
+both. It reopens, as a `superseded red slice` interval commit for a
+governed re-cut, the phase-3 red slice
+`62a7d3d90dcbf0488e8b7c875ae5f95acba007b6`; the re-cut repairs the five
+defective oracles to their measured corrected forms, replaces the
+removed family fixtures per the new set, adds the two rejection oracles
+and an end-to-end family-run green control — the prior control proved
+only that configs resolve, the root cause — rebinds the dependency
+validator's derived `R3` anchor and its `R3^` assertion to the starred
+edge (the `--diff-filter=A` derivation resolves the superseded
+add-commit as an immutable git fact forever and would silently
+authenticate it; the re-cut derivation must resolve the live re-cut
+commit and assert that it directly parents this correction's landing,
+with the docstring and error text updated to match), and regenerates
+the red record from a globally clean checkout of the re-cut candidate,
+Section 14.4's venue vocabulary, where every phase-3 oracle is
+genuinely red; uncommitted source work stays outside that observation
+tree. Per Section
+13.7's reopened-phase rule the re-cut `R3` directly parents this
+correction's landing, the `G3 -> R3` edge is the starred one with
+interval `[62a7d3d9…, e7902d04…, this landing]`, and the
+un-ignoring correction's `R3 -> S3` star reverts — `S3` plainly parents
+the re-cut `R3` — with Section 14.4's equation, attribution, and edge
+restatements amended accordingly in this same diff. It supersedes the
+un-ignoring landing `e7902d04ce042bd3a16ab9ae3a336695e971db81` as the
+operative `D`; that commit becomes a `superseded design` interval commit
+on the header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. This correction is design-only: it
+implements no solver, accepts no phase, and does not close the register
+row. Its exact pre-landing file bytes
+(`sha256:6ea19f19ee1d368687043477140b7d938d4668ec2aca0c7123a824484f3a0d4d`)
+and parent-relative diff
+(`sha256:dec9df0fb5b37edcb87067092288f74bc92861c6163a08a0344cc0246819739a`)
+received separate independent reviews on 2026-08-24 —
+physics/governance and computational, both `ACCEPT` after one applied
+fix round. Both reviews independently verified every measurement at
+code level — the hard-coded point-only public path, the silent-drop and
+vacuous-zero mechanisms, the duplicate family, both defective output
+oracles reproduced live — and the governance review judged the
+narrow-and-reject ruling correct on the merits, noting the accepted M2
+record never licensed public-path HEALPix support, so the deferral is
+honest rather than a retreat. The fix round closed the two blocking
+findings: Section 13.2's flat `R3^==G3` restatement (the litigated
+defect class, caught by both reviews) now carries the unless-starred
+qualifier, and the re-cut mandate explicitly orders the dependency
+validator's anchor rebind after the computational review proved the
+`--diff-filter=A` derivation would silently authenticate the superseded
+add-commit forever. This correction's landing commit is the operative
+`D` of Section 13.7.
+
 **Bounded correction — 2026-08-24 (un-ignoring the granted reference
 records).** Authoring the phase-3 red slice measured the third
 unexercisable-grant-class defect: Section 13.5 grants `S3` the
@@ -2166,6 +2248,8 @@ The required semantic issue codes and exact messages are:
 | `mmode_truncation_check` | `execution.mmode.lmax leaves no room for the required harmonic tail check.` |
 | `mmode_horizon_unresolved` | `execution.simulator='mmode' could not certify complete horizon-root isolation; tangent, identically-zero, and unresolved intervals are rejected.` |
 | `mmode_m1_scalar_only` | `MModeSimulator phase M1 accepts Stokes I only; non-zero Q, U, or V requires accepted phase M2.` |
+| `mmode_public_components` | `execution.simulator='mmode' supports point-source components only in this phase; a HEALPix-bearing sky requires a future accepted phase.` |
+| `mmode_public_beam` | `execution.simulator='mmode' supports the scalar beam response only in this phase; a non-scalar resolved beam system requires a future accepted phase.` |
 
 The dynamic frame-certificate rejection is rendered exactly as one line with
 the following template and lower-case scientific notation:
@@ -2303,21 +2387,40 @@ byte-identical. New characterized families are:
 ```text
 mmode_single_scalar_mode
 mmode_point_stokes_i
-mmode_healpix_stokes_i
 mmode_point_full_stokes
-mmode_healpix_full_stokes
-mmode_hybrid_full_stokes
-mmode_nonscalar_east_x
+mmode_circular_receptor
 ```
 
+The set names exactly the capability accepted M2 licenses through the
+public solve path. `mmode_circular_receptor` is the full-Stokes point
+fixture under the accepted circular receptor basis and must be qualified
+by Section 7.3's measured protocol at `S3` before it is pinned; if it
+proves unqualifiable, M3 pauses for design correction. The former
+HEALPix and hybrid families are deferred: the accepted harmonic
+machinery reaches the public path only through a future red-sliced
+phase, the public path rejects a HEALPix-bearing payload and a
+non-scalar resolved beam system with the Section 8 typed issues before
+any work, and `A3`'s `claims_not_licensed` must carry both deferrals.
+The former `mmode_nonscalar_east_x` is removed because the shipped
+default receptor set is east-X: it reproduced `mmode_point_full_stokes`
+byte for byte and characterized nothing.
+
 Each family records the raw cube, `scientific_sha256`, solver snapshot, ERA/UTC
-grid, harmonic index table, and input identity. A changed m-mode pin requires
+grid, harmonic index table, and input identity. The family record's grid
+and input-identity digests use the namespaced domains
+`radiosim.sci004.characterization-time.v1` and
+`radiosim.sci004.characterization-input.v1`, computed from the retained
+`SimulationResult` exactly as the strict validator re-derives them;
+Section 14.0's solver-internal domains do not apply to a result-derived
+record. A changed m-mode pin requires
 old/new cubes and an equation-level explanation; no digest is appended merely
 because CI printed it.
 
-The accepted CI-001 successor discipline applies to every new family. All six
-platform/Python cells and every already recognized NumPy/OpenBLAS dispatch
-class are harvested. A novel class is adjudicated by cubes under Section 9's
+The accepted CI-001 successor discipline applies to every new family. The
+initial harvest binds exactly the platform/Python cells this phase's
+acceptance actually runs on; every other cell and every newly observed
+NumPy/OpenBLAS dispatch class enters afterwards by the standing
+admission discipline, exactly as the accepted AVX-512 admissions did. A novel class is adjudicated by cubes under Section 9's
 fixed complex128 predicate before it can join an observation set. M-mode must not
 make a compatibility cell green by weakening a harmonic, direct, frame, or
 backend tolerance.
@@ -2371,8 +2474,8 @@ direct_comparison, backend_comparison, claims_not_licensed
 The official v1 record has exactly the Cartesian product, in this order:
 
 ```text
-fixture: mmode_point_full_stokes, mmode_healpix_full_stokes,
-         mmode_hybrid_full_stokes
+fixture: mmode_single_scalar_mode, mmode_point_stokes_i,
+         mmode_point_full_stokes
 backend within each fixture: numpy, jax, dask
 ```
 
@@ -2382,9 +2485,9 @@ exactly nine rows. The three rows in a fixture group have identical input,
 frame-certificate, dimension, precision, worker, and memory-budget fields;
 scientific/result cube identities remain backend-qualified and are compared by
 the fixed predicate. Input identities are distinct across fixture groups. The sky
-representations are respectively `point`, `healpix`, and `hybrid`, with
-positive contributing counts for the named representation and zero for an
-absent representation.
+representation is `point` for all three fixture groups, with positive
+point counts, zero for the absent HEALPix representation, and distinct
+input identities across groups.
 
 `backend` is exactly `numpy`, `jax`, or `dask`; `device_kind` is `cpu`;
 `precision` is `standard`; and both dtype fields are `complex128`.
@@ -3340,7 +3443,11 @@ evidence_artifact_sha256, source_sha, verdict, successor_unlocks
 
 The line requires `stage==2`, the named accepted SCI-005 `A2`,
 `verdict=="ACCEPT"`, and `successor_unlocks==["SCI004.M3","SCI005.U2"]`.
-`R3^==G3`. R3 retains the exact stdout bytes at
+`R3^==G3` unless a Section 13.7 accepted correction stars the
+`G3 -> R3` edge, in which case `R3` directly parents the operative
+correction commit and the header enumerates the interval — as the
+accepted-capability-characterization-envelope correction does. R3
+retains the exact stdout bytes at
 `docs/development/sci004_mmode_phase3_sci005_dependency.json` and freezes in
 `tests/unit/test_sci004_phase3_dependency.py` exactly
 `APPROVED_SCI004_D_SHA`, `APPROVED_SCI004_G3_SHA`, and
@@ -3607,6 +3714,11 @@ wrapper leaves every direct path byte-identical before M2 starts.
   `output/benchmarks/reference/README.md` and the
   `output/benchmarks/reference/sci004/` record directory only, in the
   established perf001 block form)
+- `src/radiosim/core/mmode/solver.py` (the two public-path guards only:
+  reject a HEALPix-bearing payload with `mmode_public_components` and a
+  non-scalar resolved beam system with `mmode_public_beam`, each with
+  its exact Section 8 message before any solver work; no other solver
+  change)
 
 `E3` may write only:
 
@@ -4766,8 +4878,8 @@ that still reports `SCI-004` as ROADMAP. These are required
 ### 14.4 Mandatory commit order
 
 The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 ->* S2 -> E2 -> A2
-->* G3 -> R3 ->* S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`, and
-`R3 ->* S3`
+->* G3 ->* R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`, and
+`G3 ->* R3`
 stars are the
 concrete effects of the header's starred-edge correction records under
 the Section 13.7 rule above, which collectively enumerate each such
@@ -4784,16 +4896,17 @@ interval commits the memo header enumerates exhaustively under
 Section 13.7's recorded kinds; the reopened phase's `R` then directly
 parents the operative correction commit.
 
-Thus `R1^==G1` and `R3^==G3`, while `R2` directly parents the operative
-commit of the header's `A1 -> R2` post-acceptance-repairs correction,
-the starred edge's enumerated interval standing between it and `A1`; an
+Thus `R1^==G1`, while `R2` and `R3` each directly parent the operative
+commit of a header-recorded starred-edge correction — `R2` over
+`A1 ->* R2`, `R3` over `G3 ->* R3` — the enumerated intervals standing
+between each and its gate endpoint; an
 unstarred `R` edge's `R^` equals its `A` or `G` endpoint unless a
 Section 13.7 accepted correction stars that edge, in which case the
 header enumerates the interval and the phase's `R` directly parents the
 operative correction commit. Each `S` directly parents its phase `R` —
 unless a Section 13.7 accepted correction has starred that edge, in
 which case `S` directly parents the operative correction commit per the
-Section 13.7 rule, as `S2` and `S3` do here — and
+Section 13.7 rule, as `S2` does here — and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
