@@ -333,21 +333,26 @@ _PHASE3_FAMILY_GREEN_CONTROL = (
     "test_one_point_family_runs_to_completion_through_the_public_path"
 )
 
-#: The accepted retained-evidence correction granted ``R3``
-#: ``tests/performance/test_sci004_mmode.py`` "scoped to the pinned
-#: fixture-product literals only", so the case row that *describes* that oracle
-#: is declared here, in a file ``R3`` owns unscoped, rather than by adding a
-#: phase-M3 case table to a file whose grant covers literals alone.  The node it
-#: names is the accepted M2 oracle the performance-product alignment falsified:
-#: it pins the superseded point/HEALPix/hybrid product by value through an
-#: import of ``radiosim.benchmarks``, so it is genuinely red at this observation
-#: tree, where that module still carries the superseded trio, and it flips only
-#: when ``S3`` lands the aligned constant.  Its exclusion control is the
-#: PERF-001 surface oracle in its own file, which passes in the same invocation
-#: and proves the module imports and the accepted PERF-001 inventory is intact.
+#: The accepted corrections granted ``R3`` ``tests/performance/test_sci004_mmode.py``
+#: scoped to "the pinned fixture-product, workload-row-key-set, and claims-array
+#: literals", so the case rows that *describe* those oracles are declared here,
+#: in a file ``R3`` owns unscoped, rather than by adding a phase-M3 case table to
+#: a file whose grant covers literals alone.  Both nodes are accepted M2 oracles
+#: that later design changes falsified: each pins a superseded ``Section 11``
+#: literal by value through an import of ``radiosim.benchmarks``, so both are
+#: genuinely red at this observation tree -- where that module still carries the
+#: superseded trio, the thirty-three-key row and the five-literal claim array --
+#: and both flip only when ``S3`` lands the aligned constants.  Their exclusion
+#: control is the PERF-001 surface oracle in the same file, which passes in the
+#: same invocation and proves the module imports and the accepted PERF-001
+#: inventory is intact.
 _PHASE3_PERFORMANCE_NODE = (
     "tests/performance/test_sci004_mmode.py::"
     "test_the_official_v1_inventory_is_the_exact_nine_row_product"
+)
+_PHASE3_ROW_SCHEMA_NODE = (
+    "tests/performance/test_sci004_mmode.py::"
+    "test_every_workload_row_carries_its_exact_fields_and_claim_array"
 )
 _PHASE3_PERFORMANCE_CONTROL = (
     "tests/performance/test_sci004_mmode.py::"
@@ -362,6 +367,23 @@ PERFORMANCE_PRODUCT_BYTES = (
     b"backends: numpy, jax, dask\n"
     b"workload_count: 9\n"
     b"sky_representation: point\n"
+)
+
+#: The exact retained bytes of the honest-backend-axis row schema: the two row
+#: fields the correction added, in their ruled positions, and the sixth claim
+#: literal.  ``dense_execution`` is the same literal on every row because the
+#: dense path is backend-invariant; ``kernel_backend_block`` is where the two
+#: stages Section 9 admits carry their real JAX or Dask measurement.
+WORKLOAD_ROW_SCHEMA_BYTES = (
+    b"row_key_count: 35\n"
+    b"row_key_tail: direct_comparison, backend_comparison, dense_execution, "
+    b"kernel_backend_block, claims_not_licensed\n"
+    b"dense_execution: numpy_host_v1\n"
+    b"kernel_backend_block_status: not_applicable|measured\n"
+    b"kernel_stages: per_m_contraction, synthesis\n"
+    b"claims_not_licensed: general_speedup, gpu_or_accelerator_support, "
+    b"mmode_end_to_end_backend_execution, perf001_evidence_or_closure, "
+    b"performance_regression_gate, unmeasured_workloads\n"
 )
 
 _FAMILY_IMPORT_PATTERN = (
@@ -426,6 +448,28 @@ SCI004_PHASE3_RED_CASES: tuple[dict[str, object], ...] = (
         expected_failure_pattern=r"boresight_parallactic_rad",
         fixture_bytes=REJECTION_CONTRACT_BYTES,
     ),
+    {
+        "case_id": "m3.performance.workload-row-schema",
+        "requirement_id": (
+            "sci004.section-11.workload-row-carries-dense-execution-and-kernel-block"
+        ),
+        "test_nodeid": _PHASE3_ROW_SCHEMA_NODE,
+        "expected_failure_kind": "assertion",
+        # Both tuples truncate to the same ``workload_id`` prefix in pytest's
+        # abbreviated first line -- the distinguishing "At index 32 diff:
+        # 'claims_not_licensed' != 'dense_execution'" sits on a later line the
+        # junit message drops -- so the pattern pins what the first line
+        # actually carries: the tracked row-key tuple and the amended one
+        # disagree, both beginning at ``workload_id``.  The key assertion runs
+        # before the claims assertion, so the key set is what this record
+        # observed; the claims literal is red for the same reason and lands in
+        # the same node.
+        "expected_failure_pattern": (
+            r"AssertionError: assert \('workload_id.*\) == \('workload_id"
+        ),
+        "fixture_defect_excluded_by": _PHASE3_PERFORMANCE_CONTROL,
+        "fixture_bytes": WORKLOAD_ROW_SCHEMA_BYTES,
+    },
     {
         "case_id": "m3.performance.point-family-product",
         "requirement_id": "sci004.section-11.performance-product-is-three-point-groups",

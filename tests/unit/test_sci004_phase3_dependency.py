@@ -109,14 +109,13 @@ from tests.unit.test_sci004_phase1_dependency import (
 #: exactly as Section 14.0 requires: "R1's dependency validator,
 #: ``tests/unit/test_sci004_phase2_red_failures.py`` at R2, and R3's dependency
 #: validator each freeze the exact assignment ``APPROVED_SCI004_D_SHA=...``".
-#: It is the accepted 2026-08-24 retained-evidence-surfaces correction, which
-#: reopened the *second* phase-3 red slice this file is re-cut from.  Section
-#: 14.0 binds "the operative ``D`` current at that phase's ``R``", and that
-#: record says so explicitly for a re-cut: "a fresh ``R`` takes the ``D``
-#: current at its own cut, superseding the performance-product record's
-#: frozen-binding note for phase 3".  The binding therefore advances past the
-#: accepted-capability landing the previous cut froze.
-APPROVED_SCI004_D_SHA = "83d98f70fef0bf35977a3b6d4a7101ff67a7a953"
+#: It is the accepted 2026-08-24 honest-backend-axis correction, which reopened
+#: the *third* phase-3 red slice this file is re-cut from.  Section 14.0 binds
+#: "the operative ``D`` current at that phase's ``R``", and the retained-evidence
+#: record states the rule for a re-cut: "a fresh ``R`` takes the ``D`` current at
+#: its own cut".  The binding therefore advances again, past the
+#: retained-evidence landing the previous cut froze.
+APPROVED_SCI004_D_SHA = "923ae332c02d9b2d4edfddf09d1d61241e9d5a63"
 
 #: The globally clean programme tip ``G3`` (Section 13.2). Ancestry is
 #: inclusive, and this tip is the later of the two named dependency commits --
@@ -184,13 +183,15 @@ R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
     }
 )
 
-#: The two superseded phase-3 red slices the accepted corrections reopened, in
-#: cut order.  Both are interval commits of the starred ``G3 -> R3`` edge and
-#: neither may ever be resolved as the live anchor: the first was reopened by
+#: The three superseded phase-3 red slices the accepted corrections reopened, in
+#: cut order.  All three are interval commits of the starred ``G3 -> R3`` edge
+#: and none may ever be resolved as the live anchor: the first was reopened by
 #: the accepted-capability correction, the second by the retained-evidence
-#: correction that this file's binding now names.
+#: correction, and the third by the honest-backend-axis correction that this
+#: file's binding now names.
 SUPERSEDED_RED_SLICE_SHA = "62a7d3d90dcbf0488e8b7c875ae5f95acba007b6"
 SUPERSEDED_RECUT_RED_SLICE_SHA = "a07279f4e1220f4e064d747406350df6fd1190fb"
+SUPERSEDED_SECOND_RECUT_RED_SLICE_SHA = "c6cc74bb88bb123b20b4c549bc92da73cc057c1e"
 
 #: The retained phase-M2 acceptance artifact, by raw digest.
 M2_ACCEPTANCE_SHA256 = (
@@ -245,11 +246,11 @@ _PATH_FIELDS: tuple[str, ...] = (
 )
 
 #: The operative-``D`` memo blob.
-D_MEMO_BLOB_SHA256 = "f1d22b2bd832d0c7aa34a62c2b7cb5408b9092b8a358cf151a97f0066d4fd6c3"
+D_MEMO_BLOB_SHA256 = "a208d502554901dd5be15be52df04f8a4bed568b1a01ebcbc7c2fbb9d53d0e05"
 
 #: Section 13.7's ``D0 -> D`` chain continues past the eleven links the M1
-#: dependency validator froze. These are the ten that landed after ``A1``:
-#: nine ``superseded design`` corrections and the operative one. Each entry
+#: dependency validator froze. These are the eleven that landed after ``A1``:
+#: ten ``superseded design`` corrections and the operative one. Each entry
 #: carries its landed memo blob, its hermetically reproducible landed memo hunk,
 #: and the pre-landing review pins its own header paragraph records.
 D10_SHA = "d8adeaaee1045b930fb7ca7e4bd0905655cd4725"
@@ -384,14 +385,31 @@ D18_PRE_LANDING_DIFF_SHA256 = (
     "f2b5f1abfe7891dc40788713db106c5ef6bbcedb65d6f8fa1b36b92ab142b975"
 )
 
-D_LANDED_MEMO_DIFF_SHA256 = (
+#: The retained-evidence-surfaces landing, which conformed the five evidence
+#: surfaces and took the fresh-``R`` route for the falsified performance oracle.
+#: The honest-backend-axis correction superseded it in turn.
+D19_SHA = "83d98f70fef0bf35977a3b6d4a7101ff67a7a953"
+D19_MEMO_BLOB_SHA256 = (
+    "f1d22b2bd832d0c7aa34a62c2b7cb5408b9092b8a358cf151a97f0066d4fd6c3"
+)
+D19_LANDED_MEMO_DIFF_SHA256 = (
     "9b10aad942732c83adad97b31c9654fa42b303ec731f1162500d5872739d4742"
 )
-D_PRE_LANDING_FILE_SHA256 = (
+D19_PRE_LANDING_FILE_SHA256 = (
     "d53ed7f0de129ec2dd6f7ca760b110d83b2fbcbc2527aac744a084ba38a40b5a"
 )
-D_PRE_LANDING_DIFF_SHA256 = (
+D19_PRE_LANDING_DIFF_SHA256 = (
     "80fe0e816c7b3fba169736f92aa23f0983de36224420913eb3e106b1a5a067d2"
+)
+
+D_LANDED_MEMO_DIFF_SHA256 = (
+    "e280e6873840975bacf1cac79a93c2dd7d7330b77f3b05f2ca1a1f780668cf84"
+)
+D_PRE_LANDING_FILE_SHA256 = (
+    "4f60cc3b464658a5b8adfcd9dea8417a9651f439c686b34715f662d40652dc5e"
+)
+D_PRE_LANDING_DIFF_SHA256 = (
+    "53ecb8da1ebf1d6e36599863c11cbf70ef5a61fb0322a1f44f5e908581484aad"
 )
 
 #: The ``D0 -> operative D`` chain past ``A1``, oldest first. Section 13.7's
@@ -470,11 +488,19 @@ SCI004_DESIGN_CHAIN_CONTINUATION: tuple[_DesignCommit, ...] = (
         landed_memo_diff_sha256=D18_LANDED_MEMO_DIFF_SHA256,
     ),
     _DesignCommit(
+        sha=D19_SHA,
+        kind="superseded design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D19_MEMO_BLOB_SHA256,
+        label="the retained-evidence surfaces follow the envelope",
+        landed_memo_diff_sha256=D19_LANDED_MEMO_DIFF_SHA256,
+    ),
+    _DesignCommit(
         sha=APPROVED_SCI004_D_SHA,
         kind="operative design",
         allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
         memo_blob_sha256=D_MEMO_BLOB_SHA256,
-        label="the retained-evidence surfaces follow the envelope",
+        label="the honest backend axis",
         landed_memo_diff_sha256=D_LANDED_MEMO_DIFF_SHA256,
     ),
 )
@@ -515,6 +541,7 @@ CONTINUATION_REVIEW_PINS: tuple[tuple[str, str], ...] = (
     (D16_PRE_LANDING_FILE_SHA256, D16_PRE_LANDING_DIFF_SHA256),
     (D17_PRE_LANDING_FILE_SHA256, D17_PRE_LANDING_DIFF_SHA256),
     (D18_PRE_LANDING_FILE_SHA256, D18_PRE_LANDING_DIFF_SHA256),
+    (D19_PRE_LANDING_FILE_SHA256, D19_PRE_LANDING_DIFF_SHA256),
     (D_PRE_LANDING_FILE_SHA256, D_PRE_LANDING_DIFF_SHA256),
 )
 
@@ -958,7 +985,8 @@ def test_the_phase_three_binding_advances_the_r1_binding_through_the_chain() -> 
     "The later bindings byte-match the R1 binding unless a Section 13.7 accepted
     correction intervened, in which case the later binding names the newer
     operative ``D`` and its validator authenticates the header-enumerated
-    correction chain between the two bindings."  Eight did, so the byte-match is
+    correction chain between the two bindings."  Every entry of the
+    continuation tuple below did, so the byte-match is
     not asserted; R1's own frozen constant is instead required to be unchanged
     ("no later phase may change those constants") and to be the eleventh link of
     the chain this module extends.
@@ -977,9 +1005,9 @@ def test_the_phase_three_binding_advances_the_r1_binding_through_the_chain() -> 
     assert M1_DESIGN_CHAIN[-1].sha == R1_APPROVED_SCI004_D_SHA
     assert APPROVED_SCI004_D_SHA != R1_APPROVED_SCI004_D_SHA
     assert _is_ancestor(R1_APPROVED_SCI004_D_SHA, APPROVED_SCI004_D_SHA)
-    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 10
+    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 11
     assert SCI004_DESIGN_CHAIN[-1].sha == APPROVED_SCI004_D_SHA
-    for superseded in (D17_SHA, D18_SHA):
+    for superseded in (D17_SHA, D18_SHA, D19_SHA):
         assert APPROVED_SCI004_D_SHA != superseded
         assert _is_ancestor(superseded, APPROVED_SCI004_D_SHA)
 
@@ -1014,20 +1042,20 @@ def test_the_operative_design_commit_follows_the_gate_and_precedes_this_r() -> N
 def test_the_header_enumerated_chain_from_d0_to_the_operative_d_is_exact() -> None:
     """Section 13.7/14.0: every chain link matches its kind and allowed paths.
 
-    The chain is twenty-one links here -- the memo-introducing ``D0``, nineteen
-    ``superseded design`` corrections, and the operative one -- and the test
+    The chain is twenty-two links here -- the memo-introducing ``D0``,
+    twenty ``superseded design`` corrections, and the operative one -- and the test
     proves from Git objects that the only *other* commits between ``D0`` and the
     operative ``D`` that touched the memo are ``A1`` and ``A2``, which
     Section 13.7 explicitly rules "is not a chain commit and needs no interval
     kind" for an accepted phase acceptance commit inside the range.
     """
-    assert len(SCI004_DESIGN_CHAIN) == 21
+    assert len(SCI004_DESIGN_CHAIN) == 22
     assert SCI004_DESIGN_CHAIN[0].kind == "memo-introducing"
     assert SCI004_DESIGN_CHAIN[-1].kind == "operative design"
     assert [entry.kind for entry in SCI004_DESIGN_CHAIN[1:-1]] == [
         "superseded design"
-    ] * 19
-    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 21
+    ] * 20
+    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 22
 
     for earlier, later in zip(
         SCI004_DESIGN_CHAIN, SCI004_DESIGN_CHAIN[1:], strict=False
@@ -1445,6 +1473,7 @@ def test_the_r3_replay_anchor_is_the_live_child_of_the_operative_correction() ->
     assert anchor.commit not in (
         SUPERSEDED_RED_SLICE_SHA,
         SUPERSEDED_RECUT_RED_SLICE_SHA,
+        SUPERSEDED_SECOND_RECUT_RED_SLICE_SHA,
     )
     if anchor.role == "pre-commit-authoring-tip":
         assert anchor.commit == APPROVED_SCI004_D_SHA
@@ -1458,11 +1487,12 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
     """Section 13.7: "A commit the header does not name invalidates the edge".
 
     The exhaustive form of that sentence is an equality, not a membership test:
-    the first-parent range ``G3..D`` must be *exactly* the six commits the
-    accepted retained-evidence correction enumerates -- "the ``G3 -> R3``
+    the first-parent range ``G3..D`` must be *exactly* the eight commits the
+    accepted honest-backend-axis correction enumerates -- "the ``G3 -> R3``
     starred interval grows to exactly ``[62a7d3d9…, e7902d04…, 53ee53c3…,
-    a07279f4…, 29c702cf…, this landing]``" -- oldest-first, with nothing else
-    in it.  Two of them are reopened red slices and four are design landings,
+    a07279f4…, 29c702cf…, 83d98f70…, c6cc74bb…, this landing]``" -- oldest-first,
+    with nothing else
+    in it.  Three of them are reopened red slices and five are design landings,
     and the test checks each kind's own diff shape rather than treating the
     interval as an undifferentiated list.  Every commit in the range is also
     required to be a single-parent non-merge, which is Section 14.4's separate
@@ -1474,6 +1504,8 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
         D17_SHA,
         SUPERSEDED_RECUT_RED_SLICE_SHA,
         D18_SHA,
+        D19_SHA,
+        SUPERSEDED_SECOND_RECUT_RED_SLICE_SHA,
         APPROVED_SCI004_D_SHA,
     )
     observed = tuple(
@@ -1507,10 +1539,14 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
     # re-cut's own grant added a path to the R3 list that neither superseded
     # slice could have touched, and an equality would fail for that reason
     # alone rather than for any defect.
-    for sha in (SUPERSEDED_RED_SLICE_SHA, SUPERSEDED_RECUT_RED_SLICE_SHA):
+    for sha in (
+        SUPERSEDED_RED_SLICE_SHA,
+        SUPERSEDED_RECUT_RED_SLICE_SHA,
+        SUPERSEDED_SECOND_RECUT_RED_SLICE_SHA,
+    ):
         assert set(_changed_paths(sha)) <= R3_AUTHORIZED_PATHS, sha
         assert DEPENDENCY_VALIDATOR_PATH in _changed_paths(sha), sha
-    for sha in (D16_SHA, D17_SHA, D18_SHA, APPROVED_SCI004_D_SHA):
+    for sha in (D16_SHA, D17_SHA, D18_SHA, D19_SHA, APPROVED_SCI004_D_SHA):
         assert _changed_paths(sha) == (DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH), sha
 
 
@@ -1518,21 +1554,24 @@ def test_the_memo_header_records_the_reopening_and_the_two_rebind_mandates() -> 
     """Section 13.7: the header is the authority for what was reopened.
 
     A validator that trusted only its own constants would authenticate nothing:
-    the operative ``D`` blob is read from Git and required to name *both*
+    the operative ``D`` blob is read from Git and required to name *all three*
     superseded red slices it reopened, the four-family set that replaced the
     unconstructible fixtures, and both Section 8 rejection codes the first
     re-cut pinned.
 
-    The operative landing adds its own mandates, and they are checked from the
+    The two later landings add their own mandates, and they are checked from the
     same blob: the granted performance oracle by path, the ``R3``-list route
-    the governance review substituted for the rejected ``S3`` grant, and the
+    the governance review substituted for the rejected ``S3`` grant, the
     conformed evidence surfaces -- four fingerprint rows and a ``ci_artifacts``
-    object with no remote workflow field left in it.
+    object with no remote workflow field left in it -- and the honest backend
+    axis, whose four ruled literals are what keep a NumPy run from being
+    recorded under another runtime's label.
     """
     memo = _tree_blob(APPROVED_SCI004_D_SHA, DESIGN_MEMO_PATH).decode("utf-8")
 
     assert SUPERSEDED_RED_SLICE_SHA in memo
     assert SUPERSEDED_RECUT_RED_SLICE_SHA in memo
+    assert SUPERSEDED_SECOND_RECUT_RED_SLICE_SHA in memo
     assert "superseded red slice" in memo
     assert "mmode_circular_receptor" in memo
     assert "mmode_public_components" in memo
@@ -1557,6 +1596,27 @@ def test_the_memo_header_records_the_reopening_and_the_two_rebind_mandates() -> 
             f"{removed}, "
             not in body.split("Each `ci_artifacts` entry")[1].split("and `pass`.")[0]
         ), removed
+
+    # The honest-backend-axis correction's ruled literals, sliced from Section
+    # 11's own body for the same reason.  ``dense_execution`` and
+    # ``kernel_backend_block`` are the row fields that separate the invariant
+    # dense path from the two stages a backend genuinely computes;
+    # ``dense_invariance`` is the top-level object that retains the measured
+    # bit-identity as fact rather than hiding it; and the sixth claim literal is
+    # the end-to-end execution this record must never assert.
+    section_11 = memo.split("## 11. ")[1].split("## 12. ")[0]
+    for literal in (
+        "dense_execution",
+        "kernel_backend_block",
+        "dense_invariance",
+        "mmode_end_to_end_backend_execution",
+        "numpy_host_v1",
+        "stage_comparison",
+    ):
+        assert literal in section_11, literal
+    assert "`request.backend` reaches no dense array work" in section_11
+    # The shared memory object may never borrow a backend-device method.
+    assert "never a backend-device method" in section_11
 
 
 def test_detached_worktree_replay_at_g3_reproduces_the_retained_certificate(

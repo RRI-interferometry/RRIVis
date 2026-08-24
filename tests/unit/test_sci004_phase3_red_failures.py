@@ -235,6 +235,12 @@ ABSENT_PHASE3_CAPABILITIES: tuple[tuple[str, str], ...] = (
     # observation tree still enumerates the superseded trio, which is precisely
     # why the granted performance oracle is red here.
     ("src/radiosim/benchmarks/__init__.py", "mmode_single_scalar_mode"),
+    # The honest-backend-axis row schema. The same surface still carries the
+    # thirty-three-key row and the five-literal claim array, so neither ruled
+    # literal exists there yet -- the second granted oracle's red reason.
+    ("src/radiosim/benchmarks/__init__.py", "dense_execution"),
+    ("src/radiosim/benchmarks/__init__.py", "kernel_backend_block"),
+    ("src/radiosim/benchmarks/__init__.py", "mmode_end_to_end_backend_execution"),
 )
 
 #: The two defects the output oracles measure, present at the observation tree.

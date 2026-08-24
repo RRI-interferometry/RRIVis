@@ -42,14 +42,15 @@ the generator authenticates ``A2`` from Git objects -- single-parent non-merge,
 parent exactly ``E2``, carrying the accepted ``ACCEPT`` artifact -- before
 writing anything.
 
-Section 14.4's edge is now ``G3 ->* R3``. Two accepted corrections have reopened
-a phase-3 red slice -- the accepted-capability-characterization-envelope one and
-the retained-evidence-surfaces one -- and, per Section 13.7's reopened-phase
-rule, each re-cut ``R3`` directly parents its own correction's landing. The
+Section 14.4's edge is now ``G3 ->* R3``. Three accepted corrections have
+reopened a phase-3 red slice -- the accepted-capability-characterization-envelope
+one, the retained-evidence-surfaces one, and the honest-backend-axis one -- and,
+per Section 13.7's reopened-phase rule, each re-cut ``R3`` directly parents its
+own correction's landing. The
 observation tree is therefore the operative ``D`` and any other ``HEAD`` is
 refused, and the starred interval is authenticated exhaustively rather than by a
-membership test: ``G3..D`` must be exactly the six commits the operative record
-enumerates -- two reopened red slices and four design landings, oldest-first --
+membership test: ``G3..D`` must be exactly the eight commits the operative record
+enumerates -- three reopened red slices and five design landings, oldest-first --
 each a single-parent non-merge. Section
 13.7's "A commit the header does not name invalidates the edge" is enforced as
 an equality on that range. The frozen bindings are read from
@@ -406,9 +407,11 @@ def _authenticate_phase_unlock(observation_sha: str) -> None:
     upstream = _frozen_binding("APPROVED_SCI005_STAGE2_A_SHA")
     superseded_red = _frozen_binding("SUPERSEDED_RED_SLICE_SHA")
     superseded_recut = _frozen_binding("SUPERSEDED_RECUT_RED_SLICE_SHA")
+    superseded_second_recut = _frozen_binding("SUPERSEDED_SECOND_RECUT_RED_SLICE_SHA")
     un_ignoring = _frozen_binding("D16_SHA")
     envelope = _frozen_binding("D17_SHA")
     performance_product = _frozen_binding("D18_SHA")
+    retained_evidence = _frozen_binding("D19_SHA")
 
     peeled = _git("rev-parse", "--verify", f"{acceptance}^{{commit}}").strip()
     if peeled != acceptance:
@@ -441,6 +444,8 @@ def _authenticate_phase_unlock(observation_sha: str) -> None:
         envelope,
         superseded_recut,
         performance_product,
+        retained_evidence,
+        superseded_second_recut,
         design,
     )
     for flags in (("--first-parent", "--reverse"), ("--reverse",)):
@@ -462,7 +467,7 @@ def _authenticate_phase_unlock(observation_sha: str) -> None:
     # Containment, not equality: this re-cut's own grant added a path to the
     # Section 13.5 R3 list that neither superseded slice could have touched, so
     # an equality would fail for that reason alone rather than for a defect.
-    for sha in (superseded_red, superseded_recut):
+    for sha in (superseded_red, superseded_recut, superseded_second_recut):
         touched = _diff_tree_paths(sha)
         if not set(touched) <= set(R3_AUTHORIZED_PATHS):
             raise RedRecordError(
@@ -471,7 +476,13 @@ def _authenticate_phase_unlock(observation_sha: str) -> None:
             )
         if DEPENDENCY_VALIDATOR_PATH not in touched:
             raise RedRecordError(f"{sha} is not a phase-3 red slice")
-    for sha in (un_ignoring, envelope, performance_product, design):
+    for sha in (
+        un_ignoring,
+        envelope,
+        performance_product,
+        retained_evidence,
+        design,
+    ):
         if _diff_tree_paths(sha) != (
             "PostTier8RemediationPlan.md",
             "docs/development/sci004_mmode_design.md",

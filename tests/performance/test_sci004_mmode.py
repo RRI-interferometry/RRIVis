@@ -108,13 +108,26 @@ WORKLOAD_KEYS: tuple[str, ...] = (
     "memory",
     "direct_comparison",
     "backend_comparison",
+    # The accepted 2026-08-24 honest-backend-axis correction added these two in
+    # exactly this position.  ``dense_execution`` is the literal
+    # ``numpy_host_v1`` on every row, because "the public solve path's dense
+    # stages are backend-invariant -- ``contract_and_synthesize`` takes no
+    # backend and ``request.backend`` reaches no dense array work"; the
+    # status-discriminated ``kernel_backend_block`` is where a real JAX or Dask
+    # computation is retained, so a backend row states a measured kernel fact
+    # instead of a NumPy run wearing another runtime's label.
+    "dense_execution",
+    "kernel_backend_block",
     "claims_not_licensed",
 )
 
-#: Section 11's exact lexicographically sorted claim array on every row.
+#: Section 11's exact lexicographically sorted claim array on every row, as the
+#: honest-backend-axis correction amended it: ``mmode_end_to_end_backend_execution``
+#: is the sixth literal, and it is the claim this record must never make.
 CLAIMS_NOT_LICENSED: tuple[str, ...] = (
     "general_speedup",
     "gpu_or_accelerator_support",
+    "mmode_end_to_end_backend_execution",
     "perf001_evidence_or_closure",
     "performance_regression_gate",
     "unmeasured_workloads",
@@ -154,6 +167,13 @@ numeric_packages:
   - scipy
 """.encode()
 
+#: The five-literal claim array below is the ``R2`` preimage, retained for the
+#: same reason as ``_R2_RETAINED_FIXTURE_IDS`` above: it is the exact
+#: ``fixture_bytes`` of the accepted phase-M2 red case
+#: ``m2.performance.workload-row-shape``, whose digest that record's strict
+#: validator recomputes from these very bytes.  It is spelled out rather than
+#: interpolated from the live six-literal array, so advancing the live array
+#: cannot falsify an immutable accepted artifact.
 _ROW_FIXTURE = f"""\
 schema_version: {SCI004_BENCHMARK_SCHEMA}
 device_kind: cpu
