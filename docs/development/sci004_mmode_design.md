@@ -32,6 +32,79 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction — 2026-08-24 (the honest backend axis).** Building
+the Section 11 performance-record generator measured the nine-row
+backend axis vacuous end to end: the public solve path's
+`contract_and_synthesize` takes no backend parameter, the two
+backend-routed kernels have zero call sites on the solve path,
+`transfer.py` hard-codes the NumPy backend, and `request.backend`
+touches only the finished cube — so three end-to-end solves under
+`numpy`, `jax`, and `dask` produced bit-identical cubes (one distinct
+identity across the three, the JAX run "faster" than NumPy as pure
+noise), and a conforming record would have named synchronization that
+synchronized nothing, device memory never used, and exact-zero
+deviations that were self-comparisons — the vacuous-evidence class the
+accepted-capability correction already condemned. The accepted M2
+backend evidence is kernel-level and genuine (measured `1.9e-15` JAX
+deviation at the per-`m` contraction), and Section 9's policy literal
+admits exactly those two stages. The ruling keeps the nine-row
+inventory intact and makes the row
+content honest: every row carries `dense_execution = numpy_host_v1`;
+each fixture group measures its end-to-end series once and retains a
+`dense_invariance` object with the three identical cube digests as a
+measured fact; the JAX and Dask rows carry `kernel_backend_block`
+measurements of the two admitted stages where the synchronization,
+native memory, and `backend_comparison` evidence is real; the
+comparison's reference is re-anchored to the NumPy kernel output; the
+workload claims array gains `mmode_end_to_end_backend_execution`
+(rendering the tracked five-claim pins stale by design change); and
+Section 9 states the wiring deferral plainly — future red-sliced work,
+with `A3`'s `claims_not_licensed` carrying the third deferral. The new
+row schema renders two tracked pin sets stale by design change, not
+defect — `SCI004_WORKLOAD_KEYS` and the claims array in
+`src/radiosim/benchmarks/__init__.py`, and their by-value red-oracle
+pins in `tests/performance/test_sci004_mmode.py` — so this record
+widens both scoped grants to name the workload-row-key-set and
+claims-array literals, and reopens, as a `superseded red slice`
+interval commit for the next governed re-cut, the red slice
+`c6cc74bb88bb123b20b4c549bc92da73cc057c1e`; the re-cut aligns those
+pinned literals to this schema as red-slice work, rebinds
+`APPROVED_SCI004_D_SHA` to this correction's landing per Section 14.0's
+fresh-`R` rule, and regenerates the red record from a globally clean
+checkout of the re-cut candidate, Section 14.4's venue vocabulary,
+where every phase-3 oracle is genuinely red; uncommitted source work
+stays outside that observation tree. It
+supersedes the retained-evidence-surfaces landing
+`83d98f70fef0bf35977a3b6d4a7101ff67a7a953` as the operative `D`; that
+commit becomes a `superseded design` interval commit on the
+header-enumerated `D0 -> D` chain, and it touched exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. The succession folds again: the
+`G3 -> R3` starred interval grows to exactly `[62a7d3d9…, e7902d04…,
+53ee53c3…, a07279f4…, 29c702cf…, 83d98f70…, c6cc74bb…, this landing]`,
+the re-cut `R3` directly parents this landing, the `R3 -> S3` edge
+stays plain — `S3` plainly parents the re-cut `R3` — and Section 14.4
+needs no net edit from its current state. Its exact pre-landing file
+bytes
+(`sha256:4f60cc3b464658a5b8adfcd9dea8417a9651f439c686b34715f662d40652dc5e`)
+and parent-relative diff
+(`sha256:53ecb8da1ebf1d6e36599863c11cbf70ef5a61fb0322a1f44f5e908581484aad`)
+received separate independent reviews on 2026-08-24 —
+physics/governance and computational, both `ACCEPT` after one applied
+fix round in which both reviews independently verified the end-to-end
+vacuity from the solver's own code and rejected the draft on converging
+blocking findings: the closed-schema convention demanded exhaustive
+`has exactly` enumerations for every new object, the draft's
+"no red-oracle change is needed" claim was falsified by the fresh
+red slice's own tracked workload-key and claims pins — forcing the two
+grant widenings and the reopening this record now carries — and the
+row-level comparison's field names were reconciled with its content by
+the no-parity label rather than a silent repurposing. Both
+reconfirmations verified the eight-commit interval against real git
+ancestry and the Section 14.4 net-revert byte-identically. This
+correction's landing commit is the operative `D` of Section 13.7. This correction is design-only: it implements no
+solver, accepts no phase, and does not close the register row.
+
 **Bounded correction — 2026-08-24 (the retained-evidence surfaces follow
 the envelope).** Implementing the phase-3 evidence machinery measured
 four ruled surfaces the accepted-capability correction left
@@ -2402,7 +2475,11 @@ before backend allocation, output path creation, or harmonic work.
 NumPy is the scientific reference. Astropy frame work, IERS mapping, beam
 sampling, HEALPix geometry, and scalar/spin harmonic transforms are host-side
 NumPy work for every backend. JAX and Dask may execute only the dense per-m
-contractions and time synthesis. This is recorded as
+contractions and time synthesis — kernels whose public-path wiring
+through `request.backend` is deferred to a future red-sliced phase, so
+`execution.backend` is accepted and end-to-end inert for `mmode` today
+and the Section 11 kernel blocks carry the backend evidence. This is
+recorded as
 `host_harmonics_backend_native_dense_v1`; it is not an end-to-end accelerator
 claim, and `MModeSimulator.supports_gpu` is `False` without an independently
 accepted exact-solver accelerator record.
@@ -2560,7 +2637,12 @@ its own schema rather than extending the accepted
 frame certificate, scientific identity, deterministic block schedule, and
 direct/backend comparison that the PERF-001 record has no analogue for, and
 each schema remains governed by its own strict validator. The top-level
-object has exactly `schema_version`, `provenance`, and `workloads`.
+object has exactly `schema_version`, `provenance`, `workloads`, and
+`dense_invariance`. `dense_invariance` is an array with exactly one
+entry per comparison group in fixture order; each entry has exactly
+`comparison_group_id`, `numpy_cube_sha256`, `jax_cube_sha256`,
+`dask_cube_sha256`, and `identical`, where `identical` must be `true` —
+the measured backend-invariance of the dense path, retained as fact.
 
 `provenance` has exactly:
 
@@ -2594,7 +2676,8 @@ accumulation_dtype, result_dtype, workers, n_antennas, n_baselines,
 n_frequencies, sidereal_samples, lmax, mmax, quadrature_nside,
 n_point_sources, n_healpix_pixels, sky_representation,
 working_memory_bytes, resolved_block_dimensions, timings, memory,
-direct_comparison, backend_comparison, claims_not_licensed
+direct_comparison, backend_comparison, dense_execution,
+kernel_backend_block, claims_not_licensed
 ```
 
 The official v1 record has exactly the Cartesian product, in this order:
@@ -2657,8 +2740,9 @@ direct_reference
 ```
 
 `clock` is `time.perf_counter_ns`; `warmup_iterations` is positive; and the
-synchronization methods are respectively `numpy_eager_v1`,
-`jax_block_until_ready_v1`, and `dask_compute_v1`. A measured timing series has
+synchronization methods are `numpy_eager_v1` for every shared dense
+series and respectively `jax_block_until_ready_v1` and `dask_compute_v1`
+for the JAX and Dask rows' kernel blocks below. A measured timing series has
 exactly `status` and `sample_seconds`, with status `measured` and at least five
 finite non-negative samples in execution order. A non-measured series has
 exactly `status` and `reason`, where status is `not_applicable` or
@@ -2692,6 +2776,40 @@ estimate_covers_measured_host_peak
 is one of `jax_device_memory_stats_v1`, `dask_worker_metrics_v1`,
 `process_rss_sampled_delta_v1`, or `unavailable`. Both limitation arrays are
 sorted, unique, and non-empty.
+
+`dense_execution` is exactly the literal `numpy_host_v1` on every row:
+the public solve path's dense stages are
+backend-invariant — `contract_and_synthesize` takes no backend and
+`request.backend` reaches no dense array work — a measured fact this
+record retains rather than papers over, carried in the top-level
+`dense_invariance` array above. Each fixture group measures its
+end-to-end timing and memory series once, on the NumPy row, and the JAX
+and Dask rows carry those identical shared values; the shared `memory`
+object's native method is `process_rss_sampled_delta_v1` or
+`unavailable`, never a backend-device method — the backend-device
+methods appear only inside kernel blocks. `kernel_backend_block` is a
+status-discriminated object for row uniformity: on the NumPy row it has
+exactly `status` and `reason` with status `not_applicable`; on the JAX
+and Dask rows it has exactly `status`, `per_m_contraction`, and
+`synthesis` with status `measured`, each stage object having exactly
+`sample_seconds` (at least five finite non-negative samples in
+execution order, separate objects never merged into the row's shared
+timing keys), `synchronization_method` (the row's method, applied to
+exactly those kernel calls), `native_measurement_method`,
+`measured_native_peak_bytes`, `measured_native_peak_bytes_reason`, and
+`stage_comparison`; and each `stage_comparison` has exactly
+`predicate_id`, `reference_stage_sha256`, `candidate_stage_sha256`,
+`expected_cell_count`, `compared_finite_cell_count`,
+`reference_scale_jy`, `maximum_absolute_deviation_jy`,
+`maximum_relative_deviation`, `rtol`, `atol_jy`, and `pass`, under the
+unchanged `sci004_backend_complex128.v1` predicate with the NumPy
+kernel output on identical inputs as reference — so every retained
+kernel deviation is a real computation's, never a self-comparison.
+Wiring `request.backend` through the public dense
+stages is future red-sliced work; `execution.backend` is accepted and
+end-to-end inert for `mmode` today, and `A3`'s `claims_not_licensed`
+must carry that third deferral alongside the two
+accepted-capability deferrals.
 
 The only nullable value anywhere in the benchmark document is
 `measured_native_peak_bytes`. If it is an integer, its adjacent reason is
@@ -2777,7 +2895,12 @@ maximum_relative_deviation = maximum_absolute_deviation_jy/S_backend
 
 and every
 cell's `abs(candidate-reference) <= atol_jy + rtol*abs(reference)` and both
-retained maxima. The NumPy row self-references and has exact-zero deviations.
+retained maxima. The NumPy row self-references and has exact-zero deviations; at this
+phase every row's deviations are exactly zero because the dense path is
+backend-invariant, so this row-level comparison restates the
+`dense_invariance` fact in comparison form and licenses no
+computed-parity claim — computed parity lives only in the kernel
+blocks' `stage_comparison` objects.
 All counts equal `K`, all cells are finite, and `pass` is true. The separate M2
 complex64 row and its Section 9 predicate remain required but are not
 substituted into this standard-complex128 performance inventory.
@@ -2787,6 +2910,7 @@ Every workload row carries this exact lexicographically sorted array:
 ```text
 general_speedup
 gpu_or_accelerator_support
+mmode_end_to_end_backend_execution
 perf001_evidence_or_closure
 performance_regression_gate
 unmeasured_workloads
@@ -3814,9 +3938,10 @@ wrapper leaves every direct path byte-identical before M2 starts.
   upstream certificate line)
 - `docs/development/sci004_mmode_phase3_red_failures.json` (new)
 - `tests/unit/test_sci004_phase3_red_failures.py` (new validator)
-- `tests/performance/test_sci004_mmode.py` (the pinned fixture-product
-  literals only: align the nine-row product pin to the amended Section
-  11 three point groups — a red-oracle edit, so it belongs to an `R`
+- `tests/performance/test_sci004_mmode.py` (the pinned fixture-product,
+  workload-row-key-set, and claims-array
+  literals only: align them to the amended Section
+  11 — red-oracle edits, so they belong to an `R`
   commit under this section's own rule; the closed `R2` list's own
   grant of this path belonged to the accepted M2 phase and conveys
   nothing to `R3`)
@@ -3853,9 +3978,13 @@ wrapper leaves every direct path byte-identical before M2 starts.
   its exact Section 8 message before any solver work; no other solver
   change)
 - `src/radiosim/benchmarks/__init__.py` (the `SCI004_FIXTURE_IDS`
-  constant and its dependent fixture literals only: align the Section 11
-  performance-record fixture product to the accepted-capability
-  envelope's three point groups; the closed `S2` list's own grant of
+  constant, its dependent fixture literals, and the
+  `SCI004_WORKLOAD_KEYS` and claims-array literals only: align the
+  Section 11
+  performance-record fixture product and row schema to the
+  accepted-capability
+  envelope and the honest backend axis; the closed `S2` list's own
+  grant of
   this path belonged to the accepted M2 phase and conveys nothing to
   `S3`)
 
