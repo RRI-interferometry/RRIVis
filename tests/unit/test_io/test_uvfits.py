@@ -876,7 +876,16 @@ SCI004_PHASE3_RED_GREEN_CONTROLS: tuple[str, ...] = (_PHASE3_UVFITS_GREEN_CONTRO
 
 
 def test_an_mmode_result_round_trips_through_uvfits(tmp_path: Path) -> None:
-    """Section 10: four correlation products, zenith phase centre, m-mode arm."""
+    """Section 10: four correlation products, zenith phase centre, m-mode arm.
+
+    "UVFITS/MS keep the canonical zenith phase centre" is a statement about
+    what the file *retains*, not about the frame it is phased to.  UVFITS has
+    no altaz phase model, so the projection is a fixed ICRS reference -- the
+    accepted ``ProjectedPhaseCenter`` fixes ``frame`` as the exact literal
+    ``icrs`` and refuses anything else -- and the canonical zenith drift is kept
+    beside it, byte for byte, in ``original_phase_snapshot``.  Both halves are
+    asserted here, because only the pair is the requirement.
+    """
     from radiosim.core.result import MMODE_SOLVER_SNAPSHOT_KEYS
     from tests.unit.test_io.test_standard_visibility import build_mmode_result
 
@@ -890,7 +899,11 @@ def test_an_mmode_result_round_trips_through_uvfits(tmp_path: Path) -> None:
     assert len(loaded.correlations) == 4
     assert loaded.visibilities.shape[-1] == 4
     assert loaded.source_scientific_sha256 == result.scientific_sha256
-    assert loaded.phase_center.frame == "altaz"
+    assert loaded.phase_center.frame == "icrs"
+    assert dict(loaded.phase_center.original_phase_snapshot) == dict(
+        result.phase_center.to_snapshot()
+    )
+    assert loaded.phase_center.original_phase_snapshot["kind"] == "zenith_drift"
 
     record, _lines = projection_record_from_history("\n".join(loaded.history))
     solver = record["solver"]

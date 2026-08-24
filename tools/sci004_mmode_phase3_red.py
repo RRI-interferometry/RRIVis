@@ -35,18 +35,26 @@ observed failure does not match aborts before a byte is written. Section 13.7's
 rule that a record must never claim ``expected-red-confirmed`` "against a tree
 where nothing is red" is enforced here mechanically, not by convention.
 
-**The phase unlock and the ``G3`` gate.** The retained M2 acceptance record
-carries a null self SHA with the reason "self-reference: the next R or C binds
-the containing A commit". This slice is that next ``R``, so the generator
-authenticates ``A2`` from Git objects -- single-parent non-merge, parent exactly
-``E2``, carrying the accepted ``ACCEPT`` artifact -- before writing anything.
-Section 14.4 makes ``R3^ == G3`` an unstarred sole direct-parent edge and
-Section 13.2 makes ``G3`` a globally clean tip with the accepted SCI-004 ``A2``
-and the accepted SCI-005 Stage-2 ``A2`` as inclusive ancestors, so the
-observation tree is exactly ``G3`` and any other ``HEAD`` is refused. The
-frozen bindings are read from ``tests/unit/test_sci004_phase3_dependency.py``,
-which Section 14.0 names as this phase's single site for them, rather than
-copied here where they could silently diverge.
+**The phase unlock and the starred ``G3 -> R3`` edge.** The retained M2
+acceptance record carries a null self SHA with the reason "self-reference: the
+next R or C binds the containing A commit". This slice is that next ``R``, so
+the generator authenticates ``A2`` from Git objects -- single-parent non-merge,
+parent exactly ``E2``, carrying the accepted ``ACCEPT`` artifact -- before
+writing anything.
+
+Section 14.4's edge is now ``G3 ->* R3``. The accepted 2026-08-24
+accepted-capability-characterization-envelope correction reopened the first
+phase-3 red slice and, per Section 13.7's reopened-phase rule, the re-cut
+``R3`` directly parents that correction's landing. The observation tree is
+therefore the operative ``D`` and any other ``HEAD`` is refused, and the starred
+interval is authenticated exhaustively rather than by a membership test:
+``G3..D`` must be exactly the superseded red slice, the superseded un-ignoring
+correction, and the operative landing, each a single-parent non-merge. Section
+13.7's "A commit the header does not name invalidates the edge" is enforced as
+an equality on that range. The frozen bindings are read from
+``tests/unit/test_sci004_phase3_dependency.py``, which Section 14.0 names as
+this phase's single site for them, rather than copied here where they could
+silently diverge.
 
 **What the record is, and is not.** It records that a named set of nodes failed
 in a named way at a named clean source SHA, that every protected path outside
@@ -383,19 +391,19 @@ def _authenticate_phase_unlock(observation_sha: str) -> None:
     is read from the ``A2`` tree rather than from the checkout, and its verdict
     is required to be ``ACCEPT``.
 
-    Section 14.4's ``R3^ == G3`` is an unstarred sole direct-parent edge, and
-    Section 13.2 makes ``G3`` an inclusive-ancestry tip whose later named
-    dependency is the SCI-004 ``A2`` itself, so the observation tree is exactly
-    that commit.  The two facts are asserted rather than assumed: the interval
-    from ``A2`` to ``G3`` is required to be empty of merges and of any commit at
-    all, which is what "ancestry is inclusive" means when the tip *is* the
-    unlock.
+    Section 14.4's edge is ``G3 ->* R3``: the accepted correction that reopened
+    the first phase-3 red slice makes the re-cut ``R3`` directly parent that
+    correction's landing, so the observation tree is the operative ``D``.  The
+    starred interval is authenticated exhaustively, and ``G3`` itself is still
+    required to carry both named dependencies as inclusive ancestors.
     """
     acceptance = _frozen_binding("APPROVED_SCI004_A2_SHA")
     evidence = _frozen_binding("APPROVED_SCI004_E2_SHA")
     design = _frozen_binding("APPROVED_SCI004_D_SHA")
     gate = _frozen_binding("APPROVED_SCI004_G3_SHA")
     upstream = _frozen_binding("APPROVED_SCI005_STAGE2_A_SHA")
+    superseded_red = _frozen_binding("SUPERSEDED_RED_SLICE_SHA")
+    un_ignoring = _frozen_binding("D16_SHA")
 
     peeled = _git("rev-parse", "--verify", f"{acceptance}^{{commit}}").strip()
     if peeled != acceptance:
@@ -405,12 +413,13 @@ def _authenticate_phase_unlock(observation_sha: str) -> None:
         raise RedRecordError(
             f"A2 must directly parent E2 {evidence}; its parents are {parents}"
         )
-    if observation_sha != gate:
+    if observation_sha != design:
         raise RedRecordError(
-            f"HEAD is {observation_sha}; Section 14.4 makes R3 directly parent the "
-            f"gate tip G3 {gate}, so the record is generated at exactly that tree"
+            f"HEAD is {observation_sha}; Section 14.4's starred G3 -> R3 edge makes "
+            f"the re-cut R3 directly parent the operative D {design}, so the record "
+            "is generated at exactly that tree"
         )
-    for ancestor in (acceptance, upstream, design):
+    for ancestor in (acceptance, upstream):
         completed = subprocess.run(
             ["git", "merge-base", "--is-ancestor", ancestor, gate],
             cwd=REPOSITORY_ROOT,
@@ -419,11 +428,35 @@ def _authenticate_phase_unlock(observation_sha: str) -> None:
         )
         if completed.returncode != 0:
             raise RedRecordError(f"{ancestor} is not an ancestor of G3 {gate}")
-    interval = _git("rev-list", "--first-parent", f"{acceptance}..{gate}").split()
-    if interval:
+    if _git("rev-list", "--first-parent", f"{acceptance}..{gate}").split():
+        raise RedRecordError("the A2..G3 interval must be empty; G3 is the unlock")
+    expected_interval = (superseded_red, un_ignoring, design)
+    for flags in (("--first-parent", "--reverse"), ("--reverse",)):
+        observed = tuple(_git("rev-list", *flags, f"{gate}..{design}").split())
+        if observed != expected_interval:
+            raise RedRecordError(
+                f"the starred G3..D interval is {observed}, not the enumerated "
+                f"{expected_interval}; an unenumerated commit invalidates the edge"
+            )
+    previous = gate
+    for sha in expected_interval:
+        if _git("rev-parse", "--verify", f"{sha}^{{commit}}").strip() != sha:
+            raise RedRecordError(f"{sha} does not peel to itself")
+        if tuple(_git("rev-list", "--parents", "-n", "1", sha).split()[1:]) != (
+            previous,
+        ):
+            raise RedRecordError(f"{sha} is not a single-parent child of {previous}")
+        previous = sha
+    if _diff_tree_paths(superseded_red) != R3_AUTHORIZED_PATHS:
         raise RedRecordError(
-            f"the A2..G3 interval is {interval}; this gate tip is the unlock itself"
+            "the superseded red slice must touch exactly the Section 13.5 R3 list"
         )
+    for sha in (un_ignoring, design):
+        if _diff_tree_paths(sha) != (
+            "PostTier8RemediationPlan.md",
+            "docs/development/sci004_mmode_design.md",
+        ):
+            raise RedRecordError(f"{sha} is not a design-only correction landing")
 
     listing = _git("ls-tree", acceptance, "--", M2_ACCEPTANCE_PATH).split()
     if not listing:
@@ -437,11 +470,16 @@ def _authenticate_phase_unlock(observation_sha: str) -> None:
     artifact = json.loads(blob.decode("utf-8"))
     if artifact.get("phase") != "M2" or artifact.get("verdict") != "ACCEPT":
         raise RedRecordError("the retained M2 acceptance artifact is not an ACCEPT")
-    if artifact.get("design_sha") != design:
+    # Section 13.7: an accepted artifact is immutable, so it still names the
+    # ``D`` operative at its own phase -- two corrections back.
+    superseded_design = _frozen_binding("D15_SHA")
+    if artifact.get("design_sha") != superseded_design:
         raise RedRecordError(
             f"the M2 acceptance artifact names {artifact.get('design_sha')!r}, not the "
-            f"operative D {design}"
+            f"superseded operative D {superseded_design}"
         )
+    if superseded_design == design:
+        raise RedRecordError("the superseded and operative D bindings must differ")
     if artifact.get("acceptance_commit_sha") is not None:
         raise RedRecordError("the M2 acceptance artifact must carry a null self SHA")
 
@@ -594,14 +632,26 @@ _QUALIFIED_NAME = re.compile(
 )
 
 
+#: Bare crash-line names whose defining module is not ``builtins``.
+#: ``pytest.raises`` reports a missing exception with its own outcome class,
+#: whose module is ``_pytest.outcomes``; recording it as ``builtins.Failed``
+#: would name a class that does not exist.
+_BARE_NAME_MODULES: Mapping[str, str] = {"Failed": "_pytest.outcomes"}
+
+
+def _qualify(name: str) -> str:
+    if "." in name:
+        return name
+    return f"{_BARE_NAME_MODULES.get(name, 'builtins')}.{name}"
+
+
 def _exception_type(declared: str | None, first_line: str) -> str:
     """Derive the fully qualified exception class Section 14.1 requires."""
     if declared:
-        return declared if "." in declared else f"builtins.{declared}"
+        return _qualify(declared)
     match = _QUALIFIED_NAME.match(first_line)
     if match is not None:
-        name = match.group("name")
-        return name if "." in name else f"builtins.{name}"
+        return _qualify(match.group("name"))
     if first_line.startswith("assert"):
         return "builtins.AssertionError"
     raise RedRecordError(

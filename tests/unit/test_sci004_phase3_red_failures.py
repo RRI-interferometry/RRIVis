@@ -222,6 +222,10 @@ ABSENT_PHASE3_CAPABILITIES: tuple[tuple[str, str], ...] = (
     ("src/radiosim/io/measurement_set.py", "mmode"),
     ("docs/api/io.rst", "mmode"),
     ("docs/user_guide/configuration_support.rst", "mmode"),
+    # The two Section 8 public-path guards the accepted correction ruled. Their
+    # absence is what the two rejection oracles record.
+    ("src/radiosim/core/mmode/solver.py", "mmode_public_components"),
+    ("src/radiosim/core/mmode/solver.py", "mmode_public_beam"),
 )
 
 #: The two defects the output oracles measure, present at the observation tree.
@@ -236,6 +240,11 @@ PRESENT_PHASE3_DEFECTS: tuple[tuple[str, str], ...] = (
         "src/radiosim/io/summary_json.py",
         "minimum of cadence_seconds and remaining observation duration",
     ),
+    # The measured root cause of the accepted correction's narrowing: the public
+    # solve path builds a point component and nothing else, which is why a
+    # HEALPix-bearing sky publishes an identically zero cube instead of being
+    # refused.
+    ("src/radiosim/core/mmode/solver.py", 'components=("point",)'),
 )
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -449,21 +458,23 @@ def test_the_record_carries_the_exact_top_level_key_set(
 def test_the_record_binds_the_frozen_design_and_its_exact_observation_tree(
     record: dict[str, Any],
 ) -> None:
-    """Section 14.0/14.4: ``design_sha`` is the binding, and ``R3^ == G3``.
+    """Section 14.0/14.4: ``design_sha`` is the binding, and the edge is starred.
 
-    Section 14.4's ``R3^==G3`` is an unstarred sole direct-parent edge, so the
-    tree the observations were made from is the gate tip exactly. The operative
-    ``D`` precedes it through the header-enumerated chain the dependency
-    validator authenticates.
+    Section 14.4 now reads ``G3 ->* R3``: the accepted correction that reopened
+    the first phase-3 red slice makes the re-cut ``R3`` directly parent that
+    correction's landing, so the tree the observations were made from is the
+    operative ``D`` and the two fields are the same commit.  ``G3`` stands
+    behind it through the enumerated interval the dependency validator
+    authenticates exhaustively.
     """
     assert record["design_sha"] == APPROVED_SCI004_D_SHA
 
     observed = str(record["pre_fix_source_sha"])
     assert _SHA1.match(observed) is not None
-    assert observed == APPROVED_SCI004_G3_SHA
-    assert observed == APPROVED_SCI004_A2_SHA
+    assert observed == APPROVED_SCI004_D_SHA
     assert _peel_to_commit(observed) == observed
-    assert _is_ancestor(APPROVED_SCI004_D_SHA, observed)
+    assert _is_ancestor(APPROVED_SCI004_G3_SHA, observed)
+    assert _is_ancestor(APPROVED_SCI004_A2_SHA, observed)
 
 
 def test_the_observation_tree_genuinely_lacks_every_phase_three_capability(
@@ -509,7 +520,15 @@ def test_the_protected_source_is_declared_clean_and_the_diff_is_authorized(
     assert paths == sorted(set(paths))
     assert set(paths) <= R3_AUTHORIZED_PATHS
     assert RECORD_PATH in paths
-    assert CERTIFICATE_PATH in paths
+    # The retained SCI-005 certificate is *not* in this list, and must not be:
+    # the superseded red slice already committed those exact bytes and the
+    # governed re-cut does not touch them, so they are unchanged rather than
+    # newly authorized.  Section 13.2's retention requirement is a statement
+    # about the bytes, which is what is checked here.
+    assert CERTIFICATE_PATH not in paths
+    retained = REPOSITORY_ROOT / CERTIFICATE_PATH
+    assert retained.is_file() and not retained.is_symlink()
+    assert retained.read_bytes() == _tree_blob("HEAD", CERTIFICATE_PATH)
 
 
 def test_the_environment_object_is_exactly_section_14_2s(
@@ -733,14 +752,55 @@ def test_the_five_output_writers_each_carry_at_least_one_case(
 
 
 def test_every_section_11_family_has_its_own_case(record: dict[str, Any]) -> None:
-    """Section 12.2's tenth family: "every new family" is a per-family obligation."""
+    """Section 12.2's tenth family: "every new family" is a per-family obligation.
+
+    The set is the accepted four-family envelope. The three families the
+    correction removed must not reappear: two of them published identically zero
+    cubes through the public path and one silently dropped its diffuse half, so
+    a case naming them would pin a run that characterizes nothing.
+    """
     from tests.characterization.test_sci004_mmode import SECTION_11_FAMILIES
 
     identifiers = {str(case["case_id"]) for case in record["cases"]}
 
-    assert len(SECTION_11_FAMILIES) == 7
+    assert len(SECTION_11_FAMILIES) == 4
+    assert SECTION_11_FAMILIES == (
+        "mmode_single_scalar_mode",
+        "mmode_point_stokes_i",
+        "mmode_point_full_stokes",
+        "mmode_circular_receptor",
+    )
     for family_id in SECTION_11_FAMILIES:
         assert f"m3.characterization.family-record.{family_id}" in identifiers
+    for removed in (
+        "mmode_healpix_stokes_i",
+        "mmode_healpix_full_stokes",
+        "mmode_hybrid_full_stokes",
+        "mmode_nonscalar_east_x",
+    ):
+        assert f"m3.characterization.family-record.{removed}" not in identifiers
+
+
+def test_both_section_8_public_path_rejections_have_their_own_case(
+    record: dict[str, Any],
+) -> None:
+    """Section 11's deferral paragraph: the public path *rejects* rather than
+    silently producing a vacuous or half-dropped result.
+
+    "The public path rejects a HEALPix-bearing payload and a non-scalar resolved
+    beam system with the Section 8 typed issues before any work."  Both
+    rejections are red here, and their observed failures are deliberately
+    different: one records that nothing is raised at all, the other that an
+    untyped beam error is raised instead of the typed one.
+    """
+    by_id = {str(case["case_id"]): case for case in record["cases"]}
+
+    components = by_id["m3.rejection.public-components"]
+    beam = by_id["m3.rejection.public-beam"]
+    assert components["expected_failure_kind"] == "assertion"
+    assert "DID NOT RAISE" in str(components["observed_message"])
+    assert beam["expected_failure_kind"] == "exception"
+    assert "BeamEvaluationError" in str(beam["observed_exception_type"])
 
 
 def test_the_retained_earlier_red_records_are_untouched_by_this_slice() -> None:

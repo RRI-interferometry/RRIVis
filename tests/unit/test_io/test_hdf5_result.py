@@ -3013,7 +3013,14 @@ def test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it(
 def test_the_mmode_scientific_and_provenance_fingerprints_survive_hdf5(
     tmp_path: Path,
 ) -> None:
-    """Section 12.2's ninth family: the round trip keeps fingerprint metadata."""
+    """Section 12.2's ninth family: the round trip keeps fingerprint metadata.
+
+    The root digest attributes are the schema's inspectable fixed-width UTF-8
+    text, so ``h5py`` hands them back as ``bytes``; the accepted reader idiom is
+    the decode-or-str form ``tests/integration/test_cli_end_to_end.py`` uses on
+    the same attribute.  Reading them any other way tests the reader's own
+    string formatting rather than the file.
+    """
     from tests.unit.test_io.test_standard_visibility import build_mmode_result
 
     result = build_mmode_result(tmp_path)
@@ -3026,4 +3033,12 @@ def test_the_mmode_scientific_and_provenance_fingerprints_survive_hdf5(
     assert loaded.provenance_sha256 == result.provenance_sha256
     with h5py.File(target, "r") as handle:
         stored = handle.attrs["scientific_sha256"]
-    assert str(stored) == result.scientific_sha256
+        stored_provenance = handle.attrs["provenance_sha256"]
+    decoded = stored.decode() if isinstance(stored, bytes) else str(stored)
+    decoded_provenance = (
+        stored_provenance.decode()
+        if isinstance(stored_provenance, bytes)
+        else str(stored_provenance)
+    )
+    assert decoded == result.scientific_sha256
+    assert decoded_provenance == result.provenance_sha256

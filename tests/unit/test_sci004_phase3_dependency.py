@@ -45,13 +45,20 @@ file.
 ``R3`` is the commit this file is committed in, so its SHA cannot be a frozen
 constant -- the same self-reference Section 14.1 handles with a null
 ``red_commit_sha``. The ``R3`` replay anchor is therefore *derived* from Git
-rather than declared: it is the unique first-parent commit after ``G3`` that
-adds this validator. Before that commit exists the anchor is ``HEAD``, which
-Section 14.4's ``R3^==G3`` forces to be ``G3`` itself, and the module says so in
-:func:`test_the_r3_replay_anchor_is_the_commit_that_adds_this_validator` rather
-than pretending a not-yet-existing commit was replayed. After the commit exists
--- at ``R3`` and at every later tip of the phase -- the anchor is exactly ``R3``
-and the second replay is exactly the ruled one.
+rather than declared, and the derivation is itself ruled: it is the first
+first-parent commit *after the operative* ``D``, whose parent must be exactly
+that commit. Section 13.2 now reads "``R3^==G3`` unless a Section 13.7 accepted
+correction stars the ``G3 -> R3`` edge, in which case ``R3`` directly parents
+the operative correction commit", and this file is the re-cut that edge
+produced. The superseded derivation -- the first commit after ``G3`` that
+*added* this validator -- resolves the reopened red slice ``62a7d3d9…`` as an
+immutable Git fact forever and would silently authenticate it; the accepted
+correction's mandate says so in those words, so the live derivation searches
+strictly after the operative ``D``, where the superseded slice cannot appear.
+Before the re-cut commit exists the anchor is ``HEAD``, which the same rule
+forces to be the operative ``D`` itself, and the module says so in
+:func:`test_the_r3_replay_anchor_is_the_live_child_of_the_operative_correction`
+rather than pretending a not-yet-existing commit was replayed.
 
 **A design-text tension, resolved the way the M1 precedent resolved its own.**
 Section 13.2 closes with "Neither gate tip contains a new SCI-004 red, source,
@@ -102,8 +109,9 @@ from tests.unit.test_sci004_phase1_dependency import (
 #: exactly as Section 14.0 requires: "R1's dependency validator,
 #: ``tests/unit/test_sci004_phase2_red_failures.py`` at R2, and R3's dependency
 #: validator each freeze the exact assignment ``APPROVED_SCI004_D_SHA=...``".
-#: It is the accepted 2026-08-24 description-follows-the-capability correction.
-APPROVED_SCI004_D_SHA = "b9a9d7a8a49974bae4634f24fbc805077cdc4ef8"
+#: It is the accepted 2026-08-24 accepted-capability-characterization-envelope
+#: correction, which reopened the superseded red slice this file is re-cut from.
+APPROVED_SCI004_D_SHA = "53ee53c3b829512ef02f81215238090be63937d9"
 
 #: The globally clean programme tip ``G3`` (Section 13.2). Ancestry is
 #: inclusive, and this tip is the later of the two named dependency commits --
@@ -144,6 +152,31 @@ A2_AUTHORIZED_PATHS: tuple[str, ...] = (
     M2_ACCEPTANCE_PATH,
     M2_ACCEPTANCE_VALIDATOR_PATH,
 )
+
+#: Section 13.5's complete ``R3`` writable list.  The derived anchor's own diff
+#: is checked against it, so a first child that is not this phase's red slice is
+#: refused rather than replayed.
+R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
+    {
+        "docs/development/sci004_mmode_phase3_red_failures.json",
+        "docs/development/sci004_mmode_phase3_sci005_dependency.json",
+        "tests/characterization/test_sci004_mmode.py",
+        "tests/unit/test_io/test_hdf5_result.py",
+        "tests/unit/test_io/test_measurement_set.py",
+        "tests/unit/test_io/test_result_summary.py",
+        "tests/unit/test_io/test_standard_visibility.py",
+        "tests/unit/test_io/test_uvfits.py",
+        "tests/unit/test_sci004_phase3_dependency.py",
+        "tests/unit/test_sci004_phase3_red_failures.py",
+        "tests/unit/test_tier8_release_acceptance.py",
+        "tools/sci004_mmode_phase3_red.py",
+    }
+)
+
+#: The superseded phase-3 red slice the accepted correction reopened.  It is an
+#: interval commit of the starred ``G3 -> R3`` edge and must never be resolved
+#: as the live anchor.
+SUPERSEDED_RED_SLICE_SHA = "62a7d3d90dcbf0488e8b7c875ae5f95acba007b6"
 
 #: The retained phase-M2 acceptance artifact, by raw digest.
 M2_ACCEPTANCE_SHA256 = (
@@ -198,7 +231,7 @@ _PATH_FIELDS: tuple[str, ...] = (
 )
 
 #: The operative-``D`` memo blob.
-D_MEMO_BLOB_SHA256 = "a4df523709a88cb985dfed052915c43ee464feda02b6a5fd0a68c16c6345497c"
+D_MEMO_BLOB_SHA256 = "450179d46552934dc064b71bf463adbafcbdef3a9c3f11854f9b3b7a87438183"
 
 #: Section 13.7's ``D0 -> D`` chain continues past the eleven links the M1
 #: dependency validator froze. These are the six that landed after ``A1``:
@@ -275,14 +308,45 @@ D14_PRE_LANDING_DIFF_SHA256 = (
     "b24dd5616e669f74c6e1be93738f1aa91d402b7780b3a3051ffbab7b927dfb6a"
 )
 
-D_LANDED_MEMO_DIFF_SHA256 = (
+D15_SHA = "b9a9d7a8a49974bae4634f24fbc805077cdc4ef8"
+D15_MEMO_BLOB_SHA256 = (
+    "a4df523709a88cb985dfed052915c43ee464feda02b6a5fd0a68c16c6345497c"
+)
+D15_LANDED_MEMO_DIFF_SHA256 = (
     "e0e6cea99069ff22fecc4280c0c87008c0d134d44b3af75c9a32064d5f577113"
 )
-D_PRE_LANDING_FILE_SHA256 = (
+D15_PRE_LANDING_FILE_SHA256 = (
     "be58258c75cdf88e4d838e4fe7753a415d642295e328ba86a3508f540bfc297e"
 )
-D_PRE_LANDING_DIFF_SHA256 = (
+D15_PRE_LANDING_DIFF_SHA256 = (
     "d64a4de836331186c3eaa69b45a3d9bdb4b9879ff353e9705b1c47dfb9724d85"
+)
+
+D16_SHA = "e7902d04ce042bd3a16ab9ae3a336695e971db81"
+D16_MEMO_BLOB_SHA256 = (
+    "4b82759ff2bb6c1337829ed6fd901394453c87beb13c4b7f00592409f38c98af"
+)
+D16_LANDED_MEMO_DIFF_SHA256 = (
+    "0d7dc33248dcb91029c57a56a79944de5d7e05fa0923e1ac40a2ca03862cccb3"
+)
+D16_PRE_LANDING_FILE_SHA256 = (
+    "20e104fe73130431ca1122905d3e99a9236981fe5cba067f6601008a15c121ea"
+)
+D16_PRE_LANDING_DIFF_SHA256 = (
+    "ce79e0ec83552f8453968ef08ce70e6a28d439ca7dc202df02beda0d67270752"
+)
+
+D_MEMO_BLOB_SHA256_OPERATIVE = (
+    "450179d46552934dc064b71bf463adbafcbdef3a9c3f11854f9b3b7a87438183"
+)
+D_LANDED_MEMO_DIFF_SHA256 = (
+    "119109f12fb436b540efe06d843060ac44166c776d4effb3d53868782d431519"
+)
+D_PRE_LANDING_FILE_SHA256 = (
+    "6ea19f19ee1d368687043477140b7d938d4668ec2aca0c7123a824484f3a0d4d"
+)
+D_PRE_LANDING_DIFF_SHA256 = (
+    "dec9df0fb5b37edcb87067092288f74bc92861c6163a08a0344cc0246819739a"
 )
 
 #: The ``D0 -> operative D`` chain past ``A1``, oldest first. Section 13.7's
@@ -329,11 +393,27 @@ SCI004_DESIGN_CHAIN_CONTINUATION: tuple[_DesignCommit, ...] = (
         landed_memo_diff_sha256=D14_LANDED_MEMO_DIFF_SHA256,
     ),
     _DesignCommit(
+        sha=D15_SHA,
+        kind="superseded design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D15_MEMO_BLOB_SHA256,
+        label="the description follows the accepted capability",
+        landed_memo_diff_sha256=D15_LANDED_MEMO_DIFF_SHA256,
+    ),
+    _DesignCommit(
+        sha=D16_SHA,
+        kind="superseded design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D16_MEMO_BLOB_SHA256,
+        label="un-ignoring the granted reference records",
+        landed_memo_diff_sha256=D16_LANDED_MEMO_DIFF_SHA256,
+    ),
+    _DesignCommit(
         sha=APPROVED_SCI004_D_SHA,
         kind="operative design",
         allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
         memo_blob_sha256=D_MEMO_BLOB_SHA256,
-        label="the description follows the accepted capability",
+        label="the accepted-capability characterization envelope",
         landed_memo_diff_sha256=D_LANDED_MEMO_DIFF_SHA256,
     ),
 )
@@ -359,6 +439,7 @@ SCI004_DESIGN_CHAIN: tuple[_DesignCommit, ...] = (
 #: the only such commit inside this range.
 NON_CHAIN_ACCEPTANCE_SHAS: tuple[str, ...] = (
     "445bc83edcf7073511c41b3485ad5d326d4e1552",
+    APPROVED_SCI004_A2_SHA,
 )
 
 #: The pre-landing review pins the six continuation records carry. They were
@@ -369,6 +450,8 @@ CONTINUATION_REVIEW_PINS: tuple[tuple[str, str], ...] = (
     (D12_PRE_LANDING_FILE_SHA256, D12_PRE_LANDING_DIFF_SHA256),
     (D13_PRE_LANDING_FILE_SHA256, D13_PRE_LANDING_DIFF_SHA256),
     (D14_PRE_LANDING_FILE_SHA256, D14_PRE_LANDING_DIFF_SHA256),
+    (D15_PRE_LANDING_FILE_SHA256, D15_PRE_LANDING_DIFF_SHA256),
+    (D16_PRE_LANDING_FILE_SHA256, D16_PRE_LANDING_DIFF_SHA256),
     (D_PRE_LANDING_FILE_SHA256, D_PRE_LANDING_DIFF_SHA256),
 )
 
@@ -601,46 +684,70 @@ class _ReplayAnchor(NamedTuple):
 
 
 def resolve_r3_replay_anchor() -> _ReplayAnchor:
-    """Return the ``R3`` replay anchor, derived from Git rather than declared.
+    """Return the live ``R3`` replay anchor, derived from Git rather than declared.
 
     ``R3`` is the commit that contains this file, so it cannot be a frozen
     constant here -- the same self-reference Section 14.1 answers with a null
-    ``red_commit_sha``. It is instead the unique first-parent commit after
-    ``G3`` that *adds* this validator; Section 14.4's ``R3^==G3`` is asserted on
-    it. Until that commit exists the anchor is ``HEAD``, which the same rule
-    forces to be ``G3``.
+    ``red_commit_sha``.  It is derived instead, and *how* it is derived is
+    itself a ruled fact.
+
+    The superseded derivation asked which first-parent commit after ``G3``
+    *added* this validator.  That question has one answer forever: the
+    superseded red slice ``62a7d3d9…``, which added the file and whose parent
+    genuinely is ``G3``.  The accepted 2026-08-24
+    accepted-capability-characterization-envelope correction reopened that slice
+    and recorded the consequence in its own mandate -- the ``--diff-filter=A``
+    derivation "resolves the superseded add-commit as an immutable git fact
+    forever and would silently authenticate it".  A re-cut validator that kept
+    it would replay a commit the memo has superseded while reporting success.
+
+    The live derivation follows the starred edge instead.  Section 13.7's
+    reopened-phase rule and Section 14.4 make the re-cut ``R3`` the direct child
+    of the operative correction commit -- Section 13.2's ``R3^==G3`` now reads
+    "unless a Section 13.7 accepted correction stars the ``G3 -> R3`` edge, in
+    which case ``R3`` directly parents the operative correction commit" -- so
+    the anchor is the first commit on the first-parent chain *after* the
+    operative ``D``, and its parent is required to be exactly that commit.  The
+    superseded slice is an ancestor of the operative ``D`` and therefore outside
+    the search range entirely, which is what makes the substitution impossible
+    rather than merely unlikely.
+
+    Until the re-cut commit exists the anchor is ``HEAD``, which the same rule
+    forces to be the operative ``D`` itself.
     """
     head = _peel_to_commit("HEAD")
-    if not _is_ancestor(APPROVED_SCI004_G3_SHA, head):
+    if not _is_ancestor(APPROVED_SCI004_D_SHA, head):
         raise DependencyCertificateError(
-            f"G3 {APPROVED_SCI004_G3_SHA} is not an ancestor of HEAD {head}"
+            f"the operative D {APPROVED_SCI004_D_SHA} is not an ancestor of HEAD "
+            f"{head}; the live R3 replay anchor cannot be derived"
         )
-    introductions = _git(
-        "log",
+    successors = _git(
+        "rev-list",
         "--first-parent",
         "--reverse",
-        "--format=%H",
-        "--diff-filter=A",
-        f"{APPROVED_SCI004_G3_SHA}..{head}",
-        "--",
-        DEPENDENCY_VALIDATOR_PATH,
+        f"{APPROVED_SCI004_D_SHA}..{head}",
     ).split()
-    if not introductions:
-        if head != APPROVED_SCI004_G3_SHA:
+    if not successors:
+        if head != APPROVED_SCI004_D_SHA:
             raise DependencyCertificateError(
-                f"HEAD {head} is past G3 but adds no {DEPENDENCY_VALIDATOR_PATH}; "
-                "the R3 replay anchor cannot be derived"
+                f"HEAD {head} is past the operative D with no first-parent "
+                "successor; the live R3 replay anchor cannot be derived"
             )
         return _ReplayAnchor(commit=head, role="pre-commit-authoring-tip")
-    if len(introductions) != 1:
-        raise DependencyCertificateError(
-            f"{DEPENDENCY_VALIDATOR_PATH} is added by {introductions}, not once"
-        )
-    anchor = introductions[0]
+    anchor = successors[0]
     parents = _commit_parents(anchor)
-    if parents != (APPROVED_SCI004_G3_SHA,):
+    if parents != (APPROVED_SCI004_D_SHA,):
         raise DependencyCertificateError(
-            f"Section 14.4 requires R3^ == G3; {anchor} parents {parents}"
+            "Section 13.2's starred G3 -> R3 edge requires the re-cut R3 to "
+            f"directly parent the operative correction commit "
+            f"{APPROVED_SCI004_D_SHA}; {anchor} parents {parents}"
+        )
+    touched = _changed_paths(anchor)
+    outside = [path for path in touched if path not in R3_AUTHORIZED_PATHS]
+    if outside or DEPENDENCY_VALIDATOR_PATH not in touched:
+        raise DependencyCertificateError(
+            f"the derived R3 anchor {anchor} touches {touched}, which is not a "
+            "Section 13.5 R3 slice containing this validator"
         )
     return _ReplayAnchor(commit=anchor, role="r3")
 
@@ -801,7 +908,7 @@ def test_the_phase_three_binding_advances_the_r1_binding_through_the_chain() -> 
     assert M1_DESIGN_CHAIN[-1].sha == R1_APPROVED_SCI004_D_SHA
     assert APPROVED_SCI004_D_SHA != R1_APPROVED_SCI004_D_SHA
     assert _is_ancestor(R1_APPROVED_SCI004_D_SHA, APPROVED_SCI004_D_SHA)
-    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 6
+    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 8
     assert SCI004_DESIGN_CHAIN[-1].sha == APPROVED_SCI004_D_SHA
 
 
@@ -814,31 +921,41 @@ def test_the_operative_design_commit_peels_and_is_a_single_parent_non_merge() ->
     assert _peel_to_commit(f"{APPROVED_SCI004_D_SHA}^") == parents[0]
 
 
-def test_the_operative_design_commit_precedes_this_phases_commits() -> None:
-    """Section 14.0: ``D`` is an ancestor of this phase's ``R``/``G`` commits."""
+def test_the_operative_design_commit_follows_the_gate_and_precedes_this_r() -> None:
+    """Section 13.2/14.4: the operative ``D`` *follows* the gate tip.
+
+    The accepted-capability-characterization-envelope correction landed after
+    ``G3`` had already run and after ``A2`` was accepted, which is the shape
+    Section 13.2's gate-anchor rule and Section 14.4's starred ``G3 ->* R3``
+    edge exist for.  The ancestry direction is therefore the reverse of the
+    unstarred one and is asserted in that direction rather than assumed, exactly
+    as the phase-M2 red validator asserts it for its own starred edge.
+    """
     head = _peel_to_commit("HEAD")
 
     assert _is_ancestor(APPROVED_SCI004_D_SHA, head)
-    assert _is_ancestor(APPROVED_SCI004_D_SHA, APPROVED_SCI004_G3_SHA)
-    assert _is_ancestor(APPROVED_SCI004_D_SHA, APPROVED_SCI004_A2_SHA)
+    assert _is_ancestor(APPROVED_SCI004_G3_SHA, APPROVED_SCI004_D_SHA)
+    assert _is_ancestor(APPROVED_SCI004_A2_SHA, APPROVED_SCI004_D_SHA)
+    assert not _is_ancestor(APPROVED_SCI004_D_SHA, APPROVED_SCI004_G3_SHA)
 
 
 def test_the_header_enumerated_chain_from_d0_to_the_operative_d_is_exact() -> None:
     """Section 13.7/14.0: every chain link matches its kind and allowed paths.
 
-    The chain is seventeen links here -- the memo-introducing ``D0``, fifteen
+    The chain is nineteen links here -- the memo-introducing ``D0``, seventeen
     ``superseded design`` corrections, and the operative one -- and the test
-    proves from Git objects that the only *other* commit between ``D0`` and the
-    operative ``D`` that touched the memo is ``A1``, which Section 13.7
-    explicitly rules "is not a chain commit and needs no interval kind".
+    proves from Git objects that the only *other* commits between ``D0`` and the
+    operative ``D`` that touched the memo are ``A1`` and ``A2``, which
+    Section 13.7 explicitly rules "is not a chain commit and needs no interval
+    kind" for an accepted phase acceptance commit inside the range.
     """
-    assert len(SCI004_DESIGN_CHAIN) == 17
+    assert len(SCI004_DESIGN_CHAIN) == 19
     assert SCI004_DESIGN_CHAIN[0].kind == "memo-introducing"
     assert SCI004_DESIGN_CHAIN[-1].kind == "operative design"
     assert [entry.kind for entry in SCI004_DESIGN_CHAIN[1:-1]] == [
         "superseded design"
-    ] * 15
-    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 17
+    ] * 17
+    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 19
 
     for earlier, later in zip(
         SCI004_DESIGN_CHAIN, SCI004_DESIGN_CHAIN[1:], strict=False
@@ -955,7 +1072,14 @@ def test_the_retained_m2_acceptance_artifact_is_an_accept_at_its_exact_digest() 
     assert artifact["schema_version"] == "radiosim.sci004.mmode-phase2-acceptance.v1"
     assert artifact["phase"] == "M2"
     assert artifact["verdict"] == "ACCEPT"
-    assert artifact["design_sha"] == APPROVED_SCI004_D_SHA
+    # Section 13.7: "An accepted artifact is immutable and no commit may touch
+    # one."  It therefore still names the ``D`` operative at its own phase --
+    # the commit two later corrections have since superseded -- and requiring it
+    # to name the new operative ``D`` would demand editing a retained accepted
+    # artifact.
+    assert artifact["design_sha"] == D15_SHA
+    assert artifact["design_sha"] != APPROVED_SCI004_D_SHA
+    assert D15_SHA in {entry.sha for entry in SCI004_DESIGN_CHAIN}
     assert artifact["evidence_commit_sha"] == APPROVED_SCI004_E2_SHA
     assert artifact["acceptance_commit_sha"] is None
     assert artifact["acceptance_commit_sha_reason"] == (
@@ -1232,22 +1356,90 @@ def test_strict_parser_rejects_every_certificate_mutation(
         parse_dependency_certificate(mutated)
 
 
-def test_the_r3_replay_anchor_is_the_commit_that_adds_this_validator() -> None:
-    """Section 14.4's ``R3^==G3``, derived rather than declared.
+def test_the_r3_replay_anchor_is_the_live_child_of_the_operative_correction() -> None:
+    """Section 13.2's starred ``G3 -> R3`` edge, derived rather than declared.
 
-    Before the ``R3`` commit exists the anchor is ``HEAD``, which the same rule
-    forces to equal ``G3``; the two roles are named explicitly so that a reader
-    of a passing run can tell which state produced it.
+    Before the re-cut ``R3`` exists the anchor is ``HEAD``, which the same rule
+    forces to equal the operative ``D``; the two roles are named explicitly so
+    that a reader of a passing run can tell which state produced it.  Either
+    way the anchor is never the superseded red slice, which the correction
+    reopened and which the ``--diff-filter=A`` derivation would have resolved
+    forever.
     """
     anchor = resolve_r3_replay_anchor()
 
     assert anchor.role in ("pre-commit-authoring-tip", "r3")
     assert _peel_to_commit(anchor.commit) == anchor.commit
+    assert anchor.commit != SUPERSEDED_RED_SLICE_SHA
     if anchor.role == "pre-commit-authoring-tip":
-        assert anchor.commit == APPROVED_SCI004_G3_SHA
+        assert anchor.commit == APPROVED_SCI004_D_SHA
     else:
-        assert _commit_parents(anchor.commit) == (APPROVED_SCI004_G3_SHA,)
+        assert _commit_parents(anchor.commit) == (APPROVED_SCI004_D_SHA,)
         assert DEPENDENCY_VALIDATOR_PATH in _changed_paths(anchor.commit)
+        assert set(_changed_paths(anchor.commit)) <= R3_AUTHORIZED_PATHS
+
+
+def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> None:
+    """Section 13.7: "A commit the header does not name invalidates the edge".
+
+    The exhaustive form of that sentence is an equality, not a membership test:
+    the first-parent range ``G3..D`` must be *exactly* the superseded red slice,
+    the superseded un-ignoring correction, and the operative landing,
+    oldest-first, with nothing else in it.  Every commit in the range is also
+    required to be a single-parent non-merge, which is Section 14.4's separate
+    "No commit in either starred first-parent range is a merge".
+    """
+    expected = (SUPERSEDED_RED_SLICE_SHA, D16_SHA, APPROVED_SCI004_D_SHA)
+    observed = tuple(
+        _git(
+            "rev-list",
+            "--first-parent",
+            "--reverse",
+            f"{APPROVED_SCI004_G3_SHA}..{APPROVED_SCI004_D_SHA}",
+        ).split()
+    )
+
+    assert observed == expected
+    every_parent = tuple(
+        _git(
+            "rev-list",
+            "--reverse",
+            f"{APPROVED_SCI004_G3_SHA}..{APPROVED_SCI004_D_SHA}",
+        ).split()
+    )
+    assert every_parent == expected
+
+    previous = APPROVED_SCI004_G3_SHA
+    for sha in expected:
+        assert _peel_to_commit(sha) == sha, sha
+        assert _commit_parents(sha) == (previous,), sha
+        previous = sha
+
+    # The superseded red slice is a Section 13.5 R3 slice, and the two
+    # corrections are design-only.  Their kinds are what the header records.
+    assert set(_changed_paths(SUPERSEDED_RED_SLICE_SHA)) <= R3_AUTHORIZED_PATHS
+    for sha in (D16_SHA, APPROVED_SCI004_D_SHA):
+        assert _changed_paths(sha) == (DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH), sha
+
+
+def test_the_memo_header_records_the_reopening_and_the_two_rebind_mandates() -> None:
+    """Section 13.7: the header is the authority for what was reopened.
+
+    A validator that trusted only its own constants would authenticate nothing:
+    the operative ``D`` blob is read from Git and required to name the
+    superseded red slice it reopened, the four-family set that replaced the
+    unconstructible fixtures, and both Section 8 rejection codes the re-cut
+    pins.
+    """
+    memo = _tree_blob(APPROVED_SCI004_D_SHA, DESIGN_MEMO_PATH).decode("utf-8")
+
+    assert SUPERSEDED_RED_SLICE_SHA in memo
+    assert "superseded red slice" in memo
+    assert "mmode_circular_receptor" in memo
+    assert "mmode_public_components" in memo
+    assert "mmode_public_beam" in memo
+    assert "--diff-filter=A" in memo
+    assert "G3 ->* R3" in memo
 
 
 def test_detached_worktree_replay_at_g3_reproduces_the_retained_certificate(
