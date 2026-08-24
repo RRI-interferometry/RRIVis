@@ -333,6 +333,37 @@ _PHASE3_FAMILY_GREEN_CONTROL = (
     "test_one_point_family_runs_to_completion_through_the_public_path"
 )
 
+#: The accepted retained-evidence correction granted ``R3``
+#: ``tests/performance/test_sci004_mmode.py`` "scoped to the pinned
+#: fixture-product literals only", so the case row that *describes* that oracle
+#: is declared here, in a file ``R3`` owns unscoped, rather than by adding a
+#: phase-M3 case table to a file whose grant covers literals alone.  The node it
+#: names is the accepted M2 oracle the performance-product alignment falsified:
+#: it pins the superseded point/HEALPix/hybrid product by value through an
+#: import of ``radiosim.benchmarks``, so it is genuinely red at this observation
+#: tree, where that module still carries the superseded trio, and it flips only
+#: when ``S3`` lands the aligned constant.  Its exclusion control is the
+#: PERF-001 surface oracle in its own file, which passes in the same invocation
+#: and proves the module imports and the accepted PERF-001 inventory is intact.
+_PHASE3_PERFORMANCE_NODE = (
+    "tests/performance/test_sci004_mmode.py::"
+    "test_the_official_v1_inventory_is_the_exact_nine_row_product"
+)
+_PHASE3_PERFORMANCE_CONTROL = (
+    "tests/performance/test_sci004_mmode.py::"
+    "test_the_perf001_record_surface_and_non_gating_markers_hold_today"
+)
+
+#: The exact retained bytes of the amended Section 11 performance product: the
+#: three point-family groups crossed with the three backends.
+PERFORMANCE_PRODUCT_BYTES = (
+    b"fixtures: mmode_single_scalar_mode, mmode_point_stokes_i, "
+    b"mmode_point_full_stokes\n"
+    b"backends: numpy, jax, dask\n"
+    b"workload_count: 9\n"
+    b"sky_representation: point\n"
+)
+
 _FAMILY_IMPORT_PATTERN = (
     r"cannot import name "
     r"'(MMODE_CHARACTERIZATION_FAMILIES|mmode_characterization_record)' "
@@ -395,9 +426,28 @@ SCI004_PHASE3_RED_CASES: tuple[dict[str, object], ...] = (
         expected_failure_pattern=r"boresight_parallactic_rad",
         fixture_bytes=REJECTION_CONTRACT_BYTES,
     ),
+    {
+        "case_id": "m3.performance.point-family-product",
+        "requirement_id": "sci004.section-11.performance-product-is-three-point-groups",
+        "test_nodeid": _PHASE3_PERFORMANCE_NODE,
+        "expected_failure_kind": "assertion",
+        # The observed first line is pytest's abbreviated tuple comparison, so
+        # the pattern pins both sides of it by their surviving prefixes: the
+        # inventory the benchmark surface still builds starts at
+        # ``mmode_poin``\ ted full Stokes, while the amended product this oracle
+        # now pins starts at ``mmode_sing``\ le scalar mode.
+        "expected_failure_pattern": (
+            r"AssertionError: assert \(\('mmode_poin.*\) == \(\('mmode_sing"
+        ),
+        "fixture_defect_excluded_by": _PHASE3_PERFORMANCE_CONTROL,
+        "fixture_bytes": PERFORMANCE_PRODUCT_BYTES,
+    },
 )
 
-SCI004_PHASE3_RED_GREEN_CONTROLS: tuple[str, ...] = (_PHASE3_FAMILY_GREEN_CONTROL,)
+SCI004_PHASE3_RED_GREEN_CONTROLS: tuple[str, ...] = (
+    _PHASE3_FAMILY_GREEN_CONTROL,
+    _PHASE3_PERFORMANCE_CONTROL,
+)
 
 
 # --- green controls -----------------------------------------------------------

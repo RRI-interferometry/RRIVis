@@ -10,8 +10,8 @@ direct/backend comparison that the PERF-001 record has no analogue for, and each
 schema remains governed by its own strict validator."
 
 The official ``v1`` record is a fixed Cartesian product -- fixtures
-``mmode_point_full_stokes``, ``mmode_healpix_full_stokes``,
-``mmode_hybrid_full_stokes`` crossed with backends ``numpy``, ``jax``, ``dask``
+``mmode_single_scalar_mode``, ``mmode_point_stokes_i``,
+``mmode_point_full_stokes`` crossed with backends ``numpy``, ``jax``, ``dask``
 -- so ``comparison_group_id == fixture_id``,
 ``workload_id == fixture_id + ":" + backend + ":standard"``, and the array has
 exactly nine rows.
@@ -46,14 +46,33 @@ SCI004_PROVENANCE_SCHEMA = "radiosim.benchmark.sci004.provenance.v1"
 #: Section 11's exact top-level key set.
 TOP_LEVEL_KEYS: tuple[str, ...] = ("schema_version", "provenance", "workloads")
 
-#: Section 11's fixed fixture and backend axes, in record order.
+#: Section 11's fixed fixture and backend axes, in record order, as the accepted
+#: 2026-08-24 accepted-capability-characterization correction amended them: "the
+#: performance record's fixture product becomes the three point-family groups".
+#: The two removed groups are not merely unmeasured -- measured through the
+#: public solve path, a HEALPix-bearing payload published an identically zero
+#: cube and the hybrid payload silently dropped its diffuse half -- and both are
+#: now Section 8 rejections.
 FIXTURE_IDS: tuple[str, ...] = (
+    "mmode_single_scalar_mode",
+    "mmode_point_stokes_i",
+    "mmode_point_full_stokes",
+)
+BACKENDS: tuple[str, ...] = ("numpy", "jax", "dask")
+WORKLOAD_COUNT = len(FIXTURE_IDS) * len(BACKENDS)
+
+#: The superseded product this module pinned at ``R2``, retained *only* as the
+#: preimage of the accepted phase-M2 red record's ``m2.performance.schema-
+#: literals`` fixture bytes.  Section 13.7 keeps an accepted phase artifact
+#: immutable, and that record's strict validator recomputes the fixture digest
+#: from the bytes this module still declares, so the historical preimage is
+#: spelled out here rather than interpolated from the live axis above.  It is a
+#: record of what was true at ``R2``, never a live pin.
+_R2_RETAINED_FIXTURE_IDS: tuple[str, ...] = (
     "mmode_point_full_stokes",
     "mmode_healpix_full_stokes",
     "mmode_hybrid_full_stokes",
 )
-BACKENDS: tuple[str, ...] = ("numpy", "jax", "dask")
-WORKLOAD_COUNT = len(FIXTURE_IDS) * len(BACKENDS)
 
 #: Section 11's exact workload-row key set, in order.
 WORKLOAD_KEYS: tuple[str, ...] = (
@@ -113,7 +132,7 @@ RECORD_DIRECTORY = "output/benchmarks/reference/sci004"
 _INVENTORY_FIXTURE = f"""\
 schema_version: {SCI004_BENCHMARK_SCHEMA}
 record_directory: {RECORD_DIRECTORY}
-fixtures: ["{FIXTURE_IDS[0]}", "{FIXTURE_IDS[1]}", "{FIXTURE_IDS[2]}"]
+fixtures: ["{_R2_RETAINED_FIXTURE_IDS[0]}", "{_R2_RETAINED_FIXTURE_IDS[1]}", "{_R2_RETAINED_FIXTURE_IDS[2]}"]
 backends: ["numpy", "jax", "dask"]
 workload_count: {WORKLOAD_COUNT}
 """.encode()
@@ -280,13 +299,11 @@ def test_the_official_v1_inventory_is_the_exact_nine_row_product() -> None:
         assert row.device_kind == "cpu"
         assert row.precision == "standard"
 
-    representations = {
-        FIXTURE_IDS[0]: "point",
-        FIXTURE_IDS[1]: "healpix",
-        FIXTURE_IDS[2]: "hybrid",
-    }
+    # Section 11, as amended: "The sky representation is ``point`` for all three
+    # fixture groups, with positive point counts, zero for the absent HEALPix
+    # representation, and distinct input identities across groups."
     for row in inventory:
-        assert row.sky_representation == representations[row.fixture_id]
+        assert row.sky_representation == "point"
 
 
 def test_every_workload_row_carries_its_exact_fields_and_claim_array() -> None:

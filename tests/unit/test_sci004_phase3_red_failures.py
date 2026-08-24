@@ -172,6 +172,10 @@ R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
         "tests/unit/test_sci004_phase3_red_failures.py",
         "tests/unit/test_tier8_release_acceptance.py",
         "tools/sci004_mmode_phase3_red.py",
+        # Granted by the accepted retained-evidence correction, "scoped to the
+        # pinned fixture-product literals only ... a red-oracle edit, so it
+        # belongs to an ``R`` commit".
+        "tests/performance/test_sci004_mmode.py",
     }
 )
 
@@ -192,6 +196,7 @@ RED_MODULES: tuple[str, ...] = (
 COVERED_FILES: frozenset[str] = frozenset(
     {
         "tests/characterization/test_sci004_mmode.py",
+        "tests/performance/test_sci004_mmode.py",
         "tests/unit/test_io/test_hdf5_result.py",
         "tests/unit/test_io/test_measurement_set.py",
         "tests/unit/test_io/test_result_summary.py",
@@ -226,6 +231,10 @@ ABSENT_PHASE3_CAPABILITIES: tuple[tuple[str, str], ...] = (
     # absence is what the two rejection oracles record.
     ("src/radiosim/core/mmode/solver.py", "mmode_public_components"),
     ("src/radiosim/core/mmode/solver.py", "mmode_public_beam"),
+    # The amended Section 11 performance product. The benchmark surface at this
+    # observation tree still enumerates the superseded trio, which is precisely
+    # why the granted performance oracle is red here.
+    ("src/radiosim/benchmarks/__init__.py", "mmode_single_scalar_mode"),
 )
 
 #: The two defects the output oracles measure, present at the observation tree.
@@ -245,6 +254,8 @@ PRESENT_PHASE3_DEFECTS: tuple[tuple[str, str], ...] = (
     # HEALPix-bearing sky publishes an identically zero cube instead of being
     # refused.
     ("src/radiosim/core/mmode/solver.py", 'components=("point",)'),
+    # The superseded product the granted oracle still pins at this tree.
+    ("src/radiosim/benchmarks/__init__.py", "mmode_healpix_full_stokes"),
 )
 
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
