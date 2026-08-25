@@ -32,6 +32,173 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #24 — 2026-08-25 (sampled current-process RSS and
+the polarized-HDF5 post-source oracle).** The committed phase-3 source
+slice exposed two bounded defects before `E3`. First, Section 11's
+`python_heap_tracemalloc_scoped_v1` instrument changes the execution it
+purports to measure: the ordinary 115-second solver call takes about
+2 hours 15 minutes under allocation-event tracing, and the required
+three fixture-group calls therefore dominate an approximately eight-hour
+attempt. The first attempt exposed the cost before a real HDF5 failure, and
+the second was interrupted rather than spending the same cost blindly;
+together with the allocation-event mechanism, those observations establish
+the slowdown as instrumentation overhead rather than an estimate of the
+untraced solver's resource behavior. The
+ruling replaces that host method with Section 11's exact external
+`process_rss_sampled_delta_v1` contract. The sampler is a separate
+standard-library-only Python process, observes the generator process at a
+10 ms monotonic cadence through `/proc/<pid>/statm` on Linux or
+`proc_pidinfo(PROC_PIDTASKINFO)` on Darwin, and cannot add a sampling
+thread or allocation hook to the measured process. The three fixture
+groups and nine-row product are unchanged; each group still receives one
+separate untimed whole-solver measurement copied to its three backend
+rows, the memory object keeps exactly its existing ten keys, and the two
+budget inequalities plus the recomputed estimate-coverage boolean remain
+unchanged.
+
+Second, the four R3 HDF5 nodes construct their nominally polarized
+`MModeSolverSnapshot` through `build_mmode_result`'s scalar
+`not_applicable_scalar_m1` default. They therefore never exercise the
+genuine post-M2 six-key `tangent_polarization_frame` mapping, although `E3`'s
+output case uses `mmode_point_full_stokes` and does exercise that mapping.
+The committed reader accepts the six field names but authenticates each value
+only as a non-empty string, so it does not enforce Section 5.1's schema,
+coordinate-frame set, axes, position-angle, linear-complex, or Stokes-V
+literals before payload access. Both the oracle and that bounded source check
+are incomplete. The fresh R3 re-cut changes the same four existing HDF5 nodes
+to pass
+`TangentPolarizationFrame.canonical("icrs").as_mapping()` and keeps their
+node IDs and governed requirements. The replacement S3 constructs
+`TangentPolarizationFrame` from every mapping and translates any invalid
+field value to `UnsafeResultInputError` before any science dataset is read.
+The fresh R3, not S3, owns a six-case hostile-reader oracle that mutates each
+declared field in turn while preserving the valid outer solver-key order and
+requires that early rejection.
+
+The retained red-failure record is not regenerated. `S3` already exists and
+the four historical nodes are green in the operative tree, so Section 13.7's
+post-source retention rule preserves the last genuinely observed record bytes
+at their historical
+`design_sha=923ae332c02d9b2d4edfddf09d1d61241e9d5a63`; the re-cut validator
+authenticates that binding as a header-enumerated chain commit connected to
+this landing instead of fabricating a new `expected-red-confirmed`
+observation. The required unshadowed ephemeral replay at
+`a61526d686ab768f05ecffa80cfd6223d4ee4c62`, with only the six-case hostile
+oracle applied, ran those six cases, the four canonical HDF5 nodes, and their
+existing green control serially on 2026-08-25. The five controls passed; all
+six hostile cases failed because the current reader reached the late generic
+`HDF5 result failed canonical model or fingerprint validation` error instead
+of the required pre-payload `HDF5 solver_json is invalid` rejection (six
+failed, five passed in 3.09 seconds). That replay isolates the exact-value
+authentication defect after the outer key-order repair; it is review evidence,
+not itself the retained supplemental record.
+
+Because those six cases are a newly discovered red delta rather than the
+historical nodes, R3 retains their own separate canonical artifact at
+`docs/development/sci004_mmode_phase3_post_source_red_failures.json`, with
+schema `radiosim.sci004.mmode-phase3-post-source-red-failures.v1` and
+status `post-source-expected-red-confirmed`. It binds `design_sha` to this
+correction, `pre_fix_source_sha` to the exact superseded source `a61526d6…`,
+and its six cases to the `SCI004_PHASE3_POST_SOURCE_RED_CASES` table; it also
+pins the historical record's raw SHA-256 and the exact HDF5-oracle patch
+without copying or changing the historical cases.
+The historical record continues to enumerate exactly its original phase-red
+nodes, while Section 14.1 requires the union of that immutable node set and the
+six supplemental nodes to be complete. E3's `red_failure_record` join validates
+and binds both artifacts. This is the narrowly scoped post-source red-delta
+mechanism of Sections 13.7, 14.1, and 14.2, not a licence to append observations
+to an old record.
+
+This one correction governs both findings because they are post-S3 M3
+findings and require the same Section 13.7 red/source reopening; splitting
+them would duplicate the correction reviews, post-source red-delta re-cut, and
+replacement S3 without creating an independently meaningful boundary.
+It reopens `7070cc3ddb1c2557d02e4a3f2a89b907575bed0b` as a
+`superseded red slice`. The fresh post-source red-delta R3 directly parents this
+landing, freezes `APPROVED_SCI004_D_SHA` to this landing, retains the
+SCI-005 dependency certificate and phase-3 red-failure artifact
+byte-for-byte, pins the latter's raw SHA-256 as
+`486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05`,
+and may change exactly
+`docs/development/sci004_mmode_phase3_post_source_red_failures.json`,
+`tests/unit/test_io/test_hdf5_result.py`,
+`tests/unit/test_sci004_phase3_dependency.py`,
+`tests/unit/test_sci004_phase3_red_failures.py`, and
+`tools/sci004_mmode_phase3_red.py` for the six-key and hostile oracles,
+supplemental generation/validation, chain/rebind work, and raw-byte retention
+check just described. The tool's historical generation mode remains
+fail-closed and cannot overwrite or regenerate the old
+`expected-red-confirmed` artifact; its dedicated no-overwrite supplemental
+mode emits only the six-case red delta. It also reopens
+`a61526d686ab768f05ecffa80cfd6223d4ee4c62` as a `superseded
+implementation`. That commit touched exactly `.gitignore`,
+`docs/api/io.rst`, `docs/user_guide/backends.rst`,
+`docs/user_guide/configuration_support.rst`,
+`output/benchmarks/reference/README.md`,
+`src/radiosim/benchmarks/__init__.py`,
+`src/radiosim/core/mmode/solver.py`, `src/radiosim/core/result.py`,
+`src/radiosim/io/hdf5.py`, `src/radiosim/io/standard_visibility.py`,
+`src/radiosim/io/summary_json.py`,
+`tests/unit/test_sci004_phase3_acceptance.py`,
+`tests/unit/test_sci004_phase3_evidence.py`,
+`tools/sci004_mmode_phase3_acceptance.py`, and
+`tools/sci004_mmode_phase3_evidence.py`. The replacement S3 directly
+parents the fresh R3 and may change exactly
+`src/radiosim/io/hdf5.py`,
+`tools/sci004_mmode_phase3_evidence.py`, and
+`tests/unit/test_sci004_phase3_evidence.py`; every other production byte flows
+through unchanged from the superseded implementation.
+
+The live succession folds to a plain `R3 -> S3` edge and a longer
+`G3 ->* R3` edge. Its interval is exactly
+`[62a7d3d90dcbf0488e8b7c875ae5f95acba007b6,
+e7902d04ce042bd3a16ab9ae3a336695e971db81,
+53ee53c3b829512ef02f81215238090be63937d9,
+a07279f4e1220f4e064d747406350df6fd1190fb,
+29c702cfc824ad73b2e0aeacd5b4b23bcc6c18cf,
+83d98f70fef0bf35977a3b6d4a7101ff67a7a953,
+c6cc74bb88bb123b20b4c549bc92da73cc057c1e,
+923ae332c02d9b2d4edfddf09d1d61241e9d5a63,
+7070cc3ddb1c2557d02e4a3f2a89b907575bed0b,
+2422c5765a82e55328c25bb3b8fc08e8377c176f,
+6fb8b0a8d54bcf946b32a777f69359c8b83bd527,
+a61526d686ab768f05ecffa80cfd6223d4ee4c62, this landing]`.
+The four `R3` commits are `superseded red slice` interval commits;
+`e7902d04…`, `53ee53c3…`, `29c702cf…`, `83d98f70…`,
+`923ae332…`, `2422c576…`, and `6fb8b0a8…` are `superseded design`
+interval commits; `a61526d6…` is the one `superseded implementation`;
+and this landing is the operative `D`. The fresh R3 then directly
+parents this landing and the replacement S3 directly parents that R3.
+Section 14.4's equation, star attribution, and S-edge restatement change
+accordingly.
+
+The repository-wide pin/oracle audit found the live host-method literal
+only in this memo, `tools/sci004_mmode_phase3_evidence.py`, and its strict
+unit validator `tests/unit/test_sci004_phase3_evidence.py`. The phase-3
+workload/red pins treat `memory` as an opaque outer key and do not pin its
+method. Accepted M2 evidence and its tool/tests use their distinct frozen
+M2 schema, and the generic PERF-001/Tier-6 benchmark tracemalloc surfaces
+govern different records; all remain immutable and unchanged. This
+correction supersedes the honest-memory-boolean landing
+`6fb8b0a8d54bcf946b32a777f69359c8b83bd527` as the operative design;
+the correction itself touches only
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`, implements no source, accepts no phase,
+starts no evidence run, and does not close the register row. **Review
+status: dual `ACCEPT`.** Its exact pre-landing memo file bytes
+(`sha256:4b595da0c6946ce333c795343ef1a7db7e8c16a7ff1dc05c54af550d8f15b107`),
+memo parent-relative diff
+(`sha256:6ae375bd2a9d1e880dfa6f9af051f700a4ae40ea433104eaabd3d53506133bc6`),
+and ledger parent-relative diff
+(`sha256:79a9b91ee2e1156ce5c5866db5d1d28c6fd60d8cfae0ac90b5211a521555aca8`)
+received separate independent third-round delta-reconfirmation on 2026-08-25 —
+physics/governance and computational, both `ACCEPT` — after the two prior
+pinned drafts' blockers were corrected; those three pins name the reviewed
+bytes, this verdict wording and the companion ledger verdict necessarily
+postdate them under Section 13.7, the fresh dependency validator authenticates
+all three from this accepted header, and this correction's landing commit is
+the operative `D`.
+
 **Bounded correction — 2026-08-25 (the honest memory boolean).**
 Executing the phase-3 evidence generator measured Section 11's memory
 predicate unsatisfiable: it required
@@ -2917,10 +3084,62 @@ estimate_covers_measured_host_peak
 
 `measurement_scope` is
 `single_mmode_solver_call_excluding_fixture_and_output_v1`.
-`host_measurement_method` is `python_heap_tracemalloc_scoped_v1`. Native method
-is one of `jax_device_memory_stats_v1`, `dask_worker_metrics_v1`,
-`process_rss_sampled_delta_v1`, or `unavailable`. Both limitation arrays are
-sorted, unique, and non-empty.
+`host_measurement_method` is `process_rss_sampled_delta_v1`. It is the
+incremental peak resident set of the **current generator process**, measured by
+a separate standard-library-only sampler process so the measured solver carries
+neither a sampling thread nor an allocation hook. The generator starts the
+sampler with the same Python executable and this phase's tracked evidence tool
+under its hidden sampler subcommand, passing exactly the generator PID and the
+fixed `10,000,000 ns` interval. The child requires that PID to equal its live
+parent PID, then obtains instantaneous RSS as follows:
+
+- on Linux, parse the second decimal field of `/proc/<pid>/statm` as resident
+  pages and multiply it by `os.sysconf("SC_PAGE_SIZE")`; and
+- on Darwin, call `/usr/lib/libproc.dylib`'s `proc_pidinfo` with
+  `PROC_PIDTASKINFO`, require the returned byte count to equal the complete
+  `proc_taskinfo` structure size, and read its unsigned
+  `pti_resident_size` field.
+
+An unsupported platform, missing/malformed counter, overflow, short Darwin
+structure, dead or changed parent, or non-positive page size fails closed. The
+child takes the baseline sample, emits and flushes exactly one canonical JSON
+`READY` line containing `status`, `target_pid`, `sampling_interval_ns`, and
+`baseline_rss_bytes`, and then samples on deadlines advanced from
+`time.monotonic_ns()` at exactly 10 ms. After the untimed solver call the parent
+writes exactly `STOP\n`; the child takes one synchronous final sample and emits
+exactly one canonical JSON `RESULT` line containing `status`, `target_pid`,
+`sampling_interval_ns`, `baseline_rss_bytes`, `peak_rss_bytes`,
+`final_rss_bytes`, `sample_count`, and `measured_host_peak_bytes`, where
+
+```text
+measured_host_peak_bytes =
+    max(all periodic samples, baseline, final) - baseline
+```
+
+The parent applies bounded READY/result/wait timeouts, requires those two lines
+and no additional stdout, empty stderr, exact PID/interval/baseline agreement,
+a sample count of at least two including the baseline and final observations,
+`peak_rss_bytes >= baseline_rss_bytes`, internally consistent non-negative
+integers, and a zero child exit. READY must arrive within 10 seconds; after
+`STOP\n`, the result and clean child exit must arrive within 5 seconds. The
+legitimate solver call itself has no sampler timeout. Every success, solver
+exception, sampler exception, malformed protocol, or timeout closes the pipes
+and reaps the sampler; timeout cleanup terminates, then kills and reaps if
+necessary. A partial measurement is never retained.
+`resource.getrusage().ru_maxrss` is forbidden because it is a
+process-lifetime high-water mark (and has platform-dependent units), and shell
+`ps` and `psutil` are forbidden because neither supplies this exact
+standard-library, current-call contract.
+
+The host limitation array carries, in sorted unique form, that 10 ms sampling
+may miss a shorter transient resident-set peak, that a baseline delta does not
+count solver allocations satisfied from pages already resident before the
+call, that current-process RSS excludes child-process and accelerator-device
+memory, and that Section 9's dense estimate excludes the every-run Section 4.2
+frame certificate and its retained ledgers. Native method is one of
+`jax_device_memory_stats_v1`, `dask_worker_metrics_v1`, or `unavailable`;
+`process_rss_sampled_delta_v1` is a host method and is invalid in a native
+field. Both limitation arrays are sorted, unique, and non-empty.
 
 `dense_execution` is exactly the literal `numpy_host_v1` on every row:
 the public solve path's dense stages are
@@ -2930,9 +3149,9 @@ record retains rather than papers over, carried in the top-level
 `dense_invariance` array above. Each fixture group measures its
 end-to-end timing and memory series once, on the NumPy row, and the JAX
 and Dask rows carry those identical shared values; the shared `memory`
-object's native method is `process_rss_sampled_delta_v1` or
-`unavailable`, never a backend-device method — the backend-device
-methods appear only inside kernel blocks. `kernel_backend_block` is a
+object's native method is `unavailable`, never the host RSS method or a
+backend-device method — the backend-device methods appear only inside kernel
+blocks. `kernel_backend_block` is a
 status-discriminated object for row uniformity: on the NumPy row it has
 exactly `status` and `reason` with status `not_applicable`; on the JAX
 and Dask rows of a fixture group whose resolved payload is scalar — the
@@ -2978,15 +3197,13 @@ estimated_host_peak_bytes <= working_memory_bytes
 
 and `estimate_covers_measured_host_peak` to be the measured boolean
 `measured_host_peak_bytes <= estimated_host_peak_bytes` — retained as
-observed, never chosen. At this phase it is `false` by construction,
-and the record says why: Section 9's estimate models the dense
-pipeline's seven components, while the every-run Section 4.2 frame
-certificate's retained row dominates the scoped whole-call peak
-(measured `29.4`–`32.6 MB` deep against the `13.8 MiB` estimate on the
-three acceptance fixtures, `2.0×`–`2.25×`); `host_measurement_limitations`
-must carry that reason, and an `estimated_host_peak_bytes` chosen after
-seeing the measurement to force the boolean true is the condemned
-self-comparison form.
+observed, never chosen. No expected truth value is pinned: sampled RSS delta
+and Python-heap allocation-event peak are different measured quantities, and
+allocator reuse or sampling cadence can make the former smaller while native
+resident pages can make it larger. `host_measurement_limitations` must carry
+the four ruled limitations above on every row, and an
+`estimated_host_peak_bytes` chosen after seeing the measurement to force the
+boolean true remains the condemned self-comparison form.
 
 `direct_comparison` has exactly:
 
@@ -4110,6 +4327,19 @@ wrapper leaves every direct path byte-identical before M2 starts.
   grant of this path belonged to the accepted M2 phase and conveys
   nothing to `R3`)
 
+Correction #24's post-source red-delta R3 is the narrower replacement for that
+superseded slice: it directly parents the correction landing and may change
+exactly
+`docs/development/sci004_mmode_phase3_post_source_red_failures.json`,
+`tests/unit/test_io/test_hdf5_result.py`,
+`tests/unit/test_sci004_phase3_dependency.py`,
+`tests/unit/test_sci004_phase3_red_failures.py`, and
+`tools/sci004_mmode_phase3_red.py`. It retains the SCI-005 dependency and
+historical red JSON records byte-for-byte, adds only the ruled six-case
+supplemental red-delta JSON, freezes `APPROVED_SCI004_D_SHA` to that landing,
+and performs only the HDF5-oracle, supplemental-generation, chain/rebind, and
+retained-record authentication work recorded in the header.
+
 `S3` may write only:
 
 - `src/radiosim/core/result.py`
@@ -4151,6 +4381,12 @@ wrapper leaves every direct path byte-identical before M2 starts.
   grant of
   this path belonged to the accepted M2 phase and conveys nothing to
   `S3`)
+
+Correction #24's replacement S3 directly parents that fresh R3 and may change
+exactly `src/radiosim/io/hdf5.py`,
+`tools/sci004_mmode_phase3_evidence.py`, and
+`tests/unit/test_sci004_phase3_evidence.py`; every other byte from the
+superseded S3 flows through unchanged.
 
 `E3` may write only:
 
@@ -4286,14 +4522,27 @@ header records as superseded; the `A` that would have accepted it returned
 of a record. The same rule governs a superseded phase red-failure record:
 the governed re-cut deletes and regenerates it, since the record was never
 accepted — **unless the reopened phase's `S` already exists**, in which
-case redness can no longer be observed anywhere in the operative tree and
-the record is not regenerated: the rebind-only re-cut retains the record's
-last genuinely observed bytes, and the strict red-record validator
-authenticates the record's `design_sha` as a header-enumerated chain
-commit from whose tree the observations were genuinely made, connected to
-the operative `D` through the chain — never as a licence to fabricate an
+case the record's previously observed nodes can no longer be observed red in
+the operative tree and the record is not regenerated: the rebind-only re-cut
+retains the record's last genuinely observed bytes, and the strict red-record
+validator authenticates the record's `design_sha` as a header-enumerated chain
+commit from whose tree the observations were genuinely made, connected to the
+operative `D` through the chain — never as a licence to fabricate an
 `expected-red-confirmed` observation against a tree where nothing is red.
-An accepted artifact is immutable and no commit may touch one.
+
+A correction may separately prove a **new post-source red delta** against the
+committed `S` it supersedes. That route is valid only when the header records an
+unshadowed replay of distinct new oracle nodes and grants a fresh `R` to author
+those nodes plus a separate canonical supplemental record. The supplement
+binds the new operative `D`, the exact superseded `S` as
+`pre_fix_source_sha`, the exact oracle-patch diff, and the immutable historical
+record digest; it never appends to, copies cases into, overwrites, or
+regenerates the historical record. Section 14.1's disjoint-union rule makes
+every historical or supplemental node appear exactly once, and the replacement
+`S` may change only production plus its separately granted source validators —
+never either red oracle. This exception is phase- and correction-specific; a
+prose-only replay or an unrecorded failing test is insufficient. An accepted
+artifact is immutable and no commit may touch one.
 
 ## 14. Evidence schema and commit succession
 
@@ -4322,7 +4571,19 @@ binding names the newer operative `D` and its validator authenticates the
 header-enumerated correction chain between the two bindings. Every SCI-004
 red, evidence, acceptance, dependency, and performance generator and
 validator reads the phase-appropriate frozen binding and requires every
-`design_sha` field to equal it.
+`design_sha` field to equal it, **except** for Section 13.7's post-source
+retained-red case. In that one case the immutable red record keeps the
+historical `design_sha` and `pre_fix_source_sha` under which its failures were
+genuinely observed; the fresh dependency validator binds the new operative
+`D`, while the strict red-record validator requires both historical fields to
+equal the exact header-enumerated ancestor, authenticates that ancestor's kind
+and connection to the new `D`, and byte-compares the retained artifact to its
+last red-slice Git blob. No generator may use this exception to emit a fresh
+`expected-red-confirmed` record after `S` exists. A Section 13.7 supplemental
+post-source red-delta record does not use that historical-binding exception:
+its `design_sha` equals the fresh R's operative `D`, and its separately named
+`pre_fix_source_sha` equals the exact superseded `S` whose unchanged production
+bytes the new oracle observed.
 
 Before trusting that value, each tool resolves the bound commit with
 `^{commit}` peeling, requires it to be a single-parent non-merge ancestor of
@@ -4694,6 +4955,61 @@ and `cwd` is the repository-relative `.`. The phase red validator authenticates
 the file bytes, schema literal, node set, command hashes, pre-fix SHA, protected
 hashes, and expected non-zero outcomes before `S` is allowed to start.
 
+Correction #24's sole post-source supplement is
+`docs/development/sci004_mmode_phase3_post_source_red_failures.json`, with
+schema `radiosim.sci004.mmode-phase3-post-source-red-failures.v1` and exactly:
+
+```text
+schema_version, phase, status, generated_at_utc, design_sha,
+pre_fix_source_sha, red_commit_sha, red_commit_sha_reason,
+historical_red_record_sha256, oracle_patch_paths, oracle_patch_sha256,
+protected_source_clean, authorized_red_paths, environment, cases,
+commands, claims_not_licensed
+```
+
+Its `phase` is `M3`, status is `post-source-expected-red-confirmed`,
+`design_sha` is correction #24's operative `D`, and `pre_fix_source_sha` is
+exactly `a61526d686ab768f05ecffa80cfd6223d4ee4c62`. `red_commit_sha` is null
+with reason `self-reference: E binds the containing post-source R commit`.
+`historical_red_record_sha256` is exactly
+`486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05`;
+the validator also byte-compares that working-tree file to its
+`7070cc3ddb1c2557d02e4a3f2a89b907575bed0b` Git blob.
+`oracle_patch_paths` is exactly
+`["tests/unit/test_io/test_hdf5_result.py"]`, and
+`oracle_patch_sha256` hashes the raw stdout bytes of exactly this authoring
+command:
+
+```text
+git diff --no-ext-diff --binary --full-index a61526d686ab768f05ecffa80cfd6223d4ee4c62 -- tests/unit/test_io/test_hdf5_result.py
+```
+
+After R3 commits, the validator inserts the containing R3 commit before `--`
+and requires byte-identical diff output. Its authorized paths are exactly the
+five correction-#24 R3 paths in Section 13.5. The environment, case rows,
+command rows, protected-source semantics, and four claim categories are
+otherwise the base red-record forms above.
+
+The historical declaration remains `SCI004_PHASE3_RED_CASES`; the six new
+rows live only in `SCI004_PHASE3_POST_SOURCE_RED_CASES`. The historical record
+node set must equal the former, the supplemental record node set must equal the
+latter, the two sets must be disjoint, and their union is the complete phase-M3
+red inventory. Each supplemental fixture preimage is the canonical JSON bytes
+of its exact hostile six-key frame. Each node requires early
+`UnsafeResultInputError` matching `^HDF5 solver_json is invalid$`; against the
+superseded source its retained red outcome is `assertion`, with pattern
+`HDF5 result failed canonical model or fingerprint validation` and the exact
+pytest regex-mismatch message. The tracked red tool's dedicated
+`generate-post-source` mode requires `HEAD` at correction #24, its parent at
+the exact superseded S3, only the four non-artifact R3 paths dirty, no dirty
+production path, and identical production blobs at those two commits. It runs
+the six supplemental nodes plus the four canonical HDF5 nodes and existing
+green control serially with `python -m pytest -p no:randomly -p no:xdist`,
+requires six matching failures and five passing controls, verifies protected
+bytes, and atomically creates only the absent supplemental path. The existing
+historical `generate` mode remains unable to overwrite or regenerate its
+record.
+
 ### 14.2 Phase evidence envelopes and result rows
 
 Each phase evidence artifact has its phase-specific schema literal
@@ -4721,6 +5037,15 @@ digest is forbidden.
 each a normalized version string. Evidence `commands` uses Section 14.1's exact
 command-row shape and requires exit code zero. `limitations` and
 `claims_not_licensed` are sorted unique non-empty string arrays.
+
+Correction #24's M3 `red_failure_record` adds exactly one sixth key,
+`post_source_delta`, whose value has exactly `path`, `sha256`,
+`schema_version`, `pre_fix_source_sha`, and `validated`. The outer five fields
+continue to bind the immutable historical M3 record; the nested five bind
+`docs/development/sci004_mmode_phase3_post_source_red_failures.json`, its raw
+digest, schema literal, exact `a61526d6…` pre-fix source, and `validated=true`.
+The M3 evidence generator and validator authenticate both artifacts and require
+the evidence envelope's `red_commit_sha` to name their containing fresh R3.
 
 The tracked phase generator is part of `S`, and it **executes at the
 globally clean exact `S` checkout**: that execution is the `E`-time
@@ -5318,8 +5643,8 @@ that still reports `SCI-004` as ROADMAP. These are required
 ### 14.4 Mandatory commit order
 
 The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 ->* S2 -> E2 -> A2
-->* G3 ->* R3 ->* S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`,
-`G3 ->* R3`, and `R3 ->* S3`
+->* G3 ->* R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`,
+and `G3 ->* R3`
 stars are the
 concrete effects of the header's starred-edge correction records under
 the Section 13.7 rule above, which collectively enumerate each such
@@ -5327,7 +5652,7 @@ edge's
 interval commits. Each starred edge is inclusive ancestor
 reachability through separately authorized, independently accepted programme
 commits; every unstarred edge is the sole direct-parent edge. No commit in
-either starred first-parent range is a merge. `G1` also has accepted WP-7 CPU
+any starred first-parent range is a merge. `G1` also has accepted WP-7 CPU
 `A` as an authenticated ancestor; `G3` also has accepted SCI-005 Stage-2 `A2`
 as an authenticated ancestor. Exact bindings and immutable-byte rules are
 Section 13.2's. A Section 13.7 accepted bounded correction that intervenes
@@ -5346,7 +5671,7 @@ header enumerates the interval and the phase's `R` directly parents the
 operative correction commit. Each `S` directly parents its phase `R` —
 unless a Section 13.7 accepted correction has starred that edge, in
 which case `S` directly parents the operative correction commit per the
-Section 13.7 rule, as `S2` and `S3` do here — and
+Section 13.7 rule, as `S2` does here — and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
