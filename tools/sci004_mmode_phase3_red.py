@@ -97,8 +97,22 @@ PHASE = "M3"
 SCHEMA_VERSION = "radiosim.sci004.mmode-phase3-red-failures.v1"
 STATUS = "expected-red-confirmed"
 RED_COMMIT_SHA_REASON = "self-reference: E binds the containing R commit"
+POST_SOURCE_RED_COMMIT_SHA_REASON = (
+    "self-reference: E binds the containing post-source R commit"
+)
 
 OUTPUT_PATH = "docs/development/sci004_mmode_phase3_red_failures.json"
+POST_SOURCE_OUTPUT_PATH = (
+    "docs/development/sci004_mmode_phase3_post_source_red_failures.json"
+)
+POST_SOURCE_SCHEMA_VERSION = "radiosim.sci004.mmode-phase3-post-source-red-failures.v1"
+POST_SOURCE_STATUS = "post-source-expected-red-confirmed"
+POST_SOURCE_PRE_FIX_SHA = "a61526d686ab768f05ecffa80cfd6223d4ee4c62"
+HISTORICAL_RED_SLICE_SHA = "7070cc3ddb1c2557d02e4a3f2a89b907575bed0b"
+HISTORICAL_RED_RECORD_SHA256 = (
+    "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
+)
+POST_SOURCE_ORACLE_PATH = "tests/unit/test_io/test_hdf5_result.py"
 DEPENDENCY_VALIDATOR_PATH = "tests/unit/test_sci004_phase3_dependency.py"
 M2_ACCEPTANCE_PATH = "docs/development/sci004_mmode_phase2_acceptance.json"
 
@@ -122,6 +136,21 @@ R3_AUTHORIZED_PATHS: tuple[str, ...] = tuple(
             "tools/sci004_mmode_phase3_red.py",
         )
     )
+)
+
+POST_SOURCE_R3_AUTHORIZED_PATHS: tuple[str, ...] = tuple(
+    sorted(
+        (
+            POST_SOURCE_OUTPUT_PATH,
+            POST_SOURCE_ORACLE_PATH,
+            "tests/unit/test_sci004_phase3_dependency.py",
+            "tests/unit/test_sci004_phase3_red_failures.py",
+            "tools/sci004_mmode_phase3_red.py",
+        )
+    )
+)
+POST_SOURCE_NON_ARTIFACT_PATHS: tuple[str, ...] = tuple(
+    path for path in POST_SOURCE_R3_AUTHORIZED_PATHS if path != POST_SOURCE_OUTPUT_PATH
 )
 
 #: The red modules that declare ``SCI004_PHASE3_RED_CASES``, in record order.
@@ -169,6 +198,22 @@ CLAIMS_NOT_LICENSED: tuple[str, ...] = (
     "production: no m-mode output capability exists at this source SHA beyond "
     "the accepted M1 summary and HDF5 snapshot surface, so every recorded "
     "failure is the absence of one",
+)
+
+#: Correction #24 observes the completed superseded S3, so the historical
+#: phase-red production disclaimer above is false for this supplement. These
+#: four claims retain the required category shape while describing only what
+#: the post-source hostile-reader replay actually establishes.
+POST_SOURCE_CLAIMS_NOT_LICENSED: tuple[str, ...] = (
+    "acceptance: this supplemental record expresses no phase-M3 acceptance "
+    "verdict and unlocks no successor commit",
+    "fingerprint: this supplement pins, harvests, and adjudicates no Section 11 "
+    "m-mode family or dispatch-class observation",
+    "performance: this supplement measures no timing, speedup, memory, or "
+    "accelerator behavior and licenses no performance claim",
+    "production: this supplement records only the six hostile HDF5-reader "
+    "rejection defects and certifies neither broader output behavior nor "
+    "production readiness",
 )
 
 #: Section 14.2's ``numeric_packages`` set, exactly.
@@ -339,9 +384,11 @@ def _tracked_entries() -> list[tuple[str, str, str]]:
     return sorted(entries, key=lambda entry: entry[2])
 
 
-def _protected_digest() -> str:
+def _protected_digest(
+    authorized_paths: Sequence[str] = R3_AUTHORIZED_PATHS,
+) -> str:
     """One digest over every tracked path outside the ``R3`` authorized list."""
-    authorized = set(R3_AUTHORIZED_PATHS)
+    authorized = set(authorized_paths)
     rows: list[dict[str, str]] = []
     for mode, object_id, relative in _tracked_entries():
         if relative in authorized:
@@ -382,6 +429,52 @@ def _changed_paths() -> tuple[str, ...]:
             continue
         changed.add(entry[3:])
     return tuple(sorted(changed))
+
+
+def _tree_blob(commit: str, relative: str) -> bytes:
+    listing = _git("ls-tree", "-z", commit, "--", relative)
+    entries = [entry for entry in listing.split("\0") if entry]
+    if len(entries) != 1:
+        raise RedRecordError(f"{relative} is not one blob at {commit}")
+    metadata, _tab, name = entries[0].partition("\t")
+    _mode, object_type, object_id = metadata.split()
+    if name != relative or object_type != "blob":
+        raise RedRecordError(f"{relative} is not a regular blob at {commit}")
+    completed = subprocess.run(
+        ["git", "cat-file", "blob", object_id],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RedRecordError(f"cannot read {relative} at {commit}")
+    return completed.stdout
+
+
+def _post_source_oracle_diff(commit: str | None = None) -> bytes:
+    argv = [
+        "git",
+        "diff",
+        "--no-ext-diff",
+        "--binary",
+        "--full-index",
+        POST_SOURCE_PRE_FIX_SHA,
+    ]
+    if commit is not None:
+        argv.append(commit)
+    argv.extend(("--", POST_SOURCE_ORACLE_PATH))
+    completed = subprocess.run(
+        argv,
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RedRecordError(
+            f"the post-source oracle diff failed: "
+            f"{completed.stderr.decode('utf-8', 'replace').strip()}"
+        )
+    return completed.stdout
 
 
 def _authenticate_phase_unlock(observation_sha: str) -> None:
@@ -564,6 +657,56 @@ def _load_cases() -> tuple[list[dict[str, Any]], dict[str, tuple[str, ...]]]:
     return cases, controls
 
 
+def _load_post_source_cases() -> tuple[list[dict[str, Any]], tuple[str, ...]]:
+    """Load correction #24's separate six-case HDF5 red-delta table."""
+    if str(REPOSITORY_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPOSITORY_ROOT))
+    module = importlib.import_module("tests.unit.test_io.test_hdf5_result")
+    declared = getattr(module, "SCI004_PHASE3_POST_SOURCE_RED_CASES", None)
+    controls = getattr(
+        module,
+        "SCI004_PHASE3_POST_SOURCE_RED_GREEN_CONTROLS",
+        None,
+    )
+    if not declared or len(declared) != 6:
+        raise RedRecordError("the post-source table must declare exactly six cases")
+    if not controls or len(controls) != 5:
+        raise RedRecordError(
+            "the post-source replay must declare exactly five controls"
+        )
+    cases = [dict(case) for case in declared]
+    required = {
+        "case_id",
+        "requirement_id",
+        "test_nodeid",
+        "expected_failure_kind",
+        "expected_failure_pattern",
+        "fixture_defect_excluded_by",
+        "fixture_bytes",
+    }
+    for case in cases:
+        missing = required - set(case)
+        if missing:
+            raise RedRecordError(
+                f"{case.get('case_id')}: post-source case lacks {sorted(missing)}"
+            )
+        if case["expected_failure_kind"] != "assertion":
+            raise RedRecordError(
+                f"{case['case_id']}: the superseded-source outcome must be assertion"
+            )
+        if "HDF5 result failed canonical model or fingerprint validation" not in str(
+            case["expected_failure_pattern"]
+        ):
+            raise RedRecordError(
+                f"{case['case_id']}: the red pattern does not name the late failure"
+            )
+    nodes = [str(case["test_nodeid"]) for case in cases]
+    identifiers = [str(case["case_id"]) for case in cases]
+    if len(set(nodes)) != 6 or len(set(identifiers)) != 6:
+        raise RedRecordError("post-source case IDs and node IDs must be unique")
+    return cases, tuple(str(nodeid) for nodeid in controls)
+
+
 def _group_by_file(
     cases: Sequence[Mapping[str, Any]],
     controls: Mapping[str, tuple[str, ...]],
@@ -605,7 +748,7 @@ def _run_pytest(
         "-p",
         "no:randomly",
         "-p",
-        "no:cacheprovider",
+        "no:xdist",
         "--junit-xml",
         str(junit_path),
         *nodeids,
@@ -653,7 +796,11 @@ def _parse_junit(junit_path: Path) -> dict[str, dict[str, str]]:
         observed[name] = {
             "outcome": "collected" if error is not None else "failed",
             "type": _exception_type(node.get("type"), first_line),
-            "message": first_line,
+            # Retain pytest's exact JUnit failure message. Correction #24's
+            # post-source rows require the complete regex-mismatch message,
+            # including the observed and expected lines, rather than its
+            # uninformative first line alone.
+            "message": raw,
         }
     return observed
 
@@ -736,6 +883,11 @@ def _environment() -> dict[str, Any]:
 def generate(output: Path) -> None:
     if output.exists():
         raise RedRecordError(f"{output} already exists; generation never overwrites")
+    if (REPOSITORY_ROOT / OUTPUT_PATH).exists():
+        raise RedRecordError(
+            "the historical phase-M3 record already exists and is retained; "
+            "historical generation cannot regenerate it at another path"
+        )
 
     design_sha = _frozen_binding("APPROVED_SCI004_D_SHA")
     # Section 14.1: ``pre_fix_source_sha`` names the tree the observations were
@@ -870,6 +1022,161 @@ def generate(output: Path) -> None:
     )
 
 
+def generate_post_source() -> None:
+    """Generate correction #24's separate six-case post-source red delta."""
+    output = REPOSITORY_ROOT / POST_SOURCE_OUTPUT_PATH
+    if output.exists():
+        raise RedRecordError(f"{output} already exists; generation never overwrites")
+
+    design_sha = _frozen_binding("APPROVED_SCI004_D_SHA")
+    head = _git("rev-parse", "HEAD").strip()
+    if head != design_sha:
+        raise RedRecordError(
+            "generate-post-source requires HEAD at operative D "
+            f"{design_sha}, not {head}"
+        )
+    parents = tuple(_git("rev-list", "--parents", "-n", "1", head).split()[1:])
+    if parents != (POST_SOURCE_PRE_FIX_SHA,):
+        raise RedRecordError(
+            f"correction #24 must directly parent {POST_SOURCE_PRE_FIX_SHA}; "
+            f"observed {parents}"
+        )
+    changed = _changed_paths()
+    if changed != POST_SOURCE_NON_ARTIFACT_PATHS:
+        raise RedRecordError(
+            "generate-post-source requires exactly the four non-artifact R3 paths "
+            f"dirty; observed {changed}"
+        )
+    production_changes = _git(
+        "diff",
+        "--name-only",
+        POST_SOURCE_PRE_FIX_SHA,
+        design_sha,
+        "--",
+        "src/radiosim",
+    ).split()
+    if production_changes:
+        raise RedRecordError(
+            "the superseded source and correction D differ in production: "
+            f"{production_changes}"
+        )
+
+    historical_path = REPOSITORY_ROOT / OUTPUT_PATH
+    historical = historical_path.read_bytes()
+    if hashlib.sha256(historical).hexdigest() != HISTORICAL_RED_RECORD_SHA256:
+        raise RedRecordError("the historical M3 red record digest changed")
+    if historical != _tree_blob(HISTORICAL_RED_SLICE_SHA, OUTPUT_PATH):
+        raise RedRecordError(
+            "the historical M3 red record is not byte-identical to its 7070cc3 blob"
+        )
+
+    cases, controls = _load_post_source_cases()
+    protected_before = _protected_digest(POST_SOURCE_R3_AUTHORIZED_PATHS)
+    with tempfile.TemporaryDirectory(prefix="sci004-m3-post-source-red-") as scratch:
+        junit_path = Path(scratch) / "junit.xml"
+        red_nodes = tuple(str(case["test_nodeid"]) for case in cases)
+        command, stdout, _stderr = _run_pytest((*red_nodes, *controls), junit_path)
+        if command["exit_code"] == 0:
+            raise RedRecordError(
+                "pytest exited zero, so the post-source delta was not red"
+            )
+        if not junit_path.is_file():
+            raise RedRecordError(
+                "post-source pytest produced no junit report\n"
+                + stdout.decode("utf-8", "replace")[-4000:]
+            )
+        observed = _parse_junit(junit_path)
+
+    for nodeid in controls:
+        entry = observed.get(nodeid.split("::", 1)[1])
+        if entry is None or entry["outcome"] != "passed":
+            raise RedRecordError(f"green control {nodeid} did not pass: {entry}")
+
+    rows: list[dict[str, Any]] = []
+    for case in cases:
+        nodeid = str(case["test_nodeid"])
+        entry = observed.get(
+            nodeid.split("::", 1)[1],
+            {"outcome": "absent", "type": "", "message": ""},
+        )
+        if entry["outcome"] != "failed":
+            raise RedRecordError(
+                f"{nodeid}: observed {entry['outcome']!r}; expected one red failure"
+            )
+        kind = _classify(entry["type"])
+        if kind != "assertion":
+            raise RedRecordError(f"{nodeid}: observed {kind!r}, not assertion")
+        pattern = str(case["expected_failure_pattern"])
+        if re.search(pattern, entry["message"]) is None:
+            raise RedRecordError(
+                f"{nodeid}: {entry['message']!r} does not match {pattern!r}"
+            )
+        fixture_bytes = case["fixture_bytes"]
+        if not isinstance(fixture_bytes, bytes) or not fixture_bytes:
+            raise RedRecordError(f"{nodeid}: fixture bytes must be non-empty bytes")
+        invalid_digest = hashlib.sha256(fixture_bytes).hexdigest()
+        rows.append(
+            {
+                "case_id": str(case["case_id"]),
+                "requirement_id": str(case["requirement_id"]),
+                "test_nodeid": nodeid,
+                "invalid_config_raw_sha256": invalid_digest,
+                "fixture_identity_sha256": fixture_identity_sha256(
+                    phase=PHASE,
+                    fixture_id=str(case["case_id"]),
+                    requirement_id=str(case["requirement_id"]),
+                    test_nodeid=nodeid,
+                    pre_fix_source_sha=POST_SOURCE_PRE_FIX_SHA,
+                    invalid_config_raw_sha256=invalid_digest,
+                ),
+                "expected_failure_kind": "assertion",
+                "expected_failure_pattern": pattern,
+                "command_index": 0,
+                "exit_code": int(command["exit_code"]),
+                "observed_outcome": kind,
+                "observed_exception_type": entry["type"],
+                "observed_message": entry["message"],
+                "stdout_sha256": str(command["stdout_sha256"]),
+                "stderr_sha256": str(command["stderr_sha256"]),
+                "fixture_defect_excluded_by": str(case["fixture_defect_excluded_by"]),
+                "red_failure_confirmed": True,
+            }
+        )
+
+    protected_after = _protected_digest(POST_SOURCE_R3_AUTHORIZED_PATHS)
+    if protected_before != protected_after:
+        raise RedRecordError("a protected path changed during post-source generation")
+
+    oracle_diff = _post_source_oracle_diff()
+    if not oracle_diff:
+        raise RedRecordError("the post-source HDF5 oracle diff is empty")
+    document = {
+        "schema_version": POST_SOURCE_SCHEMA_VERSION,
+        "phase": PHASE,
+        "status": POST_SOURCE_STATUS,
+        "generated_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "design_sha": design_sha,
+        "pre_fix_source_sha": POST_SOURCE_PRE_FIX_SHA,
+        "red_commit_sha": None,
+        "red_commit_sha_reason": POST_SOURCE_RED_COMMIT_SHA_REASON,
+        "historical_red_record_sha256": HISTORICAL_RED_RECORD_SHA256,
+        "oracle_patch_paths": [POST_SOURCE_ORACLE_PATH],
+        "oracle_patch_sha256": hashlib.sha256(oracle_diff).hexdigest(),
+        "protected_source_clean": True,
+        "authorized_red_paths": list(POST_SOURCE_R3_AUTHORIZED_PATHS),
+        "environment": _environment(),
+        "cases": rows,
+        "commands": [command],
+        "claims_not_licensed": list(POST_SOURCE_CLAIMS_NOT_LICENSED),
+    }
+    payload = canonical_json_bytes(document)
+    _atomic_no_overwrite(output, payload)
+    print(
+        f"{POST_SOURCE_OUTPUT_PATH} sha256={hashlib.sha256(payload).hexdigest()} "
+        f"cases={len(rows)} commands=1"
+    )
+
+
 def _atomic_no_overwrite(target: Path, payload: bytes) -> None:
     handle, temporary = tempfile.mkstemp(dir=str(target.parent))
     try:
@@ -893,9 +1200,13 @@ def main(argv: list[str] | None = None) -> int:
         default=REPOSITORY_ROOT / OUTPUT_PATH,
         help="the retained record path; it must not already exist",
     )
+    subparsers.add_parser("generate-post-source")
     arguments = parser.parse_args(argv)
     try:
-        generate(arguments.output)
+        if arguments.command == "generate":
+            generate(arguments.output)
+        else:
+            generate_post_source()
     except RedRecordError as error:
         print(f"SCI004_M3_RED: {error}", file=sys.stderr)
         return 1

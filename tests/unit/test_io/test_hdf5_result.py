@@ -2595,6 +2595,19 @@ def _rewrite_solver_json(output: Path, mutate) -> None:
     )
 
 
+def _rewrite_solver_json_preserving_order(output: Path, mutate) -> None:
+    """Mutate one solver value without shadowing it with an outer-order defect."""
+    with h5py.File(output, "r") as handle:
+        text = bytes(handle["provenance/solver_json"][()]).rstrip(b"\x00")
+    record = json.loads(text.decode("utf-8"))
+    mutate(record)
+    _replace_fixed_dataset(
+        output,
+        "provenance/solver_json",
+        json.dumps(record, separators=(",", ":"), ensure_ascii=False),
+    )
+
+
 def _rewrite_performance_json(output: Path, mutate) -> None:
     with h5py.File(output, "r") as handle:
         text = bytes(handle["provenance/performance_json"][()]).rstrip(b"\x00")
@@ -2944,11 +2957,22 @@ SCI004_PHASE3_RED_CASES: tuple[dict[str, object], ...] = (
 SCI004_PHASE3_RED_GREEN_CONTROLS: tuple[str, ...] = (_PHASE3_HDF5_GREEN_CONTROL,)
 
 
-def test_an_mmode_result_publishes_and_reloads_from_hdf5(tmp_path: Path) -> None:
-    """Section 10: an m-mode result is publishable through the versioned writer."""
+def _build_phase3_hdf5_result(tmp_path: Path):
+    """Build the post-M2 polarized result all four historical HDF5 nodes govern."""
+    from radiosim.core.sky.containers import TangentPolarizationFrame
     from tests.unit.test_io.test_standard_visibility import build_mmode_result
 
-    result = build_mmode_result(tmp_path)
+    return build_mmode_result(
+        tmp_path,
+        tangent_polarization_frame=TangentPolarizationFrame.canonical(
+            "icrs"
+        ).as_mapping(),
+    )
+
+
+def test_an_mmode_result_publishes_and_reloads_from_hdf5(tmp_path: Path) -> None:
+    """Section 10: an m-mode result is publishable through the versioned writer."""
+    result = _build_phase3_hdf5_result(tmp_path)
     target = tmp_path / "mmode-result.h5"
 
     assert write_result_hdf5(result, target) == target.absolute()
@@ -2971,9 +2995,8 @@ def test_the_stored_solver_json_keeps_the_section_10_key_order(
     sorts the object alphabetically publishes a file its own reader rejects.
     """
     from radiosim.core.result import MMODE_SOLVER_SNAPSHOT_KEYS
-    from tests.unit.test_io.test_standard_visibility import build_mmode_result
 
-    result = build_mmode_result(tmp_path)
+    result = _build_phase3_hdf5_result(tmp_path)
     target = tmp_path / "mmode-order.h5"
     write_result_hdf5(result, target)
 
@@ -2994,9 +3017,8 @@ def test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it(
         MMODE_SOLVER_SNAPSHOT_KEYS,
         MModeSolverResultProvenance,
     )
-    from tests.unit.test_io.test_standard_visibility import build_mmode_result
 
-    result = build_mmode_result(tmp_path)
+    result = _build_phase3_hdf5_result(tmp_path)
     target = tmp_path / "mmode-reader.h5"
     write_result_hdf5(result, target)
 
@@ -3021,9 +3043,7 @@ def test_the_mmode_scientific_and_provenance_fingerprints_survive_hdf5(
     the same attribute.  Reading them any other way tests the reader's own
     string formatting rather than the file.
     """
-    from tests.unit.test_io.test_standard_visibility import build_mmode_result
-
-    result = build_mmode_result(tmp_path)
+    result = _build_phase3_hdf5_result(tmp_path)
     target = tmp_path / "mmode-fingerprint.h5"
     write_result_hdf5(result, target)
 
@@ -3042,3 +3062,96 @@ def test_the_mmode_scientific_and_provenance_fingerprints_survive_hdf5(
     )
     assert decoded == result.scientific_sha256
     assert decoded_provenance == result.provenance_sha256
+
+
+# Correction #24: the six newly discovered post-source hostile-reader nodes.
+_POST_SOURCE_HDF5_EARLY_PATTERN = r"^HDF5 solver_json is invalid$"
+_POST_SOURCE_HDF5_RED_PATTERN = (
+    r"HDF5 result failed canonical model or fingerprint validation"
+)
+_POST_SOURCE_HDF5_CONTROL = (
+    "tests/unit/test_io/test_hdf5_result.py::"
+    "test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it"
+)
+
+_POST_SOURCE_TANGENT_FRAME_MUTATIONS: tuple[tuple[str, str], ...] = (
+    ("schema_version", "radiosim.sky-tangent-polarization.v0"),
+    ("coordinate_frame", "fk5"),
+    ("axes", "east_north"),
+    ("position_angle", "north_through_west"),
+    ("linear_complex", "q_minus_i_u"),
+    ("stokes_v", "iau_incoming_l_minus_r"),
+)
+
+
+def _post_source_tangent_frame(field: str, hostile_value: str) -> dict[str, str]:
+    from radiosim.core.sky.containers import TangentPolarizationFrame
+
+    frame = TangentPolarizationFrame.canonical("icrs").as_mapping()
+    frame[field] = hostile_value
+    return frame
+
+
+def _post_source_hdf5_case(field: str, hostile_value: str) -> dict[str, object]:
+    function = "test_a_hostile_tangent_frame_literal_is_rejected_before_science_payload"
+    frame = _post_source_tangent_frame(field, hostile_value)
+    return {
+        "case_id": f"m3.post-source.hdf5.tangent-frame.{field}",
+        "requirement_id": f"sci004.section-5.1.hdf5-authenticates-{field}",
+        "test_nodeid": (f"tests/unit/test_io/test_hdf5_result.py::{function}[{field}]"),
+        "expected_failure_kind": "assertion",
+        "expected_failure_pattern": _POST_SOURCE_HDF5_RED_PATTERN,
+        "fixture_defect_excluded_by": _POST_SOURCE_HDF5_CONTROL,
+        "fixture_bytes": json.dumps(
+            frame,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8"),
+    }
+
+
+SCI004_PHASE3_POST_SOURCE_RED_CASES: tuple[dict[str, object], ...] = tuple(
+    _post_source_hdf5_case(field, hostile_value)
+    for field, hostile_value in _POST_SOURCE_TANGENT_FRAME_MUTATIONS
+)
+
+SCI004_PHASE3_POST_SOURCE_RED_GREEN_CONTROLS: tuple[str, ...] = (
+    *(str(case["test_nodeid"]) for case in SCI004_PHASE3_RED_CASES),
+    _PHASE3_HDF5_GREEN_CONTROL,
+)
+
+
+@pytest.mark.parametrize(
+    ("field", "hostile_value"),
+    _POST_SOURCE_TANGENT_FRAME_MUTATIONS,
+    ids=[field for field, _hostile_value in _POST_SOURCE_TANGENT_FRAME_MUTATIONS],
+)
+def test_a_hostile_tangent_frame_literal_is_rejected_before_science_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    hostile_value: str,
+) -> None:
+    """Section 5.1: authenticate every frame literal before reading science."""
+    result = _build_phase3_hdf5_result(tmp_path)
+    target = tmp_path / f"hostile-tangent-frame-{field}.h5"
+    write_result_hdf5(result, target)
+    _rewrite_solver_json_preserving_order(
+        target,
+        lambda solver: solver["tangent_polarization_frame"].__setitem__(
+            field, hostile_value
+        ),
+    )
+
+    reads: list[str] = []
+    original_getitem = h5py.Dataset.__getitem__
+
+    def recording_getitem(dataset, key, **kwargs):
+        reads.append(dataset.name)
+        return original_getitem(dataset, key, **kwargs)
+
+    monkeypatch.setattr(h5py.Dataset, "__getitem__", recording_getitem)
+    with pytest.raises(UnsafeResultInputError, match=_POST_SOURCE_HDF5_EARLY_PATTERN):
+        load_result_hdf5(target)
+    assert not any(name.startswith("/data/") for name in reads)

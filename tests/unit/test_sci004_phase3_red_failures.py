@@ -63,18 +63,34 @@ from tests.unit.test_sci004_phase3_dependency import (
     APPROVED_SCI004_A2_SHA,
     APPROVED_SCI004_D_SHA,
     APPROVED_SCI004_G3_SHA,
+    resolve_r3_replay_anchor,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 RECORD_PATH = "docs/development/sci004_mmode_phase3_red_failures.json"
+POST_SOURCE_RECORD_PATH = (
+    "docs/development/sci004_mmode_phase3_post_source_red_failures.json"
+)
 M2_RED_RECORD_PATH = "docs/development/sci004_mmode_phase2_red_failures.json"
 CERTIFICATE_PATH = "docs/development/sci004_mmode_phase3_sci005_dependency.json"
+HISTORICAL_RED_SLICE_SHA = "7070cc3ddb1c2557d02e4a3f2a89b907575bed0b"
+HISTORICAL_DESIGN_SHA = "923ae332c02d9b2d4edfddf09d1d61241e9d5a63"
+POST_SOURCE_PRE_FIX_SHA = "a61526d686ab768f05ecffa80cfd6223d4ee4c62"
+HISTORICAL_RED_RECORD_SHA256 = (
+    "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
+)
+POST_SOURCE_ORACLE_PATH = "tests/unit/test_io/test_hdf5_result.py"
 
 SCHEMA_VERSION = "radiosim.sci004.mmode-phase3-red-failures.v1"
 PHASE = "M3"
 STATUS = "expected-red-confirmed"
 RED_COMMIT_SHA_REASON = "self-reference: E binds the containing R commit"
+POST_SOURCE_RED_COMMIT_SHA_REASON = (
+    "self-reference: E binds the containing post-source R commit"
+)
+POST_SOURCE_SCHEMA_VERSION = "radiosim.sci004.mmode-phase3-post-source-red-failures.v1"
+POST_SOURCE_STATUS = "post-source-expected-red-confirmed"
 
 #: Section 14.1's exact top-level key set.
 TOP_LEVEL_KEYS: frozenset[str] = frozenset(
@@ -95,6 +111,12 @@ TOP_LEVEL_KEYS: frozenset[str] = frozenset(
         "claims_not_licensed",
     }
 )
+
+POST_SOURCE_TOP_LEVEL_KEYS: frozenset[str] = TOP_LEVEL_KEYS | {
+    "historical_red_record_sha256",
+    "oracle_patch_paths",
+    "oracle_patch_sha256",
+}
 
 #: Section 14.1's exact sixteen-field case row.
 CASE_KEYS: frozenset[str] = frozenset(
@@ -158,7 +180,7 @@ FAILURE_KINDS: frozenset[str] = frozenset(
 )
 
 #: Section 13.5's complete ``R3`` writable list.
-R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
+HISTORICAL_R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
     {
         "docs/development/sci004_mmode_phase3_red_failures.json",
         "docs/development/sci004_mmode_phase3_sci005_dependency.json",
@@ -176,6 +198,16 @@ R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
         # pinned fixture-product literals only ... a red-oracle edit, so it
         # belongs to an ``R`` commit".
         "tests/performance/test_sci004_mmode.py",
+    }
+)
+
+R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
+    {
+        POST_SOURCE_RECORD_PATH,
+        POST_SOURCE_ORACLE_PATH,
+        "tests/unit/test_sci004_phase3_dependency.py",
+        "tests/unit/test_sci004_phase3_red_failures.py",
+        "tools/sci004_mmode_phase3_red.py",
     }
 )
 
@@ -212,6 +244,18 @@ REQUIRED_CLAIM_CATEGORIES: tuple[str, ...] = (
     "fingerprint",
     "performance",
     "production",
+)
+
+POST_SOURCE_CLAIMS_NOT_LICENSED: tuple[str, ...] = (
+    "acceptance: this supplemental record expresses no phase-M3 acceptance "
+    "verdict and unlocks no successor commit",
+    "fingerprint: this supplement pins, harvests, and adjudicates no Section 11 "
+    "m-mode family or dispatch-class observation",
+    "performance: this supplement measures no timing, speedup, memory, or "
+    "accelerator behavior and licenses no performance claim",
+    "production: this supplement records only the six hostile HDF5-reader "
+    "rejection defects and certifies neither broader output behavior nor "
+    "production readiness",
 )
 
 #: The phase-M3 capability-absence proof, read from Git objects at the exact
@@ -392,10 +436,10 @@ def _reject_non_finite(_value: str) -> float:
     raise RedRecordSchemaError("NaN and Infinity are forbidden in a canonical record")
 
 
-def read_record() -> tuple[bytes, dict[str, Any]]:
-    path = REPOSITORY_ROOT / RECORD_PATH
+def _read_record_path(relative: str) -> tuple[bytes, dict[str, Any]]:
+    path = REPOSITORY_ROOT / relative
     if not path.is_file() or path.is_symlink():
-        raise RedRecordSchemaError(f"{RECORD_PATH} must be a retained regular file")
+        raise RedRecordSchemaError(f"{relative} must be a retained regular file")
     raw = path.read_bytes()
     if raw.endswith(b"\n"):
         raise RedRecordSchemaError("canonical record bytes carry no trailing newline")
@@ -409,9 +453,23 @@ def read_record() -> tuple[bytes, dict[str, Any]]:
     return raw, document
 
 
+def read_record() -> tuple[bytes, dict[str, Any]]:
+    return _read_record_path(RECORD_PATH)
+
+
+def read_post_source_record() -> tuple[bytes, dict[str, Any]]:
+    return _read_record_path(POST_SOURCE_RECORD_PATH)
+
+
 @pytest.fixture(scope="module")
 def record() -> dict[str, Any]:
     _raw, document = read_record()
+    return document
+
+
+@pytest.fixture(scope="module")
+def post_source_record() -> dict[str, Any]:
+    _raw, document = read_post_source_record()
     return document
 
 
@@ -428,6 +486,23 @@ def declared_nodes() -> dict[str, dict[str, Any]]:
             if nodeid in declared:
                 raise RedRecordSchemaError(f"{nodeid} is declared twice")
             declared[nodeid] = dict(case)
+    return declared
+
+
+@pytest.fixture(scope="module")
+def post_source_declared_nodes() -> dict[str, dict[str, Any]]:
+    """Correction #24's six separately declared hostile HDF5 nodes."""
+    if str(REPOSITORY_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPOSITORY_ROOT))
+    module = importlib.import_module("tests.unit.test_io.test_hdf5_result")
+    declared: dict[str, dict[str, Any]] = {}
+    for case in module.SCI004_PHASE3_POST_SOURCE_RED_CASES:
+        nodeid = str(case["test_nodeid"])
+        if nodeid in declared:
+            raise RedRecordSchemaError(f"{nodeid} is declared twice")
+        declared[nodeid] = dict(case)
+    if len(declared) != 6:
+        raise RedRecordSchemaError("the post-source table must contain six nodes")
     return declared
 
 
@@ -484,14 +559,26 @@ def test_the_record_binds_the_frozen_design_and_its_exact_observation_tree(
     behind it through the enumerated interval the dependency validator
     authenticates exhaustively.
     """
-    assert record["design_sha"] == APPROVED_SCI004_D_SHA
+    assert record["design_sha"] == HISTORICAL_DESIGN_SHA
+    assert HISTORICAL_DESIGN_SHA != APPROVED_SCI004_D_SHA
 
     observed = str(record["pre_fix_source_sha"])
     assert _SHA1.match(observed) is not None
-    assert observed == APPROVED_SCI004_D_SHA
+    assert observed == HISTORICAL_DESIGN_SHA
     assert _peel_to_commit(observed) == observed
     assert _is_ancestor(APPROVED_SCI004_G3_SHA, observed)
     assert _is_ancestor(APPROVED_SCI004_A2_SHA, observed)
+    assert _is_ancestor(observed, APPROVED_SCI004_D_SHA)
+
+
+def test_the_historical_record_is_retained_byte_for_byte_from_its_last_red_slice() -> (
+    None
+):
+    """Section 13.7: S already exists, so the genuine historical bytes remain."""
+    raw, _document = read_record()
+
+    assert hashlib.sha256(raw).hexdigest() == HISTORICAL_RED_RECORD_SHA256
+    assert raw == _tree_blob(HISTORICAL_RED_SLICE_SHA, RECORD_PATH)
 
 
 def test_the_observation_tree_genuinely_lacks_every_phase_three_capability(
@@ -535,7 +622,7 @@ def test_the_protected_source_is_declared_clean_and_the_diff_is_authorized(
     assert isinstance(paths, list)
     assert all(isinstance(path, str) and path for path in paths)
     assert paths == sorted(set(paths))
-    assert set(paths) <= R3_AUTHORIZED_PATHS
+    assert set(paths) <= HISTORICAL_R3_AUTHORIZED_PATHS
     assert RECORD_PATH in paths
     # The retained SCI-005 certificate is *not* in this list, and must not be:
     # the superseded red slice already committed those exact bytes and the
@@ -710,7 +797,7 @@ def test_every_phase_red_node_appears_exactly_once_and_lives_in_the_r3_list(
     for nodeid in nodes:
         relative, separator, name = nodeid.partition("::")
         assert separator == "::" and name, nodeid
-        assert relative in R3_AUTHORIZED_PATHS, nodeid
+        assert relative in HISTORICAL_R3_AUTHORIZED_PATHS, nodeid
         assert (REPOSITORY_ROOT / relative).is_file(), nodeid
 
 
@@ -818,6 +905,289 @@ def test_both_section_8_public_path_rejections_have_their_own_case(
     assert "DID NOT RAISE" in str(components["observed_message"])
     assert beam["expected_failure_kind"] == "exception"
     assert "BeamEvaluationError" in str(beam["observed_exception_type"])
+
+
+# --- Correction #24: the separate post-source six-case red delta ------------
+
+
+def _post_source_oracle_diff() -> bytes:
+    anchor = resolve_r3_replay_anchor()
+    argv = [
+        "git",
+        "diff",
+        "--no-ext-diff",
+        "--binary",
+        "--full-index",
+        POST_SOURCE_PRE_FIX_SHA,
+    ]
+    if anchor.role == "r3":
+        argv.append(anchor.commit)
+    argv.extend(("--", POST_SOURCE_ORACLE_PATH))
+    completed = subprocess.run(
+        argv,
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    return completed.stdout
+
+
+def test_the_post_source_record_is_exactly_its_canonical_serialization() -> None:
+    raw, document = read_post_source_record()
+
+    assert raw and not raw.endswith(b"\n")
+    assert canonical_json_bytes(document) == raw
+
+
+def test_the_post_source_record_has_the_exact_supplement_schema(
+    post_source_record: dict[str, Any],
+) -> None:
+    assert set(post_source_record) == POST_SOURCE_TOP_LEVEL_KEYS
+    assert post_source_record["schema_version"] == POST_SOURCE_SCHEMA_VERSION
+    assert post_source_record["phase"] == PHASE
+    assert post_source_record["status"] == POST_SOURCE_STATUS
+    assert _UTC_STAMP.match(str(post_source_record["generated_at_utc"])) is not None
+    assert post_source_record["red_commit_sha"] is None
+    assert post_source_record["red_commit_sha_reason"] == (
+        POST_SOURCE_RED_COMMIT_SHA_REASON
+    )
+
+
+def test_the_post_source_record_binds_d24_and_the_exact_superseded_source(
+    post_source_record: dict[str, Any],
+) -> None:
+    assert post_source_record["design_sha"] == APPROVED_SCI004_D_SHA
+    assert post_source_record["pre_fix_source_sha"] == POST_SOURCE_PRE_FIX_SHA
+    assert _peel_to_commit(POST_SOURCE_PRE_FIX_SHA) == POST_SOURCE_PRE_FIX_SHA
+    assert _peel_to_commit(APPROVED_SCI004_D_SHA) == APPROVED_SCI004_D_SHA
+    assert _git("rev-parse", f"{APPROVED_SCI004_D_SHA}^").strip() == (
+        POST_SOURCE_PRE_FIX_SHA
+    )
+    assert (
+        _git(
+            "diff",
+            "--name-only",
+            POST_SOURCE_PRE_FIX_SHA,
+            APPROVED_SCI004_D_SHA,
+            "--",
+            "src/radiosim",
+        ).split()
+        == []
+    )
+
+
+def test_the_post_source_record_binds_the_immutable_historical_record(
+    post_source_record: dict[str, Any],
+) -> None:
+    historical = (REPOSITORY_ROOT / RECORD_PATH).read_bytes()
+
+    assert post_source_record["historical_red_record_sha256"] == (
+        HISTORICAL_RED_RECORD_SHA256
+    )
+    assert hashlib.sha256(historical).hexdigest() == HISTORICAL_RED_RECORD_SHA256
+    assert historical == _tree_blob(HISTORICAL_RED_SLICE_SHA, RECORD_PATH)
+
+
+def test_the_post_source_record_binds_the_exact_hdf5_oracle_patch(
+    post_source_record: dict[str, Any],
+) -> None:
+    oracle = _post_source_oracle_diff()
+
+    assert post_source_record["oracle_patch_paths"] == [POST_SOURCE_ORACLE_PATH]
+    assert oracle
+    assert (
+        hashlib.sha256(oracle).hexdigest() == post_source_record["oracle_patch_sha256"]
+    )
+
+
+def test_the_post_source_authorized_paths_are_exactly_the_five_path_grant(
+    post_source_record: dict[str, Any],
+) -> None:
+    expected = sorted(R3_AUTHORIZED_PATHS)
+
+    assert post_source_record["protected_source_clean"] is True
+    assert post_source_record["authorized_red_paths"] == expected
+
+
+def test_the_post_source_environment_and_claims_keep_the_base_red_shapes(
+    post_source_record: dict[str, Any],
+) -> None:
+    environment = post_source_record["environment"]
+    assert set(environment) == ENVIRONMENT_KEYS
+    assert set(environment["numeric_packages"]) == NUMERIC_PACKAGES
+    assert list(environment["numeric_packages"]) == sorted(NUMERIC_PACKAGES)
+    assert _SHA256.match(str(environment["pixi_lock_sha256"])) is not None
+    assert _SHA256.match(str(environment["iers_table_sha256"])) is not None
+    for field in (
+        "python",
+        "platform",
+        "machine",
+        "pixi_environment",
+        "astropy_version",
+        "erfa_version",
+        "iers_package_version",
+    ):
+        assert isinstance(environment[field], str) and environment[field], field
+    for name, version in environment["numeric_packages"].items():
+        assert isinstance(version, str) and version, name
+
+    claims = post_source_record["claims_not_licensed"]
+    assert claims == list(POST_SOURCE_CLAIMS_NOT_LICENSED)
+    assert isinstance(claims, list) and claims
+    assert all(isinstance(claim, str) and claim for claim in claims)
+    assert claims == sorted(set(claims))
+    for category in REQUIRED_CLAIM_CATEGORIES:
+        assert any(claim.startswith(f"{category}:") for claim in claims)
+
+
+def test_the_post_source_replay_is_one_serial_nonzero_command(
+    post_source_record: dict[str, Any],
+) -> None:
+    commands = post_source_record["commands"]
+    assert len(commands) == 1
+    command = commands[0]
+    assert set(command) == COMMAND_KEYS
+    assert isinstance(command["exit_code"], int)
+    assert not isinstance(command["exit_code"], bool)
+    assert command["exit_code"] != 0
+    assert command["cwd"] == "."
+    argv = command["argv"]
+    assert isinstance(argv, list) and argv
+    assert all(isinstance(entry, str) and entry for entry in argv)
+    assert isinstance(command["pixi_environment"], str)
+    assert command["pixi_environment"]
+    assert _UTC_STAMP.match(str(command["started_at_utc"])) is not None
+    duration = command["duration_seconds"]
+    assert isinstance(duration, (int, float)) and not isinstance(duration, bool)
+    assert math.isfinite(float(duration)) and float(duration) >= 0.0
+    assert argv[1:7] == [
+        "-m",
+        "pytest",
+        "-p",
+        "no:randomly",
+        "-p",
+        "no:xdist",
+    ]
+    assert argv[7] == "--junit-xml"
+    assert isinstance(argv[8], str) and argv[8]
+    assert "-n" not in argv
+    assert len(argv[9:]) == 11
+    assert _SHA256.match(str(command["stdout_sha256"])) is not None
+    assert _SHA256.match(str(command["stderr_sha256"])) is not None
+
+
+def test_the_historical_and_post_source_generator_semantics_are_separate() -> None:
+    """Correction #24 extends generation without changing the historical form."""
+    tool_path = REPOSITORY_ROOT / "tools/sci004_mmode_phase3_red.py"
+    source = tool_path.read_text(encoding="utf-8")
+    historical = source.split("def generate(output: Path) -> None:", 1)[1].split(
+        "def generate_post_source() -> None:", 1
+    )[0]
+    supplemental = source.split("def generate_post_source() -> None:", 1)[1].split(
+        "def _atomic_no_overwrite", 1
+    )[0]
+
+    assert '"red_commit_sha_reason": RED_COMMIT_SHA_REASON' in historical
+    assert '"claims_not_licensed": list(CLAIMS_NOT_LICENSED)' in historical
+    assert "POST_SOURCE_RED_COMMIT_SHA_REASON" not in historical
+    assert "POST_SOURCE_CLAIMS_NOT_LICENSED" not in historical
+    assert '"red_commit_sha_reason": POST_SOURCE_RED_COMMIT_SHA_REASON' in supplemental
+    assert (
+        '"claims_not_licensed": list(POST_SOURCE_CLAIMS_NOT_LICENSED)' in supplemental
+    )
+
+    completed = subprocess.run(
+        [sys.executable, str(tool_path), "generate"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 1
+    assert completed.stdout == b""
+    assert completed.stderr.decode("utf-8").endswith(
+        f"{RECORD_PATH} already exists; generation never overwrites\n"
+    )
+
+
+def test_the_historical_and_post_source_node_sets_form_one_disjoint_inventory(
+    record: dict[str, Any],
+    declared_nodes: dict[str, dict[str, Any]],
+    post_source_record: dict[str, Any],
+    post_source_declared_nodes: dict[str, dict[str, Any]],
+) -> None:
+    historical = [str(case["test_nodeid"]) for case in record["cases"]]
+    supplemental = [str(case["test_nodeid"]) for case in post_source_record["cases"]]
+
+    assert set(historical) == set(declared_nodes)
+    assert set(supplemental) == set(post_source_declared_nodes)
+    assert set(historical).isdisjoint(supplemental)
+    assert len(set(historical) | set(supplemental)) == len(historical) + 6
+
+
+def test_every_post_source_case_is_the_exact_confirmed_regex_mismatch(
+    post_source_record: dict[str, Any],
+    post_source_declared_nodes: dict[str, dict[str, Any]],
+) -> None:
+    cases = post_source_record["cases"]
+    assert len(cases) == 6
+    assert len({case["case_id"] for case in cases}) == 6
+    assert len({case["test_nodeid"] for case in cases}) == 6
+    for case in cases:
+        identifier = str(case["case_id"])
+        nodeid = str(case["test_nodeid"])
+        declared = post_source_declared_nodes[nodeid]
+        assert set(case) == CASE_KEYS, identifier
+        assert case["requirement_id"] == declared["requirement_id"]
+        assert case["expected_failure_kind"] == "assertion"
+        assert case["observed_outcome"] == "assertion"
+        assert case["observed_exception_type"] in (
+            "builtins.AssertionError",
+            "_pytest.outcomes.Failed",
+        )
+        assert case["red_failure_confirmed"] is True
+        assert case["command_index"] == 0
+        assert case["exit_code"] == post_source_record["commands"][0]["exit_code"]
+        assert (
+            case["stdout_sha256"] == post_source_record["commands"][0]["stdout_sha256"]
+        )
+        assert (
+            case["stderr_sha256"] == post_source_record["commands"][0]["stderr_sha256"]
+        )
+        assert isinstance(case["fixture_defect_excluded_by"], str)
+        assert case["fixture_defect_excluded_by"]
+        assert identifier.startswith("m3.")
+        assert str(case["requirement_id"]).startswith("sci004.section-")
+        assert "HDF5 result failed canonical model or fingerprint validation" in str(
+            case["observed_message"]
+        )
+        assert re.search(
+            str(case["expected_failure_pattern"]),
+            str(case["observed_message"]),
+        )
+        fixture = declared["fixture_bytes"]
+        assert canonical_json_bytes(json.loads(fixture.decode("utf-8"))) == fixture
+        invalid_digest = hashlib.sha256(fixture).hexdigest()
+        assert case["invalid_config_raw_sha256"] == invalid_digest
+        expected_identity = domain_digest(
+            "radiosim.sci004-red-fixture.v1",
+            canonical_json_bytes(
+                {
+                    "phase": PHASE,
+                    "fixture_id": case["case_id"],
+                    "requirement_id": case["requirement_id"],
+                    "test_nodeid": case["test_nodeid"],
+                    "pre_fix_source_sha": POST_SOURCE_PRE_FIX_SHA,
+                    "invalid_config_raw_sha256": invalid_digest,
+                }
+            ),
+        )
+        assert case["fixture_identity_sha256"] == expected_identity
+
+    hdf5_module = importlib.import_module("tests.unit.test_io.test_hdf5_result")
+    assert hdf5_module._POST_SOURCE_HDF5_EARLY_PATTERN == (
+        r"^HDF5 solver_json is invalid$"
+    )
 
 
 def test_the_retained_earlier_red_records_are_untouched_by_this_slice() -> None:
