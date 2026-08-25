@@ -73,12 +73,12 @@ import math
 import os
 import platform
 import re
+import select
 import struct
 import subprocess
 import sys
 import tempfile
 import time
-import tracemalloc
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -95,6 +95,17 @@ EVIDENCE_SELF_REFERENCE_REASON = "self-reference: A binds the containing E commi
 EVIDENCE_ARTIFACT = "docs/development/sci004_mmode_phase3_evidence.json"
 REPRODUCTION = "docs/development/sci004_mmode_phase3_evidence.md"
 RED_FAILURE_RECORD = "docs/development/sci004_mmode_phase3_red_failures.json"
+POST_SOURCE_RED_FAILURE_RECORD = (
+    "docs/development/sci004_mmode_phase3_post_source_red_failures.json"
+)
+RED_FAILURE_SCHEMA = "radiosim.sci004.mmode-phase3-red-failures.v1"
+POST_SOURCE_RED_FAILURE_SCHEMA = (
+    "radiosim.sci004.mmode-phase3-post-source-red-failures.v1"
+)
+POST_SOURCE_PRE_FIX_SHA = "a61526d686ab768f05ecffa80cfd6223d4ee4c62"
+HISTORICAL_RED_FAILURE_SHA256 = (
+    "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
+)
 CERTIFICATE_PATH = "docs/development/sci004_mmode_phase3_sci005_dependency.json"
 DEPENDENCY_VALIDATOR_PATH = "tests/unit/test_sci004_phase3_dependency.py"
 STAGE2_TOOL_PATH = "tools/sci005_stage2_acceptance.py"
@@ -110,6 +121,7 @@ TRANSFORM_EXECUTION_POLICY = "host_harmonics_backend_native_dense_v1"
 PREFLIGHT = "SCI004_M3_EVIDENCE_PREFLIGHT"
 SCHEMA = "SCI004_M3_EVIDENCE_SCHEMA"
 DIGEST = "SCI004_M3_EVIDENCE_DIGEST"
+RSS_SAMPLER = "SCI004_M3_RSS_SAMPLER"
 
 #: Section 14.2's exact envelope key order.
 ENVELOPE_KEYS: tuple[str, ...] = (
@@ -268,6 +280,14 @@ FIXTURE_INPUT_ROW_KEYS: tuple[str, ...] = (
 )
 
 RED_FAILURE_RECORD_KEYS: tuple[str, ...] = (
+    "path",
+    "sha256",
+    "schema_version",
+    "pre_fix_source_sha",
+    "validated",
+    "post_source_delta",
+)
+RED_FAILURE_REFERENCE_KEYS: tuple[str, ...] = (
     "path",
     "sha256",
     "schema_version",
@@ -447,28 +467,39 @@ MEMORY_KEYS: tuple[str, ...] = (
     "estimate_covers_measured_host_peak",
 )
 MEASUREMENT_SCOPE = "single_mmode_solver_call_excluding_fixture_and_output_v1"
-HOST_MEASUREMENT_METHOD = "python_heap_tracemalloc_scoped_v1"
-#: Section 11: the shared memory object's native method is the process-RSS one
-#: or ``unavailable``, "never a backend-device method".
-SHARED_NATIVE_METHODS: frozenset[str] = frozenset(
-    {"process_rss_sampled_delta_v1", "unavailable"}
+HOST_MEASUREMENT_METHOD = "process_rss_sampled_delta_v1"
+SHARED_NATIVE_METHODS: frozenset[str] = frozenset({"unavailable"})
+RSS_SAMPLING_INTERVAL_NS = 10_000_000
+RSS_READY_TIMEOUT_SECONDS = 10.0
+RSS_RESULT_TIMEOUT_SECONDS = 5.0
+RSS_READY_KEYS: tuple[str, ...] = (
+    "status",
+    "target_pid",
+    "sampling_interval_ns",
+    "baseline_rss_bytes",
 )
-#: Section 11's mandatory reason for a ``false``
-#: ``estimate_covers_measured_host_peak``, as the accepted 2026-08-25
-#: honest-memory-boolean correction rules it.  The boolean is the *measured*
-#: relation, retained as observed; when it is false the record must say why, and
-#: the why is structural rather than incidental: Section 9's estimate models the
-#: dense pipeline's seven components by design, while ``_mmode_pipeline`` builds
-#: the every-run Section 4.2 frame certificate on the same call and its retained
-#: Section 14.2 row dominates the scoped whole-call peak.
-CERTIFICATE_DOMINANCE_LIMITATION = (
-    "Section 9's estimate models the dense pipeline's seven components by "
-    "design, while the every-run Section 4.2 frame certificate's retained "
-    "Section 14.2 row -- with its Section 12.1 ledgers -- is built on the same "
-    "solver call and dominates this scoped whole-call peak, so the dense "
-    "estimate does not cover it and the two are measured separately"
+RSS_RESULT_KEYS: tuple[str, ...] = (
+    "status",
+    "target_pid",
+    "sampling_interval_ns",
+    "baseline_rss_bytes",
+    "peak_rss_bytes",
+    "final_rss_bytes",
+    "sample_count",
+    "measured_host_peak_bytes",
 )
-
+HOST_MEASUREMENT_LIMITATIONS: tuple[str, ...] = tuple(
+    sorted(
+        (
+            "10 ms sampling may miss a shorter transient resident-set peak",
+            "a baseline delta does not count solver allocations satisfied from "
+            "pages already resident before the call",
+            "current-process RSS excludes child-process and accelerator-device memory",
+            "Section 9's dense estimate excludes the every-run Section 4.2 frame "
+            "certificate and its retained ledgers",
+        )
+    )
+)
 DIRECT_COMPARISON_KEYS: tuple[str, ...] = (
     "predicate_id",
     "reference_cube_sha256",
@@ -820,6 +851,428 @@ def _require_sorted_unique_strings(value: Any, label: str) -> list[str]:
     )
     _require(items == sorted(set(items)), SCHEMA, f"{label} must be sorted and unique")
     return items
+
+
+# ---------------------------------------------------------------------------
+# Correction #24: external current-process RSS sampler
+# ---------------------------------------------------------------------------
+
+
+def _require_live_parent(target_pid: int) -> None:
+    """Require the sampler's target to remain its live direct parent."""
+    observed = os.getppid()
+    if observed != target_pid or observed <= 1:
+        raise EvidenceError(
+            RSS_SAMPLER,
+            f"target PID {target_pid} is not the live sampler parent {observed}",
+        )
+
+
+def _linux_rss_bytes(target_pid: int) -> int:
+    """Return Linux resident pages multiplied by the positive system page size."""
+    try:
+        fields_text = (
+            Path(f"/proc/{target_pid}/statm").read_text(encoding="ascii").split()
+        )
+        page_size = os.sysconf("SC_PAGE_SIZE")
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise EvidenceError(
+            RSS_SAMPLER, "the Linux RSS counter is unavailable"
+        ) from exc
+    if len(fields_text) < 2 or not fields_text[1].isdecimal():
+        raise EvidenceError(RSS_SAMPLER, "the Linux RSS counter is malformed")
+    if type(page_size) is not int or page_size <= 0:
+        raise EvidenceError(RSS_SAMPLER, "the Linux page size is not positive")
+    resident_pages = int(fields_text[1])
+    maximum = (1 << 64) - 1
+    if resident_pages > maximum // page_size:
+        raise EvidenceError(RSS_SAMPLER, "the Linux RSS counter overflows uint64")
+    return resident_pages * page_size
+
+
+def _darwin_proc_taskinfo_type() -> Any:
+    """Return Darwin's complete 96-byte ``proc_taskinfo`` structure type."""
+    import ctypes
+
+    class ProcTaskInfo(ctypes.Structure):
+        _fields_ = [
+            ("pti_virtual_size", ctypes.c_uint64),
+            ("pti_resident_size", ctypes.c_uint64),
+            ("pti_total_user", ctypes.c_uint64),
+            ("pti_total_system", ctypes.c_uint64),
+            ("pti_threads_user", ctypes.c_uint64),
+            ("pti_threads_system", ctypes.c_uint64),
+            ("pti_policy", ctypes.c_int32),
+            ("pti_faults", ctypes.c_int32),
+            ("pti_pageins", ctypes.c_int32),
+            ("pti_cow_faults", ctypes.c_int32),
+            ("pti_messages_sent", ctypes.c_int32),
+            ("pti_messages_received", ctypes.c_int32),
+            ("pti_syscalls_mach", ctypes.c_int32),
+            ("pti_syscalls_unix", ctypes.c_int32),
+            ("pti_csw", ctypes.c_int32),
+            ("pti_threadnum", ctypes.c_int32),
+            ("pti_numrunning", ctypes.c_int32),
+            ("pti_priority", ctypes.c_int32),
+        ]
+
+    return ProcTaskInfo
+
+
+def _darwin_rss_bytes(target_pid: int, libproc: Any | None = None) -> int:
+    """Return Darwin ``pti_resident_size`` after an exact-size kernel result."""
+    import ctypes
+
+    structure_type = _darwin_proc_taskinfo_type()
+    expected_size = ctypes.sizeof(structure_type)
+    if expected_size != 96:
+        raise EvidenceError(
+            RSS_SAMPLER,
+            f"the Darwin proc_taskinfo layout is {expected_size} bytes, not 96",
+        )
+    try:
+        library = libproc or ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        proc_pidinfo = library.proc_pidinfo
+        proc_pidinfo.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+            ctypes.c_int,
+        ]
+        proc_pidinfo.restype = ctypes.c_int
+        information = structure_type()
+        returned = proc_pidinfo(
+            target_pid,
+            4,  # PROC_PIDTASKINFO
+            0,
+            ctypes.byref(information),
+            expected_size,
+        )
+    except (AttributeError, OSError, TypeError, ValueError) as exc:
+        raise EvidenceError(
+            RSS_SAMPLER, "the Darwin RSS counter is unavailable"
+        ) from exc
+    if returned != expected_size:
+        raise EvidenceError(
+            RSS_SAMPLER,
+            f"the Darwin RSS counter returned {returned} bytes, not {expected_size}",
+        )
+    return int(information.pti_resident_size)
+
+
+def _instantaneous_rss_bytes(target_pid: int, system: str | None = None) -> int:
+    """Return one fail-closed RSS sample after verifying the live parent."""
+    _require_live_parent(target_pid)
+    operating_system = sys.platform if system is None else system
+    if operating_system.startswith("linux"):
+        return _linux_rss_bytes(target_pid)
+    if operating_system == "darwin":
+        return _darwin_rss_bytes(target_pid)
+    raise EvidenceError(
+        RSS_SAMPLER, f"unsupported RSS sampling platform {operating_system!r}"
+    )
+
+
+def _emit_sampler_record(record: Mapping[str, Any]) -> None:
+    """Emit exactly one canonical protocol record and flush it."""
+    sys.stdout.buffer.write(canonical_json(record) + b"\n")
+    sys.stdout.buffer.flush()
+
+
+def _rss_sampler_child(target_pid: int, sampling_interval_ns: int) -> int:
+    """Sample the live parent on fixed monotonic deadlines until exact ``STOP``."""
+    if type(target_pid) is not int or target_pid <= 1:
+        raise EvidenceError(RSS_SAMPLER, "target PID must be a positive process PID")
+    if sampling_interval_ns != RSS_SAMPLING_INTERVAL_NS:
+        raise EvidenceError(
+            RSS_SAMPLER,
+            f"sampling interval must be exactly {RSS_SAMPLING_INTERVAL_NS} ns",
+        )
+
+    baseline = _instantaneous_rss_bytes(target_pid)
+    peak = baseline
+    sample_count = 1
+    _emit_sampler_record(
+        {
+            "status": "READY",
+            "target_pid": target_pid,
+            "sampling_interval_ns": sampling_interval_ns,
+            "baseline_rss_bytes": baseline,
+        }
+    )
+
+    next_deadline = time.monotonic_ns() + sampling_interval_ns
+    while True:
+        now = time.monotonic_ns()
+        timeout = max(0.0, (next_deadline - now) / 1e9)
+        readable, _, _ = select.select([sys.stdin.buffer], [], [], timeout)
+        if readable:
+            command = sys.stdin.buffer.readline()
+            remainder = sys.stdin.buffer.read()
+            if command != b"STOP\n" or remainder:
+                raise EvidenceError(
+                    RSS_SAMPLER, "parent command must be exactly STOP\\n"
+                )
+            final = _instantaneous_rss_bytes(target_pid)
+            sample_count += 1
+            peak = max(peak, final)
+            _emit_sampler_record(
+                {
+                    "status": "RESULT",
+                    "target_pid": target_pid,
+                    "sampling_interval_ns": sampling_interval_ns,
+                    "baseline_rss_bytes": baseline,
+                    "peak_rss_bytes": peak,
+                    "final_rss_bytes": final,
+                    "sample_count": sample_count,
+                    "measured_host_peak_bytes": peak - baseline,
+                }
+            )
+            return 0
+
+        sample = _instantaneous_rss_bytes(target_pid)
+        sample_count += 1
+        peak = max(peak, sample)
+        now = time.monotonic_ns()
+        while next_deadline <= now:
+            next_deadline += sampling_interval_ns
+
+
+def _protocol_line(stream: Any, timeout_seconds: float, label: str) -> bytes:
+    """Read one line under a single deadline without a blocking buffered read."""
+    try:
+        descriptor = stream.fileno()
+    except (AttributeError, OSError, ValueError) as exc:
+        raise EvidenceError(SCHEMA, f"the RSS sampler {label} pipe failed") from exc
+    deadline = time.monotonic() + timeout_seconds
+    payload = bytearray()
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.0:
+            raise EvidenceError(SCHEMA, f"the RSS sampler {label} timed out")
+        try:
+            readable, _, _ = select.select([descriptor], [], [], remaining)
+        except (OSError, ValueError) as exc:
+            raise EvidenceError(SCHEMA, f"the RSS sampler {label} pipe failed") from exc
+        if not readable:
+            raise EvidenceError(SCHEMA, f"the RSS sampler {label} timed out")
+        try:
+            byte = os.read(descriptor, 1)
+        except OSError as exc:
+            raise EvidenceError(SCHEMA, f"the RSS sampler {label} pipe failed") from exc
+        if not byte:
+            raise EvidenceError(SCHEMA, f"the RSS sampler {label} line is malformed")
+        if byte == b"\n":
+            if payload.endswith(b"\r"):
+                raise EvidenceError(
+                    SCHEMA, f"the RSS sampler {label} line is malformed"
+                )
+            return bytes(payload)
+        payload.extend(byte)
+        # The previous ``readline(65_537)`` implementation admitted at most
+        # 65,535 payload bytes plus the line feed.
+        if len(payload) >= 65_536:
+            raise EvidenceError(SCHEMA, f"the RSS sampler {label} line is malformed")
+
+
+def _protocol_record(
+    payload: bytes, keys: tuple[str, ...], label: str
+) -> dict[str, Any]:
+    """Parse one exact canonical sampler record with no schema drift."""
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EvidenceError(SCHEMA, f"the RSS sampler {label} is not JSON") from exc
+    record = _require_keys(value, keys, f"RSS sampler {label}")
+    _require(
+        canonical_json(record) == payload,
+        SCHEMA,
+        f"the RSS sampler {label} is not canonical JSON",
+    )
+    return record
+
+
+def _validate_ready_record(record: Mapping[str, Any], target_pid: int) -> int:
+    """Validate the child's exact READY binding and return its baseline."""
+    _require(record["status"] == "READY", SCHEMA, "RSS sampler status must be READY")
+    pid = _require_int(record["target_pid"], "RSS sampler target_pid", minimum=2)
+    interval = _require_int(
+        record["sampling_interval_ns"], "RSS sampler sampling_interval_ns", minimum=1
+    )
+    baseline = _require_int(
+        record["baseline_rss_bytes"], "RSS sampler baseline_rss_bytes", minimum=0
+    )
+    _require(pid == target_pid, SCHEMA, "RSS sampler target PID does not match parent")
+    _require(
+        interval == RSS_SAMPLING_INTERVAL_NS,
+        SCHEMA,
+        "RSS sampler interval does not match the fixed 10 ms cadence",
+    )
+    return baseline
+
+
+def _validate_result_record(
+    record: Mapping[str, Any], target_pid: int, baseline: int
+) -> int:
+    """Validate the child's exact RESULT arithmetic and return the delta."""
+    _require(record["status"] == "RESULT", SCHEMA, "RSS sampler status must be RESULT")
+    pid = _require_int(record["target_pid"], "RSS sampler target_pid", minimum=2)
+    interval = _require_int(
+        record["sampling_interval_ns"], "RSS sampler sampling_interval_ns", minimum=1
+    )
+    observed_baseline = _require_int(
+        record["baseline_rss_bytes"], "RSS sampler baseline_rss_bytes", minimum=0
+    )
+    peak = _require_int(
+        record["peak_rss_bytes"], "RSS sampler peak_rss_bytes", minimum=0
+    )
+    final = _require_int(
+        record["final_rss_bytes"], "RSS sampler final_rss_bytes", minimum=0
+    )
+    sample_count = _require_int(
+        record["sample_count"], "RSS sampler sample_count", minimum=2
+    )
+    measured = _require_int(
+        record["measured_host_peak_bytes"],
+        "RSS sampler measured_host_peak_bytes",
+        minimum=0,
+    )
+    _require(pid == target_pid, SCHEMA, "RSS sampler target PID does not match parent")
+    _require(
+        interval == RSS_SAMPLING_INTERVAL_NS,
+        SCHEMA,
+        "RSS sampler interval does not match the fixed 10 ms cadence",
+    )
+    _require(
+        observed_baseline == baseline,
+        SCHEMA,
+        "RSS sampler RESULT baseline does not match READY",
+    )
+    _require(
+        peak >= baseline and peak >= final,
+        SCHEMA,
+        "RSS sampler peak must include the baseline and final observations",
+    )
+    _require(
+        measured == peak - baseline,
+        SCHEMA,
+        "RSS sampler measured delta must equal peak minus baseline",
+    )
+    _ = sample_count
+    return measured
+
+
+def _cleanup_sampler(process: Any) -> None:
+    """Close pipes and reap a sampler, retaining the first cleanup failure."""
+    failures: list[BaseException] = []
+
+    def close(stream: Any) -> None:
+        if stream is None or stream.closed:
+            return
+        try:
+            stream.close()
+        except (BrokenPipeError, OSError, ValueError) as exc:
+            failures.append(exc)
+
+    close(process.stdin)
+    try:
+        running = process.poll() is None
+    except (ChildProcessError, OSError, ValueError) as exc:
+        failures.append(exc)
+        running = True
+    if running:
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            pass
+        except (ChildProcessError, OSError, ValueError) as exc:
+            failures.append(exc)
+        try:
+            process.wait(timeout=RSS_RESULT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            except (ChildProcessError, OSError, ValueError) as exc:
+                failures.append(exc)
+            try:
+                process.wait()
+            except (ChildProcessError, OSError, ValueError) as exc:
+                failures.append(exc)
+        except (ChildProcessError, OSError, ValueError) as exc:
+            failures.append(exc)
+    close(process.stdout)
+    close(process.stderr)
+    if failures:
+        detail = f"{type(failures[0]).__name__}: {failures[0]}"
+        raise EvidenceError(SCHEMA, f"the RSS sampler cleanup failed: {detail}") from (
+            failures[0]
+        )
+
+
+def _measure_with_process_rss(call: Any) -> tuple[Any, int]:
+    """Run one untimed solver call while a separate process samples parent RSS."""
+    target_pid = os.getpid()
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "_sample-rss",
+            "--target-pid",
+            str(target_pid),
+            "--sampling-interval-ns",
+            str(RSS_SAMPLING_INTERVAL_NS),
+        ],
+        cwd=REPOSITORY_ROOT,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        if process.stdout is None or process.stdin is None or process.stderr is None:
+            raise EvidenceError(SCHEMA, "the RSS sampler pipes were not created")
+        ready_payload = _protocol_line(
+            process.stdout, RSS_READY_TIMEOUT_SECONDS, "READY"
+        )
+        ready = _protocol_record(ready_payload, RSS_READY_KEYS, "READY")
+        baseline = _validate_ready_record(ready, target_pid)
+
+        outcome = call()
+
+        try:
+            process.stdin.write(b"STOP\n")
+            process.stdin.flush()
+            process.stdin.close()
+        except (BrokenPipeError, OSError, ValueError) as exc:
+            raise EvidenceError(SCHEMA, "the RSS sampler STOP pipe failed") from exc
+        deadline = time.monotonic() + RSS_RESULT_TIMEOUT_SECONDS
+        result_payload = _protocol_line(
+            process.stdout, max(0.0, deadline - time.monotonic()), "RESULT"
+        )
+        result = _protocol_record(result_payload, RSS_RESULT_KEYS, "RESULT")
+        try:
+            returncode = process.wait(max(0.0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired as exc:
+            raise EvidenceError(SCHEMA, "the RSS sampler clean exit timed out") from exc
+        extra_stdout = process.stdout.read()
+        stderr = process.stderr.read()
+        _require(returncode == 0, SCHEMA, "the RSS sampler did not exit zero")
+        _require(extra_stdout == b"", SCHEMA, "the RSS sampler emitted extra stdout")
+        _require(stderr == b"", SCHEMA, "the RSS sampler emitted stderr")
+        measured = _validate_result_record(result, target_pid, baseline)
+    except BaseException as primary:
+        try:
+            _cleanup_sampler(process)
+        except BaseException as cleanup:
+            primary.add_note(
+                f"RSS sampler cleanup also failed: {type(cleanup).__name__}: {cleanup}"
+            )
+        raise
+    else:
+        _cleanup_sampler(process)
+        return outcome, measured
 
 
 def validate_command_row(row: Any, label: str) -> None:
@@ -1263,12 +1716,10 @@ def _validate_memory(block: Any, label: str, *, working_memory_bytes: int) -> No
         f"{label}.measured_host_peak_bytes",
         minimum=0,
     )
-    # Section 11, as the accepted 2026-08-25 honest-memory-boolean correction
-    # rules it: the *hard* predicates are the two budget inequalities.  The
-    # relation between the estimate and the peak is retained as a measured
-    # boolean, never as a requirement -- Section 9's estimate models the dense
-    # pipeline's seven components by design, while the every-run Section 4.2
-    # frame certificate's retained row dominates the scoped whole-call peak.
+    # Correction #24 keeps only the two budget inequalities as hard predicates.
+    # Sampled RSS may fall on either side of Section 9's estimate because it is
+    # a baseline delta at finite cadence; retain and recompute that observed
+    # relation without pinning either truth value.
     _require(
         measured <= working_memory_bytes,
         SCHEMA,
@@ -1296,22 +1747,19 @@ def _validate_memory(block: Any, label: str, *, working_memory_bytes: int) -> No
     _require(
         method in SHARED_NATIVE_METHODS,
         SCHEMA,
-        f"{label}.native_measurement_method must be the process-RSS method or "
-        "unavailable, never a backend-device method",
+        f"{label}.native_measurement_method must be unavailable; the process-RSS "
+        "method is host-only and is never a backend-device method in this "
+        "shared object",
     )
     for name in ("host_measurement_limitations", "native_measurement_limitations"):
         _require_sorted_unique_strings(memory[name], f"{label}.{name}")
         _require(memory[name], SCHEMA, f"{label}.{name} must be non-empty")
-    if not covers:
-        # Section 11: "``host_measurement_limitations`` must carry that reason".
-        _require(
-            CERTIFICATE_DOMINANCE_LIMITATION in memory["host_measurement_limitations"],
-            SCHEMA,
-            f"{label}: a false estimate_covers_measured_host_peak must carry the "
-            "certificate-dominance reason in host_measurement_limitations, so "
-            "the record says why the dense estimate does not cover the "
-            "whole-call peak",
-        )
+    _require(
+        tuple(memory["host_measurement_limitations"]) == HOST_MEASUREMENT_LIMITATIONS,
+        SCHEMA,
+        f"{label}.host_measurement_limitations must carry exactly the four "
+        "sampled-RSS limitations ruled by correction #24",
+    )
     native = memory["measured_native_peak_bytes"]
     reason = memory["measured_native_peak_bytes_reason"]
     if native is None:
@@ -1792,9 +2240,44 @@ def validate_evidence_document(document: Any) -> dict[str, Any]:
         "red_failure_record.path must be the retained phase-3 record",
     )
     _require_hex(red["sha256"], 64, "red_failure_record.sha256")
+    _require(
+        red["schema_version"] == RED_FAILURE_SCHEMA,
+        SCHEMA,
+        "red_failure_record.schema_version must be the historical M3 schema",
+    )
     _require_hex(red["pre_fix_source_sha"], 40, "red_failure_record.pre_fix_source_sha")
     _require(
         red["validated"] is True, SCHEMA, "red_failure_record.validated must be true"
+    )
+    post_source = _require_keys(
+        red["post_source_delta"],
+        RED_FAILURE_REFERENCE_KEYS,
+        "red_failure_record.post_source_delta",
+    )
+    _require(
+        post_source["path"] == POST_SOURCE_RED_FAILURE_RECORD,
+        SCHEMA,
+        "red_failure_record.post_source_delta.path must be the correction-24 record",
+    )
+    _require_hex(
+        post_source["sha256"], 64, "red_failure_record.post_source_delta.sha256"
+    )
+    _require(
+        post_source["schema_version"] == POST_SOURCE_RED_FAILURE_SCHEMA,
+        SCHEMA,
+        "red_failure_record.post_source_delta.schema_version must be the "
+        "correction-24 schema",
+    )
+    _require(
+        post_source["pre_fix_source_sha"] == POST_SOURCE_PRE_FIX_SHA,
+        SCHEMA,
+        "red_failure_record.post_source_delta.pre_fix_source_sha must name the "
+        "superseded a61526d6 source",
+    )
+    _require(
+        post_source["validated"] is True,
+        SCHEMA,
+        "red_failure_record.post_source_delta.validated must be true",
     )
 
     results = _require_keys(envelope["results"], RESULT_KEYS, "results")
@@ -2227,17 +2710,137 @@ def _design_sha() -> str:
 
 
 def _red_commit_sha() -> str:
-    """Return the phase's ``R3``: the newest commit on its Section 13.5 red set."""
-    return _git(
+    """Return the fresh correction-24 ``R3`` containing the supplement."""
+    commit = _git(
         "log",
         "-1",
         "--format=%H",
         "--",
-        RED_FAILURE_RECORD,
-        "tests/unit/test_sci004_phase3_red_failures.py",
-        "tools/sci004_mmode_phase3_red.py",
-        "tests/characterization/test_sci004_mmode.py",
+        POST_SOURCE_RED_FAILURE_RECORD,
     ).strip()
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise EvidenceError(
+            PREFLIGHT,
+            "the correction-24 post-source red supplement has no containing R3",
+        )
+    return commit
+
+
+def _git_blob(commit: str, path: str) -> bytes:
+    """Return one exact tree blob or refuse before evidence generation."""
+    completed = subprocess.run(
+        ["git", "show", f"{commit}:{path}"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise EvidenceError(
+            PREFLIGHT,
+            f"the red commit {commit} does not contain {path}: "
+            f"{completed.stderr.decode('utf-8', 'replace').strip()}",
+        )
+    return completed.stdout
+
+
+def _canonical_artifact(path: str, *, label: str) -> tuple[bytes, dict[str, Any]]:
+    """Read one red artifact and require exact canonical bytes."""
+    raw = (REPOSITORY_ROOT / path).read_bytes()
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EvidenceError(PREFLIGHT, f"{label} is not canonical JSON") from exc
+    if not isinstance(value, dict) or canonical_json(value) != raw:
+        raise EvidenceError(PREFLIGHT, f"{label} is not its canonical JSON bytes")
+    return raw, value
+
+
+def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
+    """Authenticate and join the immutable red record and post-source delta."""
+    historical_raw, historical = _canonical_artifact(
+        RED_FAILURE_RECORD, label="the historical phase-3 red record"
+    )
+    historical_sha256 = hashlib.sha256(historical_raw).hexdigest()
+    if historical_sha256 != HISTORICAL_RED_FAILURE_SHA256:
+        raise EvidenceError(
+            PREFLIGHT,
+            "the historical phase-3 red record does not match its frozen raw digest",
+        )
+    if _git_blob(red_commit, RED_FAILURE_RECORD) != historical_raw:
+        raise EvidenceError(
+            PREFLIGHT,
+            "the fresh R3 does not contain the immutable historical red bytes",
+        )
+    if historical.get("schema_version") != RED_FAILURE_SCHEMA:
+        raise EvidenceError(PREFLIGHT, "the historical red schema literal is wrong")
+    historical_pre_fix = historical.get("pre_fix_source_sha")
+    if (
+        not isinstance(historical_pre_fix, str)
+        or re.fullmatch(r"[0-9a-f]{40}", historical_pre_fix) is None
+    ):
+        raise EvidenceError(
+            PREFLIGHT, "the historical red record has no exact pre-fix source"
+        )
+
+    post_raw, post_source = _canonical_artifact(
+        POST_SOURCE_RED_FAILURE_RECORD,
+        label="the correction-24 post-source red record",
+    )
+    if post_source.get("schema_version") != POST_SOURCE_RED_FAILURE_SCHEMA:
+        raise EvidenceError(PREFLIGHT, "the post-source red schema literal is wrong")
+    if post_source.get("phase") != PHASE or post_source.get("status") != (
+        "post-source-expected-red-confirmed"
+    ):
+        raise EvidenceError(PREFLIGHT, "the post-source red phase or status is wrong")
+    if post_source.get("design_sha") != _design_sha():
+        raise EvidenceError(
+            PREFLIGHT, "the post-source red record does not bind the operative D"
+        )
+    if post_source.get("pre_fix_source_sha") != POST_SOURCE_PRE_FIX_SHA:
+        raise EvidenceError(
+            PREFLIGHT, "the post-source red record does not bind the superseded S3"
+        )
+    if post_source.get("historical_red_record_sha256") != historical_sha256:
+        raise EvidenceError(
+            PREFLIGHT, "the post-source red record does not bind the historical bytes"
+        )
+    if _git_blob(red_commit, POST_SOURCE_RED_FAILURE_RECORD) != post_raw:
+        raise EvidenceError(
+            PREFLIGHT,
+            "the fresh R3 does not contain the checked-out post-source red bytes",
+        )
+
+    return {
+        "path": RED_FAILURE_RECORD,
+        "sha256": historical_sha256,
+        "schema_version": RED_FAILURE_SCHEMA,
+        "pre_fix_source_sha": historical_pre_fix,
+        "validated": True,
+        "post_source_delta": {
+            "path": POST_SOURCE_RED_FAILURE_RECORD,
+            "sha256": hashlib.sha256(post_raw).hexdigest(),
+            "schema_version": POST_SOURCE_RED_FAILURE_SCHEMA,
+            "pre_fix_source_sha": POST_SOURCE_PRE_FIX_SHA,
+            "validated": True,
+        },
+    }
+
+
+def validate_evidence_artifact(document: Any) -> dict[str, Any]:
+    """Validate an envelope and authenticate both of its retained red inputs."""
+    envelope = validate_evidence_document(document)
+    red_commit = _red_commit_sha()
+    _require(
+        envelope["red_commit_sha"] == red_commit,
+        DIGEST,
+        "red_commit_sha must name the fresh R3 containing both red records",
+    )
+    _require(
+        envelope["red_failure_record"] == _red_failure_record_reference(red_commit),
+        DIGEST,
+        "red_failure_record must authenticate and join both retained red records",
+    )
+    return envelope
 
 
 def _host_tag() -> str:
@@ -2453,11 +3056,9 @@ def _measure_group(
     # Section 11: "Memory measurements use separate untimed synchronized calls."
     simulator = Simulator.from_mapping(_family_mapping(root, fixture_id), base_dir=root)
     memory_request = simulator.build_solve_request()
-    tracemalloc.start()
-    tracemalloc.reset_peak()
-    solver_module.solve_mmode(memory_request)
-    measured_host_peak = int(tracemalloc.get_traced_memory()[1])
-    tracemalloc.stop()
+    _, measured_host_peak = _measure_with_process_rss(
+        lambda: solver_module.solve_mmode(memory_request)
+    )
 
     bundle = solver_module.build_m1_evidence(request)
     cube = np.asarray(bundle["cube"])
@@ -3116,18 +3717,12 @@ def _workload_rows(
         # after seeing the peak so that it comes out true, is the condemned
         # self-comparison form.
         covers_measured_host_peak = measured_host_peak <= estimated_host_peak
-        host_limitations = [
-            "tracemalloc observes Python heap allocations only, so NumPy "
-            "buffers allocated outside the Python allocator are not counted"
-        ]
-        if not covers_measured_host_peak:
-            host_limitations.append(CERTIFICATE_DOMINANCE_LIMITATION)
         shared_memory = {
             "measurement_scope": MEASUREMENT_SCOPE,
             "estimated_host_peak_bytes": estimated_host_peak,
             "measured_host_peak_bytes": measured_host_peak,
             "host_measurement_method": HOST_MEASUREMENT_METHOD,
-            "host_measurement_limitations": sorted(set(host_limitations)),
+            "host_measurement_limitations": list(HOST_MEASUREMENT_LIMITATIONS),
             "measured_native_peak_bytes": None,
             "measured_native_peak_bytes_reason": (
                 "the shared dense path is host NumPy, so there is no native "
@@ -3231,6 +3826,8 @@ def build_phase3_evidence(source_sha: str | None) -> int:
     performance_path = performance_record_path(recorded_at_utc, host_tag)
     declared = (performance_path, EVIDENCE_ARTIFACT)
     state = preflight(source_sha, declared)
+    red_commit_sha = _red_commit_sha()
+    red_failure_record = _red_failure_record_reference(red_commit_sha)
 
     iers_sha256 = hashlib.sha256(
         (files("astropy_iers_data") / "data/finals2000A.all").read_bytes()
@@ -3243,16 +3840,10 @@ def build_phase3_evidence(source_sha: str | None) -> int:
         # safety rule instead of relaxing the rule for this tool.
         root = Path(scratch).resolve(strict=True)
 
-        # Section 11's memory measurement is the dominant cost of this phase by
-        # a wide margin -- the scoped ``tracemalloc`` pass runs the whole solver
-        # call about seventy times slower than the same solve untraced -- so the
-        # ordering here is deliberately *cheapest and most fragile first*.  The
-        # dependency replay, the register scan, the four family solves, the
-        # output round trips and the two public-path refusals together take
-        # minutes and touch the most production surface; running them after the
-        # measurement once cost an eight-hour run over a defect that surfaces in
-        # seconds.  Nothing in Section 11 or 14.2 orders these segments, and the
-        # measurement is unaffected by what precedes it.
+        # Correction #24 removed the allocation-event tracer that made each
+        # whole-solver memory call take hours.  Keep the cheap, fragile
+        # dependency and register checks first, then perform each group's one
+        # separate untimed solve under the external 10 ms RSS sampler below.
         certificate, certificate_command = _dependency_certificate(started)
         release_cases, release_command = _release_scan_cases(started)
 
@@ -3364,8 +3955,6 @@ def build_phase3_evidence(source_sha: str | None) -> int:
     performance_payload = canonical_json(performance_document)
     performance_sha256 = hashlib.sha256(performance_payload).hexdigest()
 
-    red_path = REPOSITORY_ROOT / RED_FAILURE_RECORD
-    red = json.loads(red_path.read_bytes().decode("utf-8"))
     input_rows = sorted(
         (
             {
@@ -3388,7 +3977,7 @@ def build_phase3_evidence(source_sha: str | None) -> int:
         "status": STATUS,
         "generated_at_utc": recorded_at_utc,
         "design_sha": _design_sha(),
-        "red_commit_sha": _red_commit_sha(),
+        "red_commit_sha": red_commit_sha,
         "source_sha": state["source_sha"],
         "evidence_commit_sha": None,
         "evidence_commit_sha_reason": EVIDENCE_SELF_REFERENCE_REASON,
@@ -3406,13 +3995,7 @@ def build_phase3_evidence(source_sha: str | None) -> int:
                 "radiosim.sci004-phase-input-set.v1", input_rows
             ),
         },
-        "red_failure_record": {
-            "path": RED_FAILURE_RECORD,
-            "sha256": raw_sha256(red_path),
-            "schema_version": red["schema_version"],
-            "pre_fix_source_sha": red["pre_fix_source_sha"],
-            "validated": True,
-        },
+        "red_failure_record": red_failure_record,
         "results": {
             "dependency_certificate": certificate,
             "output_cases": output_cases,
@@ -3496,9 +4079,16 @@ def main(argv: list[str] | None = None) -> int:
     check = sub.add_parser("check")
     check.add_argument("--artifact", required=True)
     check.add_argument("--performance", default=None)
+    sampler = sub.add_parser("_sample-rss", help=argparse.SUPPRESS)
+    sampler.add_argument("--target-pid", required=True, type=int)
+    sampler.add_argument("--sampling-interval-ns", required=True, type=int)
     arguments = parser.parse_args(argv)
 
     try:
+        if arguments.command == "_sample-rss":
+            return _rss_sampler_child(
+                arguments.target_pid, arguments.sampling_interval_ns
+            )
         if arguments.command == "preflight":
             state = preflight()
             sys.stdout.write(canonical_json(state).decode("utf-8") + "\n")
@@ -3506,7 +4096,7 @@ def main(argv: list[str] | None = None) -> int:
         if arguments.command == "generate":
             return build_phase3_evidence(arguments.source_sha)
         document = json.loads(Path(arguments.artifact).read_bytes().decode("utf-8"))
-        validate_evidence_document(document)
+        validate_evidence_artifact(document)
         if arguments.performance:
             record = json.loads(
                 Path(arguments.performance).read_bytes().decode("utf-8")

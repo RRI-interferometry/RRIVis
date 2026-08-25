@@ -43,10 +43,12 @@ import copy
 import hashlib
 import io
 import json
+import os
 import re
 import struct
 import subprocess
 import sys
+import time
 import tokenize
 from pathlib import Path
 from typing import Any
@@ -66,6 +68,17 @@ TOOL = "tools/sci004_mmode_phase3_evidence.py"
 ARTIFACT = "docs/development/sci004_mmode_phase3_evidence.json"
 REPRODUCTION = "docs/development/sci004_mmode_phase3_evidence.md"
 RED_RECORD = "docs/development/sci004_mmode_phase3_red_failures.json"
+POST_SOURCE_RED_RECORD = (
+    "docs/development/sci004_mmode_phase3_post_source_red_failures.json"
+)
+RED_RECORD_SCHEMA = "radiosim.sci004.mmode-phase3-red-failures.v1"
+POST_SOURCE_RED_RECORD_SCHEMA = (
+    "radiosim.sci004.mmode-phase3-post-source-red-failures.v1"
+)
+POST_SOURCE_PRE_FIX_SHA = "a61526d686ab768f05ecffa80cfd6223d4ee4c62"
+HISTORICAL_RED_RECORD_SHA256 = (
+    "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
+)
 DEPENDENCY_CERTIFICATE = "docs/development/sci004_mmode_phase3_sci005_dependency.json"
 PERFORMANCE_DIRECTORY = "output/benchmarks/reference/sci004"
 
@@ -354,10 +367,8 @@ MEMORY_KEYS: tuple[str, ...] = (
     "estimate_covers_measured_host_peak",
 )
 MEASUREMENT_SCOPE = "single_mmode_solver_call_excluding_fixture_and_output_v1"
-HOST_MEASUREMENT_METHOD = "python_heap_tracemalloc_scoped_v1"
-SHARED_NATIVE_METHODS: frozenset[str] = frozenset(
-    {"process_rss_sampled_delta_v1", "unavailable"}
-)
+HOST_MEASUREMENT_METHOD = "process_rss_sampled_delta_v1"
+SHARED_NATIVE_METHODS: frozenset[str] = frozenset({"unavailable"})
 #: The backend-device methods Section 11 admits *only* inside a kernel block.
 DEVICE_NATIVE_METHODS: tuple[str, ...] = (
     "jax_device_memory_stats_v1",
@@ -601,17 +612,17 @@ NATIVE_UNAVAILABLE_REASON = (
     "the shared dense path is host NumPy, so there is no native device "
     "allocation to measure"
 )
-TRACEMALLOC_LIMITATION = "tracemalloc observes Python heap allocations only"
-
-#: Section 11's mandatory reason for a ``false``
-#: ``estimate_covers_measured_host_peak``, restated here rather than imported so
-#: that a generator which quietly reworded it fails this module.
-CERTIFICATE_DOMINANCE_LIMITATION = (
-    "Section 9's estimate models the dense pipeline's seven components by "
-    "design, while the every-run Section 4.2 frame certificate's retained "
-    "Section 14.2 row -- with its Section 12.1 ledgers -- is built on the same "
-    "solver call and dominates this scoped whole-call peak, so the dense "
-    "estimate does not cover it and the two are measured separately"
+HOST_MEASUREMENT_LIMITATIONS: tuple[str, ...] = tuple(
+    sorted(
+        (
+            "10 ms sampling may miss a shorter transient resident-set peak",
+            "a baseline delta does not count solver allocations satisfied from "
+            "pages already resident before the call",
+            "current-process RSS excludes child-process and accelerator-device memory",
+            "Section 9's dense estimate excludes the every-run Section 4.2 frame "
+            "certificate and its retained ledgers",
+        )
+    )
 )
 
 
@@ -622,7 +633,7 @@ def _memory() -> dict[str, Any]:
         "estimated_host_peak_bytes": 4096,
         "measured_host_peak_bytes": 2048,
         "host_measurement_method": HOST_MEASUREMENT_METHOD,
-        "host_measurement_limitations": [TRACEMALLOC_LIMITATION],
+        "host_measurement_limitations": list(HOST_MEASUREMENT_LIMITATIONS),
         "measured_native_peak_bytes": None,
         "measured_native_peak_bytes_reason": NATIVE_UNAVAILABLE_REASON,
         "native_measurement_method": "unavailable",
@@ -632,21 +643,16 @@ def _memory() -> dict[str, Any]:
 
 
 def _uncovered_memory() -> dict[str, Any]:
-    """Return this phase's real case: a peak the dense estimate does not cover.
+    """Return a valid sampled case the dense estimate does not cover.
 
-    Section 11, as the accepted 2026-08-25 honest-memory-boolean correction
-    rules it: the boolean is the measured relation, ``false`` by construction
-    here because the every-run frame certificate's retained row dominates the
-    scoped whole-call peak, and the reason is mandatory in
-    ``host_measurement_limitations``.  Both budget inequalities still hold.
+    Correction #24 permits either observed relation because a finite-cadence RSS
+    baseline delta may fall above or below the dense estimate.  This synthetic
+    row deliberately exercises ``false`` while both budget inequalities hold.
     """
     memory = _memory()
     memory["estimated_host_peak_bytes"] = 14_471_104
     memory["measured_host_peak_bytes"] = 32_629_309
     memory["estimate_covers_measured_host_peak"] = False
-    memory["host_measurement_limitations"] = sorted(
-        {TRACEMALLOC_LIMITATION, CERTIFICATE_DOMINANCE_LIMITATION}
-    )
     return memory
 
 
@@ -942,9 +948,16 @@ def _synthetic_document(module: Any) -> dict[str, Any]:
         "red_failure_record": {
             "path": RED_RECORD,
             "sha256": SIXTY_FOUR,
-            "schema_version": "radiosim.sci004.mmode-phase3-red-failures.v1",
+            "schema_version": RED_RECORD_SCHEMA,
             "pre_fix_source_sha": OTHER_FORTY,
             "validated": True,
+            "post_source_delta": {
+                "path": POST_SOURCE_RED_RECORD,
+                "sha256": SIXTY_FOUR,
+                "schema_version": POST_SOURCE_RED_RECORD_SCHEMA,
+                "pre_fix_source_sha": POST_SOURCE_PRE_FIX_SHA,
+                "validated": True,
+            },
         },
         "results": {
             "dependency_certificate": {
@@ -1111,6 +1124,7 @@ def test_the_tracked_generator_and_its_inputs_exist_at_s3() -> None:
     """Section 14.2: the generator and its retained inputs are tracked at ``S3``."""
     assert (REPOSITORY_ROOT / TOOL).is_file()
     assert (REPOSITORY_ROOT / RED_RECORD).is_file()
+    assert (REPOSITORY_ROOT / POST_SOURCE_RED_RECORD).is_file()
     assert (REPOSITORY_ROOT / DEPENDENCY_CERTIFICATE).is_file()
 
 
@@ -1272,6 +1286,565 @@ def test_the_frozen_design_binding_is_read_from_the_dependency_validator() -> No
 
 
 # ---------------------------------------------------------------------------
+# Correction #24: external RSS sampler and dual red-record binding
+# ---------------------------------------------------------------------------
+
+
+def test_the_linux_rss_parser_uses_resident_pages_and_positive_page_size(
+    monkeypatch,
+) -> None:
+    module = _tool()
+    monkeypatch.setattr(module.Path, "read_text", lambda *_args, **_kwargs: "9 7 5\n")
+    monkeypatch.setattr(module.os, "sysconf", lambda _name: 4096)
+    assert module._linux_rss_bytes(123) == 7 * 4096
+
+
+@pytest.mark.parametrize("statm", ["", "1", "1 nope", "1 -2"])
+def test_the_linux_rss_parser_rejects_malformed_resident_pages(
+    monkeypatch, statm: str
+) -> None:
+    module = _tool()
+    monkeypatch.setattr(module.Path, "read_text", lambda *_args, **_kwargs: statm)
+    monkeypatch.setattr(module.os, "sysconf", lambda _name: 4096)
+    with pytest.raises(module.EvidenceError, match="malformed"):
+        module._linux_rss_bytes(123)
+
+
+def test_the_linux_rss_parser_rejects_nonpositive_page_size(monkeypatch) -> None:
+    module = _tool()
+    monkeypatch.setattr(module.Path, "read_text", lambda *_args, **_kwargs: "1 2")
+    monkeypatch.setattr(module.os, "sysconf", lambda _name: 0)
+    with pytest.raises(module.EvidenceError, match="not positive"):
+        module._linux_rss_bytes(123)
+
+
+def test_the_linux_rss_parser_rejects_uint64_overflow(monkeypatch) -> None:
+    module = _tool()
+    pages = 1 << 63
+    monkeypatch.setattr(
+        module.Path, "read_text", lambda *_args, **_kwargs: f"1 {pages}"
+    )
+    monkeypatch.setattr(module.os, "sysconf", lambda _name: 4096)
+    with pytest.raises(module.EvidenceError, match="overflows"):
+        module._linux_rss_bytes(123)
+
+
+class _FakeProcPidInfo:
+    def __init__(self, returned_size: int, resident_size: int = 8192) -> None:
+        self.argtypes: Any = None
+        self.restype: Any = None
+        self.returned_size = returned_size
+        self.resident_size = resident_size
+
+    def __call__(
+        self,
+        _pid: int,
+        flavor: int,
+        _arg: int,
+        buffer: Any,
+        size: int,
+    ) -> int:
+        import ctypes
+
+        assert flavor == 4
+        assert size == 96
+        words = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_uint64))
+        words[1] = self.resident_size
+        return self.returned_size
+
+
+class _FakeLibproc:
+    def __init__(self, returned_size: int, resident_size: int = 8192) -> None:
+        self.proc_pidinfo = _FakeProcPidInfo(returned_size, resident_size)
+
+
+def test_the_darwin_sampler_uses_the_complete_96_byte_proc_taskinfo() -> None:
+    import ctypes
+
+    module = _tool()
+    assert ctypes.sizeof(module._darwin_proc_taskinfo_type()) == 96
+    assert module._darwin_rss_bytes(123, _FakeLibproc(96, 12_345)) == 12_345
+
+
+def test_a_short_darwin_proc_pidinfo_result_is_rejected() -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError, match="returned 95 bytes, not 96"):
+        module._darwin_rss_bytes(123, _FakeLibproc(95))
+
+
+def test_an_unsupported_rss_sampling_platform_is_rejected(monkeypatch) -> None:
+    module = _tool()
+    monkeypatch.setattr(module.os, "getppid", lambda: 123)
+    with pytest.raises(module.EvidenceError, match="unsupported"):
+        module._instantaneous_rss_bytes(123, "freebsd")
+
+
+def test_a_changed_sampler_parent_is_rejected_before_the_counter(monkeypatch) -> None:
+    module = _tool()
+    monkeypatch.setattr(module.os, "getppid", lambda: 456)
+    with pytest.raises(module.EvidenceError, match="not the live sampler parent"):
+        module._instantaneous_rss_bytes(123, "linux")
+
+
+def _ready_record(module: Any, target_pid: int = 123) -> dict[str, Any]:
+    return {
+        "status": "READY",
+        "target_pid": target_pid,
+        "sampling_interval_ns": module.RSS_SAMPLING_INTERVAL_NS,
+        "baseline_rss_bytes": 1000,
+    }
+
+
+def _result_record(module: Any, target_pid: int = 123) -> dict[str, Any]:
+    return {
+        "status": "RESULT",
+        "target_pid": target_pid,
+        "sampling_interval_ns": module.RSS_SAMPLING_INTERVAL_NS,
+        "baseline_rss_bytes": 1000,
+        "peak_rss_bytes": 1300,
+        "final_rss_bytes": 1100,
+        "sample_count": 2,
+        "measured_host_peak_bytes": 300,
+    }
+
+
+def _install_scripted_sampler(
+    monkeypatch,
+    module: Any,
+    body: str,
+    *,
+    before_ready: str = "",
+) -> list[subprocess.Popen[bytes]]:
+    """Replace only the sampler child with one bounded protocol script."""
+    real_popen = subprocess.Popen
+    script = f"""
+import json
+import os
+import sys
+import time
+
+def emit(value):
+    sys.stdout.buffer.write(
+        json.dumps(value, sort_keys=True, separators=(\",\", \":\")).encode(\"utf-8\")
+        + b\"\\n\"
+    )
+    sys.stdout.buffer.flush()
+
+target = os.getppid()
+interval = 10_000_000
+baseline = 1000
+{before_ready}
+emit({{
+    \"status\": \"READY\",
+    \"target_pid\": target,
+    \"sampling_interval_ns\": interval,
+    \"baseline_rss_bytes\": baseline,
+}})
+result = {{
+    \"status\": \"RESULT\",
+    \"target_pid\": target,
+    \"sampling_interval_ns\": interval,
+    \"baseline_rss_bytes\": baseline,
+    \"peak_rss_bytes\": 1300,
+    \"final_rss_bytes\": 1100,
+    \"sample_count\": 2,
+    \"measured_host_peak_bytes\": 300,
+}}
+{body}
+"""
+    processes: list[subprocess.Popen[bytes]] = []
+
+    def factory(_argv: list[str], **kwargs: Any) -> subprocess.Popen[bytes]:
+        process = real_popen([sys.executable, "-c", script], **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(module.subprocess, "Popen", factory)
+    return processes
+
+
+def _assert_sampler_processes_reaped(processes: list[subprocess.Popen[bytes]]) -> None:
+    assert processes
+    assert all(process.poll() is not None for process in processes)
+
+
+def test_sampler_protocol_records_require_exact_canonical_json() -> None:
+    module = _tool()
+    ready = _ready_record(module)
+    payload = module.canonical_json(ready)
+    assert module._protocol_record(payload, module.RSS_READY_KEYS, "READY") == ready
+    with pytest.raises(module.EvidenceError, match="not canonical"):
+        module._protocol_record(
+            json.dumps(ready).encode("utf-8"), module.RSS_READY_KEYS, "READY"
+        )
+    ready["extra"] = 1
+    with pytest.raises(module.EvidenceError, match="exactly"):
+        module._protocol_record(
+            module.canonical_json(ready), module.RSS_READY_KEYS, "READY"
+        )
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("target_pid", True, "exact JSON integer"),
+        ("sampling_interval_ns", 1, "fixed 10 ms"),
+        ("baseline_rss_bytes", 999, "does not match READY"),
+        ("peak_rss_bytes", 999, "include the baseline and final"),
+        ("final_rss_bytes", 1400, "include the baseline and final"),
+        ("sample_count", 1, "at least 2"),
+        ("measured_host_peak_bytes", 299, "peak minus baseline"),
+    ],
+)
+def test_sampler_result_protocol_rejects_inconsistent_values(
+    field: str, value: Any, message: str
+) -> None:
+    module = _tool()
+    result = _result_record(module)
+    result[field] = value
+    with pytest.raises(module.EvidenceError, match=message):
+        module._validate_result_record(result, 123, 1000)
+
+
+def test_sampler_ready_protocol_rejects_pid_and_boolean_integers() -> None:
+    module = _tool()
+    ready = _ready_record(module)
+    ready["target_pid"] = True
+    with pytest.raises(module.EvidenceError, match="exact JSON integer"):
+        module._validate_ready_record(ready, 123)
+    ready = _ready_record(module, 124)
+    with pytest.raises(module.EvidenceError, match="does not match parent"):
+        module._validate_ready_record(ready, 123)
+
+
+def test_sampler_line_timeout_fails_closed() -> None:
+    module = _tool()
+    read_fd, write_fd = os.pipe()
+    try:
+        with os.fdopen(read_fd, "rb", buffering=0) as stream:
+            with pytest.raises(module.EvidenceError, match="READY timed out"):
+                module._protocol_line(stream, 0.01, "READY")
+    finally:
+        os.close(write_fd)
+
+
+def test_a_partial_protocol_line_cannot_defeat_the_single_deadline() -> None:
+    module = _tool()
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import os,time; os.write(1, b'{'); time.sleep(10)",
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    started = time.monotonic()
+    try:
+        assert process.stdout is not None
+        with pytest.raises(module.EvidenceError, match="READY timed out"):
+            module._protocol_line(process.stdout, 0.05, "READY")
+        assert time.monotonic() - started < 0.5
+    finally:
+        module._cleanup_sampler(process)
+    assert process.poll() is not None
+
+
+class _CleanupStream(io.BytesIO):
+    pass
+
+
+class _StubbornSampler:
+    def __init__(self) -> None:
+        self.stdin = _CleanupStream()
+        self.stdout = _CleanupStream()
+        self.stderr = _CleanupStream()
+        self.terminated = False
+        self.killed = False
+        self.waits = 0
+
+    def poll(self) -> None:
+        return None
+
+    def terminate(self) -> None:
+        self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.waits += 1
+        if timeout is not None:
+            raise subprocess.TimeoutExpired("sampler", timeout)
+        return -9
+
+
+def test_sampler_cleanup_terminates_kills_reaps_and_closes_every_pipe() -> None:
+    module = _tool()
+    process = _StubbornSampler()
+    module._cleanup_sampler(process)
+    assert process.terminated and process.killed and process.waits == 2
+    assert process.stdin.closed and process.stdout.closed and process.stderr.closed
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        (
+            "sys.stdin.buffer.read(); "
+            "sys.stdout.buffer.write(b'{\\n'); sys.stdout.buffer.flush()",
+            "RESULT is not JSON",
+        ),
+        ("sys.stdin.buffer.read()", "RESULT line is malformed"),
+    ],
+)
+def test_malformed_or_missing_result_fails_closed_and_reaps(
+    monkeypatch, body: str, message: str
+) -> None:
+    module = _tool()
+    processes = _install_scripted_sampler(monkeypatch, module, body)
+    with pytest.raises(module.EvidenceError, match=message):
+        module._measure_with_process_rss(lambda: "solved")
+    _assert_sampler_processes_reaped(processes)
+
+
+def test_extra_sampler_stdout_fails_closed_and_reaps(monkeypatch) -> None:
+    module = _tool()
+    processes = _install_scripted_sampler(
+        monkeypatch,
+        module,
+        "sys.stdin.buffer.read(); emit(result); "
+        "sys.stdout.buffer.write(b'extra\\n'); sys.stdout.buffer.flush()",
+    )
+    with pytest.raises(module.EvidenceError, match="extra stdout"):
+        module._measure_with_process_rss(lambda: "solved")
+    _assert_sampler_processes_reaped(processes)
+
+
+def test_nonempty_sampler_stderr_fails_closed_and_reaps(monkeypatch) -> None:
+    module = _tool()
+    processes = _install_scripted_sampler(
+        monkeypatch,
+        module,
+        "sys.stdin.buffer.read(); emit(result); "
+        "sys.stderr.buffer.write(b'bad stderr'); sys.stderr.buffer.flush()",
+    )
+    with pytest.raises(module.EvidenceError, match="emitted stderr"):
+        module._measure_with_process_rss(lambda: "solved")
+    _assert_sampler_processes_reaped(processes)
+
+
+def test_nonzero_sampler_exit_fails_closed_and_reaps(monkeypatch) -> None:
+    module = _tool()
+    processes = _install_scripted_sampler(
+        monkeypatch,
+        module,
+        "sys.stdin.buffer.read(); emit(result); raise SystemExit(3)",
+    )
+    with pytest.raises(module.EvidenceError, match="did not exit zero"):
+        module._measure_with_process_rss(lambda: "solved")
+    _assert_sampler_processes_reaped(processes)
+
+
+def test_result_timeout_terminates_and_reaps_the_sampler(monkeypatch) -> None:
+    module = _tool()
+    monkeypatch.setattr(module, "RSS_RESULT_TIMEOUT_SECONDS", 0.05)
+    processes = _install_scripted_sampler(
+        monkeypatch,
+        module,
+        "sys.stdin.buffer.read(); time.sleep(10)",
+    )
+    started = time.monotonic()
+    with pytest.raises(module.EvidenceError, match="RESULT timed out"):
+        module._measure_with_process_rss(lambda: "solved")
+    assert time.monotonic() - started < 0.75
+    _assert_sampler_processes_reaped(processes)
+
+
+def test_clean_exit_timeout_terminates_and_reaps_the_sampler(monkeypatch) -> None:
+    module = _tool()
+    monkeypatch.setattr(module, "RSS_RESULT_TIMEOUT_SECONDS", 0.05)
+    processes = _install_scripted_sampler(
+        monkeypatch,
+        module,
+        "sys.stdin.buffer.read(); emit(result); time.sleep(10)",
+    )
+    started = time.monotonic()
+    with pytest.raises(module.EvidenceError, match="clean exit timed out"):
+        module._measure_with_process_rss(lambda: "solved")
+    assert time.monotonic() - started < 0.75
+    _assert_sampler_processes_reaped(processes)
+
+
+def test_early_sampler_input_close_is_translated_and_reaped(monkeypatch) -> None:
+    module = _tool()
+    processes = _install_scripted_sampler(
+        monkeypatch,
+        module,
+        "time.sleep(10)",
+        before_ready="os.close(0)",
+    )
+    with pytest.raises(module.EvidenceError, match="STOP pipe failed") as excinfo:
+        module._measure_with_process_rss(lambda: "solved")
+    assert isinstance(excinfo.value.__cause__, BrokenPipeError)
+    _assert_sampler_processes_reaped(processes)
+
+
+def test_primary_solver_exception_survives_a_cleanup_exception(monkeypatch) -> None:
+    module = _tool()
+    processes = _install_scripted_sampler(
+        monkeypatch,
+        module,
+        "time.sleep(10)",
+    )
+    real_cleanup = module._cleanup_sampler
+
+    def cleanup_then_fail(process: Any) -> None:
+        real_cleanup(process)
+        raise RuntimeError("cleanup failed too")
+
+    monkeypatch.setattr(module, "_cleanup_sampler", cleanup_then_fail)
+
+    class SolverFailure(RuntimeError):
+        pass
+
+    with pytest.raises(SolverFailure, match="primary solver failure") as excinfo:
+        module._measure_with_process_rss(
+            lambda: (_ for _ in ()).throw(SolverFailure("primary solver failure"))
+        )
+    assert any("cleanup failed too" in note for note in excinfo.value.__notes__)
+    _assert_sampler_processes_reaped(processes)
+
+
+def test_cleanup_failure_on_success_still_fails_closed(monkeypatch) -> None:
+    module = _tool()
+    processes = _install_scripted_sampler(
+        monkeypatch,
+        module,
+        "sys.stdin.buffer.read(); emit(result)",
+    )
+    real_cleanup = module._cleanup_sampler
+
+    def cleanup_then_fail(process: Any) -> None:
+        real_cleanup(process)
+        raise RuntimeError("cleanup failed after success")
+
+    monkeypatch.setattr(module, "_cleanup_sampler", cleanup_then_fail)
+    with pytest.raises(RuntimeError, match="cleanup failed after success"):
+        module._measure_with_process_rss(lambda: "solved")
+    _assert_sampler_processes_reaped(processes)
+
+
+def test_a_supported_host_sampler_child_smoke_test_has_no_extra_protocol_bytes() -> (
+    None
+):
+    module = _tool()
+    outcome, measured = module._measure_with_process_rss(lambda: sum(range(10_000)))
+    assert outcome == sum(range(10_000))
+    assert type(measured) is int and measured >= 0
+
+
+def test_the_sampler_uses_no_forbidden_or_in_process_memory_instrument() -> None:
+    source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
+    for forbidden in (
+        "tracemalloc",
+        "ru_maxrss",
+        "resource.getrusage",
+        "psutil",
+        "threading",
+    ):
+        assert forbidden not in source, forbidden
+    assert '"_sample-rss"' in source
+    assert "subprocess.Popen(" in source
+    assert "RSS_SAMPLING_INTERVAL_NS = 10_000_000" in source
+
+
+def test_each_fixture_group_keeps_one_separate_untimed_whole_solver_measurement() -> (
+    None
+):
+    source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
+    measure_group = source[source.index("def _measure_group(") :]
+    measure_group = measure_group[: measure_group.index("def _dense_invariance_row")]
+    assert measure_group.count("_measure_with_process_rss(") == 1
+    workload_rows = source[source.index("def _workload_rows(") :]
+    workload_rows = workload_rows[: workload_rows.index("def build_phase3_evidence")]
+    assert "for fixture_id in PERFORMANCE_FIXTURES:" in workload_rows
+    assert "for backend in BACKENDS:" in workload_rows
+
+
+def test_a_solver_exception_is_propagated_after_sampler_cleanup() -> None:
+    module = _tool()
+
+    class SolverFailure(RuntimeError):
+        pass
+
+    def fail() -> None:
+        raise SolverFailure("solver failed")
+
+    with pytest.raises(SolverFailure, match="solver failed"):
+        module._measure_with_process_rss(fail)
+
+
+def test_the_fresh_red_commit_is_the_commit_containing_the_supplement() -> None:
+    module = _tool()
+    red_commit = module._red_commit_sha()
+    assert GIT_SHA.fullmatch(red_commit)
+    changed = _git("diff-tree", "--no-commit-id", "--name-only", "-r", red_commit)
+    assert POST_SOURCE_RED_RECORD in changed.splitlines()
+
+
+def test_the_generator_authenticates_and_joins_both_red_records() -> None:
+    module = _tool()
+    reference = module._red_failure_record_reference(module._red_commit_sha())
+    historical_raw = (REPOSITORY_ROOT / RED_RECORD).read_bytes()
+    post_source_raw = (REPOSITORY_ROOT / POST_SOURCE_RED_RECORD).read_bytes()
+    assert hashlib.sha256(historical_raw).hexdigest() == (HISTORICAL_RED_RECORD_SHA256)
+    assert reference == {
+        "path": RED_RECORD,
+        "sha256": HISTORICAL_RED_RECORD_SHA256,
+        "schema_version": RED_RECORD_SCHEMA,
+        "pre_fix_source_sha": json.loads(historical_raw)["pre_fix_source_sha"],
+        "validated": True,
+        "post_source_delta": {
+            "path": POST_SOURCE_RED_RECORD,
+            "sha256": hashlib.sha256(post_source_raw).hexdigest(),
+            "schema_version": POST_SOURCE_RED_RECORD_SCHEMA,
+            "pre_fix_source_sha": POST_SOURCE_PRE_FIX_SHA,
+            "validated": True,
+        },
+    }
+
+
+def test_the_artifact_validator_authenticates_the_fresh_r3_and_both_inputs() -> None:
+    module = _tool()
+    document = _synthetic_document(module)
+    red_commit = module._red_commit_sha()
+    document["red_commit_sha"] = red_commit
+    document["red_failure_record"] = module._red_failure_record_reference(red_commit)
+    module.validate_evidence_artifact(document)
+    document["red_failure_record"]["post_source_delta"]["sha256"] = SIXTY_FOUR
+    with pytest.raises(module.EvidenceError, match="authenticate and join"):
+        module.validate_evidence_artifact(document)
+
+
+def test_the_generator_rejects_a_supplement_not_contained_in_fresh_r3(
+    monkeypatch,
+) -> None:
+    module = _tool()
+    real = module._git_blob
+    monkeypatch.setattr(
+        module,
+        "_git_blob",
+        lambda commit, path: (
+            b"forged" if path == POST_SOURCE_RED_RECORD else real(commit, path)
+        ),
+    )
+    with pytest.raises(module.EvidenceError, match="does not contain"):
+        module._red_failure_record_reference(module._red_commit_sha())
+
+
+# ---------------------------------------------------------------------------
 # Synthetic strict schema and digest fixtures -- the evidence envelope
 # ---------------------------------------------------------------------------
 
@@ -1282,6 +1855,63 @@ def test_the_synthetic_envelope_satisfies_every_section_14_2_rule() -> None:
     envelope = module.validate_evidence_document(_synthetic_document(module))
     assert set(envelope) == set(ENVELOPE_KEYS)
     assert set(envelope["results"]) == set(RESULT_KEYS)
+
+
+def test_the_m3_red_join_has_six_outer_and_five_nested_keys() -> None:
+    module = _tool()
+    document = _synthetic_document(module)
+    red = document["red_failure_record"]
+    assert set(red) == {
+        "path",
+        "sha256",
+        "schema_version",
+        "pre_fix_source_sha",
+        "validated",
+        "post_source_delta",
+    }
+    assert set(red["post_source_delta"]) == {
+        "path",
+        "sha256",
+        "schema_version",
+        "pre_fix_source_sha",
+        "validated",
+    }
+    module.validate_evidence_document(document)
+
+
+def test_a_missing_or_extra_outer_red_join_key_is_rejected() -> None:
+    module = _tool()
+    missing = _synthetic_document(module)
+    missing["red_failure_record"].pop("post_source_delta")
+    assert "post_source_delta" in _rejects(module, missing)
+    extra = _synthetic_document(module)
+    extra["red_failure_record"]["extra"] = True
+    assert "unknown ['extra']" in _rejects(module, extra)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("path", RED_RECORD, "correction-24 record"),
+        ("schema_version", RED_RECORD_SCHEMA, "correction-24 schema"),
+        ("pre_fix_source_sha", FORTY, "superseded a61526d6"),
+        ("validated", False, "must be true"),
+    ],
+)
+def test_a_forged_post_source_red_reference_is_rejected(
+    field: str, value: Any, message: str
+) -> None:
+    module = _tool()
+    document = _synthetic_document(module)
+    document["red_failure_record"]["post_source_delta"][field] = value
+    assert message in _rejects(module, document)
+
+
+def test_an_extra_post_source_red_reference_field_is_rejected() -> None:
+    module = _tool()
+    document = _synthetic_document(module)
+    document["red_failure_record"]["post_source_delta"]["extra"] = True
+    assert "exactly" in _rejects(module, document)
 
 
 @pytest.mark.parametrize("key", ENVELOPE_KEYS)
@@ -2031,25 +2661,24 @@ def test_a_shared_memory_object_naming_a_device_method_is_rejected(method: str) 
     assert "never a backend-device method" in _rejects(module, record, performance=True)
 
 
-def test_the_process_rss_native_method_is_admitted() -> None:
+def test_the_process_rss_method_is_rejected_in_the_native_field() -> None:
+    """Correction #24: sampled RSS is host-only; native stays unavailable."""
     module = _tool()
     record = _synthetic_performance_document()
     for row in record["workloads"][:3]:
         row["memory"]["native_measurement_method"] = "process_rss_sampled_delta_v1"
         row["memory"]["measured_native_peak_bytes"] = 8192
         row["memory"]["measured_native_peak_bytes_reason"] = "measured"
-    module.validate_performance_document(record)
+    assert "must be unavailable" in _rejects(module, record, performance=True)
 
 
 def test_an_estimate_below_the_measured_host_peak_is_admitted_when_declared() -> None:
-    """Section 11's honest boolean: this phase's real case is ``false``.
+    """Section 11 admits an honestly observed ``false`` coverage relation.
 
-    The accepted 2026-08-25 correction removed
+    Correction #24 does not keep
     ``measured_host_peak_bytes <= estimated_host_peak_bytes`` as a hard
-    predicate.  Section 9's estimate models the dense pipeline's seven
-    components by design, while the every-run frame certificate's retained row
-    dominates the scoped whole-call peak, so the relation is retained as
-    observed with its reason -- and the record is valid.
+    predicate; only the two budget inequalities gate.  The sampled relation is
+    recomputed and retained as observed, and this fixture exercises false.
     """
     module = _tool()
     record = _synthetic_performance_document()
@@ -2058,31 +2687,37 @@ def test_an_estimate_below_the_measured_host_peak_is_admitted_when_declared() ->
     memory = module.validate_performance_document(record)["workloads"][0]["memory"]
     assert memory["estimate_covers_measured_host_peak"] is False
     assert memory["measured_host_peak_bytes"] > memory["estimated_host_peak_bytes"]
-    assert CERTIFICATE_DOMINANCE_LIMITATION in memory["host_measurement_limitations"]
+    assert tuple(memory["host_measurement_limitations"]) == (
+        HOST_MEASUREMENT_LIMITATIONS
+    )
 
 
-def test_a_false_coverage_boolean_without_its_reason_is_rejected() -> None:
-    """Section 11: ``host_measurement_limitations`` "must carry that reason"."""
+def test_a_memory_row_missing_one_sampled_rss_limitation_is_rejected() -> None:
+    """Correction #24 requires all four ruled limitations on every row."""
     module = _tool()
     record = _synthetic_performance_document()
     for row in record["workloads"][:3]:
         memory = _uncovered_memory()
-        memory["host_measurement_limitations"] = [TRACEMALLOC_LIMITATION]
+        memory["host_measurement_limitations"] = list(HOST_MEASUREMENT_LIMITATIONS[1:])
         row["memory"].update(memory)
-    assert "certificate-dominance reason" in _rejects(module, record, performance=True)
+    assert "exactly the four sampled-RSS limitations" in _rejects(
+        module, record, performance=True
+    )
 
 
-def test_a_reworded_certificate_dominance_reason_is_rejected() -> None:
-    """A paraphrase that drops the structural explanation is not the reason."""
+def test_a_reworded_sampled_rss_limitation_is_rejected() -> None:
+    """A paraphrase cannot replace one of correction #24's four literals."""
     module = _tool()
     record = _synthetic_performance_document()
     for row in record["workloads"][:3]:
         memory = _uncovered_memory()
         memory["host_measurement_limitations"] = sorted(
-            {TRACEMALLOC_LIMITATION, "the estimate did not cover the peak"}
+            [*HOST_MEASUREMENT_LIMITATIONS[1:], "sampling can miss a peak"]
         )
         row["memory"].update(memory)
-    assert "certificate-dominance reason" in _rejects(module, record, performance=True)
+    assert "exactly the four sampled-RSS limitations" in _rejects(
+        module, record, performance=True
+    )
 
 
 def test_a_coverage_boolean_disagreeing_with_the_measured_relation_is_rejected() -> (
@@ -2107,9 +2742,6 @@ def test_a_true_coverage_boolean_on_a_covering_row_is_required() -> None:
     record = _synthetic_performance_document()
     for row in record["workloads"][:3]:
         row["memory"]["estimate_covers_measured_host_peak"] = False
-        row["memory"]["host_measurement_limitations"] = sorted(
-            {TRACEMALLOC_LIMITATION, CERTIFICATE_DOMINANCE_LIMITATION}
-        )
     assert "recomputed from this row's own values" in _rejects(
         module, record, performance=True
     )

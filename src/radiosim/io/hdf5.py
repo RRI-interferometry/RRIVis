@@ -2233,6 +2233,10 @@ def _validate_tangent_polarization_frame(value: object) -> None:
         entry = frame[name]
         if not isinstance(entry, str) or not entry:
             raise UnsafeResultInputError("HDF5 solver_json is invalid")
+    try:
+        TangentPolarizationFrame.from_mapping(frame)
+    except (TypeError, ValueError) as exc:
+        raise UnsafeResultInputError("HDF5 solver_json is invalid") from exc
 
 
 def _validate_component_provenance(snapshots: Mapping[str, object]) -> None:
