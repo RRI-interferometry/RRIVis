@@ -59,10 +59,16 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 #: Section 14.2/13.5's four approved constants.  ``E3`` replaces exactly these
 #: four ``None`` literals and nothing else in this module.
-APPROVED_SOURCE_SHA: str | None = None
-APPROVED_ARTIFACT_SHA256: str | None = None
-APPROVED_PERFORMANCE_PATH: str | None = None
-APPROVED_PERFORMANCE_SHA256: str | None = None
+APPROVED_SOURCE_SHA: str | None = "b07925ab14b56b3ca0fa863f806290748a31df6b"
+APPROVED_ARTIFACT_SHA256: str | None = (
+    "600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae"
+)
+APPROVED_PERFORMANCE_PATH: str | None = (
+    "output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json"
+)
+APPROVED_PERFORMANCE_SHA256: str | None = (
+    "07e59d3176866a78c17244849d6493365e9d410547e884cf56b254e60babe193"
+)
 
 TOOL = "tools/sci004_mmode_phase3_evidence.py"
 ARTIFACT = "docs/development/sci004_mmode_phase3_evidence.json"
