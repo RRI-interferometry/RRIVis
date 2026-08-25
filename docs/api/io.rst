@@ -113,6 +113,33 @@ and immutable provenance.  Both the scientific fingerprint and the
 provenance fingerprint are stored and recomputed on read.  Complex256 is
 rejected instead of being silently cast.
 
+The stored solver record is a strict tagged union with two arms, and the
+stored ``solver`` key alone selects which one a reader reconstructs.  A
+``rime`` run writes the unchanged six-field snapshot it always wrote.  An
+``mmode`` run — ``execution.simulator: mmode`` — writes the
+m-mode solver snapshot: the six common fields followed by the m-mode block,
+which names
+the time-grid, frame and harmonic conventions, the sidereal sample count and
+the ``lmax``/``mmax``/``quadrature_nside`` truncation, the quadrature and
+truncation policies, the tangent polarization frame, the Stokes ``V`` basis
+bridge, the bundled IERS table digest, the frame-certificate digest and the
+transform execution policy.  That arm's key set is ordered, so it is the one
+provenance payload written in its declared order rather than alphabetically,
+and a reader that cannot reproduce the order refuses the file rather than
+accepting a re-sorted subset.  ``LoadedSimulationResult.solver`` returns the
+reconstructed arm — ``MModeSolverResultProvenance`` for an m-mode file — so a
+deserialized result is never silently relabelled ``rime``.  The gate record and
+frozen certificate cubes an m-mode *run* carries are deliberately outside the
+stored snapshot; the deserialized arm refuses them rather than returning a
+plausible-looking zero.
+
+An m-mode run's UTC sample centres and integration widths are mapped from its
+exact ERA turn grid rather than derived from a cadence, so the reader rebuilds
+that grid from the stored arrays instead of re-deriving it.  A direct run keeps
+its unchanged strict re-derivation.  Both arms still require the structured
+time datasets and the resolved-configuration snapshot to agree element for
+element.
+
 Publication uses an exclusively created same-directory temporary regular file.
 The writer flushes and fsyncs it, closes it, performs a complete read-back,
 verifies scientific equality and both fingerprints, then uses atomic

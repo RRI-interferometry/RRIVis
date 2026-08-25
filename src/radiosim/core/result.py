@@ -11,7 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from importlib.metadata import PackageNotFoundError, version
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 import numpy as np
 from numpy.typing import DTypeLike, NDArray
@@ -312,6 +312,30 @@ class MModeSolverResultProvenance:
         return str(self.snapshot.convention)
 
     @property
+    def execution_path(self) -> str:
+        """Return the solved execution path, a Section 10 common field."""
+        return str(self.snapshot.execution_path)
+
+    @property
+    def components(self) -> tuple[str, ...]:
+        """Return the solved components, a Section 10 common field.
+
+        ``docs/development/sci004_mmode_design.md`` Section 10 gives the m-mode
+        arm "the exact common fields ``solver``, ``sky_representation``,
+        ``convention``, ``execution_path``, ``components`` and
+        ``component_element_counts``", so the two arms of the tagged union
+        present the same attribute surface for them.  Every consumer that reads
+        a solved component list -- the standard projection's HISTORY lines, most
+        of all -- then works on either arm without asking which one it holds.
+        """
+        return tuple(str(name) for name in self.snapshot.components)
+
+    @property
+    def component_element_counts(self) -> tuple[int, ...]:
+        """Return each solved component's element count, likewise."""
+        return tuple(int(count) for count in self.snapshot.component_element_counts)
+
+    @property
     def direct_gate(self) -> Any:
         """Return Section 7.3's every-run complete frozen-direct comparison."""
         return self.snapshot.direct_gate
@@ -333,6 +357,317 @@ class MModeSolverResultProvenance:
     def to_snapshot(self) -> FrozenMapping:
         """Return the JSON-safe scientific snapshot the fingerprint hashes."""
         return json_safe_mapping(self.as_mapping())
+
+
+def _json_shaped(value: Any) -> Any:
+    """Return one frozen snapshot value in the JSON shape it was written in."""
+    if isinstance(value, Mapping):
+        return {str(key): _json_shaped(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_shaped(item) for item in value]
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedMModeSolverSnapshot:
+    """A deserialized Section 10 m-mode snapshot, replayed from stored bytes.
+
+    ``docs/development/sci004_mmode_design.md`` Section 10: "Reader round trips
+    must reconstruct and authenticate the m-mode solver snapshot; a reader that
+    silently labels it ``rime`` fails acceptance."  Reconstruction needs an
+    object with the snapshot's own surface, and the *solver's*
+    ``MModeSolverSnapshot`` is not it: that class also carries the Section 7.3
+    gate record and the frozen certificate cubes, which Section 10 deliberately
+    keeps out of the serialized twenty-key set.  This is the reader's arm --
+    exactly the stored keys, in the stored order, and an explicit refusal for
+    the run-time-only fields rather than a plausible-looking zero.
+    """
+
+    stored: Mapping[str, Any]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        _reject_subclass("LoadedMModeSolverSnapshot")
+
+    def __post_init__(self) -> None:
+        mapping = dict(self.stored)
+        if tuple(mapping) != MMODE_SOLVER_SNAPSHOT_KEYS:
+            raise InvalidResultError(
+                "a stored m-mode solver snapshot must carry Section 10's exact "
+                "key set, in order"
+            )
+        object.__setattr__(self, "stored", MappingProxyType(mapping))
+
+    @property
+    def solver(self) -> str:
+        """Return the registry key the stored snapshot records."""
+        return str(self.stored["solver"])
+
+    @property
+    def sky_representation(self) -> str:
+        return str(self.stored["sky_representation"])
+
+    @property
+    def convention(self) -> str:
+        return str(self.stored["convention"])
+
+    @property
+    def execution_path(self) -> str:
+        return str(self.stored["execution_path"])
+
+    @property
+    def components(self) -> tuple[str, ...]:
+        return tuple(str(name) for name in self.stored["components"])
+
+    @property
+    def component_element_counts(self) -> tuple[int, ...]:
+        return tuple(int(count) for count in self.stored["component_element_counts"])
+
+    @property
+    def direct_gate(self) -> Any:
+        """Refuse: Section 10 keeps the gate record out of the stored snapshot."""
+        raise InvalidResultError(
+            "a deserialized m-mode snapshot carries no Section 7.3 gate record; "
+            "read it from the run that produced the file"
+        )
+
+    def as_mapping(self) -> dict[str, Any]:
+        """Return the stored Section 10 snapshot, in its stored key order.
+
+        The values come back in their JSON shape.  A frozen snapshot stores an
+        array as a tuple, but the written document held a JSON array and the
+        in-memory arm's ``as_mapping`` produces a list, so a round trip that
+        handed back tuples would compare unequal to the record it replays for
+        no reason a reader could act on.
+        """
+        return {key: _json_shaped(value) for key, value in self.stored.items()}
+
+    def to_snapshot(self) -> dict[str, Any]:
+        return self.as_mapping()
+
+
+#: ``docs/development/sci004_mmode_design.md`` Section 11's four new
+#: characterized families, in the order the memo prints them.  "The set names
+#: exactly the capability accepted M2 licenses through the public solve path."
+#: The former HEALPix, hybrid and east-X families were removed by the accepted
+#: accepted-capability-characterization-envelope correction: two published
+#: identically zero cubes, one silently dropped its diffuse half, and the last
+#: reproduced ``mmode_point_full_stokes`` byte for byte.
+MMODE_CHARACTERIZATION_FAMILIES: Final[tuple[str, ...]] = (
+    "mmode_single_scalar_mode",
+    "mmode_point_stokes_i",
+    "mmode_point_full_stokes",
+    "mmode_circular_receptor",
+)
+
+#: Section 11's two namespaced characterization domains.  "The family record's
+#: grid and input-identity digests use the namespaced domains
+#: ``radiosim.sci004.characterization-time.v1`` and
+#: ``radiosim.sci004.characterization-input.v1``, computed from the retained
+#: ``SimulationResult`` exactly as the strict validator re-derives them; Section
+#: 14.0's solver-internal domains do not apply to a result-derived record."
+#: The distinction is not cosmetic: Section 14.0's ``radiosim.mmode-utc-grid.v1``
+#: preimage is the exact-turn manifest with its exposure edges, which a
+#: published result does not carry, and reusing that domain over a different
+#: preimage would be a collision rather than a shortcut.
+MMODE_CHARACTERIZATION_TIME_DOMAIN: Final = "radiosim.sci004.characterization-time.v1"
+MMODE_CHARACTERIZATION_INPUT_DOMAIN: Final = "radiosim.sci004.characterization-input.v1"
+
+#: Section 11's family record key set, in the order the record is built.
+MMODE_CHARACTERIZATION_RECORD_KEYS: Final[tuple[str, ...]] = (
+    "family_id",
+    "raw_cube_sha256",
+    "scientific_sha256",
+    "solver_snapshot",
+    "era_utc_grid_sha256",
+    "harmonic_index_table_sha256",
+    "input_identity_sha256",
+)
+
+#: Section 11's initial harvest: "The initial harvest binds exactly the
+#: platform/Python cells this phase's acceptance actually runs on; every other
+#: cell and every newly observed NumPy/OpenBLAS dispatch class enters afterwards
+#: by the standing admission discipline, exactly as the accepted AVX-512
+#: admissions did."
+#:
+#: These four ``scientific_sha256`` values were measured on 2026-08-24 from the
+#: live family fixtures on ``osx-arm64-py311``, at the
+#: accepted Section 7.3 dimensions -- ``49`` sidereal samples, ``lmax = mmax =
+#: 16``, ``quadrature_nside = 8``, one 50 MHz channel, the qualified two-antenna
+#: compact geometry -- and each family passed the every-run two-tier gate on
+#: real numbers rather than through its exact-zero corner:
+#:
+#: ===========================  ==================  ==============  ========
+#: family                       tier-1a max / limit  deficit q>h>f   factor
+#: ===========================  ==================  ==============  ========
+#: ``mmode_single_scalar_mode``  1.210e-13/2.261e-08  0.6931>0.1847>0.1170  5.925
+#: ``mmode_point_stokes_i``      3.473e-13/6.391e-08  1.5480>0.4771>0.2987  5.182
+#: ``mmode_point_full_stokes``   3.464e-13/7.799e-08  2.5113>1.0108>0.4113  6.105
+#: ``mmode_circular_receptor``   3.686e-13/7.029e-08  1.7028>0.9033>0.3286  5.182
+#: ===========================  ==================  ==============  ========
+#:
+#: No other environment cell is claimed.  A second cell is admitted only by the
+#: standing adjudication, never by appending a digest CI printed.
+_MMODE_CHARACTERIZATION_OBSERVATIONS: Final[
+    Mapping[str, Mapping[str, tuple[str, ...]]]
+] = MappingProxyType(
+    {
+        "mmode_single_scalar_mode": MappingProxyType(
+            {
+                "osx-arm64-py311": (
+                    "a8852fd181e8f1ddd08e24e01066bcede2e1e1541fba9a067d47f0febc51c344",
+                )
+            }
+        ),
+        "mmode_point_stokes_i": MappingProxyType(
+            {
+                "osx-arm64-py311": (
+                    "1750b098f5bb8894bde8aed2b0b52addeff0f1cc44c7d980930624b552fe5640",
+                )
+            }
+        ),
+        "mmode_point_full_stokes": MappingProxyType(
+            {
+                "osx-arm64-py311": (
+                    "2ac26b66787b5844de488bb5f8cd161e14b15282c5b66759262bc4e39b94d262",
+                )
+            }
+        ),
+        "mmode_circular_receptor": MappingProxyType(
+            {
+                "osx-arm64-py311": (
+                    "e4c4abb439f5c08b451e30bce96bb28eb9c1fd5fc4f23b15e27d1f007e14979b",
+                )
+            }
+        ),
+    }
+)
+
+
+def mmode_characterization_observation_set(
+    family_id: str,
+) -> dict[str, tuple[str, ...]]:
+    """Return one Section 11 family's CI-001 observation set.
+
+    The value is a mapping from environment cell to the admitted
+    ``scientific_sha256`` values for that cell -- never a bare digest, because a
+    single-machine digest is not a pin.  A cell absent from the mapping has not
+    been harvested; adding one is the standing admission discipline's work, not
+    this function's.
+    """
+    if family_id not in MMODE_CHARACTERIZATION_FAMILIES:
+        raise InvalidResultError(f"unknown characterization family {family_id!r}")
+    return {
+        cell: tuple(digests)
+        for cell, digests in _MMODE_CHARACTERIZATION_OBSERVATIONS[family_id].items()
+    }
+
+
+def _characterization_time_manifest(grid: Any) -> dict[str, Any]:
+    """Return the result-derived UTC-grid manifest the time domain covers."""
+    from radiosim.core.mmode.types import f64be
+
+    jd1 = np.asarray(grid.utc_jd1, dtype=np.float64)
+    jd2 = np.asarray(grid.utc_jd2, dtype=np.float64)
+    widths = np.asarray(grid.integration_time_seconds, dtype=np.float64)
+    return {
+        "schema_version": MMODE_CHARACTERIZATION_TIME_DOMAIN,
+        "axis_order": ["sample"],
+        "shape": [int(jd1.shape[0])],
+        "interval_semantics": str(grid.interval_semantics),
+        "start_time_iso": str(grid.start_time_iso),
+        "center_jd1_f64be": [f64be(value) for value in jd1.tolist()],
+        "center_jd2_f64be": [f64be(value) for value in jd2.tolist()],
+        "integration_time_seconds_f64be": [f64be(value) for value in widths.tolist()],
+    }
+
+
+def _characterization_input_manifest(
+    result: SimulationResult,
+    family_id: str,
+) -> dict[str, Any]:
+    """Return the result-derived input manifest the input domain covers.
+
+    Two families differ exactly in their inputs, so the manifest joins the
+    resolved configuration with the instrument, receptor and beam identities the
+    result already carries.  ``mmode_circular_receptor`` and
+    ``mmode_point_full_stokes`` share a sky and differ only in the receptor
+    basis, which is why the receptor fingerprint is part of the preimage rather
+    than an afterthought.
+    """
+    from radiosim.core.mmode.types import f64be
+
+    return {
+        "schema_version": MMODE_CHARACTERIZATION_INPUT_DOMAIN,
+        "family_id": family_id,
+        "resolved_config": _json_shaped(dict(result.resolved_config)),
+        "instrument_sha256": result.instrument.provenance.instrument_sha256,
+        "receptor_sha256": result.receptors.provenance.receptor_sha256,
+        "beam_loaded_fingerprint": result.beam_state.loaded_fingerprint,
+        "correlations": list(result.correlations),
+        "polarization_basis": str(result.polarization_basis),
+        "frequencies_hz_f64be": [
+            f64be(value)
+            for value in np.asarray(result.frequencies_hz, dtype=np.float64).tolist()
+        ],
+    }
+
+
+def mmode_characterization_record(
+    result: SimulationResult,
+    *,
+    family_id: str,
+) -> dict[str, Any]:
+    """Return Section 11's characterization record for one m-mode family.
+
+    "Each family records the raw cube, ``scientific_sha256``, solver snapshot,
+    ERA/UTC grid, harmonic index table, and input identity."  Every part is
+    derived from the retained result, deterministically, so two calls on one
+    result are equal and the strict validator re-derives each digest from the
+    same preimage.
+
+    The raw cube uses Section 14.0's own ``A`` rule under the generic
+    visibility-cube domain; the harmonic index table is the packed block table
+    the solver itself builds for the run's ``(lmax, mmax)``, under its own
+    Section 14.0 domain; the two remaining digests use Section 11's namespaced
+    characterization domains.
+    """
+    from radiosim.core.mmode.harmonics import scalar_packed_block_table
+    from radiosim.core.mmode.types import array_digest, object_digest
+
+    if family_id not in MMODE_CHARACTERIZATION_FAMILIES:
+        raise InvalidResultError(f"unknown characterization family {family_id!r}")
+    if type(result.solver) is not MModeSolverResultProvenance:
+        raise InvalidResultError(
+            "a characterization family record requires an m-mode result"
+        )
+    snapshot = result.solver.as_mapping()
+    cube = np.asarray(result.visibilities)
+    dtype = "complex64-be" if cube.dtype.itemsize == 8 else "complex128-be"
+    table = scalar_packed_block_table(
+        lmax=int(snapshot["lmax"]), mmax=int(snapshot["mmax"])
+    )
+    return {
+        "family_id": family_id,
+        "raw_cube_sha256": array_digest(
+            "radiosim.mmode-visibility-cube.v1",
+            "visibility_cube",
+            ["time", "baseline", "frequency", "correlation"],
+            "Jy",
+            cube,
+            dtype=dtype,
+        ),
+        "scientific_sha256": result.scientific_sha256,
+        "solver_snapshot": snapshot,
+        "era_utc_grid_sha256": object_digest(
+            MMODE_CHARACTERIZATION_TIME_DOMAIN,
+            _characterization_time_manifest(result.time_grid),
+        ),
+        "harmonic_index_table_sha256": table.block_table_sha256,
+        "input_identity_sha256": object_digest(
+            MMODE_CHARACTERIZATION_INPUT_DOMAIN,
+            _characterization_input_manifest(result, family_id),
+        ),
+    }
 
 
 #: The Section 10 tagged solver union.  ``rime`` results keep the unchanged
@@ -1185,6 +1520,34 @@ class LoadedSimulationResult(_ResultMethods):
         raise TypeError(
             "LoadedSimulationResult must be built by build_loaded_simulation_result"
         )
+
+    @property
+    def solver(self) -> SolverProvenanceUnion:
+        """Return the stored solver record as the arm of the union it names.
+
+        ``docs/development/sci004_mmode_design.md`` Section 10: "Reader round
+        trips must reconstruct and authenticate the m-mode solver snapshot; a
+        reader that silently labels it ``rime`` fails acceptance."  The stored
+        mapping stays exactly where it was -- ``solver_snapshot`` is unchanged --
+        and this reconstructs the typed arm from it, so a caller holding a
+        deserialized result reads the same attribute surface it would have read
+        on the in-memory one.  The arm is chosen by the stored ``solver`` key
+        alone, and an unknown key is refused rather than defaulted.
+        """
+        stored = dict(self.solver_snapshot)
+        key = stored.get("solver")
+        if key == "mmode":
+            return MModeSolverResultProvenance(
+                snapshot=LoadedMModeSolverSnapshot(stored=stored)
+            )
+        if key == "rime":
+            try:
+                return SolverResultProvenance(**cast(dict[str, Any], stored))
+            except (TypeError, ValueError) as exc:
+                raise InvalidResultError(
+                    "the stored rime solver snapshot is invalid"
+                ) from exc
+        raise InvalidResultError(f"unknown stored solver arm {key!r}")
 
 
 def _identity_snapshots(

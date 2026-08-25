@@ -6,7 +6,7 @@ import json
 import math
 import os
 import stat
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import cast
 
@@ -314,6 +314,55 @@ def _json_tree(value: object) -> object:
     return holder[0]
 
 
+#: The registry key of Section 10's m-mode arm of the tagged solver union.
+MMODE_SOLVER_KEY = "mmode"
+
+#: The exposure rule a direct UTC-uniform grid follows, unchanged.
+DIRECT_EXPOSURE_RULE = "minimum of cadence_seconds and remaining observation duration"
+
+#: ``docs/development/sci004_mmode_design.md`` Section 3.1 makes the exact turn
+#: coordinate authoritative and UTC "an *output and provenance* coordinate": an
+#: m-mode grid's per-sample widths are mapped from its retained exposure edges,
+#: so they are neither a cadence nor a remaining-duration clamp.  Publishing the
+#: direct rule beside them would state something the same document contradicts.
+MMODE_EXPOSURE_RULE = (
+    "exact ERA top-hat exposure edges mapped to UTC (radiosim.mmode-era-turn-grid.v1)"
+)
+
+
+def _observation_summary(
+    result: SimulationResult,
+    center_iso: Sequence[object],
+) -> dict[str, object]:
+    """Return the observation block, truthful for either solver arm.
+
+    ``docs/development/sci004_mmode_design.md`` Section 10 requires that
+    "in-memory, summary JSON, HDF5, UVFITS, and Measurement Set paths all write
+    the same synthesized UTC sample centres and integration widths".  A direct
+    grid's widths are one repeated cadence and were fully described by the
+    cadence already; an m-mode grid's are not, so the block publishes the
+    extremes and the count of distinct widths alongside the rule that produced
+    them.  Summary JSON stays metadata-only either way: this adds four scalars,
+    never the per-sample array.
+    """
+    widths = np.asarray(result.time_grid.integration_time_seconds, dtype=np.float64)
+    block: dict[str, object] = {
+        "first_center_iso_utc": str(center_iso[0]),
+        "last_center_iso_utc": str(center_iso[-1]),
+        "count": len(result.time_grid),
+        "cadence_seconds": result.time_grid.cadence_seconds,
+        "duration_seconds": result.time_grid.duration_seconds,
+        "interval_semantics": result.time_grid.interval_semantics,
+        "exposure_rule": DIRECT_EXPOSURE_RULE,
+    }
+    if result.solver.solver == MMODE_SOLVER_KEY:
+        block["exposure_rule"] = MMODE_EXPOSURE_RULE
+        block["minimum_integration_time_seconds"] = float(np.min(widths))
+        block["maximum_integration_time_seconds"] = float(np.max(widths))
+        block["distinct_integration_time_count"] = int(np.unique(widths).size)
+    return block
+
+
 def _summary_payload(result: SimulationResult) -> dict[str, object]:
     if type(result) is not SimulationResult:
         raise TypeError("result must be an exact SimulationResult")
@@ -353,17 +402,7 @@ def _summary_payload(result: SimulationResult) -> dict[str, object]:
                     "correlation": int(result.visibilities.shape[3]),
                 },
             },
-            "observation": {
-                "first_center_iso_utc": str(center_iso[0]),
-                "last_center_iso_utc": str(center_iso[-1]),
-                "count": len(result.time_grid),
-                "cadence_seconds": result.time_grid.cadence_seconds,
-                "duration_seconds": result.time_grid.duration_seconds,
-                "interval_semantics": result.time_grid.interval_semantics,
-                "exposure_rule": (
-                    "minimum of cadence_seconds and remaining observation duration"
-                ),
-            },
+            "observation": _observation_summary(result, center_iso),
             "frequency": {
                 "count": int(result.frequencies_hz.size),
                 "minimum_center_hz": float(np.min(result.frequencies_hz)),

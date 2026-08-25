@@ -187,6 +187,18 @@ output/benchmarks/reference/*
 output/benchmarks/reference/perf001/*
 !output/benchmarks/reference/perf001/*.json
 output/benchmarks/reference/perf001/*/
+# `output/benchmarks/reference/README.md` and the SCI-004 record directory are
+# the third exception, in the same form and for the same reason
+# (`docs/development/sci004_mmode_design.md` Sections 11 and 13.5): the one
+# non-gating m-mode benchmark record the phase retains is curated evidence, and
+# the README beside it names what those records do and do not license. The
+# companion re-ignore lines keep the exception to exactly the README and the
+# `*.json` records, never the whole subtree.
+!output/benchmarks/reference/README.md
+!output/benchmarks/reference/sci004/
+output/benchmarks/reference/sci004/*
+!output/benchmarks/reference/sci004/*.json
+output/benchmarks/reference/sci004/*/
 # `output/crossvalidation/` is the second deliberate exception: it is the
 # committed Tier-2 cross-implementation evidence (Tier7JonesSciencePlan.md
 # Section 29), which Section 34 places here by name. Only the record and its

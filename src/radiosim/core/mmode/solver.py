@@ -4156,14 +4156,96 @@ def _resolved_tangent_frame(request: SkySolveRequest, point_stokes: np.ndarray) 
     return TangentPolarizationFrame.canonical("icrs").as_mapping()
 
 
+#: Section 8's exact ``mmode_public_components`` code and message.
+MMODE_PUBLIC_COMPONENTS_CODE: Final = "mmode_public_components"
+MMODE_PUBLIC_COMPONENTS_MESSAGE: Final = (
+    "execution.simulator='mmode' supports point-source components only in this "
+    "phase; a HEALPix-bearing sky requires a future accepted phase."
+)
+
+#: Section 8's exact ``mmode_public_beam`` code and message.
+MMODE_PUBLIC_BEAM_CODE: Final = "mmode_public_beam"
+MMODE_PUBLIC_BEAM_MESSAGE: Final = (
+    "execution.simulator='mmode' supports the scalar beam response only in this "
+    "phase; a non-scalar resolved beam system requires a future accepted phase."
+)
+
+#: The Stage-3 accepted-subset literal a full-efield FITS definition carries.
+_FULL_EFIELD_SUBSET: Final = "sci005-stage3-full-efield-v1"
+
+
+def _rejects_public_capability(request: SkySolveRequest) -> list[Any]:
+    """Return the Section 8 issues this request must be refused with, if any.
+
+    ``docs/development/sci004_mmode_design.md`` Section 11, as narrowed by the
+    accepted accepted-capability-characterization-envelope correction: "the
+    public path rejects a HEALPix-bearing payload and a non-scalar resolved beam
+    system with the Section 8 typed issues before any work".
+
+    Both refusals close a measured silent defect rather than a hypothetical one.
+    The public solve path builds a point component and nothing else, so a
+    HEALPix-bearing sky previously ran to completion and published an
+    identically zero cube whose ``component_element_counts`` was ``[0]`` -- a
+    result the Section 7.3 gate passes vacuously through its exact-zero corner --
+    and a hybrid payload silently lost its diffuse half while its gate passed on
+    the point half alone.  A non-scalar resolved beam previously failed after
+    the whole frame and transfer stage with an untyped ``BeamEvaluationError``
+    naming a missing ``boresight_parallactic_rad``.  Rejecting is not a
+    narrowing of the accepted M2 capability: accepted M2 never licensed either
+    run through the public path, and Section 11 records both as deferred,
+    future red-sliced work.
+    """
+    from radiosim.io.config import ConfigIssue
+
+    issues: list[Any] = []
+    sky_model = request.sky_model
+    healpix_bearing = getattr(sky_model, "healpix", None) is not None or str(
+        request.sky_representation
+    ) in ("healpix_map", "hybrid")
+    if healpix_bearing:
+        issues.append(
+            ConfigIssue(
+                "sky_model",
+                MMODE_PUBLIC_COMPONENTS_CODE,
+                MMODE_PUBLIC_COMPONENTS_MESSAGE,
+                stage="unsupported",
+            )
+        )
+    assignments = request.beam_system.state.resolved.assignments
+    non_scalar = any(
+        assignment.squint is not None
+        or getattr(assignment.definition, "accepted_subset_version", None)
+        == _FULL_EFIELD_SUBSET
+        for assignment in assignments
+    )
+    if non_scalar:
+        issues.append(
+            ConfigIssue(
+                "beams",
+                MMODE_PUBLIC_BEAM_CODE,
+                MMODE_PUBLIC_BEAM_MESSAGE,
+                stage="unsupported",
+            )
+        )
+    return issues
+
+
 def solve_mmode(request: SkySolveRequest) -> SkySolveOutcome:
     """Solve one full-sidereal m-mode run and return the strategy outcome.
 
-    Section 7.3's two-tier gate is authoritative and runs before any result or
-    output path is created, so a failing gate raises instead of returning a
-    cube.
+    Section 8's two public-capability rejections run first, before any solver
+    work: a HEALPix-bearing sky and a non-scalar resolved beam system are
+    refused with their exact typed issues rather than silently producing a
+    vacuous or half-dropped result.  Section 7.3's two-tier gate is then
+    authoritative and runs before any result or output path is created, so a
+    failing gate raises instead of returning a cube.
     """
+    from radiosim.io.config_resolution import UnsupportedConfigError
     from radiosim.simulator.base import SkySolveOutcome as Outcome
+
+    unsupported = _rejects_public_capability(request)
+    if unsupported:
+        raise UnsupportedConfigError(unsupported)
 
     solved = _mmode_pipeline(request)
     gate = solved["gate"]

@@ -209,19 +209,32 @@ SCI004_TOP_LEVEL_KEYS: Final[tuple[str, ...]] = (
 )
 
 #: Section 11's fixed fixture and backend axes, in record order.
+#:
+#: The accepted 2026-08-24 accepted-capability-characterization correction
+#: narrowed the record's fixture product to "the three point-family groups",
+#: and the performance-product correction of the same date granted this
+#: constant to ``S3`` so the ``E3`` generator consumes a surface that agrees
+#: with the operative design.  The two removed groups were not merely
+#: unmeasured: measured through the public solve path, a HEALPix-bearing
+#: payload published an identically zero cube and the hybrid payload silently
+#: dropped its diffuse half, so a row naming either would have recorded a run
+#: that characterizes nothing.  Both are now Section 8 rejections.
 SCI004_FIXTURE_IDS: Final[tuple[str, ...]] = (
+    "mmode_single_scalar_mode",
+    "mmode_point_stokes_i",
     "mmode_point_full_stokes",
-    "mmode_healpix_full_stokes",
-    "mmode_hybrid_full_stokes",
 )
 SCI004_BACKENDS: Final[tuple[str, ...]] = ("numpy", "jax", "dask")
 
-#: The sky representation each fixture group carries.
+#: The sky representation each fixture group carries.  Section 11: "The sky
+#: representation is ``point`` for all three fixture groups, with positive
+#: point counts, zero for the absent HEALPix representation, and distinct
+#: input identities across groups."
 SCI004_SKY_REPRESENTATIONS: Final[Mapping[str, str]] = MappingProxyType(
     {
+        "mmode_single_scalar_mode": "point",
+        "mmode_point_stokes_i": "point",
         "mmode_point_full_stokes": "point",
-        "mmode_healpix_full_stokes": "healpix",
-        "mmode_hybrid_full_stokes": "hybrid",
     }
 )
 
@@ -259,6 +272,16 @@ SCI004_WORKLOAD_KEYS: Final[tuple[str, ...]] = (
     "memory",
     "direct_comparison",
     "backend_comparison",
+    # The accepted 2026-08-24 honest-backend-axis correction added these two, in
+    # exactly this position.  ``dense_execution`` is the literal
+    # ``numpy_host_v1`` on every row because the public solve path's dense
+    # stages are backend-invariant -- ``contract_and_synthesize`` takes no
+    # backend and ``request.backend`` reaches no dense array work -- and
+    # ``kernel_backend_block`` is the status-discriminated object where the two
+    # stages Section 9 admits carry a real JAX or Dask measurement.  Together
+    # they keep a row from reporting a NumPy run under another runtime's label.
+    "dense_execution",
+    "kernel_backend_block",
     "claims_not_licensed",
 )
 
@@ -269,9 +292,14 @@ SCI004_BACKEND_PREDICATE_ID: Final = "sci004_backend_complex128.v1"
 #: Section 11's exact lexicographically sorted per-row claim array.  "A record is
 #: evidence only of these nine measured CPU rows.  Timing values never gate CI
 #: and license neither a speedup nor a memory/accelerator advantage."
+#: ``mmode_end_to_end_backend_execution`` is the sixth literal the
+#: honest-backend-axis correction added: wiring ``request.backend`` through the
+#: public dense stages is future red-sliced work, so no row may imply it
+#: happened here.
 _SCI004_CLAIMS_NOT_LICENSED: Final[tuple[str, ...]] = (
     "general_speedup",
     "gpu_or_accelerator_support",
+    "mmode_end_to_end_backend_execution",
     "perf001_evidence_or_closure",
     "performance_regression_gate",
     "unmeasured_workloads",

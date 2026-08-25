@@ -256,7 +256,18 @@ Output boundary
 ---------------
 
 ``Simulator.save`` accepts an exact final artifact path and a typed
-``ResultFormat`` for HDF5, summary JSON, Measurement Set, or UVFITS. Direct
+``ResultFormat`` for HDF5, summary JSON, Measurement Set, or UVFITS. All four
+accept either solver arm: a direct ``rime`` run and an ``execution.simulator:
+mmode`` run publish the same ``(time, baseline, frequency, correlation)`` cube
+in the same four correlation labels, and the writers differ only in the solver
+provenance they carry.  HDF5 preserves the complete tagged m-mode snapshot and
+reconstructs it on read; summary JSON publishes the same snapshot as bounded
+metadata, together with the ERA-derived exposure rule and the extremes of the
+synthesized integration widths, which for an m-mode grid are not one repeated
+cadence; UVFITS and Measurement Set carry HISTORY lines naming the m-mode,
+time-grid, frame, harmonic and Stokes-``V``-bridge conventions beside the
+projection record.  All five paths publish the same synthesized UTC sample
+centres and integration widths.  Direct
 Python and ``simulate`` calls never prompt or suffix. Config mode preflights
 ``collision_policy`` and manifest ownership before runtime, builds the complete
 run in sibling staging, and publishes atomically. Summary JSON is explicitly

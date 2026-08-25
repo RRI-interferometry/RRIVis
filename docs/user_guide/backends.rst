@@ -162,6 +162,28 @@ is clamped to the frequency count. Blocks are assembled in canonical frequency
 order, so one worker and many workers meet the same predicate -- the worker
 count is a scheduling choice, never a numerical one.
 
+The retained m-mode benchmark record measures that same predicate across the
+three backends for three point-representation fixtures --
+``mmode_single_scalar_mode``, ``mmode_point_stokes_i`` and
+``mmode_point_full_stokes`` -- nine rows in all, under schema
+``radiosim.benchmark.sci004.v1`` in
+``output/benchmarks/reference/sci004/``. Read that record as a *correctness*
+join: each row carries the backend comparison above, the every-run
+frozen-direct comparison, a deterministic block schedule, and a scientific
+identity, and each row's own ``claims_not_licensed`` array states that its
+timings license no speedup, no accelerator support, and no performance gate.
+The README beside the record says the same thing at more length. Backend
+performance remains a roadmap item; the measured JAX-CPU timings in
+``output/benchmarks/reference/`` are slower than NumPy on every benchmarked
+workload.
+
+What the public m-mode path accepts is narrower than what the harmonic
+machinery implements. A HEALPix-bearing sky and a non-scalar resolved beam
+system -- a ``beams.squint`` block, or a Stage-3 full-efield UVBeam file -- are
+refused before any solver work with the typed ``mmode_public_components`` and
+``mmode_public_beam`` issues, rather than being solved into a result that
+quietly omits them. Both are recorded as deferred, future work.
+
 Bounded m-mode memory
 ---------------------
 

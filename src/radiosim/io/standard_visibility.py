@@ -229,6 +229,52 @@ def _json_tree(value: object) -> object:
     return value
 
 
+#: The registry key of Section 10's m-mode arm of the tagged solver union.
+MMODE_SOLVER_KEY = "mmode"
+
+
+def _sorted_tree(value: object) -> object:
+    """Return ``value`` with every nested mapping in sorted key order.
+
+    This is exactly what ``json.dumps(..., sort_keys=True)`` does, extracted so
+    that one named subtree can opt out of it.
+    """
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[str, object], value)
+        return {key: _sorted_tree(mapping[key]) for key in sorted(mapping)}
+    if isinstance(value, list):
+        return [_sorted_tree(item) for item in cast(Sequence[object], value)]
+    return value
+
+
+def _encode_projection_record(
+    record: Mapping[str, object],
+    *,
+    ordered_solver: bool,
+) -> str:
+    """Serialize the projection record, keeping the m-mode arm in Section 10 order.
+
+    ``docs/development/sci004_mmode_design.md`` Section 10 requires the complete
+    tagged solver snapshot to survive the round trip, and its m-mode arm's key
+    set is ordered: ``core/result.py``'s ``MMODE_SOLVER_SNAPSHOT_KEYS`` is
+    "Section 10's exact m-mode snapshot key set, in order", and the HDF5 reader
+    rejects any other order outright.  Alphabetical serialization would destroy
+    that, so the one subtree opts out while every other object is sorted exactly
+    as before -- a ``rime`` record is therefore byte-identical to what this
+    function produced before the union existed, which Section 10 also requires.
+    """
+    normalized = {key: _sorted_tree(record[key]) for key in sorted(record)}
+    if ordered_solver:
+        normalized["solver"] = dict(cast(Mapping[str, object], record["solver"]))
+    return json.dumps(
+        normalized,
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+
 def _phase_snapshot(value: object) -> FrozenMapping:
     if type(value) is not dict:
         raise TypeError("original_phase_snapshot must be an exact built-in dict")
@@ -907,22 +953,44 @@ def _projection_history(
     solver = result.solver
     components = ",".join(solver.components)
     element_counts = ",".join(str(count) for count in solver.component_element_counts)
-    history = tuple(result.history) + (
-        f"radiosim_version={_package_version()}",
-        f"standard_format={format_name}",
-        f"sky_representation={solver.sky_representation}",
-        f"solver_components={components}",
-        f"solver_component_element_counts={element_counts}",
-        f"input_visibility_dtype={input_dtype}",
-        f"stored_visibility_dtype={stored_visibility_dtype}",
-        f"lossy_visibility_conversion={'true' if lossy else 'false'}",
-        f"input_weight_dtype={result.weights.dtype.name}",
-        "stored_weight_dtype=float32",
-        f"normalized_parallel_auto_samples={normalized_autos}",
-        f"source_scientific_sha256={result.scientific_sha256}",
-        f"source_provenance_sha256={result.provenance_sha256}",
-        "original_phase_model=zenith_drift-altaz-time_dependent",
-        "full_provenance=available-in-hdf5-or-summary-metadata",
+    # ``docs/development/sci004_mmode_design.md`` Section 10: UVFITS and MS keep
+    # "history lines naming the m-mode/frame/harmonic conventions".  They are
+    # plain lines rather than only fields of the projection record because that
+    # record already carried the snapshot before this phase, so reading the
+    # sentence as satisfied by it would make it say nothing.  A ``rime`` result
+    # emits none of them, which is what keeps its serialization byte-identical.
+    solver_convention_lines: tuple[str, ...] = ()
+    if solver.solver == MMODE_SOLVER_KEY:
+        snapshot = solver.as_mapping()
+        solver_convention_lines = (
+            f"mmode_convention={snapshot['convention']}",
+            f"mmode_time_grid_convention={snapshot['time_grid_convention']}",
+            f"mmode_frame_model={snapshot['frame_model']}",
+            f"mmode_harmonic_convention={snapshot['harmonic_convention']}",
+            f"mmode_stokes_v_basis_bridge={snapshot['stokes_v_basis_bridge']}",
+        )
+    history = (
+        tuple(result.history)
+        + (
+            f"radiosim_version={_package_version()}",
+            f"standard_format={format_name}",
+            f"sky_representation={solver.sky_representation}",
+        )
+        + solver_convention_lines
+        + (
+            f"solver_components={components}",
+            f"solver_component_element_counts={element_counts}",
+            f"input_visibility_dtype={input_dtype}",
+            f"stored_visibility_dtype={stored_visibility_dtype}",
+            f"lossy_visibility_conversion={'true' if lossy else 'false'}",
+            f"input_weight_dtype={result.weights.dtype.name}",
+            "stored_weight_dtype=float32",
+            f"normalized_parallel_auto_samples={normalized_autos}",
+            f"source_scientific_sha256={result.scientific_sha256}",
+            f"source_provenance_sha256={result.provenance_sha256}",
+            "original_phase_model=zenith_drift-altaz-time_dependent",
+            "full_provenance=available-in-hdf5-or-summary-metadata",
+        )
     )
     record: dict[str, object] = {
         "schema": PROJECTED_PHASE_SCHEMA,
@@ -939,13 +1007,8 @@ def _projection_history(
         "beam": _json_tree(result.beam_state.to_snapshot()),
         "solver": _json_tree(result.solver.to_snapshot()),
     }
-    encoded = json.dumps(
-        record,
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-        allow_nan=False,
-    )
+    ordered_solver = solver.solver == MMODE_SOLVER_KEY
+    encoded = _encode_projection_record(record, ordered_solver=ordered_solver)
     if (
         len((PROJECTION_HISTORY_PREFIX + encoded).encode("utf-8"))
         > _PROJECTION_HISTORY_LIMIT
@@ -960,13 +1023,7 @@ def _projection_history(
         }
         record["solver"] = _json_tree(result.solver.to_snapshot())
         record["provenance_omitted"] = True
-        encoded = json.dumps(
-            record,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-            allow_nan=False,
-        )
+        encoded = _encode_projection_record(record, ordered_solver=ordered_solver)
     projection_line = PROJECTION_HISTORY_PREFIX + encoded
     complete_history = "\n".join(history + (projection_line,))
     try:

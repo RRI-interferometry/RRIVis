@@ -34,6 +34,7 @@ from radiosim.core.result import (
 )
 from radiosim.core.time_grid import (
     ObservationTimeGrid,
+    build_mmode_observation_time_grid,
     build_observation_time_grid,
 )
 from radiosim.io.atomic_paths import (
@@ -287,14 +288,57 @@ def _encode_text(value: object, *, field_name: str) -> bytes:
     return payload
 
 
-def _encode_json(value: object, *, field_name: str) -> bytes:
+#: The registry key of Section 10's m-mode arm of the tagged solver union.
+MMODE_SOLVER_KEY = "mmode"
+
+
+def _sorted_tree(value: object) -> object:
+    """Return ``value`` with every nested mapping in sorted key order.
+
+    This is exactly what ``json.dumps(..., sort_keys=True)`` does, extracted so
+    that one payload can opt out of it without changing any other.
+    """
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[str, object], value)
+        return {key: _sorted_tree(mapping[key]) for key in sorted(mapping)}
+    if isinstance(value, list):
+        return [_sorted_tree(item) for item in cast(Sequence[object], value)]
+    return value
+
+
+def _encode_json(
+    value: object,
+    *,
+    field_name: str,
+    preserve_key_order: bool = False,
+) -> bytes:
+    """Encode one provenance payload as canonical UTF-8 JSON.
+
+    ``preserve_key_order`` exists for exactly one payload.
+    ``docs/development/sci004_mmode_design.md`` Section 10 requires HDF5 to
+    preserve "the complete tagged solver snapshot", and the m-mode arm's key set
+    is *ordered*: ``core/result.py``'s ``MMODE_SOLVER_SNAPSHOT_KEYS`` is
+    "Section 10's exact m-mode snapshot key set, in order", and the reader
+    rejects any other order outright rather than accepting a re-sorted subset.
+    Alphabetical serialization therefore made every m-mode result unpublishable
+    -- the writer's own read-back verification refused the file it had just
+    written.  The fix is order-preserving serialization of that one payload; the
+    reader's ordered check is not relaxed, and every other payload, including
+    the unchanged ``rime`` solver arm, is serialized exactly as before.
+    """
     converted = _json_tree(value)
     if _contains_nul(converted):
         raise FormatRepresentationError(f"{field_name} contains a NUL byte")
+    if preserve_key_order and isinstance(converted, Mapping):
+        # Only the payload's own key order is preserved; every nested object is
+        # sorted exactly as it was before, so the ordered arm is the one and
+        # only difference.
+        mapping = cast(Mapping[str, object], converted)
+        converted = {key: _sorted_tree(item) for key, item in mapping.items()}
     try:
         encoded = json.dumps(
             converted,
-            sort_keys=True,
+            sort_keys=not preserve_key_order,
             separators=(",", ":"),
             allow_nan=False,
             ensure_ascii=False,
@@ -417,9 +461,19 @@ def _prepare_text_payloads(
         "performance_json": performance,
         "history_json": history,
     }
+    # Section 10's m-mode arm is the one ordered payload; see ``_encode_json``.
+    ordered_payloads = (
+        frozenset({"solver_json"})
+        if result.solver.solver == MMODE_SOLVER_KEY
+        else frozenset()
+    )
     payloads.update(
         {
-            f"provenance/{name}": _encode_json(value, field_name=name)
+            f"provenance/{name}": _encode_json(
+                value,
+                field_name=name,
+                preserve_key_order=name in ordered_payloads,
+            )
             for name, value in provenance_values.items()
         }
     )
@@ -1899,7 +1953,22 @@ def _build_time_grid(
     utc_jd1: np.ndarray,
     utc_jd2: np.ndarray,
     integration: np.ndarray,
+    *,
+    mmode: bool = False,
 ) -> ObservationTimeGrid:
+    """Rebuild the stored UTC grid, by the construction its solver arm used.
+
+    ``docs/development/sci004_mmode_design.md`` Section 3.1 makes the exact turn
+    coordinate authoritative and UTC "an *output and provenance* coordinate":
+    an m-mode grid's per-sample centres and widths are mapped from retained
+    exposure edges, so they are not a cadence repeated ``N`` times and no
+    re-derivation from ``(start, duration, cadence)`` can reproduce them.  The
+    stored arrays are therefore the authority for that arm, exactly as
+    ``core/time_grid.py``'s own m-mode factory treats them, and the direct arm
+    keeps its unchanged strict re-derivation.  Both arms still require the
+    structured datasets and the resolved-configuration snapshot to agree
+    element for element, which is what makes a forged coordinate detectable.
+    """
     observation = _snapshot_mapping(
         resolved_config,
         "observation",
@@ -1936,11 +2005,21 @@ def _build_time_grid(
             or not np.array_equal(snapshot_integration, integration)
         ):
             raise ValueError("structured time coordinates disagree with snapshot")
-        grid = build_observation_time_grid(
-            start_time=cast(str, snapshot["start_time_iso"]),
-            duration_seconds=cast(float, snapshot["duration_seconds"]),
-            cadence_seconds=cast(float, snapshot["cadence_seconds"]),
-        )
+        if mmode:
+            grid = build_mmode_observation_time_grid(
+                start_time_iso=cast(str, snapshot["start_time_iso"]),
+                utc_jd1=utc_jd1,
+                utc_jd2=utc_jd2,
+                integration_time_seconds=integration,
+                duration_seconds=cast(float, snapshot["duration_seconds"]),
+                cadence_seconds=cast(float, snapshot["cadence_seconds"]),
+            )
+        else:
+            grid = build_observation_time_grid(
+                start_time=cast(str, snapshot["start_time_iso"]),
+                duration_seconds=cast(float, snapshot["duration_seconds"]),
+                cadence_seconds=cast(float, snapshot["cadence_seconds"]),
+            )
     except Exception as exc:
         raise UnsafeResultInputError("HDF5 time-grid contract is invalid") from exc
     if (
@@ -2119,6 +2198,43 @@ def _bounded_component_sequence(
     return items
 
 
+def _validate_tangent_polarization_frame(value: object) -> None:
+    """Reject a forged Section 10 ``tangent_polarization_frame`` before any payload.
+
+    ``docs/development/sci004_mmode_design.md`` Section 10: "In M1
+    ``tangent_polarization_frame`` is the exact literal
+    ``not_applicable_scalar_m1``; after M2 it is the exact six-key Section 5.1
+    object."  The field is therefore a *string on a scalar payload and a mapping
+    on a polarized one*, and a reader that admits only the string cannot read
+    back any polarized m-mode result.  Because ``write_result_hdf5`` verifies
+    its own output by reopening it, such a reader does not merely fail to read:
+    it makes writing a polarized m-mode result impossible.
+
+    The six field names are derived from ``TangentPolarizationFrame`` rather
+    than restated, following this module's rule that a later field addition
+    cannot leave the reader silently accepting an older shape.  Their *order* is
+    not checked: Section 5.1 fixes the key set, and the surrounding snapshot's
+    order is already checked against ``MMODE_SOLVER_SNAPSHOT_KEYS``.
+    """
+    from radiosim.core.mmode.types import MMODE_TANGENT_FRAME_M1
+    from radiosim.core.sky.containers import TangentPolarizationFrame
+
+    if isinstance(value, str):
+        if value != MMODE_TANGENT_FRAME_M1:
+            raise UnsafeResultInputError("HDF5 solver_json is invalid")
+        return
+    if not isinstance(value, dict):
+        raise UnsafeResultInputError("HDF5 solver_json is invalid")
+    frame = cast(dict[str, object], value)
+    expected = {field.name for field in fields(TangentPolarizationFrame)}
+    if set(frame) != expected:
+        raise UnsafeResultInputError("HDF5 solver_json has unexpected fields")
+    for name in sorted(expected):
+        entry = frame[name]
+        if not isinstance(entry, str) or not entry:
+            raise UnsafeResultInputError("HDF5 solver_json is invalid")
+
+
 def _validate_component_provenance(snapshots: Mapping[str, object]) -> None:
     """Reject a forged component or timing record before any payload is read.
 
@@ -2146,9 +2262,12 @@ def _validate_component_provenance(snapshots: Mapping[str, object]) -> None:
             raise UnsafeResultInputError("HDF5 solver_json has unexpected fields")
         _ = _bounded_component_sequence(solver, "components")
         _ = _bounded_component_sequence(solver, "component_element_counts")
-        for key in ("tangent_polarization_frame", "stokes_v_basis_bridge"):
-            if not isinstance(solver.get(key), str) or not solver[key]:
-                raise UnsafeResultInputError("HDF5 solver_json is invalid")
+        if (
+            not isinstance(solver.get("stokes_v_basis_bridge"), str)
+            or not solver["stokes_v_basis_bridge"]
+        ):
+            raise UnsafeResultInputError("HDF5 solver_json is invalid")
+        _validate_tangent_polarization_frame(solver.get("tangent_polarization_frame"))
         sky_representation = str(solver.get("sky_representation", ""))
     elif set(solver) != {field.name for field in fields(SolverResultProvenance)}:
         raise UnsafeResultInputError("HDF5 solver_json has unexpected fields")
@@ -2214,11 +2333,13 @@ def _validate_structured_identity(
     ):
         raise UnsafeResultInputError("HDF5 time coordinates are invalid")
     resolved_config = cast(dict[str, object], snapshots["resolved_config"])
+    solver_snapshot = cast(dict[str, object], snapshots["solver"])
     time_grid = _build_time_grid(
         resolved_config,
         utc_jd1,
         utc_jd2,
         integration,
+        mmode=solver_snapshot.get("solver") == MMODE_SOLVER_KEY,
     )
 
     frequencies = _read_numeric(
