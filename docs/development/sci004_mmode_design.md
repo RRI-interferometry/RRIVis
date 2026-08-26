@@ -32,6 +32,298 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #25 — 2026-08-26 (reconstructible path-independent M3
+fingerprints and rejected-attempt retry grammar).** The canonical independent
+`A3` record at
+`8529da951e2378115ffde8d5da3e2af56f3323d0` returned `REJECT` on required
+predicate `SCI-004-14.3-A3-EVERY-FINGERPRINT`, blocker
+`m3.fingerprint-input-preimage-not-retained`. Its exact artifact is
+`docs/development/sci004_mmode_phase3_acceptance.json`, `8,238` raw bytes,
+SHA-256
+`283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d`.
+Its validator change is exactly
+`APPROVED_EVIDENCE_SHA="886e62fd9f8328826b388b8960ed7413da26b6d1"`
+and
+`APPROVED_ACCEPTANCE_ARTIFACT_SHA256="283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d"`.
+The external independent-review contribution has `10` oracle rows, one blocker,
+and raw SHA-256
+`43c12807aa9f316af53e6058ebec7f18dd0b6ea66d308cb1c488d77185907d82`.
+Both the immutable A3 artifact and that contribution bind
+`reviewer_identity="sci004-m3-independent-acceptance-reviewer"` and
+`reviewer_independent=true`; fresh R3's dependency/red validator must read the
+artifact from the exact A3 Git object and require both literals in addition to
+the two raw digests.
+The rejected `E3` at
+`886e62fd9f8328826b388b8960ed7413da26b6d1` produced the canonical evidence
+JSON (9,186,099 bytes, raw SHA-256
+`600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae`),
+reproduction Markdown (3,503 bytes, raw SHA-256
+`039539a865b5d92e86379f44a324271232e8a947301e380ec7b1b1848e907b4e`),
+and host-bound performance record
+`output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json`
+(58,844 bytes, raw SHA-256
+`07e59d3176866a78c17244849d6493365e9d410547e884cf56b254e60babe193`).
+Its evidence-validator change is exactly the four assignments
+`APPROVED_SOURCE_SHA="b07925ab14b56b3ca0fa863f806290748a31df6b"`,
+`APPROVED_ARTIFACT_SHA256="600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae"`,
+`APPROVED_PERFORMANCE_PATH="output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json"`,
+and
+`APPROVED_PERFORMANCE_SHA256="07e59d3176866a78c17244849d6493365e9d410547e884cf56b254e60babe193"`.
+Those immutable Git objects establish that E3 was a candidate, M3 was not
+accepted, SCI-004 remained ROADMAP, and closure `C` never became available.
+
+The scientific defect is exact. `mmode_characterization_record` hashes a v1
+manifest containing the complete `SimulationResult.resolved_config`; the M3
+fixture puts its layout file under an absolute temporary root, and the E3
+generator destroys that `TemporaryDirectory`. E3 retains the digest but neither
+the manifest nor the result. Its strict validator checks only lower-case
+64-hex syntax. Filesystem venue is not a scientific input: two byte-identical
+layout documents resolving to the same site, antenna, baseline, receptor, beam,
+frequency, sky, Jones, time-grid, and solver values must characterize
+identically even when their absolute roots differ. The arbitrary layout path
+is therefore removed from characterization identity and replaced by the exact
+value-bearing phase input manifest and independently reconstructed instrument,
+receptor, and loaded-beam content identities ruled in Sections 11, 14.0, and
+14.2. The v1 domain cannot survive that preimage change; the retry uses
+`radiosim.sci004.characterization-input.v2` and retains the complete v2
+manifest in every fingerprint row. The phase input, grid, solver, cube, and
+scientific identities are joins, never children of one another, so the new
+relationship is non-circular. All four characterization-input digests are
+expected to change solely because the domain and preimage change. The
+path-independent `scientific_sha256`, raw-cube, solver-snapshot,
+result-derived ERA/UTC characterization-time, harmonic-table, phase-input, and
+observation-set identities are expected not to change; any contrary result
+pauses for an old/new-cube and equation-level explanation. No tolerance,
+fidelity predicate, convergence or memory budget, performance predicate,
+capability claim, or elapsed-time threshold changes.
+
+This is a new post-source red delta against committed S3
+`b07925ab14b56b3ca0fa863f806290748a31df6b`, not a rewrite of either immutable
+red record and not a full historical R3 replacement. Fresh R3 owns exactly the
+two expected-red scientific oracle nodes
+`tests/characterization/test_sci004_mmode.py::test_characterization_input_preimage_is_retained_and_reconstructible`,
+and
+`tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_is_equal_under_distinct_layout_roots`.
+They respectively govern `SCI-004-14.2-M3-FINGERPRINT-PREIMAGE` and
+`SCI-004-11-PATH-INDEPENDENT-CHARACTERIZATION`. A real semantic antenna-layout
+mutation already changes v1 identity at the pre-fix source, so
+`tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_changes_for_semantic_instrument_content`
+is a mandatory passing green control governing
+`SCI-004-11-SEMANTIC-INPUT-SEPARATION`, excluded from `cases` and the
+expected-red disjoint union. The relocation node is a true scientific oracle:
+it compares independently constructed roots and cannot be replaced by a
+synthetic validator document whose author supplied both desired digests. R3
+retains the two red cases at
+`docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json`,
+schema
+`radiosim.sci004.mmode-phase3-fingerprint-post-source-red-failures.v1`, status
+`post-source-expected-red-confirmed`, with `design_sha` equal to this landing,
+`pre_fix_source_sha` equal to
+`b07925ab14b56b3ca0fa863f806290748a31df6b`, a null `red_commit_sha` and reason
+`self-reference: E binds the containing fingerprint-retry R3 commit`, the exact
+two node/requirement rows above, and the exact oracle patch digest over only
+`tests/characterization/test_sci004_mmode.py`. Its top level has exactly
+`schema_version`, `phase`, `status`, `generated_at_utc`, `design_sha`,
+`pre_fix_source_sha`, `red_commit_sha`, `red_commit_sha_reason`,
+`protected_source_clean`, `authorized_red_paths`, `environment`, `cases`,
+`passing_controls`, `commands`, `claims_not_licensed`, `historical_red_record_sha256`,
+`correction24_post_source_red_record_sha256`, `oracle_patch_paths`, and
+`oracle_patch_sha256`; its environment, case, command, and claim rows use
+Section 14.1's exact closed schemas. The two `cases` rows are exactly:
+
+| `case_id` | `requirement_id` | `test_nodeid` | expected kind | expected pattern | command |
+|---|---|---|---|---|---:|
+| `m3.fingerprint.preimage-retained` | `SCI-004-14.2-M3-FINGERPRINT-PREIMAGE` | `tests/characterization/test_sci004_mmode.py::test_characterization_input_preimage_is_retained_and_reconstructible` | `assertion` | `characterization input manifest is absent from the family record` | `0` |
+| `m3.fingerprint.path-independent` | `SCI-004-11-PATH-INDEPENDENT-CHARACTERIZATION` | `tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_is_equal_under_distinct_layout_roots` | `assertion` | `characterization input identity changed under filesystem relocation` | `0` |
+
+For the first row, `invalid_config_raw_sha256` hashes `J` of the exact
+five-key object `schema_version`, `family_id`, `layout_document_raw_sha256`,
+`root_labels`, `required_record_keys`; the values are respectively
+`radiosim.sci004.fingerprint-red-fixture.v1`,
+`mmode_single_scalar_mode`,
+`a2ce7bace30e2fe962eb6454db1f6c7e2d63a9a28ad559323e824a36fcd2a4e0`,
+`["ROOT-A"]`, and the exact nine-key v2 production family-record array in
+Section 11 order. It is not the Section 14.2 evidence-row schema.
+For the second, it hashes `J` of the exact five-key object
+`schema_version`, `family_id`, `layout_document_raw_sha256`, `root_labels`,
+`required_equal_identities`, with the same first three values,
+`root_labels=["ROOT-A","ROOT-B"]`, and
+`required_equal_identities=["scientific_sha256","raw_cube_sha256","era_utc_grid_sha256","input_identity_sha256"]`.
+The layout digest is over the exact family layout bytes written by
+`family_mapping`, including its final LF. Each `fixture_identity_sha256` then
+uses Section 14.0's exact `radiosim.sci004-red-fixture.v1` six-key preimage and
+the adjacent `invalid_config_raw_sha256`; root labels are logical tokens, never
+retained filesystem locations.
+
+`passing_controls` is an ordered three-row array with the exact closed row
+shape `control_id`, `requirement_id`, `purpose`, `test_nodeid`,
+`command_index`, `observed_outcome`, `exit_code`, `pass`. Its rows are:
+
+| `control_id` | `requirement_id` | `test_nodeid` | `purpose` |
+|---|---|---|---|
+| `m3.fingerprint.family-record-schema` | `SCI-004-11-FAMILY-RECORD-SCHEMA` | `tests/characterization/test_sci004_mmode.py::test_every_new_family_records_its_six_section_11_parts[mmode_single_scalar_mode]` | `exact domain-discriminated family-record schema and all pre-existing family joins remain valid` |
+| `m3.fingerprint.relocation-science-control` | `SCI-004-11-PATH-INDEPENDENT-CHARACTERIZATION` | `tests/characterization/test_sci004_mmode.py::test_distinct_layout_roots_preserve_scientific_and_cube_identities` | `relocation fixture preserves independently derived scientific and raw-cube identities` |
+| `m3.fingerprint.semantic-separation-control` | `SCI-004-11-SEMANTIC-INPUT-SEPARATION` | `tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_changes_for_semantic_instrument_content` | `semantic antenna-layout mutation changes characterization input identity` |
+
+Every row has `command_index=0`, `observed_outcome="pass"`, `exit_code=0`,
+and `pass=true`. Unknown, missing, reordered, skipped, xfailed, uncollected, or
+false control rows reject.
+
+R3 makes one equal-or-stronger, domain-discriminated edit to the existing
+parametrized family-record control. When the imported production input-domain
+literal is exactly `radiosim.sci004.characterization-input.v1`, it calls the
+current v1 signature, requires only the exact ordered seven-key Section 11
+record, requires both new manifest keys absent, and preserves every current
+family/scientific/solver/dimension/digest/determinism assertion. When and only
+when that literal is exactly
+`radiosim.sci004.characterization-input.v2`, it constructs the same-run phase
+manifest independently, calls the ruled v2 signature, requires only the exact
+ordered nine-key Section 11 record, rederives both complete manifests and their
+adjacent digests, and preserves every old assertion. Any other domain, a
+subset/superset check, unknown key, removed assertion, unconditional acceptance
+of both shapes, or a v2 call falling back to v1 rejects. The dedicated preimage
+red oracle additionally requires v2 after replacement S3, so leaving the
+domain or production record at v1 cannot satisfy S3. Command `0` exercises the
+scalar v1 branch at R3; replacement-S3 validation and E3/A3 replay the v2
+branch for all four families.
+
+Command `0` is one serial invocation, with the resolved Pixi default Python as
+the executable and arguments exactly
+`-m pytest -p no:randomly -p no:xdist --junit-xml
+<generator-owned-temporary-directory>/junit.xml`, followed in order by the two
+red node IDs above and these three passing controls:
+`tests/characterization/test_sci004_mmode.py::test_every_new_family_records_its_six_section_11_parts[mmode_single_scalar_mode]`,
+`tests/characterization/test_sci004_mmode.py::test_distinct_layout_roots_preserve_scientific_and_cube_identities`,
+and
+`tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_changes_for_semantic_instrument_content`.
+The generator requires exactly the two expected assertion failures, exactly
+the three passing controls, no skip/xfail/collection error, and exit `1`; the
+first existing control excludes a malformed family record, the second excludes
+a relocated fixture changing science or cube, and the third proves that path
+removal has not collapsed semantic instrument content. It derives both the two
+`cases` rows and all three `passing_controls` rows from the same parsed JUnit
+execution before atomic publication; the temporary JUnit file is never itself
+the authority. After R3 commits, the fresh red validator performs a detached
+worktree replay at exact fresh R3, parses the same five-node partition, and
+requires identical case/control classifications and exact retained row values;
+nondeterministic JUnit timing bytes are not compared. Replacement S3, strict E3
+validation, and independent A3 replay all three controls again at their own
+governed source states.
+
+`oracle_patch_paths` is the one-element array naming the characterization
+file. During authoring `oracle_patch_sha256` is raw SHA-256 of the stdout bytes
+from
+`git -c color.ui=false --no-pager diff --no-ext-diff --binary --full-index
+<D25> -- tests/characterization/test_sci004_mmode.py` at the cleanly scoped R3
+authoring tree. After R3 commits, validation hashes stdout from the same command
+with `<fresh-R3>` inserted before `--` and requires the bytes to be identical.
+It pins both prior immutable red
+records: historical SHA-256
+`486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05`
+and correction-#24 supplement SHA-256
+`724f75c246ebfcf5956fc40fb2f5e349d91ccca3e6a188b3785a65f4ae4c1e10`.
+Its generator is a dedicated atomic no-overwrite mode in
+`tools/sci004_mmode_phase3_red.py`; Section 14.1's expected-red disjoint union
+covers the historical nodes, correction-#24's six nodes, and these two nodes
+exactly once. The three retained passing-control rows are separately
+authenticated and never enter that union.
+
+Fresh R3 may change exactly the new supplemental JSON,
+`tests/characterization/test_sci004_mmode.py`,
+`tests/unit/test_sci004_phase3_dependency.py`,
+`tests/unit/test_sci004_phase3_red_failures.py`, and
+`tools/sci004_mmode_phase3_red.py`. The last three paths authenticate this
+landing, the exact rejected-attempt Git objects and raw digests, the two prior
+red blobs, the new supplement, and R3's own exact authority. Replacement S3
+directly parents fresh R3 and may change exactly
+`src/radiosim/core/result.py`, `tools/sci004_mmode_phase3_evidence.py`,
+`tests/unit/test_sci004_phase3_evidence.py`,
+`tools/sci004_mmode_phase3_acceptance.py`, and
+`tests/unit/test_sci004_phase3_acceptance.py`; delete the rejected evidence
+JSON, reproduction Markdown, named host-bound performance JSON, and rejected
+acceptance JSON; and perform no other change. The characterization oracle and
+all three red records are immutable across S3. The two tools implement the
+ruled schema and current-attempt ancestry selection; their strict tests own the
+hostile mutations and return all four evidence plus both acceptance binding
+constants to literal null sentinels in the same S3 commit. This one commit
+therefore restores the exact Section 13/14 S3 state: both fixed canonical
+artifact paths absent, the SCI-004 performance directory empty, and all six
+bindings null. Deletion of those rejected working-tree drafts is authorized
+disposal, not erasure of history: their exact bytes remain authenticated at
+the immutable E3/A3 commits above. No archival copy path is created.
+
+Fixed-path retry selection is ancestry-relative, not a whole-history
+`--diff-filter=A` search and never “the newest commit”. Given approved source
+`S`, current `E` is the first commit in the ordered first-parent ancestry path
+emitted by
+`git rev-list --first-parent --ancestry-path --reverse S..HEAD`; it must be the
+sole-parent direct child of S and its parent-relative
+diff must add the fixed evidence path and one host-bound record while changing
+only the four approved evidence constants. Given approved evidence `E`, current
+`A` is analogously the first commit emitted by
+`git rev-list --first-parent --ancestry-path --reverse E..HEAD`; it must be the
+sole-parent direct child of E and its diff must add
+the fixed acceptance path while changing only the two acceptance constants and
+any separately authorized status prose. Zero, multiple, non-first-parent,
+non-direct-child, merge, wrong-path, wrong-blob, or wrong-constant candidates
+reject. The expected commit is also bound by the active approved constants and
+artifact raw digest before its diff is trusted. This rule selects the retry
+introduction even though Git history contains earlier add/delete/add events and
+cannot silently select an unrelated branch or rejected attempt.
+
+The interval from correction #24 to this landing is exact. Commit
+`944e0ee66ebdaffafab86f4f8f4253a404aa902c` is a `superseded red slice`
+touching exactly
+`docs/development/sci004_mmode_phase3_post_source_red_failures.json`,
+`tests/unit/test_io/test_hdf5_result.py`,
+`tests/unit/test_sci004_phase3_dependency.py`,
+`tests/unit/test_sci004_phase3_red_failures.py`, and
+`tools/sci004_mmode_phase3_red.py`;
+`b07925ab14b56b3ca0fa863f806290748a31df6b` is a `superseded
+implementation` touching exactly `src/radiosim/io/hdf5.py`,
+`tests/unit/test_sci004_phase3_evidence.py`, and
+`tools/sci004_mmode_phase3_evidence.py`;
+`886e62fd9f8328826b388b8960ed7413da26b6d1` is `superseded evidence`
+touching exactly `docs/development/sci004_mmode_phase3_evidence.json`,
+`docs/development/sci004_mmode_phase3_evidence.md`,
+`tests/unit/test_sci004_phase3_evidence.py`, and
+`output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json`, and
+carrying the three rejected-output raw digests above; and
+`8529da951e2378115ffde8d5da3e2af56f3323d0` is the new narrowly scoped
+`rejected acceptance` kind. That commit's sole parent is the rejected E3 and it
+touches exactly `docs/development/sci004_mmode_phase3_acceptance.json` and
+`tests/unit/test_sci004_phase3_acceptance.py`, with the latter's diff exactly
+the two approved constant assignments. Its
+verdict is `REJECT`, and it binds both the canonical artifact and external
+review digests above. A rejected-acceptance commit is immutable, unlocks no
+successor, cannot change ROADMAP to DONE, and cannot authorize closure C; the
+next governed R or correction authenticates its full SHA, parent, exact paths,
+verdict, reviewer digest, and raw artifact digest. Its current-tree artifact is
+disposed only by the replacement S named here. Correction #24 becomes a
+`superseded design` chain commit and this landing becomes operative `D`.
+
+After dual independent review accepts and lands these exact normative bytes,
+the retry succession is exactly
+`8529da951e2378115ffde8d5da3e2af56f3323d0 -> correction #25 -> fresh
+fingerprint-delta R3 -> replacement S3 -> fresh E3 -> fresh independent A3`.
+Fresh E3 changes only the newly generated evidence JSON and reproduction
+Markdown, one newly named host-bound performance JSON, and the four evidence
+constants. Fresh A3 rederives every Section 14.3 oracle again — no passing row
+from the rejected attempt carries — and changes only its newly generated
+acceptance JSON, the two acceptance constants, and explicitly authorized status
+prose. Atomic no-overwrite generation is unchanged. This correction is
+design-only: it accepts no source slice or evidence, does not reverse A3's
+REJECT, does not accept M3, reopens no accepted M1/M2 artifact, and does not
+close SCI-004. SCI-004 remains ROADMAP; closure C remains locked; SCI-005 Stage
+3 is neither a prerequisite nor a claim; and no accelerator, diffuse/public
+HEALPix, non-scalar-beam, public end-to-end backend-wiring, general performance,
+or speedup claim is licensed. No dependency, lock file, workflow, tolerance,
+simulator submodule, or previously accepted artifact becomes writable.
+**Review status: independent physics/governance and computational correction
+reviews pending against pinned candidate bytes and the complete parent-relative
+diff.**
+**Final review verification:** the reviewed pre-landing design was 370,496 raw bytes with SHA-256 `5d54c4b8c5c0312b29d2391c0de76b51a004b6c0605d2543a51ae2a46bbff2a6` and parent-relative diff SHA-256 `1052133587a3af0489cf079c69e2f7a5b8869f20959bdc3d1cda8ed09d7c1acb`, the reviewed pre-landing ledger was 51,872 raw bytes with SHA-256 `f79329d0e0438ce5ff5c2c65d0b443fa04dae0bffeded5f20b750b64415105af` and parent-relative diff SHA-256 `d9d30802b46941cba5d2c52ce7cd1ef405d0bc966a4a5fcf1dc4d4d12dabff44`, the complete fixed-order design-then-ledger parent-relative diff SHA-256 was `ccea0e4e0477ea43174f64aece99369c31b4ce221cdd0b16d38788e1bdd4dc76`, and after two bounded fix rounds the fresh round-3 reviewers `/root/physics_governance_review` and `/root/computational_provenance_review` each returned exact `ACCEPT`; only this sentence and the companion ledger verdict completion postdate those reviewed pins.
+
 **Bounded correction #24 — 2026-08-25 (sampled current-process RSS and
 the polarized-HDF5 post-source oracle).** The committed phase-3 source
 slice exposed two bounded defects before `E3`. First, Section 11's
@@ -2915,15 +3207,56 @@ default receptor set is east-X: it reproduced `mmode_point_full_stokes`
 byte for byte and characterized nothing.
 
 Each family records the raw cube, `scientific_sha256`, solver snapshot, ERA/UTC
-grid, harmonic index table, and input identity. The family record's grid
-and input-identity digests use the namespaced domains
-`radiosim.sci004.characterization-time.v1` and
-`radiosim.sci004.characterization-input.v1`, computed from the retained
-`SimulationResult` exactly as the strict validator re-derives them;
-Section 14.0's solver-internal domains do not apply to a result-derived
-record. A changed m-mode pin requires
+grid, harmonic index table, and input identity. The fingerprint row retains the
+complete result-derived `characterization_time_manifest` beside
+`era_utc_grid_sha256`; the latter uses the namespaced domain
+`radiosim.sci004.characterization-time.v1`, computed from the retained
+`SimulationResult` exactly as the strict validator re-derives it, and is
+distinct from the phase manifest's `canonical_era_grid_sha256`. Correction
+#25 supersedes the path-bearing input domain with
+`radiosim.sci004.characterization-input.v2`. Every fingerprint row embeds its
+complete Section 14.0 v2 characterization-input manifest beside the digest;
+that manifest embeds and joins the exact path-independent phase fixture-input
+manifest, rather than the arbitrary filesystem path in `resolved_config`.
+Moving byte-identical layout content between absolute roots cannot change the
+identity; changing a semantic site, antenna, baseline, receptor, loaded-beam,
+frequency, sky, Jones, time-grid, or solver input must change it. Section
+14.0's solver-internal domains do not substitute for either result-derived
+characterization domain. A changed m-mode pin requires
 old/new cubes and an equation-level explanation; no digest is appended merely
 because CI printed it.
+
+The production family record and the Section 14.2 evidence row are distinct
+closed schemas. At the pre-fix v1 source,
+`mmode_characterization_record` has exactly this ordered seven-key record:
+
+```text
+family_id, raw_cube_sha256, scientific_sha256, solver_snapshot,
+era_utc_grid_sha256, harmonic_index_table_sha256, input_identity_sha256
+```
+
+Replacement S3 changes it to exactly this ordered nine-key v2 record:
+
+```text
+family_id, raw_cube_sha256, scientific_sha256, solver_snapshot,
+characterization_time_manifest, era_utc_grid_sha256,
+harmonic_index_table_sha256, characterization_input_manifest,
+input_identity_sha256
+```
+
+Both complete manifests are direct record members immediately before their
+adjacent digests; every old key and assertion remains. In v2 the function's
+signature requires keyword-only `family_id` and
+`phase_input_identity_manifest`; the latter is the complete same-run
+`radiosim.mmode-input-identity.v1` manifest constructed from the solver request,
+not `resolved_config` and not a digest-only stand-in. Omission, an unknown key,
+a path-bearing value, or a manifest whose independently recomputed phase-input
+digest does not join the result's instrument, receptor, beam, frequency, time,
+solver, and scientific surfaces raises `InvalidResultError` before a record is
+returned. The evidence generator supplies its retained same-family solver
+bundle manifest; the two-root and semantic-mutation oracles construct theirs
+independently. No architecture that leaves the production family record at v1
+while building an evidence-only v2 manifest complies.
 
 The accepted CI-001 successor discipline applies to every new family. The
 initial harvest binds exactly the platform/Python cells this phase's
@@ -4388,6 +4721,73 @@ exactly `src/radiosim/io/hdf5.py`,
 `tests/unit/test_sci004_phase3_evidence.py`; every other byte from the
 superseded S3 flows through unchanged.
 
+Correction #25's fresh fingerprint-delta R3 is the replacement for correction
+#24's now-superseded R3. It directly parents correction #25 and may change
+exactly:
+
+- `docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json`
+  (new canonical supplement only)
+- `tests/characterization/test_sci004_mmode.py` (exactly the four newly
+  collected nodes
+  `test_characterization_input_preimage_is_retained_and_reconstructible`,
+  `test_characterization_input_identity_is_equal_under_distinct_layout_roots`,
+  `test_distinct_layout_roots_preserve_scientific_and_cube_identities`, and
+  `test_characterization_input_identity_changes_for_semantic_instrument_content`;
+  the first two are expected-red and the latter two are mandatory green
+  controls; plus only the header-ruled domain-discriminated edit to existing
+  parametrized node `test_every_new_family_records_its_six_section_11_parts`)
+- `tests/unit/test_sci004_phase3_dependency.py` (correction-#25 chain,
+  authority, and rejected-attempt authentication only)
+- `tests/unit/test_sci004_phase3_red_failures.py` (three-record expected-red
+  disjoint union, the exact passing-control rows/replay, new supplement, and
+  raw-byte authentication only)
+- `tools/sci004_mmode_phase3_red.py` (dedicated atomic no-overwrite generation
+  and validation of the new supplement only)
+
+It retains the dependency certificate, historical phase-3 red record, and
+correction-#24 post-source red record byte-for-byte. Its supplemental schema,
+status, binding, nodes, oracle-patch digest, and two prior-record digests are
+the exact header values; its tool's historical and correction-#24 generation
+modes remain fail-closed and cannot overwrite either prior record.
+Within the characterization path, fixture support means only constants
+`FAMILY_RECORD_V1_KEYS`, `FAMILY_RECORD_V2_KEYS`, and
+`FINGERPRINT_RED_LAYOUT_BYTES`, and helpers
+`_family_result_and_phase_input_manifest`,
+`_characterization_record_for_active_domain`, `_relocated_family_records`, and
+`_semantic_layout_mutation`; they may contain only the construction, canonical
+preimage, and exact-branch logic those five collected nodes consume. No other
+collected node may be added, removed, renamed, skipped, xfailed, weakened, or
+have an assertion deleted; no other existing fixture/helper may change. The R3
+authority validator parses collection and the parent-relative test diff to
+enforce that exact inventory rather than treating an arbitrary test change as
+“fixture support.”
+
+Correction #25's replacement S3 directly parents that fresh R3 and may change
+or delete exactly:
+
+- `src/radiosim/core/result.py`
+- `tools/sci004_mmode_phase3_evidence.py`
+- `tests/unit/test_sci004_phase3_evidence.py`
+- `tools/sci004_mmode_phase3_acceptance.py`
+- `tests/unit/test_sci004_phase3_acceptance.py`
+- `docs/development/sci004_mmode_phase3_evidence.json` (delete rejected E3
+  working-tree draft only)
+- `docs/development/sci004_mmode_phase3_evidence.md` (delete rejected E3
+  reproduction draft only)
+- `output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json`
+  (delete rejected host-bound draft only)
+- `docs/development/sci004_mmode_phase3_acceptance.json` (delete canonical A3
+  REJECT working-tree copy only)
+
+Within the two validator paths it returns exactly the four E3 and two A3
+approved bindings to literal `None` while implementing the v2 manifest,
+hostile mutation checks, three-red-record joins, and current-attempt ancestry
+selection. It may not edit the fresh red oracle or any red record. At its tree
+both fixed phase artifact paths are absent, the SCI-004 performance directory
+is empty, and all six bindings are null; the tools' synthetic strict fixtures
+remain producible in that state. The deleted rejected bytes remain immutable
+and authenticated at their exact header-recorded Git commits.
+
 `E3` may write only:
 
 - `docs/development/sci004_mmode_phase3_evidence.json` (new)
@@ -4467,7 +4867,7 @@ direct-parent edge it displaces is replaced by a starred edge whose
 interval commits this memo's header must enumerate exhaustively by SHA.
 Every interval commit is a single-parent non-merge of exactly one
 header-recorded kind — status-prose, superseded design, superseded red
-slice, superseded implementation, superseded evidence, or
+slice, superseded implementation, superseded evidence, rejected acceptance, or
 post-acceptance repair — touching
 exactly the paths its kind allows, mirroring the accepted SCI-005
 Section 8.3 machinery; the reopened phase's `R` then directly parents the
@@ -4488,7 +4888,22 @@ review, diff that repair against its pre-repair blob and confirm that no
 assertion, tolerance, or accepted-value set was relaxed, widened, or
 removed without a compensating equal-or-stronger check; a repair that
 cannot be so confirmed is not enumerable under this kind and requires
-the applicable supersession-and-regeneration path instead. An accepted
+the applicable supersession-and-regeneration path instead. A
+`rejected acceptance` commit is the canonical failed-closed record of one
+independent `A` attempt. It may touch only that phase's fixed acceptance JSON
+and the exact approved-E/acceptance-artifact constant assignments in its
+Section 13 acceptance validator; its sole parent is the rejected evidence
+candidate; its artifact verdict is `REJECT`; and its header entry freezes the
+full commit and parent SHAs, exact touched paths, artifact raw SHA-256, external
+review-contribution raw SHA-256, reviewer identity, and concrete blocker. The
+artifact and commit are immutable. The next governed R or correction
+authenticates them from Git objects. This kind unlocks no successor, cannot
+change ROADMAP to DONE, and cannot authorize closure C. Its fixed current-tree
+artifact may be deleted only by a header-authorized replacement S restoring
+the phase's absent-output/null-sentinel state; the immutable Git blob remains
+the historical authority.
+
+An accepted
 phase acceptance commit inside the `D0 -> D` range is
 not a chain commit and needs no interval kind: its memo diff is exactly
 its own phase's Section 13 append-only acceptance note, authenticated by
@@ -4513,13 +4928,18 @@ retained record stands unchanged.
 Disposal follows the accepted SCI-005 Section 7.5 rule exactly: when a
 header-recorded correction supersedes an evidence commit, the reopened
 slice's `S` restores that phase's Section 13 `S`-state — it deletes the
-superseded phase evidence artifact and its reproduction record and returns
-the approved evidence constants to the null sentinels — so the
-regenerating `E` runs under the unchanged rule against absent paths and
-null sentinels. This disposal is authorized only for an artifact the memo
-header records as superseded; the `A` that would have accepted it returned
-`REJECT`, so removing it is disposal of a rejected draft, not replacement
-of a record. The same rule governs a superseded phase red-failure record:
+superseded phase evidence artifact, its reproduction record, and every
+header-named host-bound performance record; it returns all approved evidence
+constants to the null sentinels. When the rejected evidence has a canonical
+`rejected acceptance` child, that same replacement S also deletes the fixed
+acceptance JSON and returns both acceptance constants to null. Thus the
+regenerating `E` and later `A` run against absent fixed paths, an empty
+phase-performance directory where the phase requires it, and six null
+sentinels. The regenerating `E` and `A` run under the unchanged rule against
+that state. This disposal is authorized only for an artifact the memo header
+records as superseded; the `A` that would have accepted it returned `REJECT`,
+so removing it is disposal of a rejected draft, not replacement of a record.
+The same rule governs a superseded phase red-failure record:
 the governed re-cut deletes and regenerates it, since the record was never
 accepted — **unless the reopened phase's `S` already exists**, in which
 case the record's previously observed nodes can no longer be observed red in
@@ -4529,6 +4949,23 @@ validator authenticates the record's `design_sha` as a header-enumerated chain
 commit from whose tree the observations were genuinely made, connected to the
 operative `D` through the chain — never as a licence to fabricate an
 `expected-red-confirmed` observation against a tree where nothing is red.
+
+After such disposal, an active validator identifies a retry introduction only
+relative to the active approved parent. For evidence parent `S`, compute the
+ordered first-parent ancestry path with
+`git rev-list --first-parent --ancestry-path --reverse S..HEAD`; current `E` is
+its first commit,
+which must be S's sole-parent direct child and must satisfy the complete
+Section 13 E diff, blob, and constant bindings. For evidence parent `E`, current
+`A` is analogously the first commit from that command with `E..HEAD`, E's
+sole-parent direct child,
+and must satisfy the complete A diff, blob, verdict, and constant bindings.
+The range must be an ancestry path with no merge. Zero or multiple admissible
+children, a non-first-parent candidate, or any mismatch rejects. Searching all
+history for additions, choosing the newest or first add of the fixed path, or
+selecting a commit before the active approved parent is forbidden. Every
+header-recorded rejected predecessor remains separately authenticated by exact
+commit/path/blob identity and is never eligible for the current-attempt role.
 
 A correction may separately prove a **new post-source red delta** against the
 committed `S` it supersedes. That route is valid only when the header records an
@@ -4795,6 +5232,104 @@ fixture-input row set equals exactly
 the union of every non-rejection result fixture ID in that phase: no orphan,
 duplicate, or missing row is allowed.
 
+Correction #25's M3 characterization input is a separate retained projection
+with exact domain and schema literal
+`radiosim.sci004.characterization-input.v2`. Its
+`characterization_input_manifest` has exactly:
+
+```text
+schema_version, family_id, fixture_id,
+phase_input_identity_manifest, phase_input_identity_sha256,
+instrument_manifest, instrument_sha256,
+receptor_manifest, receptor_sha256,
+loaded_beam_manifest, beam_loaded_fingerprint,
+correlations, polarization_basis, frequencies_hz_f64be
+```
+
+`family_id == fixture_id` and both values are the exact Section 11 family name.
+`phase_input_identity_manifest` is the complete value-bearing
+`radiosim.mmode-input-identity.v1` object from the unique same-fixture
+`source_identities.fixture_input_rows` entry, byte-for-byte under canonical
+JSON; its adjacent digest must independently recompute under that v1 domain and
+equal both the nested `phase_input_identity_sha256` and the adjacent phase row.
+Filesystem venue is non-semantic. The embedded manifest therefore continues to
+exclude fixture paths. Any recursive key whose normalized name is `path`, ends
+in `_path`, `_paths`, `_file`, `_files`, `_dir`, `_directory`, `_root`, or
+`_uri`, or otherwise denotes a filesystem locator is invalid; a scalar under
+such a key is invalid whether absolute, relative, symlink-resolved,
+temporary-root, or checkout-root. A string value under a semantic key is not
+rejected merely because it contains `/` or resembles a relative token; the
+exact closed schemas and projection equality decide its meaning. Layout
+content is represented by the embedded site, antenna, baseline, and beam rows,
+not by a locator.
+
+`instrument_manifest` has exactly `schema_version`, `site_manifest`,
+`antenna_rows`, and `baseline_rows`, copied from the embedded phase input; its
+schema/domain is `radiosim.sci004.characterization-instrument.v1` and
+`instrument_sha256=D(domain,J(instrument_manifest))`. `receptor_manifest` has
+exactly `schema_version` and `receptor_rows`, copied from the embedded phase
+input; its schema/domain is
+`radiosim.sci004.characterization-receptors.v1` and
+`receptor_sha256=D(domain,J(receptor_manifest))`. `loaded_beam_manifest` has
+exactly `schema_version` and `beam_rows`, including every parameter manifest,
+content-array identity, and exact antenna partition from the embedded phase
+input; its schema/domain is
+`radiosim.sci004.characterization-loaded-beam.v1` and
+`beam_loaded_fingerprint=D(domain,J(loaded_beam_manifest))`. Each complete
+submanifest is compared byte-for-byte to its phase-input projection before its
+adjacent digest is reconstructed, so no identity is a bare writer-provided
+claim. `correlations` is the ordered four-label projection of
+`correlation_rows`; `polarization_basis` is the unique basis implied by those
+rows and the ordered receptor labels; and `frequencies_hz_f64be` is the ordered
+projection of every `frequency_rows.center_hz_f64be`. Each projection is
+recomputed and compared exactly.
+
+The characterization digest is
+
+```text
+input_identity_sha256 =
+    D("radiosim.sci004.characterization-input.v2",
+      J(characterization_input_manifest))
+```
+
+The complete manifest is retained in each M3 fingerprint row. It contains no
+cube, solver-snapshot, scientific-result, or characterization digest, so those
+identities cannot feed back into their input. The row separately retains the
+complete solver snapshot and its digest, the complete result-derived
+characterization-time manifest and its distinct digest, the cube identity, the
+result scientific identity, and the observation-set entry under Section 14.2.
+The strict evidence validator reimplements `J`, `D`, the v1 phase-input digest,
+each content identity, and all projections locally; importing
+`mmode_characterization_record` or another production helper is forbidden as
+the independent oracle.
+
+`characterization_time_manifest` is not the phase manifest's
+`canonical_era_grid` object and its adjacent digest is not the phase
+`canonical_era_grid_sha256`. It retains the current result-derived
+`radiosim.sci004.characterization-time.v1` preimage with exactly
+`schema_version`, `axis_order`, `shape`, `interval_semantics`,
+`start_time_iso`, `center_jd1_f64be`, `center_jd2_f64be`, and
+`integration_time_seconds_f64be`. Its values require, respectively, that exact
+schema literal, `["sample"]`, the one-element sample-count array,
+`half_open_sample_centers`, the normalized UTC anchor, and the complete ordered
+binary64 arrays. `era_utc_grid_sha256` is exactly
+`D("radiosim.sci004.characterization-time.v1",J(characterization_time_manifest))`.
+For all four existing families it must remain
+`558758efff6d46ea559705bf6b6ab2245bf948a6d6792ed722e048e1ef41d877`;
+the separate embedded phase `canonical_era_grid_sha256` remains
+`f865447ee34816c865e42d9202f26d388a6072c3f6be068973d9b9510ae357aa`.
+
+The validator joins the two distinct grid surfaces field by field. The row
+shape equals `mmode_dimensions.sidereal_samples`; both center-JD arrays equal
+the phase `utc_manifest` center arrays byte-for-byte; the normalized
+`start_time_iso`, the phase exact center turns, and the locked IERS table are
+independently remapped and must reproduce those same UTC centers; and each
+integration width is independently reconstructed in seconds from the phase
+UTC lower/upper two-part JD rows and must equal the retained ordered width.
+It also reconstructs the phase turn/radian grids and their own adjacent
+digests. Thus neither digest substitutes for the other, and neither is a bare
+writer-provided claim.
+
 The validator recomputes `site_sha256`, `utc_sha256`, and `ut1_sha256` from
 the three embedded manifests, reconstructs every exact-turn invariant and
 component array identity from `canonical_era_turn_grid`, and then recomputes
@@ -5046,6 +5581,19 @@ continue to bind the immutable historical M3 record; the nested five bind
 digest, schema literal, exact `a61526d6…` pre-fix source, and `validated=true`.
 The M3 evidence generator and validator authenticate both artifacts and require
 the evidence envelope's `red_commit_sha` to name their containing fresh R3.
+
+Correction #25 adds exactly one seventh key,
+`fingerprint_post_source_delta`, with the same exact five-key reference shape.
+It binds the header's fixed
+`docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json`
+path, schema, exact
+`b07925ab14b56b3ca0fa863f806290748a31df6b` pre-fix source, raw digest, and
+`validated=true`.
+The outer historical reference and correction-#24 `post_source_delta` remain
+byte-authenticated at their two header digests. Fresh E3's `red_commit_sha`
+names the new R3 containing all three records, and the generator and validator
+require the exact three-way disjoint union of their expected-red case node IDs;
+the fingerprint supplement's authenticated passing controls are excluded.
 
 The tracked phase generator is part of `S`, and it **executes at the
 globally clean exact `S` checkout**: that execution is the `E`-time
@@ -5438,12 +5986,54 @@ row has exactly `format`, `fixture_id`, `written_solver_sha256`,
 `scientific_sha256`, and `pass`.
 
 Each `fingerprint_rows` entry has exactly `family_id`, `fixture_id`,
-`input_identity_sha256`, `canonical_era_grid_sha256`,
-`solver_snapshot_sha256`, `cube_sha256`, `scientific_sha256`,
-`expected_change_reason`, and `pass`. There are exactly four rows in the
-amended Section 11 family order, one local retained pin per family; each
-fixture joins
-the phase input set and each identity recomputes under Section 14.0.
+`characterization_input_manifest`, `input_identity_sha256`,
+`characterization_time_manifest`, `era_utc_grid_sha256`, `solver_snapshot`,
+`solver_snapshot_sha256`,
+`cube_sha256`, `scientific_sha256`, `expected_change_reason`, and `pass`.
+There are exactly four rows in the amended Section 11 family order, one local
+retained pin per family. For every row the validator independently performs
+all of the following before `pass` can be true:
+
+- requires the manifest's exact Section 14.0 v2 key set, rejects unknown,
+  missing, path-bearing, or non-normalized values, canonicalizes with `J`, and
+  recomputes `input_identity_sha256` with `D`;
+- requires exact `family_id == fixture_id`, joins the unique same-fixture phase
+  input row, and requires the nested v1 manifest and digest to equal that row;
+- reconstructs and joins instrument, receptor, loaded-beam, correlations,
+  polarization basis, frequencies, both distinct phase ERA and result-derived
+  ERA/UTC characterization-time identities, and all semantic solver inputs
+  from the retained value-bearing manifests;
+- requires the complete retained `solver_snapshot` to have Section 10's exact
+  key set, independently recomputes `solver_snapshot_sha256`, and joins its
+  dimensions, frame, IERS, tangent-polarization frame, and execution policy to
+  the phase input manifest;
+- joins `cube_sha256` and `scientific_sha256` to the same family's
+  `ci_artifacts` row and retained observation-set entry, and, for the three
+  performance fixtures, to every same-fixture performance workload identity;
+  the scientific identity is independently rederived at A3 and is never an
+  input to the characterization manifest; and
+- requires `expected_change_reason` to equal this exact one-line value:
+
+  ```text
+  characterization-input v2 removes non-semantic filesystem venue and retains the complete path-independent phase-input preimage; scientific, cube, ERA/UTC characterization-time, solver, phase-input, and observation-set identities are unchanged
+  ```
+
+  If any
+  named supposedly unchanged identity differs, generation fails before this
+  literal can be used and an old/new-cube equation-level adjudication requires
+  another correction.
+
+Hostile strict-validator coverage includes at least: missing preimage; unknown
+preimage key; forbidden path-bearing or non-normalized value; changed manifest
+with stale digest; changed digest with unchanged manifest; instrument,
+receptor, loaded-beam, correlation/polarization/frequency, fixture-input,
+characterization-time manifest/digest, phase-grid join, `scientific_sha256`, or
+retained-observation-set mismatch; two scientifically identical layouts under
+distinct temporary roots producing equal v2 identity; and a real semantic
+layout-content change producing a different identity. The relocation equality
+is a fresh R3 expected-red oracle; the semantic inequality is the fresh R3
+mandatory green control. Neither may be replaced by a synthetic document whose
+author supplied both expected values.
 
 Each `ci_artifacts` entry has exactly `family_id`, `fixture_id`, `source_sha`,
 `environment`, `dispatch_identity`, `cube_sha256`,
@@ -5525,14 +6115,18 @@ number, or any false row. The phase validator is also already tracked at `S`.
 In its S-state, null approved-digest constants require the official evidence
 artifact to be absent while synthetic strict-schema/digest tests pass. `E`
 adds the artifact and reproduction Markdown and changes only
-`APPROVED_SOURCE_SHA` and `APPROVED_ARTIFACT_SHA256` constants. In that state
+`APPROVED_SOURCE_SHA`, `APPROVED_ARTIFACT_SHA256`,
+`APPROVED_PERFORMANCE_PATH`, and `APPROVED_PERFORMANCE_SHA256`. In that state
 the validator requires the artifact's `source_sha` and the constant to equal
-the approved `S`, authenticates the raw artifact bytes, locates the unique
-artifact-introducing `E` commit and requires its direct parent to be `S`, and
+the approved `S`, authenticates the raw artifact bytes, locates current `E`
+only by Section 13.7's approved-parent first-parent rule, requires it to be the
+sole-parent direct child of `S`, requires its parent-relative diff to introduce
+the fixed artifact and current host-bound performance path, and
 checks the `S..E` diff against Section 13. It deliberately does **not** require
 the current checkout or `E` to equal `source_sha`. It re-runs schema validation
 and all cheap digest/oracle checks under default and `py312`; it never selects
-the first matching file or trusts a workflow summary. The reproduction record
+the first or newest matching add in whole history and never trusts a workflow
+summary. The reproduction record
 names the exact tracked generator path/argv, Pixi environment, approved `S`,
 artifact path, raw SHA-256, and commands needed to reproduce it. It begins with
 the exact MyST front matter `---\norphan: true\n---`, so adding the phase-local
@@ -5584,8 +6178,11 @@ that JSON to be absent while synthetic schema tests pass. `A` adds the JSON,
 changes only `APPROVED_EVIDENCE_SHA` and
 `APPROVED_ACCEPTANCE_ARTIFACT_SHA256`, and may make the status-document edits
 listed in Section 13. The active validator authenticates the approved `E`, raw
-acceptance bytes, unique introducing `A` commit, and exact `E..A` authority; it
-never requires the evidence artifact's `source_sha` to equal `E`.
+acceptance bytes, and current `A` selected only as the first first-parent commit
+after the approved `E` under Section 13.7. It requires that sole-parent direct
+child to introduce the fixed acceptance path and satisfy exact `E..A`
+authority; a prior rejected add of the same path is ineligible. It never
+requires the evidence artifact's `source_sha` to equal `E`.
 
 `A1` must independently rederive `CanonicalEraGrid`: all four exact-turn
 digests, all three derived-radian array digests, the combined grid digest,
@@ -5631,6 +6228,15 @@ include `m3.sci005-dependency-gate`, `m3.performance-schema`,
 `m3.performance-inventory`, `m3.performance-schedule`,
 `m3.performance-timing`, `m3.performance-memory`,
 `m3.performance-direct-predicate`, and `m3.performance-backend-predicate`.
+After correction #25 they also include required identifier
+`m3.fingerprint-authentication`. That oracle independently reconstructs every
+v2 characterization manifest and digest, every characterization-time preimage
+and its distinct ERA/UTC digest, all Section 14.2 joins and hostile mutations,
+the equal-across-distinct-roots expected-red scientific oracle, and the
+semantic-change inequality green control. It may not import the production
+characterization helper as its oracle. Every A3 oracle is rederived afresh;
+passing rows in a rejected acceptance record are historical evidence, not
+reusable acceptance.
 The dependency oracle performs both G3/R3 detached-worktree verifier replays
 and authenticates D/A2/G3/SCI-005 ancestry, nonmerge, immutable bytes, and the
 raw stdout digest. The A3 validator authenticates the raw performance path/digest, exact S3 and
@@ -5660,6 +6266,32 @@ at any edge replaces that exact direct-parent edge with a starred edge whose
 interval commits the memo header enumerates exhaustively under
 Section 13.7's recorded kinds; the reopened phase's `R` then directly
 parents the operative correction commit.
+
+Correction #25 makes the concrete M3 history and retry order:
+
+```text
+4d507bf1333ccaa4c8beec3815370ba0f6043bb2 D24
+  -> 944e0ee66ebdaffafab86f4f8f4253a404aa902c superseded R3
+  -> b07925ab14b56b3ca0fa863f806290748a31df6b superseded S3
+  -> 886e62fd9f8328826b388b8960ed7413da26b6d1 rejected E3
+  -> 8529da951e2378115ffde8d5da3e2af56f3323d0 rejected A3 (REJECT)
+  -> D25
+  -> fresh fingerprint-delta R3
+  -> replacement S3
+  -> fresh E3
+  -> fresh independent A3
+  -> C only after that A3 is ACCEPT
+```
+
+The four commits between D24 and D25 have exactly the header-recorded kinds and
+paths; D24 becomes a superseded-design chain commit and D25 is operative `D`.
+The rejected A3 is not the `A3` in the generic accepted succession and creates
+no `A3 -> C` edge. Fresh R3 directly parents D25, replacement S3 directly
+parents fresh R3, and the fresh E3/A3 edges are unstarred sole-parent edges.
+Disposal in replacement S3 makes those fixed paths genuinely absent before
+their no-overwrite generators run; the approved-parent first-parent selection
+rule then distinguishes the fresh introductions from the immutable rejected
+ones.
 
 Thus `R1^==G1`, while `R2` and `R3` each directly parent the operative
 commit of a header-recorded starred-edge correction — `R2` over
@@ -5702,6 +6334,15 @@ ordered:
 
 CI-001 is already closed, but its successor-gate discipline still governs new
 fingerprints. SCI-005 Stage 3 is not a hidden prerequisite or a hidden claim.
+
+Correction #25 changes only the M3 fingerprint/retry design. It accepts no
+source or evidence, does not reverse the canonical A3 REJECT, does not accept
+M3, and does not reopen M1 or M2. SCI-004 remains ROADMAP and closure C remains
+locked until a fresh independent A3 returns ACCEPT and the later whole-row
+review independently succeeds. No accelerator, diffuse/public HEALPix,
+non-scalar-beam, public end-to-end backend-wiring, speedup, general performance,
+or unmeasured-workload claim follows from this correction or from disposal of
+the rejected drafts.
 
 Each source phase runs at minimum:
 
