@@ -44,8 +44,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 #: Section 14.3's two approved constants.  ``A3`` replaces exactly these two
 #: ``None`` literals and nothing else in this module.
-APPROVED_EVIDENCE_SHA: str | None = None
-APPROVED_ACCEPTANCE_ARTIFACT_SHA256: str | None = None
+APPROVED_EVIDENCE_SHA: str | None = "886e62fd9f8328826b388b8960ed7413da26b6d1"
+APPROVED_ACCEPTANCE_ARTIFACT_SHA256: str | None = "283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d"  # fmt: skip
 
 TOOL = "tools/sci004_mmode_phase3_acceptance.py"
 ARTIFACT = "docs/development/sci004_mmode_phase3_acceptance.json"
