@@ -100,6 +100,9 @@ RED_COMMIT_SHA_REASON = "self-reference: E binds the containing R commit"
 POST_SOURCE_RED_COMMIT_SHA_REASON = (
     "self-reference: E binds the containing post-source R commit"
 )
+FINGERPRINT_POST_SOURCE_RED_COMMIT_SHA_REASON = (
+    "self-reference: E binds the containing fingerprint-retry R3 commit"
+)
 
 OUTPUT_PATH = "docs/development/sci004_mmode_phase3_red_failures.json"
 POST_SOURCE_OUTPUT_PATH = (
@@ -108,6 +111,18 @@ POST_SOURCE_OUTPUT_PATH = (
 POST_SOURCE_SCHEMA_VERSION = "radiosim.sci004.mmode-phase3-post-source-red-failures.v1"
 POST_SOURCE_STATUS = "post-source-expected-red-confirmed"
 POST_SOURCE_PRE_FIX_SHA = "a61526d686ab768f05ecffa80cfd6223d4ee4c62"
+FINGERPRINT_POST_SOURCE_OUTPUT_PATH = (
+    "docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json"
+)
+FINGERPRINT_POST_SOURCE_SCHEMA_VERSION = (
+    "radiosim.sci004.mmode-phase3-fingerprint-post-source-red-failures.v1"
+)
+FINGERPRINT_POST_SOURCE_STATUS = "post-source-expected-red-confirmed"
+FINGERPRINT_POST_SOURCE_PRE_FIX_SHA = "b07925ab14b56b3ca0fa863f806290748a31df6b"
+CORRECTION24_POST_SOURCE_RED_RECORD_SHA256 = (
+    "724f75c246ebfcf5956fc40fb2f5e349d91ccca3e6a188b3785a65f4ae4c1e10"
+)
+FINGERPRINT_POST_SOURCE_ORACLE_PATH = "tests/characterization/test_sci004_mmode.py"
 HISTORICAL_RED_SLICE_SHA = "7070cc3ddb1c2557d02e4a3f2a89b907575bed0b"
 HISTORICAL_RED_RECORD_SHA256 = (
     "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
@@ -151,6 +166,53 @@ POST_SOURCE_R3_AUTHORIZED_PATHS: tuple[str, ...] = tuple(
 )
 POST_SOURCE_NON_ARTIFACT_PATHS: tuple[str, ...] = tuple(
     path for path in POST_SOURCE_R3_AUTHORIZED_PATHS if path != POST_SOURCE_OUTPUT_PATH
+)
+
+FINGERPRINT_R3_AUTHORIZED_PATHS: tuple[str, ...] = tuple(
+    sorted(
+        (
+            FINGERPRINT_POST_SOURCE_OUTPUT_PATH,
+            FINGERPRINT_POST_SOURCE_ORACLE_PATH,
+            "tests/unit/test_sci004_phase3_dependency.py",
+            "tests/unit/test_sci004_phase3_red_failures.py",
+            "tools/sci004_mmode_phase3_red.py",
+        )
+    )
+)
+FINGERPRINT_NON_ARTIFACT_PATHS: tuple[str, ...] = tuple(
+    path
+    for path in FINGERPRINT_R3_AUTHORIZED_PATHS
+    if path != FINGERPRINT_POST_SOURCE_OUTPUT_PATH
+)
+
+FINGERPRINT_NODEIDS: tuple[str, ...] = (
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_characterization_input_preimage_is_retained_and_reconstructible",
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_characterization_input_identity_is_equal_under_distinct_layout_roots",
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_every_new_family_records_its_six_section_11_parts"
+    "[mmode_single_scalar_mode]",
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_distinct_layout_roots_preserve_scientific_and_cube_identities",
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_characterization_input_identity_changes_for_semantic_instrument_content",
+)
+
+FINGERPRINT_FAMILY_RECORD_V2_KEYS: tuple[str, ...] = (
+    "family_id",
+    "raw_cube_sha256",
+    "scientific_sha256",
+    "solver_snapshot",
+    "characterization_time_manifest",
+    "era_utc_grid_sha256",
+    "harmonic_index_table_sha256",
+    "characterization_input_manifest",
+    "input_identity_sha256",
+)
+
+FINGERPRINT_LAYOUT_RAW_SHA256 = (
+    "a2ce7bace30e2fe962eb6454db1f6c7e2d63a9a28ad559323e824a36fcd2a4e0"
 )
 
 #: The red modules that declare ``SCI004_PHASE3_RED_CASES``, in record order.
@@ -214,6 +276,78 @@ POST_SOURCE_CLAIMS_NOT_LICENSED: tuple[str, ...] = (
     "production: this supplement records only the six hostile HDF5-reader "
     "rejection defects and certifies neither broader output behavior nor "
     "production readiness",
+)
+
+#: Correction #25's fresh delta licenses only the observed fingerprint defects.
+FINGERPRINT_POST_SOURCE_CLAIMS_NOT_LICENSED: tuple[str, ...] = (
+    "acceptance: this fingerprint supplement expresses no phase-M3 acceptance "
+    "verdict and unlocks no successor commit",
+    "fingerprint: this supplement retains two expected-red fingerprint defects "
+    "but pins, harvests, and adjudicates no Section 11 m-mode family or "
+    "dispatch-class observation",
+    "performance: this supplement measures no timing, speedup, memory, or "
+    "accelerator behavior and licenses no performance claim",
+    "production: this supplement records only the absent reconstructible "
+    "path-independent characterization-input surface and certifies neither "
+    "broader output behavior nor production readiness",
+)
+
+FINGERPRINT_CASE_SPECS: tuple[dict[str, str], ...] = (
+    {
+        "case_id": "m3.fingerprint.preimage-retained",
+        "requirement_id": "SCI-004-14.2-M3-FINGERPRINT-PREIMAGE",
+        "test_nodeid": FINGERPRINT_NODEIDS[0],
+        "expected_failure_kind": "assertion",
+        "expected_failure_pattern": (
+            "characterization input manifest is absent from the family record"
+        ),
+        "fixture_defect_excluded_by": (
+            "the same-run phase input manifest and exact canonical v2 preimage "
+            "are independently reconstructed before the production assertion"
+        ),
+    },
+    {
+        "case_id": "m3.fingerprint.path-independent",
+        "requirement_id": "SCI-004-11-PATH-INDEPENDENT-CHARACTERIZATION",
+        "test_nodeid": FINGERPRINT_NODEIDS[1],
+        "expected_failure_kind": "assertion",
+        "expected_failure_pattern": (
+            "characterization input identity changed under filesystem relocation"
+        ),
+        "fixture_defect_excluded_by": (
+            "independent roots preserve locally derived science and raw-cube "
+            "identities while differing only in retained filesystem location"
+        ),
+    },
+)
+
+FINGERPRINT_CONTROL_SPECS: tuple[dict[str, str], ...] = (
+    {
+        "control_id": "m3.fingerprint.family-record-schema",
+        "requirement_id": "SCI-004-11-FAMILY-RECORD-SCHEMA",
+        "test_nodeid": FINGERPRINT_NODEIDS[2],
+        "purpose": (
+            "exact domain-discriminated family-record schema and all pre-existing "
+            "family joins remain valid"
+        ),
+    },
+    {
+        "control_id": "m3.fingerprint.relocation-science-control",
+        "requirement_id": "SCI-004-11-PATH-INDEPENDENT-CHARACTERIZATION",
+        "test_nodeid": FINGERPRINT_NODEIDS[3],
+        "purpose": (
+            "relocation fixture preserves independently derived scientific and "
+            "raw-cube identities"
+        ),
+    },
+    {
+        "control_id": "m3.fingerprint.semantic-separation-control",
+        "requirement_id": "SCI-004-11-SEMANTIC-INPUT-SEPARATION",
+        "test_nodeid": FINGERPRINT_NODEIDS[4],
+        "purpose": (
+            "semantic antenna-layout mutation changes characterization input identity"
+        ),
+    },
 )
 
 #: Section 14.2's ``numeric_packages`` set, exactly.
@@ -475,6 +609,247 @@ def _post_source_oracle_diff(commit: str | None = None) -> bytes:
             f"{completed.stderr.decode('utf-8', 'replace').strip()}"
         )
     return completed.stdout
+
+
+def _fingerprint_oracle_diff(commit: str | None = None) -> bytes:
+    argv = [
+        "git",
+        "-c",
+        "color.ui=false",
+        "--no-pager",
+        "diff",
+        "--no-ext-diff",
+        "--binary",
+        "--full-index",
+        _frozen_binding("APPROVED_SCI004_D_SHA"),
+    ]
+    if commit is not None:
+        argv.append(commit)
+    argv.extend(("--", FINGERPRINT_POST_SOURCE_ORACLE_PATH))
+    completed = subprocess.run(
+        argv,
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RedRecordError(
+            "the fingerprint oracle diff failed: "
+            + completed.stderr.decode("utf-8", "replace").strip()
+        )
+    return completed.stdout
+
+
+def _regular_retained_blob(path: str, commit: str, expected_sha256: str) -> bytes:
+    target = REPOSITORY_ROOT / path
+    if target.is_symlink() or not target.is_file():
+        raise RedRecordError(f"retained artifact {path} is not a regular file")
+    raw = target.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise RedRecordError(f"retained artifact {path} has the wrong raw digest")
+    if raw != _tree_blob(commit, path):
+        raise RedRecordError(f"retained artifact {path} differs from {commit}'s blob")
+    return raw
+
+
+def _authenticate_fingerprint_retry_chain(head: str) -> None:
+    """Authenticate D25 and the rejected E3/A3 attempt from Git objects."""
+    design = _frozen_binding("APPROVED_SCI004_D_SHA")
+    d24 = _frozen_binding("D24_SHA")
+    old_r3 = _frozen_binding("SUPERSEDED_FINGERPRINT_R3_SHA")
+    old_s3 = _frozen_binding("SUPERSEDED_FINGERPRINT_S3_SHA")
+    rejected_e3 = _frozen_binding("REJECTED_E3_SHA")
+    rejected_a3 = _frozen_binding("REJECTED_A3_SHA")
+    if head != design:
+        raise RedRecordError(
+            f"generate-fingerprint-post-source requires exact D25 {design}, not {head}"
+        )
+    chain = (d24, old_r3, old_s3, rejected_e3, rejected_a3, design)
+    previous = _git("rev-parse", f"{d24}^").strip()
+    for commit in chain:
+        if _git("rev-parse", "--verify", f"{commit}^{{commit}}").strip() != commit:
+            raise RedRecordError(f"{commit} does not peel to itself")
+        parents = tuple(_git("rev-list", "--parents", "-n", "1", commit).split()[1:])
+        if parents != (previous,):
+            raise RedRecordError(
+                f"fingerprint retry chain commit {commit} parents {parents}, "
+                f"not {(previous,)}"
+            )
+        previous = commit
+
+    exact_paths = {
+        d24: ("PostTier8RemediationPlan.md", "docs/development/sci004_mmode_design.md"),
+        old_r3: tuple(
+            sorted(
+                (
+                    POST_SOURCE_OUTPUT_PATH,
+                    POST_SOURCE_ORACLE_PATH,
+                    DEPENDENCY_VALIDATOR_PATH,
+                    "tests/unit/test_sci004_phase3_red_failures.py",
+                    "tools/sci004_mmode_phase3_red.py",
+                )
+            )
+        ),
+        old_s3: tuple(
+            sorted(
+                (
+                    "src/radiosim/io/hdf5.py",
+                    "tests/unit/test_sci004_phase3_evidence.py",
+                    "tools/sci004_mmode_phase3_evidence.py",
+                )
+            )
+        ),
+        rejected_e3: tuple(
+            sorted(
+                (
+                    "docs/development/sci004_mmode_phase3_evidence.json",
+                    "docs/development/sci004_mmode_phase3_evidence.md",
+                    "output/benchmarks/reference/sci004/"
+                    "20260825T122048Z-macbook-pro-2.json",
+                    "tests/unit/test_sci004_phase3_evidence.py",
+                )
+            )
+        ),
+        rejected_a3: tuple(
+            sorted(
+                (
+                    "docs/development/sci004_mmode_phase3_acceptance.json",
+                    "tests/unit/test_sci004_phase3_acceptance.py",
+                )
+            )
+        ),
+        design: (
+            "PostTier8RemediationPlan.md",
+            "docs/development/sci004_mmode_design.md",
+        ),
+    }
+    for commit, paths in exact_paths.items():
+        if _diff_tree_paths(commit) != paths:
+            raise RedRecordError(
+                f"{commit} touches {_diff_tree_paths(commit)}, not exact {paths}"
+            )
+
+    design_path = "docs/development/sci004_mmode_design.md"
+    ledger_path = "PostTier8RemediationPlan.md"
+    final_blobs = (
+        (
+            design_path,
+            371403,
+            "eb45da5adfe412cc3447303f8ac77448988317f286b27df95d783f047481791f",
+        ),
+        (
+            ledger_path,
+            52079,
+            "33d610102339aecf6046ebec243a958e66f7be10148db3abf9fe96fe53f91a0f",
+        ),
+    )
+    for path, size, digest in final_blobs:
+        raw = _tree_blob(design, path)
+        if len(raw) != size or hashlib.sha256(raw).hexdigest() != digest:
+            raise RedRecordError(f"D25 final blob identity changed for {path}")
+    diff_expectations = (
+        (
+            (design_path,),
+            "5ab8d5cf856f78640585be8f9257a50e72ebf9a86cac7766887967722f70d7a8",
+        ),
+        (
+            (ledger_path,),
+            "84a215a0bb556432f5db5b09385d553f7c8b09116f13104d6e54ed7b94d47a09",
+        ),
+        (
+            (design_path, ledger_path),
+            "8c21e2f0193475422925ecaa4d0e6fab296d46517b115118846bb600a90911f0",
+        ),
+    )
+    for paths, expected_digest in diff_expectations:
+        completed = subprocess.run(
+            [
+                "git",
+                "diff",
+                "--no-ext-diff",
+                "--binary",
+                "--full-index",
+                rejected_a3,
+                design,
+                "--",
+                *paths,
+            ],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0 or hashlib.sha256(
+            completed.stdout
+        ).hexdigest() != (expected_digest):
+            raise RedRecordError(f"D25 final diff identity changed for {paths}")
+
+    acceptance_path = "docs/development/sci004_mmode_phase3_acceptance.json"
+    evidence_path = "docs/development/sci004_mmode_phase3_evidence.json"
+    reproduction_path = "docs/development/sci004_mmode_phase3_evidence.md"
+    performance_path = (
+        "output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json"
+    )
+    acceptance_raw = _regular_retained_blob(
+        acceptance_path,
+        rejected_a3,
+        "283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d",
+    )
+    evidence_raw = _regular_retained_blob(
+        evidence_path,
+        rejected_e3,
+        "600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae",
+    )
+    _regular_retained_blob(
+        reproduction_path,
+        rejected_e3,
+        "039539a865b5d92e86379f44a324271232e8a947301e380ec7b1b1848e907b4e",
+    )
+    _regular_retained_blob(
+        performance_path,
+        rejected_e3,
+        "07e59d3176866a78c17244849d6493365e9d410547e884cf56b254e60babe193",
+    )
+    evidence = json.loads(evidence_raw)
+    if (
+        evidence.get("status") != "candidate"
+        or evidence.get("source_sha") != old_s3
+        or evidence.get("red_commit_sha") != old_r3
+    ):
+        raise RedRecordError("the rejected E3 candidate bindings changed")
+    acceptance = json.loads(acceptance_raw)
+    blockers = acceptance.get("blockers")
+    if (
+        acceptance.get("verdict") != "REJECT"
+        or acceptance.get("reviewer_identity")
+        != "sci004-m3-independent-acceptance-reviewer"
+        or acceptance.get("reviewer_independent") is not True
+        or acceptance.get("evidence_commit_sha") != rejected_e3
+        or acceptance.get("evidence_artifact_sha256")
+        != "600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae"
+        or not isinstance(blockers, list)
+        or [row.get("blocker_id") for row in blockers]
+        != ["m3.fingerprint-input-preimage-not-retained"]
+    ):
+        raise RedRecordError("the canonical rejected A3 bindings changed")
+    external_review_path = Path(
+        "/Users/kartikmandar/MacProjects/"
+        "sci004-a3-independent-review-reject-20260826.json"
+    )
+    if external_review_path.is_symlink() or not external_review_path.is_file():
+        raise RedRecordError("the external independent review contribution is absent")
+    external_review_raw = external_review_path.read_bytes()
+    if hashlib.sha256(external_review_raw).hexdigest() != (
+        "43c12807aa9f316af53e6058ebec7f18dd0b6ea66d308cb1c488d77185907d82"
+    ):
+        raise RedRecordError("the external independent review digest changed")
+    external_review = json.loads(external_review_raw)
+    if (
+        external_review.get("verdict") != "REJECT"
+        or external_review.get("reviewer_identity")
+        != "sci004-m3-independent-acceptance-reviewer"
+        or external_review.get("reviewer_independent") is not True
+    ):
+        raise RedRecordError("the external independent review identity changed")
 
 
 def _authenticate_phase_unlock(observation_sha: str) -> None:
@@ -775,33 +1150,41 @@ def _run_pytest(
     return row, completed.stdout, completed.stderr
 
 
+def _junit_entry(testcase: ElementTree.Element) -> dict[str, str]:
+    """Classify one JUnit testcase without losing its full failure message."""
+    failure = testcase.find("failure")
+    error = testcase.find("error")
+    skipped = testcase.find("skipped")
+    if skipped is not None:
+        return {"outcome": "skipped", "type": "", "message": ""}
+    node = failure if failure is not None else error
+    if node is None:
+        return {"outcome": "passed", "type": "", "message": ""}
+    raw = (node.get("message") or "").strip()
+    first_line = raw.splitlines()[0] if raw else ""
+    return {
+        "outcome": "collected" if error is not None else "failed",
+        "type": _exception_type(node.get("type"), first_line),
+        "message": raw,
+    }
+
+
+def _parse_junit_inventory(
+    junit_path: Path,
+) -> list[tuple[str, dict[str, str]]]:
+    """Return the ordered JUnit inventory, retaining duplicates for rejection."""
+    tree = ElementTree.parse(junit_path)
+    return [
+        (testcase.get("name") or "", _junit_entry(testcase))
+        for testcase in tree.iter("testcase")
+    ]
+
+
 def _parse_junit(junit_path: Path) -> dict[str, dict[str, str]]:
     """Return ``{test name: {outcome, exception_type, message}}`` from junit XML."""
-    tree = ElementTree.parse(junit_path)
     observed: dict[str, dict[str, str]] = {}
-    for testcase in tree.iter("testcase"):
-        name = testcase.get("name") or ""
-        failure = testcase.find("failure")
-        error = testcase.find("error")
-        skipped = testcase.find("skipped")
-        if skipped is not None:
-            observed[name] = {"outcome": "skipped", "type": "", "message": ""}
-            continue
-        node = failure if failure is not None else error
-        if node is None:
-            observed[name] = {"outcome": "passed", "type": "", "message": ""}
-            continue
-        raw = (node.get("message") or "").strip()
-        first_line = raw.splitlines()[0] if raw else ""
-        observed[name] = {
-            "outcome": "collected" if error is not None else "failed",
-            "type": _exception_type(node.get("type"), first_line),
-            # Retain pytest's exact JUnit failure message. Correction #24's
-            # post-source rows require the complete regex-mismatch message,
-            # including the observed and expected lines, rather than its
-            # uninformative first line alone.
-            "message": raw,
-        }
+    for name, entry in _parse_junit_inventory(junit_path):
+        observed[name] = entry
     return observed
 
 
@@ -1177,6 +1560,218 @@ def generate_post_source() -> None:
     )
 
 
+def _fingerprint_fixture_bytes(case_id: str) -> bytes:
+    common: dict[str, Any] = {
+        "schema_version": "radiosim.sci004.fingerprint-red-fixture.v1",
+        "family_id": "mmode_single_scalar_mode",
+        "layout_document_raw_sha256": FINGERPRINT_LAYOUT_RAW_SHA256,
+    }
+    if case_id == "m3.fingerprint.preimage-retained":
+        common.update(
+            {
+                "root_labels": ["ROOT-A"],
+                "required_record_keys": list(FINGERPRINT_FAMILY_RECORD_V2_KEYS),
+            }
+        )
+    elif case_id == "m3.fingerprint.path-independent":
+        common.update(
+            {
+                "root_labels": ["ROOT-A", "ROOT-B"],
+                "required_equal_identities": [
+                    "scientific_sha256",
+                    "raw_cube_sha256",
+                    "era_utc_grid_sha256",
+                    "input_identity_sha256",
+                ],
+            }
+        )
+    else:  # pragma: no cover - closed governed table
+        raise RedRecordError(f"unknown fingerprint case {case_id!r}")
+    return canonical_json_bytes(common)
+
+
+def generate_fingerprint_post_source() -> None:
+    """Generate correction #25's exact two-red/three-green fingerprint delta."""
+    output = REPOSITORY_ROOT / FINGERPRINT_POST_SOURCE_OUTPUT_PATH
+    if output.exists():
+        raise RedRecordError(f"{output} already exists; generation never overwrites")
+
+    head = _git("rev-parse", "HEAD").strip()
+    _authenticate_fingerprint_retry_chain(head)
+    changed = _changed_paths()
+    if changed != FINGERPRINT_NON_ARTIFACT_PATHS:
+        raise RedRecordError(
+            "generate-fingerprint-post-source requires exactly the four "
+            f"non-artifact R3 paths dirty; observed {changed}"
+        )
+
+    _regular_retained_blob(
+        OUTPUT_PATH,
+        HISTORICAL_RED_SLICE_SHA,
+        HISTORICAL_RED_RECORD_SHA256,
+    )
+    old_r3 = _frozen_binding("SUPERSEDED_FINGERPRINT_R3_SHA")
+    _regular_retained_blob(
+        POST_SOURCE_OUTPUT_PATH,
+        old_r3,
+        CORRECTION24_POST_SOURCE_RED_RECORD_SHA256,
+    )
+
+    protected_before = _protected_digest(FINGERPRINT_R3_AUTHORIZED_PATHS)
+    with tempfile.TemporaryDirectory(
+        prefix="sci004-m3-fingerprint-post-source-red-"
+    ) as scratch:
+        junit_path = Path(scratch) / "junit.xml"
+        command, stdout, _stderr = _run_pytest(FINGERPRINT_NODEIDS, junit_path)
+        if command["exit_code"] != 1:
+            raise RedRecordError(
+                "fingerprint pytest must exit exactly 1; observed "
+                f"{command['exit_code']}\n{stdout.decode('utf-8', 'replace')[-4000:]}"
+            )
+        if not junit_path.is_file():
+            raise RedRecordError("fingerprint pytest produced no JUnit report")
+        inventory = _parse_junit_inventory(junit_path)
+
+    expected_names = tuple(nodeid.split("::", 1)[1] for nodeid in FINGERPRINT_NODEIDS)
+    observed_names = tuple(name for name, _entry in inventory)
+    if observed_names != expected_names:
+        raise RedRecordError(
+            "fingerprint JUnit inventory was missing, duplicated, or reordered: "
+            f"{observed_names}"
+        )
+    observed_by_nodeid = {
+        nodeid: inventory[index][1] for index, nodeid in enumerate(FINGERPRINT_NODEIDS)
+    }
+    for spec in FINGERPRINT_CASE_SPECS:
+        entry = observed_by_nodeid[spec["test_nodeid"]]
+        if entry["outcome"] != "failed" or _classify(entry["type"]) != "assertion":
+            raise RedRecordError(
+                f"{spec['test_nodeid']} was not one ordinary assertion: {entry}"
+            )
+        if spec["expected_failure_pattern"] not in entry["message"]:
+            raise RedRecordError(
+                f"{spec['test_nodeid']} did not contain its governed message"
+            )
+    for spec in FINGERPRINT_CONTROL_SPECS:
+        entry = observed_by_nodeid[spec["test_nodeid"]]
+        if entry != {"outcome": "passed", "type": "", "message": ""}:
+            raise RedRecordError(
+                f"passing control {spec['test_nodeid']} did not pass exactly: {entry}"
+            )
+    if sum(entry["outcome"] == "failed" for _name, entry in inventory) != 2:
+        raise RedRecordError("the fingerprint partition did not contain two failures")
+    if sum(entry["outcome"] == "passed" for _name, entry in inventory) != 3:
+        raise RedRecordError("the fingerprint partition did not contain three passes")
+
+    protected_after = _protected_digest(FINGERPRINT_R3_AUTHORIZED_PATHS)
+    if protected_before != protected_after:
+        raise RedRecordError("a protected path changed during fingerprint generation")
+
+    case_rows: list[dict[str, Any]] = []
+    expected_fixture_digests = {
+        "m3.fingerprint.preimage-retained": (
+            "4c11755ecae7597f8ffb30f7aa5653eda41a58994fae19086bb15109c60558b6",
+            "b5c765aaae957ea3d686e3693b9a2469f7e491b0c247ac695e4ad3e0178b8a0b",
+        ),
+        "m3.fingerprint.path-independent": (
+            "a24c64f4d981fce69c9f6cebaadd1bca0ae52fed0783e94b67ac3d8245df4a4f",
+            "98cb2605eacaa5e473fbc573fa135ec91e0b2320e9759bbfa646c706628ef6ac",
+        ),
+    }
+    for spec in FINGERPRINT_CASE_SPECS:
+        entry = observed_by_nodeid[spec["test_nodeid"]]
+        fixture_bytes = _fingerprint_fixture_bytes(spec["case_id"])
+        invalid_digest = hashlib.sha256(fixture_bytes).hexdigest()
+        fixture_digest = fixture_identity_sha256(
+            phase=PHASE,
+            fixture_id=spec["case_id"],
+            requirement_id=spec["requirement_id"],
+            test_nodeid=spec["test_nodeid"],
+            pre_fix_source_sha=FINGERPRINT_POST_SOURCE_PRE_FIX_SHA,
+            invalid_config_raw_sha256=invalid_digest,
+        )
+        if (invalid_digest, fixture_digest) != expected_fixture_digests[
+            spec["case_id"]
+        ]:
+            raise RedRecordError(
+                f"{spec['case_id']} fixture identities do not match correction #25"
+            )
+        case_rows.append(
+            {
+                **spec,
+                "invalid_config_raw_sha256": invalid_digest,
+                "fixture_identity_sha256": fixture_digest,
+                "command_index": 0,
+                "exit_code": 1,
+                "observed_outcome": "assertion",
+                "observed_exception_type": entry["type"],
+                "observed_message": entry["message"],
+                "stdout_sha256": command["stdout_sha256"],
+                "stderr_sha256": command["stderr_sha256"],
+                "red_failure_confirmed": True,
+            }
+        )
+    control_rows = [
+        {
+            **spec,
+            "command_index": 0,
+            "observed_outcome": "pass",
+            "exit_code": 0,
+            "pass": True,
+        }
+        for spec in FINGERPRINT_CONTROL_SPECS
+    ]
+
+    oracle_diff = _fingerprint_oracle_diff()
+    if not oracle_diff:
+        raise RedRecordError("the fingerprint characterization oracle diff is empty")
+    document = {
+        "schema_version": FINGERPRINT_POST_SOURCE_SCHEMA_VERSION,
+        "phase": PHASE,
+        "status": FINGERPRINT_POST_SOURCE_STATUS,
+        "generated_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "design_sha": head,
+        "pre_fix_source_sha": FINGERPRINT_POST_SOURCE_PRE_FIX_SHA,
+        "red_commit_sha": None,
+        "red_commit_sha_reason": FINGERPRINT_POST_SOURCE_RED_COMMIT_SHA_REASON,
+        "protected_source_clean": True,
+        "authorized_red_paths": list(FINGERPRINT_R3_AUTHORIZED_PATHS),
+        "environment": _environment(),
+        "cases": case_rows,
+        "passing_controls": control_rows,
+        "commands": [command],
+        "claims_not_licensed": list(FINGERPRINT_POST_SOURCE_CLAIMS_NOT_LICENSED),
+        "historical_red_record_sha256": HISTORICAL_RED_RECORD_SHA256,
+        "correction24_post_source_red_record_sha256": (
+            CORRECTION24_POST_SOURCE_RED_RECORD_SHA256
+        ),
+        "oracle_patch_paths": [FINGERPRINT_POST_SOURCE_ORACLE_PATH],
+        "oracle_patch_sha256": hashlib.sha256(oracle_diff).hexdigest(),
+    }
+    payload = canonical_json_bytes(document)
+    _atomic_no_overwrite(output, payload)
+    after_publication = _changed_paths()
+    if after_publication != FINGERPRINT_R3_AUTHORIZED_PATHS:
+        output.unlink(missing_ok=True)
+        raise RedRecordError(
+            "fingerprint publication did not leave the exact five-path R3 diff: "
+            f"{after_publication}"
+        )
+    print(
+        json.dumps(
+            {
+                "path": FINGERPRINT_POST_SOURCE_OUTPUT_PATH,
+                "bytes": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "red_case_count": len(case_rows),
+                "passing_control_count": len(control_rows),
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+
+
 def _atomic_no_overwrite(target: Path, payload: bytes) -> None:
     handle, temporary = tempfile.mkstemp(dir=str(target.parent))
     try:
@@ -1201,12 +1796,15 @@ def main(argv: list[str] | None = None) -> int:
         help="the retained record path; it must not already exist",
     )
     subparsers.add_parser("generate-post-source")
+    subparsers.add_parser("generate-fingerprint-post-source")
     arguments = parser.parse_args(argv)
     try:
         if arguments.command == "generate":
             generate(arguments.output)
-        else:
+        elif arguments.command == "generate-post-source":
             generate_post_source()
+        else:
+            generate_fingerprint_post_source()
     except RedRecordError as error:
         print(f"SCI004_M3_RED: {error}", file=sys.stderr)
         return 1

@@ -44,6 +44,7 @@ These tests pass at ``R3``.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib
 import json
@@ -52,10 +53,12 @@ import re
 import struct
 import subprocess
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree
 
 import pytest
 
@@ -63,6 +66,11 @@ from tests.unit.test_sci004_phase3_dependency import (
     APPROVED_SCI004_A2_SHA,
     APPROVED_SCI004_D_SHA,
     APPROVED_SCI004_G3_SHA,
+    D24_SHA,
+    REJECTED_A3_SHA,
+    REJECTED_E3_SHA,
+    SUPERSEDED_FINGERPRINT_R3_SHA,
+    SUPERSEDED_FINGERPRINT_S3_SHA,
     resolve_r3_replay_anchor,
 )
 
@@ -71,6 +79,9 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RECORD_PATH = "docs/development/sci004_mmode_phase3_red_failures.json"
 POST_SOURCE_RECORD_PATH = (
     "docs/development/sci004_mmode_phase3_post_source_red_failures.json"
+)
+FINGERPRINT_POST_SOURCE_RECORD_PATH = (
+    "docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json"
 )
 M2_RED_RECORD_PATH = "docs/development/sci004_mmode_phase2_red_failures.json"
 CERTIFICATE_PATH = "docs/development/sci004_mmode_phase3_sci005_dependency.json"
@@ -81,6 +92,10 @@ HISTORICAL_RED_RECORD_SHA256 = (
     "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
 )
 POST_SOURCE_ORACLE_PATH = "tests/unit/test_io/test_hdf5_result.py"
+FINGERPRINT_POST_SOURCE_ORACLE_PATH = "tests/characterization/test_sci004_mmode.py"
+CORRECTION24_POST_SOURCE_RED_RECORD_SHA256 = (
+    "724f75c246ebfcf5956fc40fb2f5e349d91ccca3e6a188b3785a65f4ae4c1e10"
+)
 
 SCHEMA_VERSION = "radiosim.sci004.mmode-phase3-red-failures.v1"
 PHASE = "M3"
@@ -91,6 +106,12 @@ POST_SOURCE_RED_COMMIT_SHA_REASON = (
 )
 POST_SOURCE_SCHEMA_VERSION = "radiosim.sci004.mmode-phase3-post-source-red-failures.v1"
 POST_SOURCE_STATUS = "post-source-expected-red-confirmed"
+FINGERPRINT_POST_SOURCE_RED_COMMIT_SHA_REASON = (
+    "self-reference: E binds the containing fingerprint-retry R3 commit"
+)
+FINGERPRINT_POST_SOURCE_SCHEMA_VERSION = (
+    "radiosim.sci004.mmode-phase3-fingerprint-post-source-red-failures.v1"
+)
 
 #: Section 14.1's exact top-level key set.
 TOP_LEVEL_KEYS: frozenset[str] = frozenset(
@@ -116,6 +137,10 @@ POST_SOURCE_TOP_LEVEL_KEYS: frozenset[str] = TOP_LEVEL_KEYS | {
     "historical_red_record_sha256",
     "oracle_patch_paths",
     "oracle_patch_sha256",
+}
+FINGERPRINT_POST_SOURCE_TOP_LEVEL_KEYS: frozenset[str] = POST_SOURCE_TOP_LEVEL_KEYS | {
+    "passing_controls",
+    "correction24_post_source_red_record_sha256",
 }
 
 #: Section 14.1's exact sixteen-field case row.
@@ -151,6 +176,19 @@ COMMAND_KEYS: frozenset[str] = frozenset(
         "exit_code",
         "stdout_sha256",
         "stderr_sha256",
+    }
+)
+
+PASSING_CONTROL_KEYS: frozenset[str] = frozenset(
+    {
+        "control_id",
+        "requirement_id",
+        "purpose",
+        "test_nodeid",
+        "command_index",
+        "observed_outcome",
+        "exit_code",
+        "pass",
     }
 )
 
@@ -211,6 +249,16 @@ R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
     }
 )
 
+FINGERPRINT_R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
+    {
+        FINGERPRINT_POST_SOURCE_RECORD_PATH,
+        FINGERPRINT_POST_SOURCE_ORACLE_PATH,
+        "tests/unit/test_sci004_phase3_dependency.py",
+        "tests/unit/test_sci004_phase3_red_failures.py",
+        "tools/sci004_mmode_phase3_red.py",
+    }
+)
+
 #: The red modules whose declared phase-M3 tables the node set is compared
 #: against.
 RED_MODULES: tuple[str, ...] = (
@@ -256,6 +304,71 @@ POST_SOURCE_CLAIMS_NOT_LICENSED: tuple[str, ...] = (
     "production: this supplement records only the six hostile HDF5-reader "
     "rejection defects and certifies neither broader output behavior nor "
     "production readiness",
+)
+
+FINGERPRINT_POST_SOURCE_CLAIMS_NOT_LICENSED: tuple[str, ...] = (
+    "acceptance: this fingerprint supplement expresses no phase-M3 acceptance "
+    "verdict and unlocks no successor commit",
+    "fingerprint: this supplement retains two expected-red fingerprint defects "
+    "but pins, harvests, and adjudicates no Section 11 m-mode family or "
+    "dispatch-class observation",
+    "performance: this supplement measures no timing, speedup, memory, or "
+    "accelerator behavior and licenses no performance claim",
+    "production: this supplement records only the absent reconstructible "
+    "path-independent characterization-input surface and certifies neither "
+    "broader output behavior nor production readiness",
+)
+
+FINGERPRINT_NODEIDS: tuple[str, ...] = (
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_characterization_input_preimage_is_retained_and_reconstructible",
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_characterization_input_identity_is_equal_under_distinct_layout_roots",
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_every_new_family_records_its_six_section_11_parts"
+    "[mmode_single_scalar_mode]",
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_distinct_layout_roots_preserve_scientific_and_cube_identities",
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_characterization_input_identity_changes_for_semantic_instrument_content",
+)
+
+FINGERPRINT_CASE_EXPECTATIONS: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "m3.fingerprint.preimage-retained",
+        "SCI-004-14.2-M3-FINGERPRINT-PREIMAGE",
+        FINGERPRINT_NODEIDS[0],
+        "characterization input manifest is absent from the family record",
+    ),
+    (
+        "m3.fingerprint.path-independent",
+        "SCI-004-11-PATH-INDEPENDENT-CHARACTERIZATION",
+        FINGERPRINT_NODEIDS[1],
+        "characterization input identity changed under filesystem relocation",
+    ),
+)
+
+FINGERPRINT_CONTROL_EXPECTATIONS: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "m3.fingerprint.family-record-schema",
+        "SCI-004-11-FAMILY-RECORD-SCHEMA",
+        FINGERPRINT_NODEIDS[2],
+        "exact domain-discriminated family-record schema and all pre-existing "
+        "family joins remain valid",
+    ),
+    (
+        "m3.fingerprint.relocation-science-control",
+        "SCI-004-11-PATH-INDEPENDENT-CHARACTERIZATION",
+        FINGERPRINT_NODEIDS[3],
+        "relocation fixture preserves independently derived scientific and "
+        "raw-cube identities",
+    ),
+    (
+        "m3.fingerprint.semantic-separation-control",
+        "SCI-004-11-SEMANTIC-INPUT-SEPARATION",
+        FINGERPRINT_NODEIDS[4],
+        "semantic antenna-layout mutation changes characterization input identity",
+    ),
 )
 
 #: The phase-M3 capability-absence proof, read from Git objects at the exact
@@ -461,6 +574,10 @@ def read_post_source_record() -> tuple[bytes, dict[str, Any]]:
     return _read_record_path(POST_SOURCE_RECORD_PATH)
 
 
+def read_fingerprint_post_source_record() -> tuple[bytes, dict[str, Any]]:
+    return _read_record_path(FINGERPRINT_POST_SOURCE_RECORD_PATH)
+
+
 @pytest.fixture(scope="module")
 def record() -> dict[str, Any]:
     _raw, document = read_record()
@@ -470,6 +587,12 @@ def record() -> dict[str, Any]:
 @pytest.fixture(scope="module")
 def post_source_record() -> dict[str, Any]:
     _raw, document = read_post_source_record()
+    return document
+
+
+@pytest.fixture(scope="module")
+def fingerprint_post_source_record() -> dict[str, Any]:
+    _raw, document = read_fingerprint_post_source_record()
     return document
 
 
@@ -957,19 +1080,17 @@ def test_the_post_source_record_has_the_exact_supplement_schema(
 def test_the_post_source_record_binds_d24_and_the_exact_superseded_source(
     post_source_record: dict[str, Any],
 ) -> None:
-    assert post_source_record["design_sha"] == APPROVED_SCI004_D_SHA
+    assert post_source_record["design_sha"] == D24_SHA
     assert post_source_record["pre_fix_source_sha"] == POST_SOURCE_PRE_FIX_SHA
     assert _peel_to_commit(POST_SOURCE_PRE_FIX_SHA) == POST_SOURCE_PRE_FIX_SHA
-    assert _peel_to_commit(APPROVED_SCI004_D_SHA) == APPROVED_SCI004_D_SHA
-    assert _git("rev-parse", f"{APPROVED_SCI004_D_SHA}^").strip() == (
-        POST_SOURCE_PRE_FIX_SHA
-    )
+    assert _peel_to_commit(D24_SHA) == D24_SHA
+    assert _git("rev-parse", f"{D24_SHA}^").strip() == POST_SOURCE_PRE_FIX_SHA
     assert (
         _git(
             "diff",
             "--name-only",
             POST_SOURCE_PRE_FIX_SHA,
-            APPROVED_SCI004_D_SHA,
+            D24_SHA,
             "--",
             "src/radiosim",
         ).split()
@@ -1085,8 +1206,11 @@ def test_the_historical_and_post_source_generator_semantics_are_separate() -> No
         "def generate_post_source() -> None:", 1
     )[0]
     supplemental = source.split("def generate_post_source() -> None:", 1)[1].split(
-        "def _atomic_no_overwrite", 1
+        "def _fingerprint_fixture_bytes", 1
     )[0]
+    fingerprint = source.split("def generate_fingerprint_post_source() -> None:", 1)[
+        1
+    ].split("def _atomic_no_overwrite", 1)[0]
 
     assert '"red_commit_sha_reason": RED_COMMIT_SHA_REASON' in historical
     assert '"claims_not_licensed": list(CLAIMS_NOT_LICENSED)' in historical
@@ -1095,6 +1219,15 @@ def test_the_historical_and_post_source_generator_semantics_are_separate() -> No
     assert '"red_commit_sha_reason": POST_SOURCE_RED_COMMIT_SHA_REASON' in supplemental
     assert (
         '"claims_not_licensed": list(POST_SOURCE_CLAIMS_NOT_LICENSED)' in supplemental
+    )
+    assert "FINGERPRINT_POST_SOURCE_RED_COMMIT_SHA_REASON" not in supplemental
+    assert (
+        '"red_commit_sha_reason": FINGERPRINT_POST_SOURCE_RED_COMMIT_SHA_REASON'
+        in fingerprint
+    )
+    assert (
+        '"claims_not_licensed": list(FINGERPRINT_POST_SOURCE_CLAIMS_NOT_LICENSED)'
+        in fingerprint
     )
 
     completed = subprocess.run(
@@ -1188,6 +1321,438 @@ def test_every_post_source_case_is_the_exact_confirmed_regex_mismatch(
     assert hdf5_module._POST_SOURCE_HDF5_EARLY_PATTERN == (
         r"^HDF5 solver_json is invalid$"
     )
+
+
+# --- Correction #25: fresh fingerprint post-source red delta -----------------
+
+
+def _fingerprint_oracle_diff() -> bytes:
+    anchor = resolve_r3_replay_anchor()
+    argv = [
+        "git",
+        "-c",
+        "color.ui=false",
+        "--no-pager",
+        "diff",
+        "--no-ext-diff",
+        "--binary",
+        "--full-index",
+        APPROVED_SCI004_D_SHA,
+    ]
+    if anchor.role == "r3":
+        argv.append(anchor.commit)
+    argv.extend(("--", FINGERPRINT_POST_SOURCE_ORACLE_PATH))
+    completed = subprocess.run(
+        argv,
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    return completed.stdout
+
+
+def _fingerprint_fixture(case_id: str) -> bytes:
+    common: dict[str, Any] = {
+        "schema_version": "radiosim.sci004.fingerprint-red-fixture.v1",
+        "family_id": "mmode_single_scalar_mode",
+        "layout_document_raw_sha256": (
+            "a2ce7bace30e2fe962eb6454db1f6c7e2d63a9a28ad559323e824a36fcd2a4e0"
+        ),
+    }
+    if case_id == "m3.fingerprint.preimage-retained":
+        common.update(
+            {
+                "root_labels": ["ROOT-A"],
+                "required_record_keys": [
+                    "family_id",
+                    "raw_cube_sha256",
+                    "scientific_sha256",
+                    "solver_snapshot",
+                    "characterization_time_manifest",
+                    "era_utc_grid_sha256",
+                    "harmonic_index_table_sha256",
+                    "characterization_input_manifest",
+                    "input_identity_sha256",
+                ],
+            }
+        )
+    else:
+        assert case_id == "m3.fingerprint.path-independent"
+        common.update(
+            {
+                "root_labels": ["ROOT-A", "ROOT-B"],
+                "required_equal_identities": [
+                    "scientific_sha256",
+                    "raw_cube_sha256",
+                    "era_utc_grid_sha256",
+                    "input_identity_sha256",
+                ],
+            }
+        )
+    return canonical_json_bytes(common)
+
+
+def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
+    fingerprint_post_source_record: dict[str, Any],
+) -> None:
+    raw, document = read_fingerprint_post_source_record()
+    assert raw and not raw.endswith(b"\n")
+    assert canonical_json_bytes(document) == raw
+    assert set(document) == FINGERPRINT_POST_SOURCE_TOP_LEVEL_KEYS
+    assert document["schema_version"] == FINGERPRINT_POST_SOURCE_SCHEMA_VERSION
+    assert document["phase"] == PHASE
+    assert document["status"] == POST_SOURCE_STATUS
+    assert _UTC_STAMP.fullmatch(str(document["generated_at_utc"])) is not None
+    assert document["design_sha"] == APPROVED_SCI004_D_SHA
+    assert document["pre_fix_source_sha"] == SUPERSEDED_FINGERPRINT_S3_SHA
+    assert document["red_commit_sha"] is None
+    assert (
+        document["red_commit_sha_reason"]
+        == FINGERPRINT_POST_SOURCE_RED_COMMIT_SHA_REASON
+    )
+    assert document["protected_source_clean"] is True
+    assert document["authorized_red_paths"] == sorted(FINGERPRINT_R3_AUTHORIZED_PATHS)
+    assert document["claims_not_licensed"] == list(
+        FINGERPRINT_POST_SOURCE_CLAIMS_NOT_LICENSED
+    )
+    assert document["claims_not_licensed"] == sorted(
+        set(document["claims_not_licensed"])
+    )
+    for category in REQUIRED_CLAIM_CATEGORIES:
+        assert any(
+            claim.startswith(f"{category}:")
+            for claim in document["claims_not_licensed"]
+        )
+    environment = document["environment"]
+    assert set(environment) == ENVIRONMENT_KEYS
+    assert set(environment["numeric_packages"]) == NUMERIC_PACKAGES
+    assert list(environment["numeric_packages"]) == sorted(NUMERIC_PACKAGES)
+    assert fingerprint_post_source_record is document or (
+        fingerprint_post_source_record == document
+    )
+
+    chain = (
+        D24_SHA,
+        SUPERSEDED_FINGERPRINT_R3_SHA,
+        SUPERSEDED_FINGERPRINT_S3_SHA,
+        REJECTED_E3_SHA,
+        REJECTED_A3_SHA,
+        APPROVED_SCI004_D_SHA,
+    )
+    previous = _git("rev-parse", f"{D24_SHA}^").strip()
+    for commit in chain:
+        assert _peel_to_commit(commit) == commit
+        assert _git("rev-parse", f"{commit}^").strip() == previous
+        previous = commit
+    anchor = resolve_r3_replay_anchor()
+    if anchor.role == "r3":
+        assert _git("rev-parse", f"{anchor.commit}^").strip() == (APPROVED_SCI004_D_SHA)
+        changed = tuple(
+            sorted(
+                _git(
+                    "diff-tree",
+                    "--no-commit-id",
+                    "--name-only",
+                    "-r",
+                    anchor.commit,
+                ).split()
+            )
+        )
+        assert changed == tuple(sorted(FINGERPRINT_R3_AUTHORIZED_PATHS))
+
+
+def test_the_fingerprint_supplement_binds_both_immutable_prior_records(
+    fingerprint_post_source_record: dict[str, Any],
+) -> None:
+    historical = (REPOSITORY_ROOT / RECORD_PATH).read_bytes()
+    correction24 = (REPOSITORY_ROOT / POST_SOURCE_RECORD_PATH).read_bytes()
+    assert hashlib.sha256(historical).hexdigest() == HISTORICAL_RED_RECORD_SHA256
+    assert historical == _tree_blob(HISTORICAL_RED_SLICE_SHA, RECORD_PATH)
+    assert (
+        hashlib.sha256(correction24).hexdigest()
+        == CORRECTION24_POST_SOURCE_RED_RECORD_SHA256
+    )
+    assert correction24 == _tree_blob(
+        SUPERSEDED_FINGERPRINT_R3_SHA,
+        POST_SOURCE_RECORD_PATH,
+    )
+    assert fingerprint_post_source_record["historical_red_record_sha256"] == (
+        HISTORICAL_RED_RECORD_SHA256
+    )
+    assert (
+        fingerprint_post_source_record["correction24_post_source_red_record_sha256"]
+        == CORRECTION24_POST_SOURCE_RED_RECORD_SHA256
+    )
+
+
+def test_the_fingerprint_oracle_patch_digest_uses_the_exact_governed_framing(
+    fingerprint_post_source_record: dict[str, Any],
+) -> None:
+    oracle = _fingerprint_oracle_diff()
+    assert oracle
+    assert fingerprint_post_source_record["oracle_patch_paths"] == [
+        FINGERPRINT_POST_SOURCE_ORACLE_PATH
+    ]
+    assert (
+        hashlib.sha256(oracle).hexdigest()
+        == fingerprint_post_source_record["oracle_patch_sha256"]
+    )
+
+
+def test_the_fingerprint_cases_and_controls_are_the_exact_five_node_partition(
+    fingerprint_post_source_record: dict[str, Any],
+) -> None:
+    cases = fingerprint_post_source_record["cases"]
+    controls = fingerprint_post_source_record["passing_controls"]
+    command = fingerprint_post_source_record["commands"]
+    assert len(command) == 1
+    assert set(command[0]) == COMMAND_KEYS
+    assert command[0]["exit_code"] == 1
+    argv = command[0]["argv"]
+    assert argv[1:7] == [
+        "-m",
+        "pytest",
+        "-p",
+        "no:randomly",
+        "-p",
+        "no:xdist",
+    ]
+    assert argv[7] == "--junit-xml"
+    assert argv[9:] == list(FINGERPRINT_NODEIDS)
+    assert "-n" not in argv
+
+    assert len(cases) == 2
+    for row, expected in zip(cases, FINGERPRINT_CASE_EXPECTATIONS, strict=True):
+        case_id, requirement_id, nodeid, pattern = expected
+        assert set(row) == CASE_KEYS
+        assert (
+            row["case_id"],
+            row["requirement_id"],
+            row["test_nodeid"],
+            row["expected_failure_pattern"],
+        ) == expected
+        assert row["expected_failure_kind"] == "assertion"
+        assert row["observed_outcome"] == "assertion"
+        assert row["observed_exception_type"] in (
+            "builtins.AssertionError",
+            "_pytest.outcomes.Failed",
+        )
+        assert pattern in row["observed_message"]
+        assert row["command_index"] == 0
+        assert row["exit_code"] == 1
+        assert row["red_failure_confirmed"] is True
+        fixture = _fingerprint_fixture(case_id)
+        invalid_digest = hashlib.sha256(fixture).hexdigest()
+        assert row["invalid_config_raw_sha256"] == invalid_digest
+        expected_identity = domain_digest(
+            "radiosim.sci004-red-fixture.v1",
+            canonical_json_bytes(
+                {
+                    "phase": PHASE,
+                    "fixture_id": case_id,
+                    "requirement_id": requirement_id,
+                    "test_nodeid": nodeid,
+                    "pre_fix_source_sha": SUPERSEDED_FINGERPRINT_S3_SHA,
+                    "invalid_config_raw_sha256": invalid_digest,
+                }
+            ),
+        )
+        assert row["fixture_identity_sha256"] == expected_identity
+        assert row["stdout_sha256"] == command[0]["stdout_sha256"]
+        assert row["stderr_sha256"] == command[0]["stderr_sha256"]
+
+    assert len(controls) == 3
+    for row, expected in zip(
+        controls,
+        FINGERPRINT_CONTROL_EXPECTATIONS,
+        strict=True,
+    ):
+        control_id, requirement_id, nodeid, purpose = expected
+        assert set(row) == PASSING_CONTROL_KEYS
+        assert (
+            row["control_id"],
+            row["requirement_id"],
+            row["test_nodeid"],
+            row["purpose"],
+        ) == expected
+        assert row["command_index"] == 0
+        assert row["observed_outcome"] == "pass"
+        assert row["exit_code"] == 0
+        assert row["pass"] is True
+
+    inventory = [str(row["test_nodeid"]) for row in (*cases, *controls)]
+    assert inventory == list(FINGERPRINT_NODEIDS)
+    assert len(inventory) == len(set(inventory)) == 5
+
+
+def test_all_three_red_records_form_the_exact_disjoint_expected_red_union(
+    record: dict[str, Any],
+    post_source_record: dict[str, Any],
+    fingerprint_post_source_record: dict[str, Any],
+) -> None:
+    inventories = [
+        [str(case["test_nodeid"]) for case in document["cases"]]
+        for document in (record, post_source_record, fingerprint_post_source_record)
+    ]
+    assert set(inventories[0]).isdisjoint(inventories[1])
+    assert set(inventories[0]).isdisjoint(inventories[2])
+    assert set(inventories[1]).isdisjoint(inventories[2])
+    assert len(set().union(*(set(rows) for rows in inventories))) == sum(
+        map(len, inventories)
+    )
+
+
+def test_the_characterization_delta_has_only_the_ruled_surface() -> None:
+    parent = ast.parse(
+        _tree_blob(APPROVED_SCI004_D_SHA, FINGERPRINT_POST_SOURCE_ORACLE_PATH)
+    )
+    anchor = resolve_r3_replay_anchor()
+    child_raw = (
+        _tree_blob(anchor.commit, FINGERPRINT_POST_SOURCE_ORACLE_PATH)
+        if anchor.role == "r3"
+        else (REPOSITORY_ROOT / FINGERPRINT_POST_SOURCE_ORACLE_PATH).read_bytes()
+    )
+    child = ast.parse(child_raw)
+    parent_functions = {
+        node.name: node
+        for node in parent.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    child_functions = {
+        node.name: node
+        for node in child.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    allowed_new = {
+        "_family_result_and_phase_input_manifest",
+        "_characterization_record_for_active_domain",
+        "_relocated_family_records",
+        "_semantic_layout_mutation",
+        "test_characterization_input_preimage_is_retained_and_reconstructible",
+        "test_characterization_input_identity_is_equal_under_distinct_layout_roots",
+        "test_distinct_layout_roots_preserve_scientific_and_cube_identities",
+        "test_characterization_input_identity_changes_for_semantic_instrument_content",
+    }
+    assert set(child_functions) - set(parent_functions) == allowed_new
+    assert set(parent_functions) <= set(child_functions)
+    modified = "test_every_new_family_records_its_six_section_11_parts"
+    for name, node in parent_functions.items():
+        if name != modified:
+            assert ast.dump(node, include_attributes=False) == ast.dump(
+                child_functions[name], include_attributes=False
+            ), name
+    parent_asserts = {
+        ast.dump(node, include_attributes=False)
+        for node in ast.walk(parent_functions[modified])
+        if isinstance(node, ast.Assert)
+        and "FAMILY_RECORD_KEYS" not in ast.dump(node, include_attributes=False)
+        and "mmode_characterization_record"
+        not in ast.dump(node, include_attributes=False)
+    }
+    child_asserts = {
+        ast.dump(node, include_attributes=False)
+        for node in ast.walk(child_functions[modified])
+        if isinstance(node, ast.Assert)
+    }
+    assert parent_asserts <= child_asserts
+    assert len(child_asserts) >= len(parent_asserts) + 3
+    modified_source = ast.unparse(child_functions[modified])
+    assert modified_source.count("_characterization_record_for_active_domain") == 2
+
+    def assigned_names(module: ast.Module) -> set[str]:
+        return {
+            target.id
+            for node in module.body
+            if isinstance(node, (ast.Assign, ast.AnnAssign))
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
+            if isinstance(target, ast.Name)
+        }
+
+    parent_names = assigned_names(parent)
+    child_names = assigned_names(child)
+    assert parent_names - child_names == {"FAMILY_RECORD_KEYS"}
+    assert child_names - parent_names == {
+        "FAMILY_RECORD_V1_KEYS",
+        "FAMILY_RECORD_V2_KEYS",
+        "FINGERPRINT_RED_LAYOUT_BYTES",
+    }
+
+
+def test_the_fingerprint_generator_refuses_to_overwrite_its_retained_record() -> None:
+    tool_path = REPOSITORY_ROOT / "tools/sci004_mmode_phase3_red.py"
+    completed = subprocess.run(
+        [sys.executable, str(tool_path), "generate-fingerprint-post-source"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 1
+    assert completed.stdout == b""
+    assert completed.stderr.decode("utf-8").endswith(
+        f"{FINGERPRINT_POST_SOURCE_RECORD_PATH} already exists; "
+        "generation never overwrites\n"
+    )
+
+
+def test_the_fresh_r3_detached_replay_reproduces_the_five_node_partition() -> None:
+    anchor = resolve_r3_replay_anchor()
+    if anchor.role != "r3":
+        return
+    with tempfile.TemporaryDirectory(prefix="sci004-m3-fingerprint-r3-replay-") as tmp:
+        worktree = Path(tmp) / "replay"
+        try:
+            _git("worktree", "add", "--detach", str(worktree), anchor.commit)
+            junit = Path(tmp) / "junit.xml"
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-p",
+                    "no:randomly",
+                    "-p",
+                    "no:xdist",
+                    "--junit-xml",
+                    str(junit),
+                    *FINGERPRINT_NODEIDS,
+                ],
+                cwd=worktree,
+                capture_output=True,
+                check=False,
+            )
+            assert completed.returncode == 1
+            testcases = list(ElementTree.parse(junit).iter("testcase"))
+            assert [case.get("name") for case in testcases] == [
+                nodeid.split("::", 1)[1] for nodeid in FINGERPRINT_NODEIDS
+            ]
+            assert [
+                "failed"
+                if case.find("failure") is not None
+                else "error"
+                if case.find("error") is not None
+                else "skipped"
+                if case.find("skipped") is not None
+                else "passed"
+                for case in testcases
+            ] == ["failed", "failed", "passed", "passed", "passed"]
+            for testcase, (_case_id, _requirement, _nodeid, pattern) in zip(
+                testcases[:2],
+                FINGERPRINT_CASE_EXPECTATIONS,
+                strict=True,
+            ):
+                failure = testcase.find("failure")
+                assert failure is not None
+                assert pattern in (failure.get("message") or "")
+        finally:
+            subprocess.run(
+                ["git", "worktree", "remove", "--force", str(worktree)],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                check=False,
+            )
 
 
 def test_the_retained_earlier_red_records_are_untouched_by_this_slice() -> None:

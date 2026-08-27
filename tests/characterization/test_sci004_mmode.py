@@ -67,6 +67,8 @@ qualified by the same protocol at ``S3`` before it is pinned.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -82,17 +84,33 @@ SECTION_11_FAMILIES: tuple[str, ...] = (
     "mmode_circular_receptor",
 )
 
-#: Section 11's six recorded parts, plus the family identifier that joins them.
-FAMILY_RECORD_KEYS: frozenset[str] = frozenset(
-    {
-        "family_id",
-        "raw_cube_sha256",
-        "scientific_sha256",
-        "solver_snapshot",
-        "era_utc_grid_sha256",
-        "harmonic_index_table_sha256",
-        "input_identity_sha256",
-    }
+#: Section 11's exact pre-fix and replacement record orders.
+FAMILY_RECORD_V1_KEYS: tuple[str, ...] = (
+    "family_id",
+    "raw_cube_sha256",
+    "scientific_sha256",
+    "solver_snapshot",
+    "era_utc_grid_sha256",
+    "harmonic_index_table_sha256",
+    "input_identity_sha256",
+)
+FAMILY_RECORD_V2_KEYS: tuple[str, ...] = (
+    "family_id",
+    "raw_cube_sha256",
+    "scientific_sha256",
+    "solver_snapshot",
+    "characterization_time_manifest",
+    "era_utc_grid_sha256",
+    "harmonic_index_table_sha256",
+    "characterization_input_manifest",
+    "input_identity_sha256",
+)
+
+#: The exact scalar-family layout document, including its final LF.
+FINGERPRINT_RED_LAYOUT_BYTES = (
+    b"Name Number BeamID E N U Diameter\n"
+    b"ANT0 0 0 0.0 0.0 0.0 2.5\n"
+    b"ANT1 1 0 4.0 0.0 0.0 2.5\n"
 )
 
 #: Section 11's two namespaced characterization domains.
@@ -259,6 +277,143 @@ def family_mapping(tmp_path: Path, family_id: str) -> dict[str, Any]:
     if receptors is not None:
         mapping["receptors"] = receptors
     return mapping
+
+
+def _family_result_and_phase_input_manifest(
+    root: Path,
+    family_id: str = "mmode_single_scalar_mode",
+    *,
+    retain_phase_input_manifest: bool = True,
+) -> tuple[Any, dict[str, Any]]:
+    """Run one family and independently retain its path-free phase preimage."""
+    from radiosim.api.simulator import Simulator
+    from radiosim.core.result import MMODE_CHARACTERIZATION_INPUT_DOMAIN
+
+    mapping = family_mapping(root, family_id)
+    layout = Path(str(mapping["instrument"]["source"]["path"]))
+    assert layout.read_bytes() == FINGERPRINT_RED_LAYOUT_BYTES
+    simulator = Simulator.from_mapping(mapping, base_dir=root)
+    result = simulator.run(progress=False)
+    if not retain_phase_input_manifest and MMODE_CHARACTERIZATION_INPUT_DOMAIN == (
+        "radiosim.sci004.characterization-input.v1"
+    ):
+        return result, {}
+
+    from radiosim.core.mmode.solver import build_m1_evidence
+
+    bundle = build_m1_evidence(simulator.build_solve_request())
+    manifest = dict(bundle["input_identity_manifest"])
+    assert bundle["input_identity_sha256"]
+    return result, manifest
+
+
+def _characterization_record_for_active_domain(
+    result: Any,
+    phase_input_identity_manifest: dict[str, Any],
+    *,
+    family_id: str = "mmode_single_scalar_mode",
+) -> dict[str, Any]:
+    """Call exactly the production signature selected by its domain literal."""
+    from radiosim.core.result import (
+        MMODE_CHARACTERIZATION_INPUT_DOMAIN,
+        mmode_characterization_record,
+    )
+
+    if MMODE_CHARACTERIZATION_INPUT_DOMAIN == (
+        "radiosim.sci004.characterization-input.v1"
+    ):
+        return mmode_characterization_record(result, family_id=family_id)
+    if MMODE_CHARACTERIZATION_INPUT_DOMAIN == (
+        "radiosim.sci004.characterization-input.v2"
+    ):
+        return mmode_characterization_record(
+            result,
+            family_id=family_id,
+            phase_input_identity_manifest=phase_input_identity_manifest,
+        )
+    raise AssertionError(
+        "unknown SCI-004 characterization input domain "
+        f"{MMODE_CHARACTERIZATION_INPUT_DOMAIN!r}"
+    )
+
+
+def _relocated_family_records(root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Construct the scalar family independently under two filesystem roots."""
+    from radiosim.core.mmode.types import array_digest
+
+    observations: list[dict[str, Any]] = []
+    for label in ("ROOT-A", "ROOT-B"):
+        result, manifest = _family_result_and_phase_input_manifest(
+            root / label,
+            retain_phase_input_manifest=False,
+        )
+        cube = np.asarray(result.visibilities)
+        observations.append(
+            {
+                "record": _characterization_record_for_active_domain(result, manifest),
+                "scientific_sha256": result.scientific_sha256,
+                "raw_cube_sha256": array_digest(
+                    "radiosim.mmode-visibility-cube.v1",
+                    "visibility_cube",
+                    ["time", "baseline", "frequency", "correlation"],
+                    "Jy",
+                    cube,
+                    dtype=(
+                        "complex64-be" if cube.dtype.itemsize == 8 else "complex128-be"
+                    ),
+                ),
+            }
+        )
+    return observations[0], observations[1]
+
+
+def _semantic_layout_mutation(
+    root: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Change one antenna coordinate at the same layout pathname."""
+    result, manifest = _family_result_and_phase_input_manifest(
+        root,
+        retain_phase_input_manifest=False,
+    )
+    baseline = _characterization_record_for_active_domain(result, manifest)
+
+    layout = root / "mmode_single_scalar_mode-antennas.txt"
+    assert layout.read_bytes() == FINGERPRINT_RED_LAYOUT_BYTES
+    layout.write_bytes(
+        FINGERPRINT_RED_LAYOUT_BYTES.replace(
+            b"ANT1 1 0 4.0 0.0 0.0 2.5\n",
+            b"ANT1 1 0 5.0 0.0 0.0 2.5\n",
+        )
+    )
+
+    from radiosim.api.simulator import Simulator
+    from radiosim.core.result import MMODE_CHARACTERIZATION_INPUT_DOMAIN
+
+    mapping = family_mapping(root, "mmode_single_scalar_mode")
+    layout.write_bytes(
+        FINGERPRINT_RED_LAYOUT_BYTES.replace(
+            b"ANT1 1 0 4.0 0.0 0.0 2.5\n",
+            b"ANT1 1 0 5.0 0.0 0.0 2.5\n",
+        )
+    )
+    simulator = Simulator.from_mapping(mapping, base_dir=root)
+    mutated_result = simulator.run(progress=False)
+    mutated_manifest: dict[str, Any] = {}
+    if MMODE_CHARACTERIZATION_INPUT_DOMAIN == (
+        "radiosim.sci004.characterization-input.v2"
+    ):
+        from radiosim.core.mmode.solver import build_m1_evidence
+
+        mutated_manifest = dict(
+            build_m1_evidence(simulator.build_solve_request())[
+                "input_identity_manifest"
+            ]
+        )
+    mutated = _characterization_record_for_active_domain(
+        mutated_result,
+        mutated_manifest,
+    )
+    return baseline, mutated
 
 
 def healpix_bearing_mapping(tmp_path: Path) -> dict[str, Any]:
@@ -600,18 +755,42 @@ def test_every_new_family_records_its_six_section_11_parts(
     twenty-key m-mode arm, and the two derived digests carry the namespaced
     characterization domains the accepted correction fixed.
     """
-    from radiosim.api.simulator import Simulator
     from radiosim.core.result import (
+        MMODE_CHARACTERIZATION_INPUT_DOMAIN,
         MMODE_SOLVER_SNAPSHOT_KEYS,
-        mmode_characterization_record,
     )
 
-    result = Simulator.from_mapping(
-        family_mapping(tmp_path, family_id), base_dir=tmp_path
-    ).run(progress=False)
-    record = mmode_characterization_record(result, family_id=family_id)
+    result, phase_manifest = _family_result_and_phase_input_manifest(
+        tmp_path,
+        family_id,
+        retain_phase_input_manifest=False,
+    )
+    record = _characterization_record_for_active_domain(
+        result,
+        phase_manifest,
+        family_id=family_id,
+    )
 
-    assert set(record) == FAMILY_RECORD_KEYS
+    if MMODE_CHARACTERIZATION_INPUT_DOMAIN == (
+        "radiosim.sci004.characterization-input.v1"
+    ):
+        assert tuple(record) == FAMILY_RECORD_V1_KEYS
+        assert "characterization_time_manifest" not in record
+        assert "characterization_input_manifest" not in record
+    elif MMODE_CHARACTERIZATION_INPUT_DOMAIN == (
+        "radiosim.sci004.characterization-input.v2"
+    ):
+        assert tuple(record) == FAMILY_RECORD_V2_KEYS
+        assert (
+            record["characterization_input_manifest"]["phase_input_identity_manifest"]
+            == phase_manifest
+        )
+        assert record["characterization_time_manifest"]
+    else:
+        raise AssertionError(
+            "unknown SCI-004 characterization input domain "
+            f"{MMODE_CHARACTERIZATION_INPUT_DOMAIN!r}"
+        )
     assert record["family_id"] == family_id
     assert record["scientific_sha256"] == result.scientific_sha256
     snapshot = record["solver_snapshot"]
@@ -630,7 +809,177 @@ def test_every_new_family_records_its_six_section_11_parts(
         assert isinstance(value, str) and len(value) == 64, field
         assert all(character in "0123456789abcdef" for character in value), field
     # A family record is deterministic: the same result yields the same pin.
-    assert mmode_characterization_record(result, family_id=family_id) == record
+    assert (
+        _characterization_record_for_active_domain(
+            result,
+            phase_manifest,
+            family_id=family_id,
+        )
+        == record
+    )
+
+
+def test_characterization_input_preimage_is_retained_and_reconstructible(
+    tmp_path: Path,
+) -> None:
+    """The v2 row retains the complete path-free preimage beside its digest."""
+    from radiosim.core.result import MMODE_CHARACTERIZATION_INPUT_DOMAIN
+
+    result, phase_manifest = _family_result_and_phase_input_manifest(tmp_path)
+    record = _characterization_record_for_active_domain(result, phase_manifest)
+    assert (
+        MMODE_CHARACTERIZATION_INPUT_DOMAIN
+        == "radiosim.sci004.characterization-input.v2"
+        and "characterization_input_manifest" in record
+    ), "characterization input manifest is absent from the family record"
+
+    manifest = record["characterization_input_manifest"]
+    instrument = {
+        "schema_version": "radiosim.sci004.characterization-instrument.v1",
+        "site_manifest": phase_manifest["site_manifest"],
+        "antenna_rows": phase_manifest["antenna_rows"],
+        "baseline_rows": phase_manifest["baseline_rows"],
+    }
+    receptors = {
+        "schema_version": "radiosim.sci004.characterization-receptors.v1",
+        "receptor_rows": phase_manifest["receptor_rows"],
+    }
+    loaded_beam = {
+        "schema_version": "radiosim.sci004.characterization-loaded-beam.v1",
+        "beam_rows": phase_manifest["beam_rows"],
+    }
+    phase_payload = json.dumps(
+        phase_manifest,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    expected = {
+        "schema_version": "radiosim.sci004.characterization-input.v2",
+        "family_id": "mmode_single_scalar_mode",
+        "fixture_id": "mmode_single_scalar_mode",
+        "phase_input_identity_manifest": phase_manifest,
+        "phase_input_identity_sha256": hashlib.sha256(
+            b"radiosim.mmode-input-identity.v1\x00"
+            + len(phase_payload).to_bytes(8, "big")
+            + phase_payload
+        ).hexdigest(),
+        "instrument_manifest": instrument,
+        "instrument_sha256": "",
+        "receptor_manifest": receptors,
+        "receptor_sha256": "",
+        "loaded_beam_manifest": loaded_beam,
+        "beam_loaded_fingerprint": "",
+        "correlations": list(result.correlations),
+        "polarization_basis": str(result.polarization_basis),
+        "frequencies_hz_f64be": [
+            row["center_hz_f64be"] for row in phase_manifest["frequency_rows"]
+        ],
+    }
+    for manifest_key, digest_key, domain in (
+        (
+            "instrument_manifest",
+            "instrument_sha256",
+            "radiosim.sci004.characterization-instrument.v1",
+        ),
+        (
+            "receptor_manifest",
+            "receptor_sha256",
+            "radiosim.sci004.characterization-receptors.v1",
+        ),
+        (
+            "loaded_beam_manifest",
+            "beam_loaded_fingerprint",
+            "radiosim.sci004.characterization-loaded-beam.v1",
+        ),
+    ):
+        subpayload = json.dumps(
+            expected[manifest_key],
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        expected[digest_key] = hashlib.sha256(
+            domain.encode("ascii")
+            + b"\x00"
+            + len(subpayload).to_bytes(8, "big")
+            + subpayload
+        ).hexdigest()
+    assert manifest == expected
+    payload = json.dumps(
+        expected,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    assert (
+        record["input_identity_sha256"]
+        == hashlib.sha256(
+            b"radiosim.sci004.characterization-input.v2\x00"
+            + len(payload).to_bytes(8, "big")
+            + payload
+        ).hexdigest()
+    )
+    forbidden_suffixes = (
+        "path",
+        "_path",
+        "_paths",
+        "_file",
+        "_files",
+        "_dir",
+        "_directory",
+        "_root",
+        "_uri",
+    )
+    pending: list[Any] = [manifest]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, dict):
+            assert not any(
+                str(key).lower() == "path"
+                or str(key).lower().endswith(forbidden_suffixes[1:])
+                for key in value
+            )
+            pending.extend(value.values())
+        elif isinstance(value, list):
+            pending.extend(value)
+
+
+def test_characterization_input_identity_is_equal_under_distinct_layout_roots(
+    tmp_path: Path,
+) -> None:
+    """Filesystem relocation is not a scientific characterization input."""
+    first, second = _relocated_family_records(tmp_path)
+
+    assert first["scientific_sha256"] == second["scientific_sha256"]
+    assert first["raw_cube_sha256"] == second["raw_cube_sha256"]
+    assert (
+        first["record"]["era_utc_grid_sha256"]
+        == second["record"]["era_utc_grid_sha256"]
+    )
+    assert (
+        first["record"]["input_identity_sha256"]
+        == second["record"]["input_identity_sha256"]
+    ), "characterization input identity changed under filesystem relocation"
+
+
+def test_distinct_layout_roots_preserve_scientific_and_cube_identities(
+    tmp_path: Path,
+) -> None:
+    """The relocation fixture preserves independently derived result science."""
+    first, second = _relocated_family_records(tmp_path)
+
+    assert first["scientific_sha256"] == second["scientific_sha256"]
+    assert first["raw_cube_sha256"] == second["raw_cube_sha256"]
+
+
+def test_characterization_input_identity_changes_for_semantic_instrument_content(
+    tmp_path: Path,
+) -> None:
+    """A real antenna-coordinate change remains characterization-significant."""
+    baseline, mutated = _semantic_layout_mutation(tmp_path)
+
+    assert baseline["input_identity_sha256"] != mutated["input_identity_sha256"]
 
 
 def test_a_family_pin_is_a_ci001_observation_set_not_a_bare_digest() -> None:

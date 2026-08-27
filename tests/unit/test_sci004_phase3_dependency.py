@@ -109,13 +109,14 @@ from tests.unit.test_sci004_phase1_dependency import (
 #: exactly as Section 14.0 requires: "R1's dependency validator,
 #: ``tests/unit/test_sci004_phase2_red_failures.py`` at R2, and R3's dependency
 #: validator each freeze the exact assignment ``APPROVED_SCI004_D_SHA=...``".
-#: It is accepted correction #24, which reopens the *fourth* phase-3 red slice
-#: and the committed source slice. Section 14.0 binds
+#: It is accepted correction #25, which reopens the rejected fingerprint
+#: attempt after the fourth phase-3 red slice and committed source slice.
+#: Section 14.0 binds
 #: "the operative ``D`` current at that phase's ``R``", and the retained-evidence
 #: record states the rule for a re-cut: "a fresh ``R`` takes the ``D`` current at
 #: its own cut".  The binding therefore advances again, past the
 #: retained-evidence landing the previous cut froze.
-APPROVED_SCI004_D_SHA = "4d507bf1333ccaa4c8beec3815370ba0f6043bb2"
+APPROVED_SCI004_D_SHA = "ca3c37171aaaeec175b5ad72d324957762303853"
 
 #: The globally clean programme tip ``G3`` (Section 13.2). Ancestry is
 #: inclusive, and this tip is the later of the two named dependency commits --
@@ -157,31 +158,81 @@ A2_AUTHORIZED_PATHS: tuple[str, ...] = (
     M2_ACCEPTANCE_VALIDATOR_PATH,
 )
 
-#: Correction #24's exact replacement ``R3`` writable list. The derived anchor's
+#: Correction #25's exact fresh fingerprint-delta ``R3`` writable list.
 #: own diff
 #: is checked against it, so a first child that is not this phase's red slice is
 #: refused rather than replayed.
 R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
     {
-        "docs/development/sci004_mmode_phase3_post_source_red_failures.json",
-        "tests/unit/test_io/test_hdf5_result.py",
+        "docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json",
+        "tests/characterization/test_sci004_mmode.py",
         "tests/unit/test_sci004_phase3_dependency.py",
         "tests/unit/test_sci004_phase3_red_failures.py",
         "tools/sci004_mmode_phase3_red.py",
     }
 )
 
-#: The four superseded phase-3 red slices the accepted corrections reopened, in
-#: cut order.  All four are interval commits of the starred ``G3 -> R3`` edge
-#: and none may ever be resolved as the live anchor: the first was reopened by
-#: the accepted-capability correction, the second by the retained-evidence
-#: correction, and the third by the honest-backend-axis correction that this
-#: file's binding now names.
+#: The superseded phase-3 slices before correction #25, in cut order. None may
+#: ever be resolved as the live anchor for the fresh fingerprint retry.
 SUPERSEDED_RED_SLICE_SHA = "62a7d3d90dcbf0488e8b7c875ae5f95acba007b6"
 SUPERSEDED_RECUT_RED_SLICE_SHA = "a07279f4e1220f4e064d747406350df6fd1190fb"
 SUPERSEDED_SECOND_RECUT_RED_SLICE_SHA = "c6cc74bb88bb123b20b4c549bc92da73cc057c1e"
 SUPERSEDED_THIRD_RECUT_RED_SLICE_SHA = "7070cc3ddb1c2557d02e4a3f2a89b907575bed0b"
 SUPERSEDED_IMPLEMENTATION_SHA = "a61526d686ab768f05ecffa80cfd6223d4ee4c62"
+
+D24_SHA = "4d507bf1333ccaa4c8beec3815370ba0f6043bb2"
+SUPERSEDED_FINGERPRINT_R3_SHA = "944e0ee66ebdaffafab86f4f8f4253a404aa902c"
+SUPERSEDED_FINGERPRINT_S3_SHA = "b07925ab14b56b3ca0fa863f806290748a31df6b"
+REJECTED_E3_SHA = "886e62fd9f8328826b388b8960ed7413da26b6d1"
+REJECTED_A3_SHA = "8529da951e2378115ffde8d5da3e2af56f3323d0"
+
+SUPERSEDED_FINGERPRINT_R3_PATHS: tuple[str, ...] = (
+    "docs/development/sci004_mmode_phase3_post_source_red_failures.json",
+    "tests/unit/test_io/test_hdf5_result.py",
+    "tests/unit/test_sci004_phase3_dependency.py",
+    "tests/unit/test_sci004_phase3_red_failures.py",
+    "tools/sci004_mmode_phase3_red.py",
+)
+SUPERSEDED_FINGERPRINT_S3_PATHS: tuple[str, ...] = (
+    "src/radiosim/io/hdf5.py",
+    "tests/unit/test_sci004_phase3_evidence.py",
+    "tools/sci004_mmode_phase3_evidence.py",
+)
+REJECTED_E3_PATHS: tuple[str, ...] = (
+    "docs/development/sci004_mmode_phase3_evidence.json",
+    "docs/development/sci004_mmode_phase3_evidence.md",
+    "output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json",
+    "tests/unit/test_sci004_phase3_evidence.py",
+)
+REJECTED_A3_PATHS: tuple[str, ...] = (
+    "docs/development/sci004_mmode_phase3_acceptance.json",
+    "tests/unit/test_sci004_phase3_acceptance.py",
+)
+
+REJECTED_A3_ARTIFACT_SHA256 = (
+    "283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d"
+)
+REJECTED_E3_ARTIFACT_SHA256 = (
+    "600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae"
+)
+REJECTED_E3_REPRODUCTION_SHA256 = (
+    "039539a865b5d92e86379f44a324271232e8a947301e380ec7b1b1848e907b4e"
+)
+REJECTED_E3_PERFORMANCE_SHA256 = (
+    "07e59d3176866a78c17244849d6493365e9d410547e884cf56b254e60babe193"
+)
+EXTERNAL_REVIEW_PATH = Path(
+    "/Users/kartikmandar/MacProjects/sci004-a3-independent-review-reject-20260826.json"
+)
+EXTERNAL_REVIEW_SHA256 = (
+    "43c12807aa9f316af53e6058ebec7f18dd0b6ea66d308cb1c488d77185907d82"
+)
+REJECTED_A3_ARTIFACT_PATH = "docs/development/sci004_mmode_phase3_acceptance.json"
+REJECTED_E3_ARTIFACT_PATH = "docs/development/sci004_mmode_phase3_evidence.json"
+REJECTED_E3_REPRODUCTION_PATH = "docs/development/sci004_mmode_phase3_evidence.md"
+REJECTED_E3_PERFORMANCE_PATH = (
+    "output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json"
+)
 
 SUPERSEDED_THIRD_RECUT_RED_SLICE_PATHS: tuple[str, ...] = (
     "docs/development/sci004_mmode_phase3_red_failures.json",
@@ -474,6 +525,37 @@ D_PRE_LANDING_LEDGER_DIFF_SHA256 = (
     "79a9b91ee2e1156ce5c5866db5d1d28c6fd60d8cfae0ac90b5211a521555aca8"
 )
 
+D25_MEMO_BLOB_SHA256 = (
+    "eb45da5adfe412cc3447303f8ac77448988317f286b27df95d783f047481791f"
+)
+D25_LANDED_MEMO_DIFF_SHA256 = (
+    "6ac059de3a4e867560a0ecc83615e9938b45777e9e77714dcc96a54f06897ffa"
+)
+D25_FINAL_DESIGN_DIFF_SHA256 = (
+    "5ab8d5cf856f78640585be8f9257a50e72ebf9a86cac7766887967722f70d7a8"
+)
+D25_FINAL_LEDGER_DIFF_SHA256 = (
+    "84a215a0bb556432f5db5b09385d553f7c8b09116f13104d6e54ed7b94d47a09"
+)
+D25_FINAL_COMPLETE_DIFF_SHA256 = (
+    "8c21e2f0193475422925ecaa4d0e6fab296d46517b115118846bb600a90911f0"
+)
+D25_PRE_LANDING_FILE_SHA256 = (
+    "5d54c4b8c5c0312b29d2391c0de76b51a004b6c0605d2543a51ae2a46bbff2a6"
+)
+D25_PRE_LANDING_DIFF_SHA256 = (
+    "1052133587a3af0489cf079c69e2f7a5b8869f20959bdc3d1cda8ed09d7c1acb"
+)
+D25_PRE_LANDING_LEDGER_SHA256 = (
+    "f79329d0e0438ce5ff5c2c65d0b443fa04dae0bffeded5f20b750b64415105af"
+)
+D25_PRE_LANDING_LEDGER_DIFF_SHA256 = (
+    "d9d30802b46941cba5d2c52ce7cd1ef405d0bc966a4a5fcf1dc4d4d12dabff44"
+)
+D25_PRE_LANDING_COMPLETE_DIFF_SHA256 = (
+    "ccea0e4e0477ea43174f64aece99369c31b4ce221cdd0b16d38788e1bdd4dc76"
+)
+
 #: The ``D0 -> operative D`` chain past ``A1``, oldest first. Section 13.7's
 #: interval kinds are the authority for the allowed-path tuples.
 SCI004_DESIGN_CHAIN_CONTINUATION: tuple[_DesignCommit, ...] = (
@@ -582,17 +664,25 @@ SCI004_DESIGN_CHAIN_CONTINUATION: tuple[_DesignCommit, ...] = (
         landed_memo_diff_sha256=D22_LANDED_MEMO_DIFF_SHA256,
     ),
     _DesignCommit(
-        sha=APPROVED_SCI004_D_SHA,
-        kind="operative design",
+        sha=D24_SHA,
+        kind="superseded design",
         allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
         memo_blob_sha256=D_MEMO_BLOB_SHA256,
         label="sampled RSS and the polarized-HDF5 post-source oracle",
         landed_memo_diff_sha256=D_LANDED_MEMO_DIFF_SHA256,
     ),
+    _DesignCommit(
+        sha=APPROVED_SCI004_D_SHA,
+        kind="operative design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D25_MEMO_BLOB_SHA256,
+        label="reconstructible path-independent M3 fingerprints",
+        landed_memo_diff_sha256=D25_LANDED_MEMO_DIFF_SHA256,
+    ),
 )
 
 #: The complete header-enumerated chain for this phase: the eleven links R1
-#: froze -- which "no later phase may change" -- followed by the fourteen that landed
+#: froze -- which "no later phase may change" -- followed by the fifteen that landed
 #: after ``A1``. The M1 tuple is imported rather than restated for exactly that
 #: reason. Its final entry was the operative ``D`` when R1 froze it and is now a
 #: ``superseded design`` chain commit: every correction's header record says so
@@ -632,6 +722,7 @@ CONTINUATION_REVIEW_PINS: tuple[tuple[str, str], ...] = (
     (D21_PRE_LANDING_FILE_SHA256, D21_PRE_LANDING_DIFF_SHA256),
     (D22_PRE_LANDING_FILE_SHA256, D22_PRE_LANDING_DIFF_SHA256),
     (D_PRE_LANDING_FILE_SHA256, D_PRE_LANDING_DIFF_SHA256),
+    (D25_PRE_LANDING_FILE_SHA256, D25_PRE_LANDING_DIFF_SHA256),
 )
 
 #: Hermetic Git configuration: a pinned diff digest must not depend on the
@@ -748,6 +839,32 @@ def _hermetic_diff_digest(commit: str, *paths: str) -> str:
             f"{completed.stderr.decode('utf-8', 'replace').strip()}"
         )
     return hashlib.sha256(completed.stdout).hexdigest()
+
+
+def _binary_full_index_diff(commit: str, *paths: str) -> bytes:
+    """Return the correction-governed raw binary/full-index diff bytes."""
+    completed = subprocess.run(
+        [
+            "git",
+            "diff",
+            "--no-ext-diff",
+            "--binary",
+            "--full-index",
+            f"{commit}^",
+            commit,
+            "--",
+            *paths,
+        ],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise DependencyCertificateError(
+            f"binary/full-index diff of {commit!r} failed: "
+            f"{completed.stderr.decode('utf-8', 'replace').strip()}"
+        )
+    return completed.stdout
 
 
 def _is_ancestor(ancestor: str, descendant: str) -> bool:
@@ -925,7 +1042,7 @@ def resolve_r3_replay_anchor() -> _ReplayAnchor:
     if touched != tuple(sorted(R3_AUTHORIZED_PATHS)):
         raise DependencyCertificateError(
             f"the derived R3 anchor {anchor} touches {touched}, which is not a "
-            "correction-24 R3 slice with the exact five authorized paths"
+            "correction-25 R3 slice with the exact five authorized paths"
         )
     return _ReplayAnchor(commit=anchor, role="r3")
 
@@ -1093,7 +1210,7 @@ def test_the_phase_three_binding_advances_the_r1_binding_through_the_chain() -> 
     assert M1_DESIGN_CHAIN[-1].sha == R1_APPROVED_SCI004_D_SHA
     assert APPROVED_SCI004_D_SHA != R1_APPROVED_SCI004_D_SHA
     assert _is_ancestor(R1_APPROVED_SCI004_D_SHA, APPROVED_SCI004_D_SHA)
-    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 14
+    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 15
     assert SCI004_DESIGN_CHAIN[-1].sha == APPROVED_SCI004_D_SHA
     for superseded in (D17_SHA, D18_SHA, D19_SHA, D20_SHA, D21_SHA, D22_SHA):
         assert APPROVED_SCI004_D_SHA != superseded
@@ -1130,21 +1247,21 @@ def test_the_operative_design_commit_follows_the_gate_and_precedes_this_r() -> N
 def test_the_header_enumerated_chain_from_d0_to_the_operative_d_is_exact() -> None:
     """Section 13.7/14.0: every chain link matches its kind and allowed paths.
 
-    The chain is twenty-five links here -- the memo-introducing ``D0``,
-    twenty-three ``superseded design`` corrections, and the operative one --
+    The chain is twenty-six links here -- the memo-introducing ``D0``,
+    twenty-four ``superseded design`` corrections, and the operative one --
     and the test
     proves from Git objects that the only *other* commits between ``D0`` and the
     operative ``D`` that touched the memo are ``A1`` and ``A2``, which
     Section 13.7 explicitly rules "is not a chain commit and needs no interval
     kind" for an accepted phase acceptance commit inside the range.
     """
-    assert len(SCI004_DESIGN_CHAIN) == 25
+    assert len(SCI004_DESIGN_CHAIN) == 26
     assert SCI004_DESIGN_CHAIN[0].kind == "memo-introducing"
     assert SCI004_DESIGN_CHAIN[-1].kind == "operative design"
     assert [entry.kind for entry in SCI004_DESIGN_CHAIN[1:-1]] == [
         "superseded design"
-    ] * 23
-    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 25
+    ] * 24
+    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 26
 
     for earlier, later in zip(
         SCI004_DESIGN_CHAIN, SCI004_DESIGN_CHAIN[1:], strict=False
@@ -1181,6 +1298,70 @@ def test_every_continuation_correction_diff_reproduces_hermetically() -> None:
         ), entry.label
 
 
+def test_correction_25_final_binary_full_index_diff_identities_are_exact() -> None:
+    """Authenticate D25's two files and fixed-order complete raw patch."""
+    design = _binary_full_index_diff(APPROVED_SCI004_D_SHA, DESIGN_MEMO_PATH)
+    ledger = _binary_full_index_diff(APPROVED_SCI004_D_SHA, DESIGN_LEDGER_PATH)
+    complete = _binary_full_index_diff(
+        APPROVED_SCI004_D_SHA,
+        DESIGN_MEMO_PATH,
+        DESIGN_LEDGER_PATH,
+    )
+
+    assert hashlib.sha256(design).hexdigest() == D25_FINAL_DESIGN_DIFF_SHA256
+    assert hashlib.sha256(ledger).hexdigest() == D25_FINAL_LEDGER_DIFF_SHA256
+    assert hashlib.sha256(complete).hexdigest() == D25_FINAL_COMPLETE_DIFF_SHA256
+
+
+def test_rejected_fingerprint_attempt_is_authenticated_from_git_objects() -> None:
+    """Bind the immutable E3/A3 rejection that correction #25 retries."""
+    assert _commit_parents(REJECTED_E3_SHA) == (SUPERSEDED_FINGERPRINT_S3_SHA,)
+    assert _commit_parents(REJECTED_A3_SHA) == (REJECTED_E3_SHA,)
+    assert _commit_parents(APPROVED_SCI004_D_SHA) == (REJECTED_A3_SHA,)
+    assert _changed_paths(REJECTED_E3_SHA) == REJECTED_E3_PATHS
+    assert _changed_paths(REJECTED_A3_SHA) == REJECTED_A3_PATHS
+
+    evidence_raw = _tree_blob(REJECTED_E3_SHA, REJECTED_E3_ARTIFACT_PATH)
+    reproduction_raw = _tree_blob(REJECTED_E3_SHA, REJECTED_E3_REPRODUCTION_PATH)
+    performance_raw = _tree_blob(REJECTED_E3_SHA, REJECTED_E3_PERFORMANCE_PATH)
+    acceptance_raw = _tree_blob(REJECTED_A3_SHA, REJECTED_A3_ARTIFACT_PATH)
+    assert hashlib.sha256(evidence_raw).hexdigest() == REJECTED_E3_ARTIFACT_SHA256
+    assert (
+        hashlib.sha256(reproduction_raw).hexdigest() == REJECTED_E3_REPRODUCTION_SHA256
+    )
+    assert hashlib.sha256(performance_raw).hexdigest() == REJECTED_E3_PERFORMANCE_SHA256
+    assert hashlib.sha256(acceptance_raw).hexdigest() == REJECTED_A3_ARTIFACT_SHA256
+
+    evidence = json.loads(evidence_raw)
+    assert evidence["status"] == "candidate"
+    assert evidence["design_sha"] == D24_SHA
+    assert evidence["source_sha"] == SUPERSEDED_FINGERPRINT_S3_SHA
+    assert evidence["red_commit_sha"] == SUPERSEDED_FINGERPRINT_R3_SHA
+
+    acceptance = json.loads(acceptance_raw)
+    assert acceptance["verdict"] == "REJECT"
+    assert acceptance["reviewer_identity"] == (
+        "sci004-m3-independent-acceptance-reviewer"
+    )
+    assert acceptance["reviewer_independent"] is True
+    assert acceptance["evidence_commit_sha"] == REJECTED_E3_SHA
+    assert acceptance["evidence_artifact_sha256"] == REJECTED_E3_ARTIFACT_SHA256
+    assert [blocker["blocker_id"] for blocker in acceptance["blockers"]] == [
+        "m3.fingerprint-input-preimage-not-retained"
+    ]
+
+    assert EXTERNAL_REVIEW_PATH.is_file()
+    assert not EXTERNAL_REVIEW_PATH.is_symlink()
+    external_raw = EXTERNAL_REVIEW_PATH.read_bytes()
+    assert hashlib.sha256(external_raw).hexdigest() == EXTERNAL_REVIEW_SHA256
+    external = json.loads(external_raw)
+    assert external["verdict"] == "REJECT"
+    assert external["reviewer_identity"] == (
+        "sci004-m3-independent-acceptance-reviewer"
+    )
+    assert external["reviewer_independent"] is True
+
+
 def test_every_continuation_review_digest_appears_in_the_accepted_header() -> None:
     """The memo header is the only authority for the pre-landing review pins.
 
@@ -1194,10 +1375,20 @@ def test_every_continuation_review_digest_appears_in_the_accepted_header() -> No
     for file_pin, diff_pin in CONTINUATION_REVIEW_PINS:
         assert _is_lower_hex(file_pin, width=64)
         assert _is_lower_hex(diff_pin, width=64)
-        assert f"sha256:{file_pin}" in memo, file_pin
-        assert f"sha256:{diff_pin}" in memo, diff_pin
+        assert f"sha256:{file_pin}" in memo or f"`{file_pin}`" in memo, file_pin
+        assert f"sha256:{diff_pin}" in memo or f"`{diff_pin}`" in memo, diff_pin
     assert _is_lower_hex(D_PRE_LANDING_LEDGER_DIFF_SHA256, width=64)
     assert f"sha256:{D_PRE_LANDING_LEDGER_DIFF_SHA256}" in memo
+    for pin in (
+        D25_PRE_LANDING_LEDGER_SHA256,
+        D25_PRE_LANDING_LEDGER_DIFF_SHA256,
+        D25_PRE_LANDING_COMPLETE_DIFF_SHA256,
+    ):
+        assert _is_lower_hex(pin, width=64)
+        assert f"`{pin}`" in memo
+    assert "`/root/physics_governance_review`" in memo
+    assert "`/root/computational_provenance_review`" in memo
+    assert "each returned exact `ACCEPT`" in memo
     for entry in SCI004_DESIGN_CHAIN_CONTINUATION:
         assert entry.sha in memo or entry.sha == APPROVED_SCI004_D_SHA, entry.label
     for (file_pin, _diff_pin), entry in zip(
@@ -1579,10 +1770,11 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
     """Section 13.7: "A commit the header does not name invalidates the edge".
 
     The exhaustive form of that sentence is an equality, not a membership test:
-    the first-parent range ``G3..D`` must be exactly correction #24's thirteen
-    commits, oldest-first, with nothing else in it. Four are superseded red
-    slices, seven are superseded designs, one is the superseded implementation,
-    and the final commit is the operative design. Every commit in the range is
+    the first-parent range ``G3..D`` must be exactly correction #25's eighteen
+    commits, oldest-first, with nothing else in it. Five are superseded red
+    slices, eight are superseded designs, two are superseded implementations,
+    one is rejected evidence, one is rejected acceptance, and the final commit
+    is the operative design. Every commit in the range is
     required to be a single-parent non-merge, which is Section 14.4's separate
     "No commit in either starred first-parent range is a merge".
     """
@@ -1599,6 +1791,11 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
         D21_SHA,
         D22_SHA,
         SUPERSEDED_IMPLEMENTATION_SHA,
+        D24_SHA,
+        SUPERSEDED_FINGERPRINT_R3_SHA,
+        SUPERSEDED_FINGERPRINT_S3_SHA,
+        REJECTED_E3_SHA,
+        REJECTED_A3_SHA,
         APPROVED_SCI004_D_SHA,
     )
     observed = tuple(
@@ -1632,6 +1829,14 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
     assert _changed_paths(SUPERSEDED_IMPLEMENTATION_SHA) == (
         SUPERSEDED_IMPLEMENTATION_PATHS
     )
+    assert _changed_paths(SUPERSEDED_FINGERPRINT_R3_SHA) == (
+        SUPERSEDED_FINGERPRINT_R3_PATHS
+    )
+    assert _changed_paths(SUPERSEDED_FINGERPRINT_S3_SHA) == (
+        SUPERSEDED_FINGERPRINT_S3_PATHS
+    )
+    assert _changed_paths(REJECTED_E3_SHA) == REJECTED_E3_PATHS
+    assert _changed_paths(REJECTED_A3_SHA) == REJECTED_A3_PATHS
     for sha in (
         D16_SHA,
         D17_SHA,
@@ -1640,12 +1845,13 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
         D20_SHA,
         D21_SHA,
         D22_SHA,
+        D24_SHA,
         APPROVED_SCI004_D_SHA,
     ):
         assert _changed_paths(sha) == (DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH), sha
 
 
-def test_the_memo_header_records_the_reopening_and_the_two_rebind_mandates() -> None:
+def test_the_memo_header_records_the_reopening_and_rebind_mandates() -> None:
     """Section 13.7: the header is the authority for what was reopened.
 
     A validator that trusted only its own constants would authenticate nothing:
@@ -1678,6 +1884,21 @@ def test_the_memo_header_records_the_reopening_and_the_two_rebind_mandates() -> 
     assert "process_rss_sampled_delta_v1" in memo
     assert "SCI004_PHASE3_POST_SOURCE_RED_CASES" in memo
     assert "post-source-expected-red-confirmed" in memo
+    assert SUPERSEDED_FINGERPRINT_R3_SHA in memo
+    assert SUPERSEDED_FINGERPRINT_S3_SHA in memo
+    assert REJECTED_E3_SHA in memo
+    assert REJECTED_A3_SHA in memo
+    assert REJECTED_A3_ARTIFACT_SHA256 in memo
+    assert REJECTED_E3_ARTIFACT_SHA256 in memo
+    assert REJECTED_E3_REPRODUCTION_SHA256 in memo
+    assert REJECTED_E3_PERFORMANCE_SHA256 in memo
+    assert EXTERNAL_REVIEW_SHA256 in memo
+    assert "canonical independent\n`A3` record" in memo
+    assert "The rejected `E3`" in memo
+    assert "reconstructible path-independent M3\nfingerprints" in memo
+    assert "m3.fingerprint-input-preimage-not-retained" in memo
+    assert "sci004-m3-independent-acceptance-reviewer" in memo
+    assert "reviewer_independent=true" in memo
 
     # The retained-evidence correction's own rulings, in its own words.
     assert "tests/performance/test_sci004_mmode.py" in memo
