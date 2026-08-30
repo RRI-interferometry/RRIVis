@@ -49,12 +49,15 @@ import hashlib
 import importlib
 import json
 import math
+import os
 import re
+import shutil
 import struct
 import subprocess
 import sys
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -67,11 +70,16 @@ from tests.unit.test_sci004_phase3_dependency import (
     APPROVED_SCI004_D_SHA,
     APPROVED_SCI004_G3_SHA,
     D24_SHA,
+    D25_SHA,
+    ORIGINAL_FINGERPRINT_R3_SHA,
     REJECTED_A3_SHA,
     REJECTED_E3_SHA,
     SUPERSEDED_FINGERPRINT_R3_SHA,
     SUPERSEDED_FINGERPRINT_S3_SHA,
     resolve_r3_replay_anchor,
+)
+from tests.unit.test_sci004_phase3_dependency import (
+    R3_AUTHORIZED_PATHS as VALIDATOR_ONLY_R3_AUTHORIZED_PATHS,
 )
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -257,6 +265,10 @@ FINGERPRINT_R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
         "tests/unit/test_sci004_phase3_red_failures.py",
         "tools/sci004_mmode_phase3_red.py",
     }
+)
+
+FINGERPRINT_SUPPLEMENT_SHA256 = (
+    "6bf1cf94b30961fd7a27519fad1252169155fdeee0e81618ea15115b50fbdb68"
 )
 
 #: The red modules whose declared phase-M3 tables the node set is compared
@@ -1327,7 +1339,6 @@ def test_every_post_source_case_is_the_exact_confirmed_regex_mismatch(
 
 
 def _fingerprint_oracle_diff() -> bytes:
-    anchor = resolve_r3_replay_anchor()
     argv = [
         "git",
         "-c",
@@ -1337,10 +1348,9 @@ def _fingerprint_oracle_diff() -> bytes:
         "--no-ext-diff",
         "--binary",
         "--full-index",
-        APPROVED_SCI004_D_SHA,
+        D25_SHA,
+        ORIGINAL_FINGERPRINT_R3_SHA,
     ]
-    if anchor.role == "r3":
-        argv.append(anchor.commit)
     argv.extend(("--", FINGERPRINT_POST_SOURCE_ORACLE_PATH))
     completed = subprocess.run(
         argv,
@@ -1404,7 +1414,8 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
     assert document["phase"] == PHASE
     assert document["status"] == POST_SOURCE_STATUS
     assert _UTC_STAMP.fullmatch(str(document["generated_at_utc"])) is not None
-    assert document["design_sha"] == APPROVED_SCI004_D_SHA
+    assert hashlib.sha256(raw).hexdigest() == FINGERPRINT_SUPPLEMENT_SHA256
+    assert document["design_sha"] == D25_SHA
     assert document["pre_fix_source_sha"] == SUPERSEDED_FINGERPRINT_S3_SHA
     assert document["red_commit_sha"] is None
     assert (
@@ -1438,6 +1449,8 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
         SUPERSEDED_FINGERPRINT_S3_SHA,
         REJECTED_E3_SHA,
         REJECTED_A3_SHA,
+        D25_SHA,
+        ORIGINAL_FINGERPRINT_R3_SHA,
         APPROVED_SCI004_D_SHA,
     )
     previous = _git("rev-parse", f"{D24_SHA}^").strip()
@@ -1446,6 +1459,19 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
         assert _git("rev-parse", f"{commit}^").strip() == previous
         previous = commit
     anchor = resolve_r3_replay_anchor()
+    assert _git("rev-parse", f"{ORIGINAL_FINGERPRINT_R3_SHA}^").strip() == D25_SHA
+    original_changed = tuple(
+        sorted(
+            _git(
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                ORIGINAL_FINGERPRINT_R3_SHA,
+            ).split()
+        )
+    )
+    assert original_changed == tuple(sorted(FINGERPRINT_R3_AUTHORIZED_PATHS))
     if anchor.role == "r3":
         assert _git("rev-parse", f"{anchor.commit}^").strip() == (APPROVED_SCI004_D_SHA)
         changed = tuple(
@@ -1459,7 +1485,7 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
                 ).split()
             )
         )
-        assert changed == tuple(sorted(FINGERPRINT_R3_AUTHORIZED_PATHS))
+        assert changed == tuple(sorted(VALIDATOR_ONLY_R3_AUTHORIZED_PATHS))
 
 
 def test_the_fingerprint_supplement_binds_both_immutable_prior_records(
@@ -1604,14 +1630,10 @@ def test_all_three_red_records_form_the_exact_disjoint_expected_red_union(
 
 
 def test_the_characterization_delta_has_only_the_ruled_surface() -> None:
-    parent = ast.parse(
-        _tree_blob(APPROVED_SCI004_D_SHA, FINGERPRINT_POST_SOURCE_ORACLE_PATH)
-    )
-    anchor = resolve_r3_replay_anchor()
-    child_raw = (
-        _tree_blob(anchor.commit, FINGERPRINT_POST_SOURCE_ORACLE_PATH)
-        if anchor.role == "r3"
-        else (REPOSITORY_ROOT / FINGERPRINT_POST_SOURCE_ORACLE_PATH).read_bytes()
+    parent = ast.parse(_tree_blob(D25_SHA, FINGERPRINT_POST_SOURCE_ORACLE_PATH))
+    child_raw = _tree_blob(
+        ORIGINAL_FINGERPRINT_R3_SHA,
+        FINGERPRINT_POST_SOURCE_ORACLE_PATH,
     )
     child = ast.parse(child_raw)
     parent_functions = {
@@ -1697,62 +1719,216 @@ def test_the_fingerprint_generator_refuses_to_overwrite_its_retained_record() ->
     )
 
 
-def test_the_fresh_r3_detached_replay_reproduces_the_five_node_partition() -> None:
-    anchor = resolve_r3_replay_anchor()
-    if anchor.role != "r3":
-        return
-    with tempfile.TemporaryDirectory(prefix="sci004-m3-fingerprint-r3-replay-") as tmp:
-        worktree = Path(tmp) / "replay"
-        try:
-            _git("worktree", "add", "--detach", str(worktree), anchor.commit)
-            junit = Path(tmp) / "junit.xml"
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "pytest",
-                    "-p",
-                    "no:randomly",
-                    "-p",
-                    "no:xdist",
-                    "--junit-xml",
-                    str(junit),
-                    *FINGERPRINT_NODEIDS,
-                ],
-                cwd=worktree,
-                capture_output=True,
-                check=False,
-            )
-            assert completed.returncode == 1
-            testcases = list(ElementTree.parse(junit).iter("testcase"))
-            assert [case.get("name") for case in testcases] == [
-                nodeid.split("::", 1)[1] for nodeid in FINGERPRINT_NODEIDS
-            ]
-            assert [
-                "failed"
-                if case.find("failure") is not None
-                else "error"
-                if case.find("error") is not None
-                else "skipped"
-                if case.find("skipped") is not None
-                else "passed"
-                for case in testcases
-            ] == ["failed", "failed", "passed", "passed", "passed"]
-            for testcase, (_case_id, _requirement, _nodeid, pattern) in zip(
-                testcases[:2],
-                FINGERPRINT_CASE_EXPECTATIONS,
-                strict=True,
-            ):
-                failure = testcase.find("failure")
-                assert failure is not None
-                assert pattern in (failure.get("message") or "")
-        finally:
-            subprocess.run(
+def _closed_fingerprint_replay_environment(worktree: Path) -> dict[str, str]:
+    replay_env = os.environ.copy()
+    replay_env["PYTHONPATH"] = str(worktree / "src")
+    replay_env["PYTHONNOUSERSITE"] = "1"
+    return replay_env
+
+
+def _validate_fingerprint_replay_import(stdout: bytes, worktree: Path) -> Path:
+    try:
+        rendered = stdout.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise AssertionError("detached radiosim import path is not UTF-8") from exc
+    lines = rendered.splitlines()
+    assert rendered.endswith("\n")
+    assert len(lines) == 1 and lines[0]
+    reported = Path(lines[0])
+    assert reported.is_absolute()
+    try:
+        imported = reported.resolve(strict=True)
+        detached_package = (worktree / "src" / "radiosim").resolve(strict=True)
+        invoking_src = (REPOSITORY_ROOT / "src").resolve(strict=True)
+    except OSError as exc:
+        raise AssertionError(
+            "detached radiosim import path cannot be resolved"
+        ) from exc
+    assert imported.is_file()
+    assert imported.is_relative_to(detached_package)
+    assert not imported.is_relative_to(invoking_src)
+    return imported
+
+
+def _preflight_fingerprint_replay_import(
+    worktree: Path,
+    replay_env: Mapping[str, str],
+) -> Path:
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from pathlib import Path\n"
+                "import radiosim\n"
+                "print(Path(radiosim.__file__).resolve(strict=True))\n"
+            ),
+        ],
+        cwd=worktree,
+        env=dict(replay_env),
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    assert completed.stderr == b""
+    return _validate_fingerprint_replay_import(completed.stdout, worktree)
+
+
+@contextmanager
+def _detached_fingerprint_replay_worktree(
+    anchor: str,
+) -> Iterator[tuple[Path, Path]]:
+    temporary = Path(tempfile.mkdtemp(prefix="sci004-m3-fingerprint-r3-replay-"))
+    worktree = temporary / "replay"
+    registered = False
+    try:
+        added = subprocess.run(
+            ["git", "worktree", "add", "--detach", str(worktree), anchor],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            check=False,
+        )
+        assert added.returncode == 0, added.stderr.decode("utf-8", "replace")
+        registered = True
+        yield worktree, temporary
+    finally:
+        cleanup_errors: list[str] = []
+        if registered:
+            removed = subprocess.run(
                 ["git", "worktree", "remove", "--force", str(worktree)],
                 cwd=REPOSITORY_ROOT,
                 capture_output=True,
                 check=False,
             )
+            if removed.returncode != 0:
+                cleanup_errors.append(
+                    "git worktree remove failed: "
+                    + removed.stderr.decode("utf-8", "replace").strip()
+                )
+        if worktree.exists():
+            cleanup_errors.append(f"owned replay worktree still exists: {worktree}")
+        try:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+        except OSError as exc:
+            cleanup_errors.append(f"owned replay directory removal failed: {exc}")
+        if temporary.exists():
+            cleanup_errors.append(f"owned replay directory still exists: {temporary}")
+        if cleanup_errors:
+            raise AssertionError("; ".join(cleanup_errors))
+
+
+def test_the_fingerprint_replay_environment_replaces_inherited_import_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("PYTHONPATH", "/untrusted/editable/src")
+    worktree = tmp_path / "detached"
+
+    replay_env = _closed_fingerprint_replay_environment(worktree)
+
+    assert replay_env["PYTHONPATH"] == str(worktree / "src")
+    assert replay_env["PYTHONNOUSERSITE"] == "1"
+    assert "/untrusted/editable/src" not in replay_env["PYTHONPATH"]
+
+
+def test_the_fingerprint_import_preflight_selects_only_detached_source(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "src" / "radiosim"
+    package.mkdir(parents=True)
+    imported = package / "__init__.py"
+    imported.write_text('"""Detached replay probe fixture."""\n')
+    monkeypatch.setenv("PYTHONPATH", str(REPOSITORY_ROOT / "src"))
+    replay_env = _closed_fingerprint_replay_environment(tmp_path)
+
+    assert _preflight_fingerprint_replay_import(tmp_path, replay_env) == imported
+
+    outside = tmp_path / "outside.py"
+    outside.write_text("# outside the detached package\n")
+    with pytest.raises(AssertionError):
+        _validate_fingerprint_replay_import(
+            f"{outside.resolve()}\n".encode(),
+            tmp_path,
+        )
+    with pytest.raises(AssertionError):
+        _validate_fingerprint_replay_import(
+            f"{(REPOSITORY_ROOT / 'src' / 'radiosim' / '__init__.py').resolve()}\n".encode(),
+            tmp_path,
+        )
+
+
+def test_the_owned_fingerprint_replay_worktree_cleans_success_and_failure() -> None:
+    before = _git("worktree", "list", "--porcelain")
+
+    with _detached_fingerprint_replay_worktree(APPROVED_SCI004_D_SHA) as (
+        worktree,
+        temporary,
+    ):
+        assert worktree.is_dir()
+        assert temporary.is_dir()
+    assert _git("worktree", "list", "--porcelain") == before
+
+    with pytest.raises(RuntimeError, match="synthetic child failure"):
+        with _detached_fingerprint_replay_worktree(APPROVED_SCI004_D_SHA):
+            raise RuntimeError("synthetic child failure")
+    assert _git("worktree", "list", "--porcelain") == before
+
+
+def test_the_fresh_r3_detached_replay_reproduces_the_five_node_partition() -> None:
+    anchor = resolve_r3_replay_anchor()
+    if anchor.role != "r3":
+        return
+    with _detached_fingerprint_replay_worktree(anchor.commit) as (
+        worktree,
+        temporary,
+    ):
+        replay_env = _closed_fingerprint_replay_environment(worktree)
+        imported = _preflight_fingerprint_replay_import(worktree, replay_env)
+        assert imported.is_relative_to((worktree / "src" / "radiosim").resolve())
+        junit = temporary / "junit.xml"
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-p",
+                "no:randomly",
+                "-p",
+                "no:xdist",
+                "--junit-xml",
+                str(junit),
+                *FINGERPRINT_NODEIDS,
+            ],
+            cwd=worktree,
+            env=replay_env,
+            capture_output=True,
+            check=False,
+        )
+        assert completed.returncode == 1
+        testcases = list(ElementTree.parse(junit).iter("testcase"))
+        assert [case.get("name") for case in testcases] == [
+            nodeid.split("::", 1)[1] for nodeid in FINGERPRINT_NODEIDS
+        ]
+        assert [
+            "failed"
+            if case.find("failure") is not None
+            else "error"
+            if case.find("error") is not None
+            else "skipped"
+            if case.find("skipped") is not None
+            else "passed"
+            for case in testcases
+        ] == ["failed", "failed", "passed", "passed", "passed"]
+        for testcase, (_case_id, _requirement, _nodeid, pattern) in zip(
+            testcases[:2],
+            FINGERPRINT_CASE_EXPECTATIONS,
+            strict=True,
+        ):
+            failure = testcase.find("failure")
+            assert failure is not None
+            assert pattern in (failure.get("message") or "")
 
 
 def test_the_retained_earlier_red_records_are_untouched_by_this_slice() -> None:
