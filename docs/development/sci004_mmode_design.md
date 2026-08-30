@@ -32,6 +32,229 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #26 — 2026-08-30 (hermetic detached-R3 validator replay
+venue).** Correction #25's replacement-S3 governance slice stopped fail-closed
+at
+`tests/unit/test_sci004_phase3_red_failures.py::test_the_fresh_r3_detached_replay_reproduces_the_five_node_partition`.
+The outer serial governance command returned `1 failed, 491 passed, 13
+skipped`; the nested five-node replay unexpectedly returned raw pytest exit
+`0` and `5 passed`, where the retained record requires exit `1`, two expected
+assertion failures, and three passing controls. No replacement-S3 commit,
+evidence, performance, or acceptance successor followed.
+
+The failure is a deterministic validator source-provenance defect, not a
+changed scientific partition. Correction #25's replay invokes
+`sys.executable` from the shared Pixi environment and changes only the child
+process working directory to a detached src-layout checkout. A detached
+checkout root does not itself put `<detached-worktree>/src` ahead of
+site-packages. The shared interpreter processes its editable-install `.pth`
+entry, which can therefore select the invoking primary checkout's `src` tree.
+The defect was latent while the primary and detached checkouts both presented
+the R3 implementation; the dirty replacement-S3 v2 implementation made it
+observable by satisfying the two expected-red nodes and turning the entire
+five-node replay green. The observed shared interpreter and absolute editable
+source locations are diagnostic evidence only. No absolute home, primary
+checkout, or temporary-worktree path is a portable scientific contract; every
+ruled replay path below is derived at runtime from the temporary detached
+worktree or the invoking validator checkout.
+
+This correction follows original fingerprint R3
+`a65c53a46e84f63c163c5ad15fba8645df33d1d2`, whose sole parent is accepted
+correction #25
+`ca3c37171aaaeec175b5ad72d324957762303853`. Correction #25 becomes a
+`superseded design` chain entry and this landing becomes operative `D`.
+Original fingerprint R3 becomes a `superseded red slice` — specifically the
+superseded fingerprint R3 slice — only for the validator mechanism re-cut
+here: it remains the immutable Git object that
+contains the genuine official five-node observation and oracle delta. Its
+parent-relative diff must continue to touch exactly:
+
+- `docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json`
+- `tests/characterization/test_sci004_mmode.py`
+- `tests/unit/test_sci004_phase3_dependency.py`
+- `tests/unit/test_sci004_phase3_red_failures.py`
+- `tools/sci004_mmode_phase3_red.py`
+
+The retained supplement
+`docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json`
+is immutable at `7,416` raw bytes and SHA-256
+`6bf1cf94b30961fd7a27519fad1252169155fdeee0e81618ea15115b50fbdb68`.
+The complete bytes of that supplement,
+`tests/characterization/test_sci004_mmode.py`, and
+`tools/sci004_mmode_phase3_red.py` are preserved. The characterization oracle
+is still exactly the binary/full-index diff on the real correction-#25-to-R3
+edge
+`ca3c37171aaaeec175b5ad72d324957762303853 ->
+a65c53a46e84f63c163c5ad15fba8645df33d1d2`, with SHA-256
+`1a9cecdea8d3e597de449c837d1e68bc72a4d29ab7ad9c4232c778c94efa4266`.
+It is not redefined as the empty oracle diff from this correction to the new
+validator-only R3. The new R3 neither reintroduces nor regenerates the oracle.
+The historical M3 red record remains at SHA-256
+`486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05`;
+the correction-#24 post-source red record remains at SHA-256
+`724f75c246ebfcf5956fc40fb2f5e349d91ccca3e6a188b3785a65f4ae4c1e10`.
+
+The official fingerprint observation remains canonical and is not replaced.
+Its pre-fix source binding remains
+`b07925ab14b56b3ca0fa863f806290748a31df6b`. Its two expected-red rows remain
+exactly:
+
+- `tests/characterization/test_sci004_mmode.py::test_characterization_input_preimage_is_retained_and_reconstructible`,
+  message `characterization input manifest is absent from the family record`,
+  `invalid_config_raw_sha256=4c11755ecae7597f8ffb30f7aa5653eda41a58994fae19086bb15109c60558b6`,
+  and
+  `fixture_identity_sha256=b5c765aaae957ea3d686e3693b9a2469f7e491b0c247ac695e4ad3e0178b8a0b`;
+- `tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_is_equal_under_distinct_layout_roots`,
+  message `characterization input identity changed under filesystem
+  relocation`,
+  `invalid_config_raw_sha256=a24c64f4d981fce69c9f6cebaadd1bca0ae52fed0783e94b67ac3d8245df4a4f`,
+  and
+  `fixture_identity_sha256=98cb2605eacaa5e473fbc573fa135ec91e0b2320e9759bbfa646c706628ef6ac`.
+
+Its three ordered passing controls remain exactly
+`tests/characterization/test_sci004_mmode.py::test_every_new_family_records_its_six_section_11_parts[mmode_single_scalar_mode]`,
+`tests/characterization/test_sci004_mmode.py::test_distinct_layout_roots_preserve_scientific_and_cube_identities`,
+and
+`tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_changes_for_semantic_instrument_content`.
+The immutable scientific result remains the ordered serial partition `2
+failed, 3 passed`, with no skipped, xfailed, xpassed, collection-failed,
+missing, duplicated, or reordered node. There is no supplement regeneration,
+new fingerprint-generator invocation, new case/control row, or replacement of
+the official one-command record.
+
+After this correction is independently accepted, one fresh validator-only R3
+directly parents it and may modify exactly:
+
+- `tests/unit/test_sci004_phase3_dependency.py`
+- `tests/unit/test_sci004_phase3_red_failures.py`
+
+No other R3 path is writable. The dependency validator freezes this
+correction's exact accepted SHA as `APPROVED_SCI004_D_SHA`, extends and
+authenticates the complete header-enumerated design chain, and authenticates
+correction #25 and original fingerprint R3 from Git objects. It requires the
+original R3's exact sole parent, exact five-path diff, the retained
+supplement's frozen raw digest, and the original correction-#25-to-R3 oracle
+delta above. It classifies the fresh R3 as this correction's sole-parent
+direct child, requires its parent-relative diff to touch exactly the two
+validator paths, and derives the live replay anchor strictly after the new
+operative `D`; original fingerprint R3 can never be silently selected as the
+live replacement anchor. The red-record validator continues to authenticate
+the immutable supplement at original R3 and implements only the replay-venue,
+provenance, classification, and cleanup checks ruled here.
+
+The child replay uses one closed environment construction shared byte-for-byte
+by its provenance preflight and five-node pytest execution, equivalent to:
+
+```python
+replay_env = os.environ.copy()
+replay_env["PYTHONPATH"] = str(worktree / "src")
+replay_env["PYTHONNOUSERSITE"] = "1"
+```
+
+`PYTHONPATH` is replaced, never appended or prepended to an inherited value;
+the dynamically derived detached `src` is its sole ruled entry. User-site
+packages are disabled. No primary-checkout literal may enter the child
+environment. The detached root itself need not be added to `PYTHONPATH` for
+the current src layout; if a later implementation proves another entry
+necessary, it requires a further bounded design correction and detached `src`
+must remain first.
+
+Before the expensive five-node replay, the validator runs a bounded child
+import probe with the same `sys.executable`, detached worktree `cwd`, and exact
+closed environment. It resolves `radiosim.__file__`, requires the resolved
+target to be a regular file contained by
+`<detached-worktree>/src/radiosim`, and separately requires it not to be under
+the invoking primary checkout's resolved `src` tree. An absent, non-regular,
+symlink-escaped, unparsable, outside-detached, or primary-tree result fails
+before pytest. This probe authenticates the validator venue only: it is not a
+scientific observation, retained-supplement command, new case/control row, or
+licence for evidence or acceptance.
+
+Only after that preflight passes does the validator invoke the same ordered
+serial five-node inventory with `sys.executable -m pytest -p no:randomly -p
+no:xdist --junit-xml <validator-owned-temporary-path>`. It requires raw pytest
+exit `1`; exactly two failed and three passed testcases; zero skipped, xfailed,
+xpassed, collection failures, errors, missing, duplicated, or reordered nodes;
+and the exact two governed assertion messages above. The three controls remain
+green. JUnit and worktree locations are confined to the validator-owned
+temporary directory. Success, import mismatch, pytest failure, parse failure,
+and assertion failure all run the same deterministic cleanup. Cleanup removes
+only the exact worktree registered by this invocation and its exact temporary
+directory, treats incomplete removal as a validator failure, and never runs a
+repository-wide worktree prune or touches an unrelated worktree.
+
+Regression assertions, confined to the two fresh-R validator paths, prove that
+inherited `PYTHONPATH` is replaced; detached `src` is the selected package
+root; a primary editable-install path cannot shadow it; the probe rejects any
+package file outside detached `src/radiosim`; the exact five-node JUnit
+classification and messages remain unchanged; and worktree/JUnit cleanup runs
+after both successful and failing child execution. They may not edit, skip,
+xfail, weaken, or otherwise change the characterization oracle, supplement,
+generator, production implementation, dependencies, lockfiles, workflow, or
+performance surface.
+
+The resulting concrete succession is:
+
+```text
+ca3c37171aaaeec175b5ad72d324957762303853 D25
+  -> a65c53a46e84f63c163c5ad15fba8645df33d1d2 original fingerprint R3
+     (scientific observation retained; replay validator venue superseded)
+  -> D26
+  -> fresh validator-only R3
+  -> replacement S3
+  -> fresh E3
+  -> fresh independent A3
+  -> C only after that A3 is ACCEPT
+```
+
+Replacement S3 directly parents the new validator-only R3 and retains
+correction #25's exact authority: modifications only to
+`src/radiosim/core/result.py`, `tools/sci004_mmode_phase3_evidence.py`,
+`tests/unit/test_sci004_phase3_evidence.py`,
+`tools/sci004_mmode_phase3_acceptance.py`, and
+`tests/unit/test_sci004_phase3_acceptance.py`; and deletion only of
+`docs/development/sci004_mmode_phase3_evidence.json`,
+`docs/development/sci004_mmode_phase3_evidence.md`,
+`output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json`, and
+`docs/development/sci004_mmode_phase3_acceptance.json`. Rejected-evidence
+disposal remains owned solely by replacement S3. No tenth path or additional
+S3 obligation is authorized. The prepared nine-path draft may be reapplied
+byte-for-byte only if it remains conformant; the complete phase-3 governance
+slice then reruns from its beginning, and only a wholly green governed gate
+permits the S3 commit. This correction neither accepts nor pre-approves that
+draft.
+
+This correction is design-only and accepts no R3 validator implementation,
+source slice, evidence, performance, or acceptance output. M3 remains
+rejected/not accepted; SCI-004 remains ROADMAP; closure `C` remains locked;
+E3 and A3 remain unavailable. It changes no tolerance, fidelity, convergence,
+memory, or performance predicate; no accepted M1/M2 evidence or acceptance;
+and no SCI-005 Stage-3 prerequisite or derivative claim. It licenses no
+accelerator, public HEALPix/diffuse, non-scalar-beam, public end-to-end
+backend-wiring, general performance, or speedup claim. No fingerprint
+supplement, characterization oracle, official generator, production source,
+rejected artifact, dependency, lockfile, workflow, simulator submodule,
+evidence, performance, or acceptance output becomes writable here.
+**Review status: fresh independent physics/governance and
+computational/provenance correction reviews pending against identical pinned
+candidate bytes and the complete parent-relative diff.**
+**Final review verification:** the reviewed pre-landing design was 383,339 raw
+bytes with SHA-256
+`193c71c8983d62fdbd29c99d891e42835920ddd71a896be9171e8565a654b3fc`
+and parent-relative binary/full-index diff SHA-256
+`64b064ef664037cb4c1ecc7a418561c816a8edc5fb1b9b230ea1d53bf1672ff0`;
+the reviewed pre-landing ledger was 53,103 raw bytes with SHA-256
+`6e7b41fa5a9875220a52bc58dd5244ef97db89661e7a9937d7691dcdfc77d8ba`
+and parent-relative binary/full-index diff SHA-256
+`ee80811b6638b93f513fca561376417ec28f49d48192d8331a875c6456831bd8`;
+the complete fixed-order design-then-ledger parent-relative diff SHA-256 was
+`9d711cfa575df6b3dd3152767b0d17f70d3091fde4ab7713b253f68a0e520448`;
+and the fresh round-1 reviewers `/root/c26_physics_governance_review` and
+`/root/c26_computational_provenance_review` each returned exact `ACCEPT` on
+those identical bytes and complete diff. No review round required correction;
+only this sentence and the companion ledger verdict completion postdate the
+reviewed pins.
+
 **Bounded correction #25 — 2026-08-26 (reconstructible path-independent M3
 fingerprints and rejected-attempt retry grammar).** The canonical independent
 `A3` record at
