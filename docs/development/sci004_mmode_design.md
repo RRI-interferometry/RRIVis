@@ -32,6 +32,89 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #27 — 2026-09-01 (correction-#26 Tier-8 prose citation
+gate).** The replacement-S3 continuation stopped fail-closed at the complete
+serial unit gate
+`pixi run python -m pytest -p no:randomly -p no:xdist tests/unit/`. It returned
+exit code `1` after `1500.16` seconds: `1 failed, 7481 passed, 15 skipped, 30
+warnings`. The sole failure was
+`tests/unit/test_tier8_release_acceptance.py::test_no_accelerator_claim_in_tracked_prose_lacks_a_citation`,
+which flagged the then-published correction-#26 paragraph at
+`docs/development/sci004_mmode_design.md:234` with the exact text
+`backend-wiring, general performance, or speedup claim. No fingerprint`;
+`PERF-001` was and remains ROADMAP, not accepted accelerator evidence. All
+preceding focused SCI-004 gates were green, including the repaired hermetic
+detached-R3 replay; none of those successes overrides the later complete-unit
+Tier-8 failure.
+
+The defect exists solely in already-published correction-#26 design prose.
+Physical line wrapping split the literal denial phrase `no accelerator`, and
+the paragraph contained neither of the scanner's accepted citation tokens,
+`output/benchmarks/reference/` or `PERF-001`. This is not a changed scientific
+partition, a replacement-S3 implementation failure, accelerator evidence, or
+a performance result. It grants no authority to weaken the scanner and no
+authority to create E3, run M3 performance, create A3, accept M3, or produce
+closure output.
+
+The governed repair changes only that correction-#26 denial paragraph in the
+current tree. The same blank-line-separated paragraph now states that
+`PERF-001 remains ROADMAP, and no accepted accelerator-performance record
+exists.` It continues to state that correction #26 licenses no accelerator,
+public HEALPix/diffuse, non-scalar-beam, public end-to-end backend-wiring,
+general-performance, or speedup claim. The Tier-8 scanner is unchanged. The
+statement neither treats PERF-001 as accepted or closed nor cites the deleted
+SCI-004 M3 performance record as accelerator evidence.
+
+Correction #26 remains immutable as Git commit
+`93321d331e4f6442d39fe79588be6f05ad4bee42`; correction #27 corrects only its
+current-tree prose. This landing becomes the new operative `D`, and correction
+#26 becomes a `superseded design` chain entry. Fresh validator-only R3
+`929263f3376e472e0b6da53c6c4e093c10ba7465` remains the immutable landed R3
+authority. Under Section 13.7's existing correction-between-`R`-and-`S` rule,
+correction #27 intervenes between that landed R3 and replacement S3; it does
+not reopen, replace, or regenerate R3, and eventual replacement S3 must
+directly parent correction #27.
+
+Future S3 validators may authenticate the R3-to-D27 interval only within the
+existing five modified S3 source/tool/test paths:
+
+- `src/radiosim/core/result.py`
+- `tools/sci004_mmode_phase3_evidence.py`
+- `tests/unit/test_sci004_phase3_evidence.py`
+- `tools/sci004_mmode_phase3_acceptance.py`
+- `tests/unit/test_sci004_phase3_acceptance.py`
+
+The four deletion-only paths remain exactly:
+
+- `docs/development/sci004_mmode_phase3_evidence.json`
+- `docs/development/sci004_mmode_phase3_evidence.md`
+- `output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json`
+- `docs/development/sci004_mmode_phase3_acceptance.json`
+
+No tenth replacement-S3 path is authorized. M3 remains rejected/not accepted;
+SCI-004 remains ROADMAP; E3 and A3 remain unavailable; closure `C` remains
+locked. The existing nine-path replacement-S3 draft remains uncommitted and
+is neither accepted nor pre-approved by correction #27.
+**Review status: fresh independent physics/governance and
+computational/provenance correction reviews pending against identical pinned
+candidate bytes and the complete parent-relative diff.**
+**Final review verification:** the reviewed pre-landing design was 388,551 raw
+bytes with SHA-256
+`afd9dc6d7e26641b295cc80385067d4f624af09afc814c70fa7d6934c654b831`
+and parent-relative binary/full-index diff SHA-256
+`599e655ee5490c3c10693df2101d8f67b2ac43bffec12ee117b403325350ad69`;
+the reviewed pre-landing ledger was 53,901 raw bytes with SHA-256
+`18ef4cf0badfe3540d9e19247103a019c5a5294de813eacac7d8d9a9128b0562`
+and parent-relative binary/full-index diff SHA-256
+`17b081f4c9787bdc5da499444772f592f3cdccd3ed1d8b8b71512be4cebd5502`;
+the complete canonical parent-relative binary/full-index diff SHA-256 was
+`0572bbc64983f6bab72f71db0ea9f1f9f016d38a87be3e048c8b640aaa891db1`;
+and the fresh round-3 reviewers `/root/c27_physics_governance_review` and
+`/root/c27_computational_provenance_review` each returned exact `ACCEPT` on
+those identical bytes and complete diff after two bounded fix rounds. Only
+this sentence and the companion ledger verdict completion postdate the
+reviewed pins.
+
 **Bounded correction #26 — 2026-08-30 (hermetic detached-R3 validator replay
 venue).** Correction #25's replacement-S3 governance slice stopped fail-closed
 at
@@ -229,8 +312,9 @@ source slice, evidence, performance, or acceptance output. M3 remains
 rejected/not accepted; SCI-004 remains ROADMAP; closure `C` remains locked;
 E3 and A3 remain unavailable. It changes no tolerance, fidelity, convergence,
 memory, or performance predicate; no accepted M1/M2 evidence or acceptance;
-and no SCI-005 Stage-3 prerequisite or derivative claim. It licenses no
-accelerator, public HEALPix/diffuse, non-scalar-beam, public end-to-end
+and no SCI-005 Stage-3 prerequisite or derivative claim. PERF-001 remains
+ROADMAP, and no accepted accelerator-performance record exists. It licenses
+no accelerator, public HEALPix/diffuse, non-scalar-beam, public end-to-end
 backend-wiring, general performance, or speedup claim. No fingerprint
 supplement, characterization oracle, official generator, production source,
 rejected artifact, dependency, lockfile, workflow, simulator submodule,
@@ -6472,9 +6556,8 @@ that still reports `SCI-004` as ROADMAP. These are required
 ### 14.4 Mandatory commit order
 
 The order is `D ->* G1 -> R1 -> S1 -> E1 -> A1 ->* R2 ->* S2 -> E2 -> A2
-->* G3 ->* R3 -> S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`,
-and `G3 ->* R3`
-stars are the
+->* G3 ->* R3 ->* S3 -> E3 -> A3 -> C`; the `A1 ->* R2`, `R2 ->* S2`,
+`G3 ->* R3`, and `R3 ->* S3` stars are the
 concrete effects of the header's starred-edge correction records under
 the Section 13.7 rule above, which collectively enumerate each such
 edge's
@@ -6509,8 +6592,13 @@ Correction #25 makes the concrete M3 history and retry order:
 The four commits between D24 and D25 have exactly the header-recorded kinds and
 paths; D24 becomes a superseded-design chain commit and D25 is operative `D`.
 The rejected A3 is not the `A3` in the generic accepted succession and creates
-no `A3 -> C` edge. Fresh R3 directly parents D25, replacement S3 directly
-parents fresh R3, and the fresh E3/A3 edges are unstarred sole-parent edges.
+no `A3 -> C` edge. Correction #25's fresh R3 directly parents D25; its
+then-ruled replacement S3 direct-parent edge is superseded by the later
+header-recorded correction #26 and correction #27 successions. In the current
+succession, fresh validator-only R3 directly parents correction #26,
+correction #27 directly parents that R3, and eventual replacement S3 directly
+parents correction #27. The fresh E3/A3 edges remain unstarred sole-parent
+edges.
 Disposal in replacement S3 makes those fixed paths genuinely absent before
 their no-overwrite generators run; the approved-parent first-parent selection
 rule then distinguishes the fresh introductions from the immutable rejected
@@ -6526,7 +6614,8 @@ header enumerates the interval and the phase's `R` directly parents the
 operative correction commit. Each `S` directly parents its phase `R` —
 unless a Section 13.7 accepted correction has starred that edge, in
 which case `S` directly parents the operative correction commit per the
-Section 13.7 rule, as `S2` does here — and
+Section 13.7 rule, as `S2` does here and eventual replacement S3 must after
+correction #27 — and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
