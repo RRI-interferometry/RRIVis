@@ -32,6 +32,167 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #28 — 2026-09-01 (characterization-domain oracle
+transition authority).** The earlier D27-based replacement-S3 attempt stopped
+before any edit when its authority preflight reviewer returned `REJECT`. The
+prepared primary-checkout S3 bytes remain preserved and uncommitted. The exact
+blocker is the unmarked node
+`tests/characterization/test_sci004_mmode.py::test_a_family_pin_is_a_ci001_observation_set_not_a_bare_digest`:
+the committed protected module freezes
+`CHARACTERIZATION_INPUT_DOMAIN =
+"radiosim.sci004.characterization-input.v1"`, while the required replacement
+S3 production draft sets `MMODE_CHARACTERIZATION_INPUT_DOMAIN =
+"radiosim.sci004.characterization-input.v2"`. Its authoritative serial
+preflight exited `1` with the exact assertion difference
+`- radiosim.sci004.characterization-input.v1` / `+
+radiosim.sci004.characterization-input.v2`. That node necessarily enters the
+complete `-m "not slow"` source gate, but its protected test path is outside
+S3's five modified paths. This is a succession-authority defect, not evidence
+that production v2 is scientifically wrong, and the protected test has not
+already been fixed.
+
+Production v2 remains mandatory. Eventual replacement S3 must use exactly
+`radiosim.sci004.characterization-input.v2`, the ordered nine-key family
+record, the ordered fourteen-key characterization manifest, the complete
+same-run `radiosim.mmode-input-identity.v1` phase manifest, every adjacent
+digest and cross-manifest join, path-independent relocation identity, and
+semantic-instrument-mutation inequality ruled by correction #25. This
+correction authorizes no v1 fallback, production dual-domain option,
+compatibility shim, evidence-only stand-in, filesystem venue in the scientific
+preimage, weakened manifest/digest/projection/relocation/mutation rule, or
+other production-semantic change.
+
+D27 remains immutable at
+`82fb0773890870a6fb90b3ed9b8065df89919a84`. D28 is its direct single-parent
+non-merge child; after this correction lands, D27 is a superseded design and
+D28 is the operative design for the future R3 and eventual S3. The old fresh
+validator-only R3 at
+`929263f3376e472e0b6da53c6c4e093c10ba7465` remains immutable historical
+authority. Its dependency validator's D26 binding remains historically
+correct because D26 was operative when that R3 was cut; it is never rewritten
+in place. Replacement S3 cannot resume until a separately governed post-D28
+validator-and-oracle-only R3 exists, and eventual S3 directly parents that new
+R3, not D28, D27, or the old R3. The bounded succession is old R3 `->` D27
+`->` D28 `->` future validator-and-oracle-only R3 `->` replacement S3 `->`
+future E3 `->` future independent A3; this is not an unbounded ancestry or
+newest-memo-tip rule. Only D28 is authored now.
+
+The future validator-and-oracle-only R3 may modify exactly these three paths,
+and no fourth path:
+
+- `tests/characterization/test_sci004_mmode.py`
+- `tests/unit/test_sci004_phase3_dependency.py`
+- `tests/unit/test_sci004_phase3_red_failures.py`
+
+It may not modify `src/radiosim/core/result.py`,
+`tools/sci004_mmode_phase3_red.py`, any retained red JSON record, any evidence
+or acceptance tool or validator, either design/status document, any generated
+artifact, or any performance path. PERF-001 remains ROADMAP, and no accepted
+accelerator-performance record exists. That future R3 must be a real
+single-parent non-merge Git commit, the direct child of exact D28, with exactly
+the three-path parent-relative inventory above. It requires its own later
+independent review and verification and may be published or fast-forwarded
+only under later explicit owner authority. This correction does not create it.
+
+The future characterization edit is an exact transition-aware oracle, not a
+singleton literal flip. At exact future R3, production remains exactly
+`radiosim.sci004.characterization-input.v1`; the exact seven-key v1 family
+record is required, both v2-only manifest keys are absent, and every existing
+family, science, solver, dimension, observation-set, and digest assertion
+remains active. At replacement S3, production is exactly
+`radiosim.sci004.characterization-input.v2`; the exact ordered nine-key family
+record and complete ordered fourteen-key characterization manifest are
+required, the same-run phase manifest is retained, every adjacent digest and
+cross-manifest join is independently rebuilt, relocation preserves input
+identity, semantic instrument mutation changes input identity, and no v1
+fallback or v1-shaped v2 record is accepted. Any third domain fails. Merely
+changing the committed singleton from v1 to v2 at R3 is forbidden because R3
+still has v1 production and that change would manufacture an unrecorded red
+failure.
+
+The transition-aware oracle may not use unconditional acceptance of both
+record shapes; subset or superset key checks; a skip, xfail, marker,
+environment condition, branch-name test, commit-message test, path-existence
+test, or mutable runtime switch; a test-only production-constant mutation; or
+a production v1 fallback. The existing dedicated v2 expected-red node remains
+the mechanism that requires v2 at replacement S3. The general
+domain/observation-set oracle must accept only the two exact governed states
+without contradicting that dedicated requirement.
+
+The future R3 creates no new red observation. The immutable correction-#25
+fingerprint supplement
+`docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json`
+remains exactly 7416 bytes with SHA-256
+`6bf1cf94b30961fd7a27519fad1252169155fdeee0e81618ea15115b50fbdb68`,
+design SHA `ca3c37171aaaeec175b5ad72d324957762303853`, pre-fix source SHA
+`b07925ab14b56b3ca0fa863f806290748a31df6b`, and original oracle-patch
+SHA-256
+`1a9cecdea8d3e597de449c837d1e68bc72a4d29ab7ad9c4232c778c94efa4266`.
+It retains exactly two expected-red fingerprint cases and three passing
+controls. The future green transition-contract repair adds no third case and
+does not alter that two-red/three-green partition, either prior red record, or
+the historical no-overwrite generator.
+
+The future red validator authenticates the fingerprint supplement and its
+historical oracle-patch digest at original fingerprint R3
+`a65c53a46e84f63c163c5ad15fba8645df33d1d2`, never against the new
+characterization bytes. It separately authenticates old fresh R3
+`929263f3376e472e0b6da53c6c4e093c10ba7465`, D27, D28, and the new R3 as
+exact Git objects; authenticates the new R3's exact three-path delta; and proves
+all three red records are inherited byte-for-byte. Its detached new-R3 replay
+runs the same ordered two red nodes and three passing controls and requires raw
+pytest exit `1`, exactly two failures and three passes, no skip/xfail/xpass or
+collection error, detached import provenance, and deterministic cleanup. It
+also separately requires the corrected general domain/observation-set oracle
+to pass at new R3. No retained JSON record or
+`tools/sci004_mmode_phase3_red.py` changes, and no generator mode is added.
+
+The future dependency validator authors
+`APPROVED_SCI004_D_SHA = <exact D28 landing commit SHA>` only after D28 exists.
+It authenticates this complete direct single-parent non-merge chain:
+`ca3c37171aaaeec175b5ad72d324957762303853` (D25) `->`
+`a65c53a46e84f63c163c5ad15fba8645df33d1d2` (original fingerprint R3)
+`->` `93321d331e4f6442d39fe79588be6f05ad4bee42` (D26) `->`
+`929263f3376e472e0b6da53c6c4e093c10ba7465` (old fresh validator-only R3)
+`->` `82fb0773890870a6fb90b3ed9b8065df89919a84` (D27) `->` D28 `->`
+the future validator-and-oracle-only R3. The old R3 continues to carry its
+historically correct D26 binding.
+
+Eventual replacement S3 retains exactly five modified and four deleted paths:
+
+- modify `src/radiosim/core/result.py`
+- modify `tools/sci004_mmode_phase3_evidence.py`
+- modify `tests/unit/test_sci004_phase3_evidence.py`
+- modify `tools/sci004_mmode_phase3_acceptance.py`
+- modify `tests/unit/test_sci004_phase3_acceptance.py`
+- delete `docs/development/sci004_mmode_phase3_evidence.json`
+- delete `docs/development/sci004_mmode_phase3_evidence.md`
+- delete
+  `output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json`
+- delete `docs/development/sci004_mmode_phase3_acceptance.json`
+
+No tenth S3 path is authorized. Eventual S3 is the direct child of the future
+post-D28 R3, uses `design_sha = D28` and `red_commit_sha = future post-D28
+R3`, authenticates the fixed historical chain through both, leaves all six
+approved bindings literal `None`, inherits all three red records byte-for-byte,
+and preserves the full production-v2 contract. It does not directly parent old
+R3, D27, or D28. Its complete gate restarts from the beginning under separate
+later authority. D28 neither modifies nor rebases the preserved S3 patch.
+
+D28 establishes design authority only. The future R3 authority is defined but
+not exercised; the production-v2 draft is preserved but uncommitted; S3 is not
+retried; and no generator, E3, A3, acceptance, or closure work is performed.
+M3 remains rejected/not accepted, SCI-004 remains ROADMAP, E3 and A3 remain
+unavailable, and closure `C` remains locked. PERF-001 remains ROADMAP, and no
+accepted accelerator-performance record exists. No accelerator, GPU, public
+diffuse/HEALPix, non-scalar-beam, public end-to-end backend-wiring, speedup,
+general-performance, PERF-001 acceptance, production-readiness,
+phase-acceptance, or closure claim is licensed. The rejected deleted
+performance draft is not accepted evidence.
+**Review status: fresh independent governance/authority and oracle/provenance
+correction reviews pending against identical pinned candidate bytes and the
+complete parent-relative diff.**
+
 **Bounded correction #27 — 2026-09-01 (correction-#26 Tier-8 prose citation
 gate).** The replacement-S3 continuation stopped fail-closed at the complete
 serial unit gate
@@ -5069,6 +5230,20 @@ authority validator parses collection and the parent-relative test diff to
 enforce that exact inventory rather than treating an arbitrary test change as
 “fixture support.”
 
+Correction #28 requires a later validator-and-oracle-only R3 directly over
+D28. That R3 may change exactly
+`tests/characterization/test_sci004_mmode.py`,
+`tests/unit/test_sci004_phase3_dependency.py`, and
+`tests/unit/test_sci004_phase3_red_failures.py`. Its characterization change
+implements only the header's exact transition-aware v1-at-R3/v2-at-S3 oracle;
+its dependency change freezes exact D28 and authenticates the complete fixed
+chain; and its red-validator change authenticates the immutable historical
+oracle at original fingerprint R3 plus the separate new-R3 delta and replay.
+No fourth path, new red record, red-generator mode, or production change is
+authorized. The future R3 must be a single-parent non-merge direct child of
+D28. Eventual replacement S3 directly parents that future R3 and retains the
+exact nine-path authority below.
+
 Correction #25's replacement S3 directly parents that fresh R3 and may change
 or delete exactly:
 
@@ -5328,6 +5503,14 @@ post-source red-delta record does not use that historical-binding exception:
 its `design_sha` equals the fresh R's operative `D`, and its separately named
 `pre_fix_source_sha` equals the exact superseded `S` whose unchanged production
 bytes the new oracle observed.
+
+For correction #28's future R3, the new dependency validator freezes exact D28
+as `APPROVED_SCI004_D_SHA`; the old R3 validator remains immutable with its
+historically correct D26 binding. The later replacement-S3 evidence envelope
+therefore uses `design_sha = D28` and independently uses `red_commit_sha =`
+the future post-D28 validator-and-oracle-only R3. A design SHA may not stand in
+for that red-commit SHA, and no ancestry search may substitute an older or
+newer design tip for either exact binding.
 
 Before trusting that value, each tool resolves the bound commit with
 `^{commit}` peeling, requires it to be a single-parent non-merge ancestor of
@@ -6594,11 +6777,12 @@ paths; D24 becomes a superseded-design chain commit and D25 is operative `D`.
 The rejected A3 is not the `A3` in the generic accepted succession and creates
 no `A3 -> C` edge. Correction #25's fresh R3 directly parents D25; its
 then-ruled replacement S3 direct-parent edge is superseded by the later
-header-recorded correction #26 and correction #27 successions. In the current
-succession, fresh validator-only R3 directly parents correction #26,
-correction #27 directly parents that R3, and eventual replacement S3 directly
-parents correction #27. The fresh E3/A3 edges remain unstarred sole-parent
-edges.
+header-recorded correction #26, correction #27, and correction #28
+successions. In the landed current succession, D27 directly parents old fresh
+validator-only R3 and D28 directly parents D27. The later ruled succession
+is D28 `->` future validator-and-oracle-only R3 `->` eventual replacement S3:
+the new R3 directly parents D28 and S3 directly parents the new R3. The fresh
+E3/A3 edges remain future unstarred sole-parent edges.
 Disposal in replacement S3 makes those fixed paths genuinely absent before
 their no-overwrite generators run; the approved-parent first-parent selection
 rule then distinguishes the fresh introductions from the immutable rejected
@@ -6614,8 +6798,9 @@ header enumerates the interval and the phase's `R` directly parents the
 operative correction commit. Each `S` directly parents its phase `R` —
 unless a Section 13.7 accepted correction has starred that edge, in
 which case `S` directly parents the operative correction commit per the
-Section 13.7 rule, as `S2` does here and eventual replacement S3 must after
-correction #27 — and
+Section 13.7 rule, as `S2` does here. Correction #28 instead explicitly
+reopens R3: eventual replacement S3 directly parents the post-D28
+validator-and-oracle-only R3 — and
 contains production plus the already tracked evidence/acceptance tools and
 validators, but no phase evidence or acceptance artifact. Each generator runs
 only at its globally clean exact `S` or `E`, respectively. Each `E` directly
@@ -6647,14 +6832,18 @@ ordered:
 CI-001 is already closed, but its successor-gate discipline still governs new
 fingerprints. SCI-005 Stage 3 is not a hidden prerequisite or a hidden claim.
 
-Correction #25 changes only the M3 fingerprint/retry design. It accepts no
+Correction #28 changes only the M3 domain-oracle transition design. It
+preserves mandatory production v2, defines but does not author a later
+three-path validator-and-oracle-only R3, and does not retry S3. It accepts no
 source or evidence, does not reverse the canonical A3 REJECT, does not accept
 M3, and does not reopen M1 or M2. SCI-004 remains ROADMAP and closure C remains
 locked until a fresh independent A3 returns ACCEPT and the later whole-row
-review independently succeeds. No accelerator, diffuse/public HEALPix,
-non-scalar-beam, public end-to-end backend-wiring, speedup, general performance,
-or unmeasured-workload claim follows from this correction or from disposal of
-the rejected drafts.
+review independently succeeds. PERF-001 remains ROADMAP, and no accepted
+accelerator-performance record exists. No accelerator, GPU, diffuse/public
+HEALPix, non-scalar-beam, public end-to-end backend-wiring, speedup,
+general-performance, production-readiness, phase-acceptance, closure, or
+unmeasured-workload claim follows from this correction or from disposal of the
+rejected drafts.
 
 Each source phase runs at minimum:
 
