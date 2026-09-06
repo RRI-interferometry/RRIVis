@@ -116,6 +116,7 @@ FINGERPRINT_RED_LAYOUT_BYTES = (
 #: Section 11's two namespaced characterization domains.
 CHARACTERIZATION_TIME_DOMAIN = "radiosim.sci004.characterization-time.v1"
 CHARACTERIZATION_INPUT_DOMAIN = "radiosim.sci004.characterization-input.v1"
+CHARACTERIZATION_INPUT_V2_DOMAIN = "radiosim.sci004.characterization-input.v2"
 
 #: The accepted phase-M2 fixture's qualified truncation and geometry.
 FAMILY_SIDEREAL_SAMPLES = 49
@@ -876,6 +877,7 @@ def test_characterization_input_preimage_is_retained_and_reconstructible(
             row["center_hz_f64be"] for row in phase_manifest["frequency_rows"]
         ],
     }
+    assert tuple(manifest) == tuple(expected)
     for manifest_key, digest_key, domain in (
         (
             "instrument_manifest",
@@ -1002,7 +1004,45 @@ def test_a_family_pin_is_a_ci001_observation_set_not_a_bare_digest() -> None:
     )
 
     assert MMODE_CHARACTERIZATION_TIME_DOMAIN == CHARACTERIZATION_TIME_DOMAIN
-    assert MMODE_CHARACTERIZATION_INPUT_DOMAIN == CHARACTERIZATION_INPUT_DOMAIN
+    if MMODE_CHARACTERIZATION_INPUT_DOMAIN == CHARACTERIZATION_INPUT_DOMAIN:
+        assert MMODE_CHARACTERIZATION_INPUT_DOMAIN == CHARACTERIZATION_INPUT_DOMAIN
+        assert FAMILY_RECORD_V1_KEYS == (
+            "family_id",
+            "raw_cube_sha256",
+            "scientific_sha256",
+            "solver_snapshot",
+            "era_utc_grid_sha256",
+            "harmonic_index_table_sha256",
+            "input_identity_sha256",
+        )
+        assert "characterization_time_manifest" not in FAMILY_RECORD_V1_KEYS
+        assert "characterization_input_manifest" not in FAMILY_RECORD_V1_KEYS
+    elif MMODE_CHARACTERIZATION_INPUT_DOMAIN == CHARACTERIZATION_INPUT_V2_DOMAIN:
+        assert CHARACTERIZATION_INPUT_DOMAIN == (
+            "radiosim.sci004.characterization-input.v1"
+        )
+        assert FAMILY_RECORD_V2_KEYS == (
+            "family_id",
+            "raw_cube_sha256",
+            "scientific_sha256",
+            "solver_snapshot",
+            "characterization_time_manifest",
+            "era_utc_grid_sha256",
+            "harmonic_index_table_sha256",
+            "characterization_input_manifest",
+            "input_identity_sha256",
+        )
+        assert tuple(
+            key for key in FAMILY_RECORD_V2_KEYS if key not in FAMILY_RECORD_V1_KEYS
+        ) == (
+            "characterization_time_manifest",
+            "characterization_input_manifest",
+        )
+    else:
+        raise AssertionError(
+            "unknown SCI-004 characterization input domain "
+            f"{MMODE_CHARACTERIZATION_INPUT_DOMAIN!r}"
+        )
     for family_id in MMODE_CHARACTERIZATION_FAMILIES:
         observations = mmode_characterization_observation_set(family_id)
         assert isinstance(observations, dict)
