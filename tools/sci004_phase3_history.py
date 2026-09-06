@@ -1,4 +1,4 @@
-"""Authenticate SCI-004 correction #30's immutable review and phase history.
+"""Authenticate SCI-004 D30 history and its exact D31 design succession.
 
 Historical review recovery is portable: D30 pins the complete retained record,
 whose original archive contributions were independently authenticated before
@@ -8,6 +8,7 @@ the author's private session directory.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -17,6 +18,22 @@ from typing import Any, cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 DESIGN_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
+OPERATIVE_DESIGN_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
+DESIGN_SUCCESSOR_PARENT = "87b16ba16c8a4ab4ff8b9e6bf213c5ce45a41bfe"
+DESIGN_SUCCESSOR_BLOBS = (
+    "4f5e61dfc03a983d0806c656e8785c656f84bc17f2c52e1fa1151639dcd16f33",
+    "0a92f7c96298a1b76aa11c1f77c63d62d204024a7b50781d6dbf1d69a16d566c",
+)
+DESIGN_SUCCESSOR_DIFF = (
+    "555d08016aab5cc29106e0a1b9bf1389a580f1300d1d9efb4e4a83e1714182e7"
+)
+DESIGN_SUCCESSOR_REVIEW_PINS = (
+    "7fc98597d564c1e2201b365392691468270e9bbcfecfb1c083d43ce4d006dc92",
+    "68a6f2bc58d954423b9294ee3c7fb0bb5a6c4e8f6302043d90e97c43b33482ae",
+    "f9d2257ef156cec2b7872eec45dd55c0dd3b69555bf4cdec3e8c00b00e818de9",
+)
+SOLVER_PATH = "src/radiosim/core/mmode/solver.py"
+SNAPSHOT_FIXTURE_PATH = "tests/unit/test_io/test_standard_visibility.py"
 PREREQUISITE_TIP_SHA = "cfad247831629241842ffecd5f7aaa5b2084493c"
 REVIEW_RECOVERY_PATH = "docs/development/sci004_review_recovery.json"
 REVIEW_RECOVERY_SHA256 = (
@@ -258,6 +275,8 @@ RED_PATHS = frozenset(
 )
 SOURCE_PATHS = frozenset(
     {
+        SOLVER_PATH,
+        SNAPSHOT_FIXTURE_PATH,
         "src/radiosim/core/result.py",
         "tools/sci004_mmode_phase3_evidence.py",
         "tests/unit/test_sci004_phase3_evidence.py",
@@ -319,6 +338,137 @@ def _commit_delta(root: Path, parent: str, commit: str) -> dict[str, str]:
     return delta
 
 
+def authenticate_design_successor(root: Path = REPOSITORY_ROOT) -> None:
+    """Authenticate the one ordinary, finalized D31 design edge and own header."""
+    commit, parent = OPERATIVE_DESIGN_SHA, DESIGN_SUCCESSOR_PARENT
+    _require(
+        _git(root, "rev-list", "--parents", "-n", "1", commit).decode().split()
+        == [commit, parent],
+        "design successor sole parent",
+    )
+    _require(
+        _commit_delta(root, parent, commit) == dict.fromkeys(DESIGN_PATHS, "M"),
+        "design successor exact paths/change kinds",
+    )
+    for path, pin in zip(DESIGN_PATHS, DESIGN_SUCCESSOR_BLOBS, strict=True):
+        _require(
+            _sha256(_git(root, "show", f"{commit}:{path}")) == pin,
+            "design successor landed blob",
+        )
+    _require(
+        _sha256(_git(root, "diff", "--binary", "--full-index", parent, commit, "--"))
+        == DESIGN_SUCCESSOR_DIFF,
+        "design successor complete diff",
+    )
+    memo = _git(root, "show", f"{commit}:{DESIGN_PATHS[1]}").decode()
+    header = memo.split("**Bounded correction #31 candidate", 1)[-1].split(
+        "**Bounded correction #30 candidate", 1
+    )[0]
+    added = "\n".join(
+        line[1:]
+        for line in _git(root, "diff", parent, commit, "--", DESIGN_PATHS[1])
+        .decode()
+        .splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    )
+    _require(
+        "**Review verification" in header
+        and "each returned exact\n`ACCEPT`" in header
+        and all(pin in header and pin in added for pin in DESIGN_SUCCESSOR_REVIEW_PINS)
+        and not set(DESIGN_SUCCESSOR_REVIEW_PINS) & set(DESIGN_SUCCESSOR_BLOBS)
+        and len({DESIGN_SUCCESSOR_REVIEW_PINS[2], DESIGN_SUCCESSOR_DIFF}) == 2,
+        "design successor ordinary own-header review pins",
+    )
+
+
+def require_design_successor(records: list[dict[str, Any]]) -> None:
+    """Require D31 once in an already Git-authenticated current red inventory."""
+    rows = [row for row in records if row["role"] == "design-successor"]
+    _require(
+        len(rows) == 1 and rows[0]["sha"] == OPERATIVE_DESIGN_SHA,
+        "current red range requires exact design successor once",
+    )
+
+
+def _bridge_ast(raw: bytes, path: str, required: bool | None) -> str:
+    """Remove only D31's exact required runtime field and same-run keyword."""
+    try:
+        tree = ast.parse(raw)
+    except (SyntaxError, ValueError) as exc:
+        raise HistoryError("source bridge requires valid Python AST") from exc
+    solver = path == SOLVER_PATH
+    fields: list[ast.AnnAssign] = []
+    scope: ast.AST = tree
+    if solver:
+        classes = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "MModeSolverSnapshot"
+        ]
+        functions = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "solve_mmode"
+        ]
+        _require(len(classes) == len(functions) == 1, "source bridge owner identity")
+        owner = classes[0]
+        fields = [
+            node
+            for node in owner.body
+            if isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "input_identity_sha256"
+        ]
+        _require(len(fields) <= 1, "source bridge field cardinality")
+        if fields:
+            field = fields[0]
+            _require(
+                isinstance(field.annotation, ast.Name)
+                and field.annotation.id == "str"
+                and field.value is None
+                and field.simple == 1,
+                "source bridge required string field",
+            )
+            owner.body.remove(field)
+        scope = functions[0]
+    calls = [
+        node
+        for node in ast.walk(scope)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "MModeSolverSnapshot"
+    ]
+    _require(len(calls) == 1, "source bridge constructor cardinality")
+    keywords = [kw for kw in calls[0].keywords if kw.arg == "input_identity_sha256"]
+    _require(len(keywords) <= 1, "source bridge keyword cardinality")
+    if keywords:
+        expression = (
+            'solved["input_identity_sha256"]'
+            if solver
+            else '_mmode_fixture_digest("input_identity")'
+        )
+        _require(
+            ast.dump(keywords[0].value)
+            == ast.dump(ast.parse(expression, mode="eval").body),
+            "source bridge same-run keyword value",
+        )
+        calls[0].keywords.remove(keywords[0])
+    present = bool(keywords)
+    _require(not solver or bool(fields) == present, "source bridge field/keyword pair")
+    _require(required is None or present == required, "source bridge required presence")
+    return ast.dump(tree)
+
+
+def _validate_bridge_delta(
+    root: Path, parent: str, commit: str, path: str, *, cumulative: bool = False
+) -> None:
+    before = _bridge_ast(
+        _git(root, "show", f"{parent}:{path}"), path, False if cumulative else None
+    )
+    after = _bridge_ast(_git(root, "show", f"{commit}:{path}"), path, True)
+    _require(before == after, "source bridge changes the preceding AST")
+
+
 def _phase_role(
     root: Path, phase: str, commit: str, parent: str, delta: dict[str, str]
 ) -> str:
@@ -332,6 +482,9 @@ def _phase_role(
         _require(set(delta.values()) == {"M"}, "status commits only modify the ledger")
         return "status"
     if phase == "red":
+        if commit == OPERATIVE_DESIGN_SHA:
+            authenticate_design_successor(root)
+            return "design-successor"
         _require(
             paths <= RED_PATHS and set(delta.values()) <= {"A", "M"},
             "red role path/change-kind boundary",
@@ -350,6 +503,8 @@ def _phase_role(
         paths <= SOURCE_PATHS and set(delta.values()) == {"M"},
         "source role path/change-kind boundary",
     )
+    for path in paths & {SOLVER_PATH, SNAPSHOT_FIXTURE_PATH}:
+        _validate_bridge_delta(root, parent, commit, path)
     return "source"
 
 
@@ -365,8 +520,9 @@ def describe_phase_range(
 
     Partial authoring ranges can be inspected with ``require_complete=False``;
     evidence/acceptance always call the complete three-range validator below.
-    This authenticates topology, paths, change kinds and exact bytes. Scientific
-    semantics, factual status prose, sentinels and phase acceptance remain checks
+    This authenticates topology, paths, change kinds, exact bytes and D31's
+    restricted runtime-bridge AST delta. Other scientific semantics, factual
+    status prose, sentinels and phase acceptance remain checks
     of the composing validators and independent reviews.
     """
     _require(phase in {"prerequisite", "red", "source"}, "unknown phase")
@@ -422,7 +578,7 @@ def describe_phase_range(
                 ),
             }
         )
-        if role != "status":
+        if role not in {"status", "design-successor"}:
             aggregate.update(delta)
         previous = commit
     if require_complete:
@@ -434,6 +590,9 @@ def describe_phase_range(
                 "frozen prerequisite range",
             )
         else:
+            if phase == "source":
+                for path in (SOLVER_PATH, SNAPSHOT_FIXTURE_PATH):
+                    _validate_bridge_delta(root, base, terminal, path, cumulative=True)
             expected = (
                 RED_PATHS if phase == "red" else SOURCE_PATHS | DISPOSAL_PINS.keys()
             )
@@ -457,9 +616,9 @@ def validate_phase_ranges(
         type(document) is dict and set(document) == {"prerequisite", "red", "source"},
         "phase_ranges keys",
     )
-    _require(design_sha == DESIGN_SHA, "phase_ranges operative design")
+    _require(design_sha == OPERATIVE_DESIGN_SHA, "phase_ranges operative design")
     endpoints = (
-        (design_sha, PREREQUISITE_TIP_SHA),
+        (DESIGN_SHA, PREREQUISITE_TIP_SHA),
         (PREREQUISITE_TIP_SHA, red_sha),
         (red_sha, source_sha),
     )
@@ -490,4 +649,6 @@ def validate_phase_ranges(
                 f"{phase} commit schema",
             )
         expected = describe_phase_range(base, terminal, phase, root=root)
+        if phase == "red":
+            require_design_successor(expected["commits"])
         _require(actual == expected, f"{phase} range differs from exact Git history")

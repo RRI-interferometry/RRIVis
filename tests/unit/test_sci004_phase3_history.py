@@ -174,6 +174,28 @@ def test_live_prerequisite_range_retains_every_commit_and_role():
     assert all(len(row["parent_diff_sha256"]) == 64 for row in result["commits"])
 
 
+SOLVER_BEFORE = b"""from dataclasses import dataclass
+@dataclass(frozen=True)
+class MModeSolverSnapshot:
+    value: str
+
+def solve_mmode():
+    solved = {'input_identity_sha256': 'identity'}
+    return MModeSolverSnapshot(value='unchanged')
+"""
+SOLVER_AFTER = SOLVER_BEFORE.replace(
+    b"    value: str", b"    input_identity_sha256: str\n    value: str"
+).replace(
+    b"value='unchanged')",
+    b"value='unchanged', input_identity_sha256=solved['input_identity_sha256'])",
+)
+FIXTURE_BEFORE = b"snapshot = MModeSolverSnapshot(value='unchanged')\n"
+FIXTURE_AFTER = FIXTURE_BEFORE.replace(
+    b"value='unchanged')",
+    b"value='unchanged', input_identity_sha256=_mmode_fixture_digest('input_identity'))",
+)
+
+
 @pytest.fixture
 def phase_objects(tmp_path, monkeypatch):
     """Synthetic Git objects only: no checkout, refs or implementation worktree."""
@@ -227,7 +249,10 @@ def phase_objects(tmp_path, monkeypatch):
 
     # Preserve real path grants, substituting only synthetic prerequisite identities
     # and rejected-artifact byte pins; production historical tests above use originals.
-    initial = dict.fromkeys(history.SOURCE_PATHS, b"before\n")
+    initial = dict.fromkeys(history.SOURCE_PATHS, b"# before\n")
+    initial[history.SOLVER_PATH] = SOLVER_BEFORE
+    initial[history.SNAPSHOT_FIXTURE_PATH] = FIXTURE_BEFORE
+    initial.update(dict.fromkeys(history.DESIGN_PATHS, b"old design\n"))
     initial.update(dict.fromkeys(history.DISPOSAL_PINS, b"rejected\n"))
     initial[history.STATUS_PATH] = b"initial status\n"
     base = commit(None, initial)
@@ -242,9 +267,39 @@ def phase_objects(tmp_path, monkeypatch):
         "DISPOSAL_PINS",
         {path: history._sha256(b"rejected\n") for path in history.DISPOSAL_PINS},
     )
-    red = commit(prerequisite, dict.fromkeys(history.RED_PATHS, b"red fixture\n"))
-    status = commit(red, {history.STATUS_PATH: b"red status\n"})
-    source = commit(status, dict.fromkeys(history.SOURCE_PATHS, b"source fixture\n"))
+    red = commit(prerequisite, dict.fromkeys(history.RED_PATHS, b"# red fixture\n"))
+    memo = (
+        "**Bounded correction #31 candidate\n**Review verification\n"
+        "each returned exact\n`ACCEPT`\n"
+        + "\n".join(history.DESIGN_SUCCESSOR_REVIEW_PINS)
+        + "\n**Bounded correction #30 candidate\n"
+    ).encode()
+    design = commit(
+        red, dict(zip(history.DESIGN_PATHS, (b"new plan\n", memo), strict=True))
+    )
+    monkeypatch.setattr(history, "OPERATIVE_DESIGN_SHA", design)
+    monkeypatch.setattr(history, "DESIGN_SUCCESSOR_PARENT", red)
+    monkeypatch.setattr(
+        history,
+        "DESIGN_SUCCESSOR_BLOBS",
+        tuple(history._sha256(raw) for raw in (b"new plan\n", memo)),
+    )
+    monkeypatch.setattr(
+        history,
+        "DESIGN_SUCCESSOR_DIFF",
+        history._sha256(
+            history._git(root, "diff", "--binary", "--full-index", red, design, "--")
+        ),
+    )
+    status = commit(design, {history.STATUS_PATH: b"red status\n"})
+    edits = dict.fromkeys(history.SOURCE_PATHS, b"# source fixture\n")
+    edits.update(
+        {
+            history.SOLVER_PATH: SOLVER_AFTER,
+            history.SNAPSHOT_FIXTURE_PATH: FIXTURE_AFTER,
+        }
+    )
+    source = commit(status, edits)
     terminal = commit(source, dict.fromkeys(history.DISPOSAL_PINS))
     return root, commit, base, prerequisite, red, status, source, terminal
 
@@ -262,16 +317,24 @@ def _phase_document(objects):
 
 
 def _validate_document(document, objects):
-    root, _, base, _, _, red, _, source = objects
+    root, _, _, _, _, red, _, source = objects
     history.validate_phase_ranges(
-        document, design_sha=base, red_sha=red, source_sha=source, root=root
+        document,
+        design_sha=history.OPERATIVE_DESIGN_SHA,
+        red_sha=red,
+        source_sha=source,
+        root=root,
     )
 
 
 def test_complete_ranges_join_git_objects_and_keep_status_and_disposal(phase_objects):
     document = _phase_document(phase_objects)
     _validate_document(document, phase_objects)
-    assert [row["role"] for row in document["red"]["commits"]] == ["red", "status"]
+    assert [row["role"] for row in document["red"]["commits"]] == [
+        "red",
+        "design-successor",
+        "status",
+    ]
     assert [row["role"] for row in document["source"]["commits"]] == [
         "source",
         "disposal",
@@ -405,3 +468,189 @@ def test_actual_git_history_rejects_role_and_topology_violations(
             start = forged
     with pytest.raises(history.HistoryError):
         history.describe_phase_range(start, end, phase, root=root)
+
+
+def test_live_d31_authentication_and_historical_range_origin():
+    history.authenticate_design_successor()
+    old = history.describe_phase_range(
+        history.PREREQUISITE_TIP_SHA, history.DESIGN_SUCCESSOR_PARENT, "red"
+    )
+    with pytest.raises(history.HistoryError, match="successor once"):
+        history.require_design_successor(old["commits"])
+    current = history.describe_phase_range(
+        history.PREREQUISITE_TIP_SHA, history.OPERATIVE_DESIGN_SHA, "red"
+    )
+    history.require_design_successor(current["commits"])
+    assert current["commits"][:-1] == old["commits"]
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        "DESIGN_SUCCESSOR_PARENT",
+        "DESIGN_SUCCESSOR_BLOBS",
+        "DESIGN_SUCCESSOR_DIFF",
+        "DESIGN_SUCCESSOR_REVIEW_PINS",
+    ],
+)
+def test_design_successor_rejects_forged_pins(phase_objects, monkeypatch, pin):
+    value = getattr(history, pin)
+    monkeypatch.setattr(
+        history,
+        pin,
+        ("0" * 64,) * len(value) if isinstance(value, tuple) else "0" * len(value),
+    )
+    with pytest.raises(history.HistoryError):
+        history.authenticate_design_successor(phase_objects[0])
+
+
+def test_no_second_design_edge_or_omitted_successor(phase_objects):
+    root, commit, _, prerequisite, red, status, _, _ = phase_objects
+    historical = history.describe_phase_range(prerequisite, red, "red", root=root)
+    with pytest.raises(history.HistoryError, match="successor once"):
+        history.require_design_successor(historical["commits"])
+    later = commit(status, {history.DESIGN_PATHS[0]: b"unauthorized design\n"})
+    with pytest.raises(history.HistoryError, match="red role"):
+        history.describe_phase_range(prerequisite, later, "red", root=root)
+
+
+@pytest.mark.parametrize(
+    "path,before,after",
+    [
+        (history.SOLVER_PATH, SOLVER_BEFORE, SOLVER_AFTER),
+        (history.SNAPSHOT_FIXTURE_PATH, FIXTURE_BEFORE, FIXTURE_AFTER),
+    ],
+)
+def test_bridge_allows_only_exact_ast_additions(phase_objects, path, before, after):
+    root, commit, _, _, _, status, _, _ = phase_objects
+    tip = commit(status, {path: after})
+    history.describe_phase_range(
+        status, tip, "source", root=root, require_complete=False
+    )
+    assert history._bridge_ast(before, path, False) == history._bridge_ast(
+        after, path, True
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "optional_field",
+        "wrong_type",
+        "wrong_key",
+        "fallback",
+        "extra_computation",
+        "serialization",
+        "field_only",
+        "keyword_only",
+        "duplicate_keyword",
+        "duplicate_field",
+        "wrong_fixture",
+        "fixture_extra",
+        "syntax",
+        "transient_change",
+        "bridge_removed",
+        "bridge_predates_source",
+    ],
+)
+def test_source_bridge_rejects_semantic_or_scope_changes(phase_objects, mutation):
+    root, commit, _, _, _, status, source, _ = phase_objects
+    path, raw = history.SOLVER_PATH, SOLVER_AFTER
+    if mutation == "optional_field":
+        raw = raw.replace(b"sha256: str", b"sha256: str = None")
+    elif mutation == "wrong_type":
+        raw = raw.replace(b"sha256: str", b"sha256: object")
+    elif mutation == "wrong_key":
+        raw = raw.replace(
+            b"solved['input_identity_sha256']", b"solved['output_sha256']"
+        )
+    elif mutation == "fallback":
+        raw = raw.replace(
+            b"solved['input_identity_sha256']", b"solved.get('input_identity_sha256')"
+        )
+    elif mutation in {"extra_computation", "transient_change"}:
+        raw += b"numerical_change = 42\n"
+    elif mutation == "serialization":
+        raw = raw.replace(
+            b"    value: str",
+            b"    def as_mapping(self): return {'extra': self.input_identity_sha256}\n    value: str",
+        )
+    elif mutation == "field_only":
+        raw = raw.replace(
+            b", input_identity_sha256=solved['input_identity_sha256']", b""
+        )
+    elif mutation == "keyword_only":
+        raw = raw.replace(b"    input_identity_sha256: str\n", b"")
+    elif mutation == "duplicate_keyword":
+        raw = raw.replace(
+            b"value='unchanged',",
+            b"value='unchanged', input_identity_sha256=solved['input_identity_sha256'],",
+        )
+    elif mutation == "duplicate_field":
+        raw = raw.replace(
+            b"    value: str", b"    input_identity_sha256: str\n    value: str"
+        )
+    elif mutation in {"wrong_fixture", "fixture_extra"}:
+        path = history.SNAPSHOT_FIXTURE_PATH
+        raw = (
+            FIXTURE_AFTER.replace(b"'input_identity'", b"'output_identity'")
+            if mutation == "wrong_fixture"
+            else FIXTURE_AFTER + b"unrelated = 1\n"
+        )
+    elif mutation == "syntax":
+        raw = b"not Python (\n"
+    elif mutation == "bridge_removed":
+        status, raw = source, SOLVER_BEFORE
+    elif mutation == "bridge_predates_source":
+        with pytest.raises(history.HistoryError, match="required presence"):
+            history._validate_bridge_delta(root, source, source, path, cumulative=True)
+        return
+    tip = commit(status, {path: raw})
+    if mutation == "transient_change":
+        tip = commit(tip, {path: SOLVER_AFTER})
+    with pytest.raises(history.HistoryError):
+        history.describe_phase_range(
+            status, tip, "source", root=root, require_complete=False
+        )
+
+
+@pytest.mark.parametrize(
+    "violation", ["pins_in_old_header", "missing_verdict", "extra_path"]
+)
+def test_rebound_design_objects_still_need_own_review_header(
+    phase_objects, monkeypatch, violation
+):
+    root, commit, _, _, red, _, _, _ = phase_objects
+    original = history._git(
+        root, "show", f"{history.OPERATIVE_DESIGN_SHA}:{history.DESIGN_PATHS[1]}"
+    )
+    if violation == "pins_in_old_header":
+        memo = original.replace(
+            b"**Review verification",
+            b"**Bounded correction #30 candidate\n**Review verification",
+        )
+    else:
+        memo = (
+            original.replace(b"`ACCEPT`", b"pending")
+            if violation == "missing_verdict"
+            else original
+        )
+    edits = {history.DESIGN_PATHS[0]: b"new plan\n", history.DESIGN_PATHS[1]: memo}
+    if violation == "extra_path":
+        edits[history.STATUS_PATH] = b"mixed status\n"
+    forged = commit(red, edits)
+    monkeypatch.setattr(history, "OPERATIVE_DESIGN_SHA", forged)
+    monkeypatch.setattr(
+        history,
+        "DESIGN_SUCCESSOR_BLOBS",
+        tuple(history._sha256(edits[path]) for path in history.DESIGN_PATHS),
+    )
+    monkeypatch.setattr(
+        history,
+        "DESIGN_SUCCESSOR_DIFF",
+        history._sha256(
+            history._git(root, "diff", "--binary", "--full-index", red, forged, "--")
+        ),
+    )
+    with pytest.raises(history.HistoryError):
+        history.authenticate_design_successor(root)
