@@ -15,6 +15,22 @@ re-verified at execution time, not trusted from here.
 
 ---
 
+**Current continuation candidate — 2026-09-07.** SCI-004 correction #30
+prospectively replaces the old single-commit/worktree M3 route with reviewed
+finite main-only prerequisite, red and source ranges, retaining separate clean
+source, evidence and independent acceptance boundaries. It authenticates original
+D28/D29 ACCEPT contributions while recording their missing historical header
+finalization honestly. This candidate supersedes the D29 authoring-route wording
+in E4, WP-9/Q5 and the historical status ledger below; those earlier records remain
+historical evidence. The maintained current implementation ledger is
+`docs/development/completion_ledger.md`. M3 is still rejected/not accepted;
+SCI-004 remains ROADMAP. Public component/beam/backend/memory/worker integration
+requires a reviewed successor after M3. PERF-001 remains ROADMAP, and no accepted
+accelerator-performance record exists. Fresh independent correction #30 physics/governance and computational/provenance
+reviews each returned ACCEPT against the identical pinned candidate recorded
+in its final header. This landing accepts the correction only, not a phase or
+whole-row closure.
+
 ## 1. The eight rows and the one that is different
 
 | Row | Status | One line |

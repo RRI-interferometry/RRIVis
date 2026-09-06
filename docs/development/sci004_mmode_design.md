@@ -32,6 +32,176 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #30 candidate — 2026-09-07 (authenticated review
+recovery and finite main-only phase ranges).** This prospective correction
+supersedes only corrections #28/#29's unfulfilled direct-child authoring route,
+Section 13.7's universal header-finalization assumption for the two exact
+historical exceptions below, and the single-commit R3/S3 requirement. All
+historical source, artifact, parent and review observations remain immutable.
+M1/M2 acceptance is unchanged; M3 remains rejected/not accepted. Neither this
+correction nor a prerequisite repair accepts production or closes SCI-004.
+
+The new programme's status-only bridge is
+`d432bcb50f60c880aca3d3e599786b9ebe62fa1c`, sole parent exact D29
+`cfc9b10d655a4d9bedbd7d7750c4743f504bbaf9`, touching only
+`docs/development/completion_ledger.md`. It accepts no phase. D30's sole parent
+is that bridge. The earlier D27/D28/D29 edges are authenticated exactly as they
+occurred, not rewritten as edges under this new rule.
+
+**Two finite historical finalization exceptions.** Original independent
+reviews exist for D28 and D29. Both commits landed the reviewed bytes, including
+the pending-review sentence, without Section 13.7's subsequent final header
+sentence. D30 records recovery of those original reviews today; it does not
+pretend either historical header contained a finalization it lacked. The
+exceptions are keyed by the complete commit identity, never by label, date,
+missing metadata, or a general permission to skip review.
+
+| Commit | Exact parent | Memo SHA-256 | Companion ledger SHA-256 | Complete parent-relative binary/full-index diff SHA-256 |
+|---|---|---|---|---|
+| `67da2b818b89511df8476b7010230c65d6cb6a75` (D28) | `82fb0773890870a6fb90b3ed9b8065df89919a84` | `043ae81935e1b3161a6e0bb60922ebe13048b4f4ca6c49c1f2a31521eb914e2c` | `fbf6eec8c2eee287d36e8fcb117fb2da8e53ac8e2d1e30d337640442488bd014` | `93b042d42892a6063b52ab2090871d8985f3e9ef47a190f2436c729198465795` |
+| `cfc9b10d655a4d9bedbd7d7750c4743f504bbaf9` (D29) | `67da2b818b89511df8476b7010230c65d6cb6a75` | `a39e9d662450a9776c88c5d322fecdbb4c739ac82b672e8be2f3019cad95d40b` | `fa860e904fce6dafe92cdc0eabfdae43b1714f131cc6ea9bb01664ee0e72e6ad` | `c589c3feae17a4dd4e4c8a1d1ef15197a4762968a84cd338bb8a1ef78d4162a4` |
+
+Both commits touch exactly `PostTier8RemediationPlan.md` and this memo.
+The recovered final review texts have these raw UTF-8 SHA-256 identities,
+without added newlines or normalization:
+
+| Design / responsibility | Original reviewer session | Final message SHA-256 |
+|---|---|---|
+| D28 governance | `01a05d05-9968-7153-a52c-985a43ec5674` | `325dd1e37c1f7ce523f533784da727b7e364ede40467e1fa45a193421d894fc4` |
+| D28 oracle/provenance | `01a05d05-d622-7302-8ed1-06979a22628f` | `41e7532617840af20493041da15b4b41dd6832aececa9f38c595b0f298c1e139` |
+| D29 governance | `01a06485-8a7a-7412-b85c-61e008764e3a` | `fa7c6ae5cd837042e94d3e6f58c27d38959287038013ed8fd41f6efac75b057c` |
+| D29 evidence/provenance | `01a06486-3ddb-78d3-98f3-a40f37f8c3c5` | `572d442592b91f50c38ff94b234ba345b59260df9b7689b4d64ed820367a1ae1` |
+
+All four original verdicts are ACCEPT. The prerequisite must retain the
+review-recovery record at `docs/development/sci004_review_recovery.json`,
+authenticated against D30's frozen recovery-record SHA-256
+`eb9b00fcdb7703cb40982bc7e445ba6e042fb45ca26bd0515387dfb644975d54`.
+It contains source session/message identities, exact archive line locators,
+readable owner continuation prompts, pin-producing tool responses, and final
+response items. Original encrypted dispatch bodies remain encrypted; this
+record makes no claim to reconstruct their plaintext.
+In particular, the short D29 governance final must be joined to its own
+session's candidate pin checks; its verdict alone is insufficient. Validators
+must authenticate all record bytes, both Git parents/path sets, both memo and
+ledger blobs, both complete diffs, and the four original contribution digests.
+Recovered reviewed bytes equal landed bytes only for these two exceptions.
+The ordinary pre-landing-versus-landed inequality remains mandatory elsewhere.
+
+Replace positional inference with a total SHA-keyed review map: its key set
+must equal the complete enumerated design continuation set, without duplicates,
+unknown entries or omissions. Ordinary entries keep their exact header pins and
+strict comparisons; these two entries require the stronger recovered-record
+joins above. Do not truncate a sequence, remove strict zip semantics from an
+ordinary pairing, manufacture a review pin, or use a preservation digest as a
+review digest. D30 and future corrections retain Section 13.7 dual independent
+review and final-header recording, with no new missing-finalization exception.
+
+**Prospective authoring and phase ranges.** All implementation and commits are
+made on main in `/Users/kartikmandar/MacProjects/RadioSim`. Exact-SHA detached
+checkouts/exports are permitted solely as immutable verification fixtures.
+The verified external recovery bundle may park/reconstruct the identified
+original drafts using explicit paths. Before source acceptance every original
+hunk must have a retained/corrected/superseded/obsolete disposition with evidence;
+no entire overlapping candidate file may silently replace the primary draft.
+
+The prospective sequence is D30 -> P -> R3-range -> S3-range -> E3 -> A3.
+P is a finite prerequisite-maintenance range. Each commit has one of these
+roles, authenticated from its actual paths and content, never its message:
+
+- `review-recovery`: only the frozen recovery JSON above.
+- `frame-regression`: only `tests/unit/test_core/test_sci004_frame.py`.
+- `frame-context-repair`: only `src/radiosim/core/mmode/solver.py` and/or
+  `src/radiosim/core/mmode/frame.py`, restricted to making the operational
+  horizon/sign evaluations use the same authenticated installed IERS context.
+  A reproducing ambient-table regression and two independent scientific/code
+  reviews are required. No root/slab membership, transform, tolerance, budget,
+  accepted fingerprint or historical source byte may be changed under this role.
+  If diagnosis requires a different scientific change, review a successor
+  contract before implementing it. An unused frame role contributes no commit.
+- `status`: only `docs/development/completion_ledger.md`, factual progress and
+  exact existing commit/evidence identities, never acceptance or contract text.
+
+R3-range comprises small coherent prerequisite/oracle/validator commits whose
+aggregate scientific path inventory is exactly D29's five-path R3 grant, plus
+`tools/sci004_phase3_history.py` for strict range/recovery authentication and
+`tests/unit/test_sci004_phase3_history.py` for its hostile mutation tests.
+Status-only commits may appear explicitly in P or R3-range. R3 contains no
+production edits or new historical red observations. The terminal R3 tip is
+frozen by exact SHA in the first S3 implementation's evidence-tool constant;
+that assignment is source metadata, not an approved-evidence sentinel.
+R3's design binding is exact D30. Original fingerprint R3 remains exact
+`a65c53a46e84f63c163c5ad15fba8645df33d1d2`; its two-red/three-control replay and
+all three disjoint 29 + 6 + 2 red records retain their original source/design
+bindings, especially D24 and D25. Replay must set explicit historical source
+path and `PYTHONNOUSERSITE=1`, and assert `radiosim.__file__` lies beneath that
+exact historical tree before observation. Wrong imports, collection failures,
+frame failures, or absent nodes do not substitute for expected failures.
+
+S3-range comprises coherent source commits restricted to D29's five modified
+paths and four authenticated rejected-artifact disposals, plus factual
+completion-ledger updates. Each disposal is isolated from unrelated work; all
+four outputs must be absent and all six approved evidence/acceptance constants
+literal None at terminal S3. R3 oracle/history files cannot change in S3.
+The terminal S3 tip must be globally clean, contain the complete reviewed v2
+production/input/evidence contract, and discharge the full current-phase gates.
+Intermediate source slices require relevant focused tests and static checks;
+they cannot claim phase acceptance. E3 generation runs only at that exact clean
+terminal tip and retains its exact source identity. The underlying production
+v2 schema, nine-key family record and scientific numerical predicates are
+unchanged by this correction.
+
+The M3 evidence envelope adds exactly one top-level `phase_ranges` object with
+keys `prerequisite`, `red`, `source`. Each value has exact keys `base_sha`,
+`terminal_sha`, `commits`. `commits` is the complete ordered first-parent list
+for the exclusive-base/inclusive-terminal range. Each entry has exact keys
+`sha`, `parent_sha`, `role`, `paths`, `parent_diff_sha256`; paths are sorted,
+unique repository-relative touched paths, and the digest covers raw
+`git diff --no-ext-diff --binary --full-index <parent> <sha> --` bytes. Every SHA must be a
+real single-parent non-merge and each parent the preceding tip. P's base is
+D30, red's base P's terminal, source's base red's terminal; source terminal
+must equal the envelope's `source_sha`, red terminal its `red_commit_sha`.
+An empty P has terminal equal base and empty commits; red and source are
+nonempty. The evidence validator recomputes every entry and role, full range
+coverage, and aggregate path/content authority. Missing, extra, reordered,
+wrong-role, wrong-parent, wrong-design or wrong-digest entries reject. All
+non-status R3/S3 commits use `red`/`source` roles respectively, with source
+artifact-deletion entries using `disposal`; each role preserves its exact
+content restrictions. No status commit is silently skipped.
+
+E3 is still one sole-parent direct child of terminal S3, with only its existing
+generated artifacts/reproduction/performance and exact evidence-binding
+assignments. A3 is still one sole-parent direct child of E3, with only its
+existing independent acceptance artifact/bindings and authorized status prose.
+A ledger companion hunk in E3/A3 is permitted only to report those same
+outcomes, not change authority. An E3/A3 logic/source edit remains invalid.
+The active approved-parent first-child rule still selects current attempts;
+rejected predecessors are separately authenticated and never eligible. A3
+must independently rederive the new range/recovery joins as well as all
+existing numerical/schema/manual rejection checks. E3 generator success is
+not acceptance. A later whole-row review remains separate.
+
+This finite range rule applies to the reopened M3 only. Public HEALPix/hybrid,
+stationary non-scalar beam/Jones, real backend/precision/memory/worker wiring
+require a separately reviewed successor contract and public execution evidence.
+PERF-001 remains ROADMAP, and no accepted accelerator-performance record exists.
+SCI-004 remains ROADMAP; closure C stays locked. Original numerical thresholds,
+accepted artifacts and scientific conventions are unchanged.
+**Review status: fresh independent physics/governance and computational/
+provenance reviews pending against identical complete candidate pins.**
+**Review verification — 2026-09-07.** Fresh independent reviewers
+`/root/d30_physics_review` and `/root/d30_provenance_review` each returned exact
+`ACCEPT` against identical complete round-1 candidate bytes: memo
+`sha256:bd1040b817360cba11261b5a0aa68453bba0b6e55cd9d7a86e6cf3764fd141a1`,
+companion ledger
+`sha256:d0d15132cc9675b755be47dbf27aba3d5f6ed0af63be380a653fa8593fafb438`,
+and full parent-relative binary/full-index diff
+`sha256:6180f9ecc34cc187d17d61b749de5102d0e49d904aaecb272e19449a655cae2c`.
+Both independently authenticated the original four reviewer sessions and all
+20 retained raw archive line records against their candidate pins. Only this
+final review-verification record and the companion verdict completion postdate
+the reviewed bytes under Section 13.7. This landing becomes operative D30;
+it accepts no production phase.
+
 **Bounded correction #29 — 2026-09-03 (historical red-record design
 binding).** The D28-based future-R3 attempt stopped fail-closed at pre-review
 gate 9, the complete serial unit suite. Gates 1--8 passed, but those results
