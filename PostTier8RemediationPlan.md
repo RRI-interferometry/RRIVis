@@ -15,6 +15,26 @@ re-verified at execution time, not trusted from here.
 
 ---
 
+**Current continuation #31 candidate — 2026-09-07.** The preserved S3
+characterization draft cannot authenticate its complete supplied input against
+the actual run because the public m-mode snapshot discards the pipeline's
+input digest. SCI-004 correction #31 prospectively grants the narrow immutable
+runtime digest bridge and one synthetic constructor repair while preserving the
+twenty serialized solver keys and all numerical algorithms. It admits only its
+own exact reviewed design edge inside the still-open D30 red range, retaining
+D30 as range origin and D31 as operative design. The original five S source
+paths and four disposals remain; the two narrow additions yield eleven paths.
+The source-readiness gate and delayed last disposal keep generation closed
+until the complete source contract is present. This supersedes only the stated
+D30 path/role restrictions; original evidence and review history is unchanged.
+M3 remains rejected/not accepted and SCI-004 remains ROADMAP. Public integration
+still requires its later successor. PERF-001 remains ROADMAP, and no accepted
+accelerator-performance record exists. Fresh independent correction reviews
+each returned ACCEPT against the identical pinned candidate recorded in the
+final D31 header. This landing accepts the correction only, not a phase.
+
+The following correction-#30 continuation record is retained historically.
+
 **Current continuation candidate — 2026-09-07.** SCI-004 correction #30
 prospectively replaces the old single-commit/worktree M3 route with reviewed
 finite main-only prerequisite, red and source ranges, retaining separate clean

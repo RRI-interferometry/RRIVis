@@ -32,6 +32,149 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #31 candidate — 2026-09-07 (same-run characterization
+input ownership).** Preparatory review of the preserved replacement-S3 draft
+found an actual input-provenance gap: `_mmode_pipeline` constructs and retains
+`input_identity_sha256`, but `solve_mmode` discards it when constructing
+`MModeSolverSnapshot`. The result receives that snapshot and no sky/request.
+Its direct gate contains output identities, and its frame-certificate digest
+cannot reveal the input member without the absent certificate preimage.
+Rehashing a supplied phase manifest therefore cannot by itself prove that it
+describes the run which produced the result. Closed schemas and joins to the
+result's visible instrument/time/beam/Jones surfaces remain necessary, but
+cannot recover discarded input ownership.
+
+This prospective correction permits only the narrow runtime identity bridge
+below and the validator changes needed to authenticate its finite succession.
+It changes no numerical algorithm, tolerance, serialized solver snapshot,
+historical record, accepted scientific convention, or M3 family inventory.
+It accepts no R/S phase or M3; the existing red range is still open.
+
+**Exact design edge and range origin.** D31 is one real single-parent,
+non-merge, design-only commit whose sole parent is
+`87b16ba16c8a4ab4ff8b9e6bf213c5ce45a41bfe` and whose paths are exactly
+`docs/development/sci004_mmode_design.md` and
+`PostTier8RemediationPlan.md`. Section 13.7's ordinary dual independent review,
+pre-landing pins, final own-header verification, and landed blob/diff checks
+apply. D31 creates no additional historical review exception.
+
+For this one prospective edge only, D31 supersedes D30's prohibition on design
+paths inside the still-open red range. The existing range origin remains D30
+`d3ddb10ae01ab450f5337d06c9588ce8144cf1e5`; the operative design becomes exact
+D31 after its landing. Validators retain separate identities for those roles.
+The sequence is:
+
+```text
+D30 -> frozen P -> existing R commits -> exact D31 -> remaining R commits
+    -> terminal R -> S range -> E -> A
+```
+
+The prerequisite range remains the exact previously ruled four-commit range,
+ending at `cfad247831629241842ffecd5f7aaa5b2084493c`. Every preceding P/R entry
+retains its actual parent, paths, raw complete diff digest and original role.
+D31 is recorded exactly once in the complete ordered red inventory with role
+`design-successor`. That role is valid only for the finalized exact D31 SHA,
+its exact sole parent and two paths, and independently authenticated ordinary
+review/header/blob/diff joins. It is not permission for another design edge.
+The aggregate R scientific inventory remains D30's exact seven paths; only
+factual status entries and this one authenticated design entry are excluded
+from that aggregate. No unknown role or unenumerated path may be ignored.
+
+The `phase_ranges` schema stays exactly D30's three keys and closed entry
+schema. Prerequisite base is D30; red base is the frozen P terminal; source
+base is the newly frozen terminal R. E's operative `design_sha` is D31,
+not the prerequisite base. The first S commit still introduces one literal
+`SCI004_R3_TERMINAL_SHA` equal to its actual sole parent, absent throughout
+all preceding R commits. Existing exact-87b16ba replay observations remain
+observations of that source; they do not certify a later unexecuted tip.
+The terminal R must pass the complete current governed red/characterization,
+dependency, Tier-8, serial unit and static gates before S begins.
+
+**Narrow additional source ownership.** S retains D30's original five modified
+paths and four authenticated disposals. It additionally modifies exactly:
+
+- `src/radiosim/core/mmode/solver.py`: add a required immutable runtime
+  `input_identity_sha256` field to `MModeSolverSnapshot`, and populate it from
+  the same successful `_mmode_pipeline` result's `solved["input_identity_sha256"]`
+  when `solve_mmode` constructs that snapshot. Necessary field documentation
+  is allowed. No second solve, mutable request/config reconstruction, output
+  digest substitution, optional fallback, or scientific computation change is
+  permitted. Removing only that field/documentation and constructor keyword
+  from the candidate AST must recover the preceding solver AST exactly.
+- `tests/unit/test_io/test_standard_visibility.py`: supply the required
+  runtime identity in its existing explicitly synthetic snapshot constructor.
+  Removing that keyword must recover the preceding test AST exactly. This
+  fixture repair is not the provenance regression or a real-run observation.
+
+Thus terminal S has exactly seven modified implementation/test paths plus the
+four disposals, with D30's factual ledger allowance unchanged. The five original
+S paths remain genuine source modifications. No whole donor file is authorized
+as a replacement for hunk-level composition.
+
+Within the existing `src/radiosim/core/result.py` grant, the production v2
+characterization factory must independently canonicalize and hash its supplied
+complete phase manifest and require exact equality to the solver-owned runtime
+identity. A missing, malformed or mismatching identity raises
+`InvalidResultError` before a record is returned. It may expose that runtime
+identity through the existing provenance wrapper. All D25 closed-schema,
+path-independent preimage, adjacent digest, visible-result and same-run joins
+remain mandatory; a matching runtime digest does not waive those checks.
+The anchor identifies the ruled phase-input projection, including evaluated
+Stokes, run frequencies and active-frequency masks; it does not claim to
+retain analytic spectral parameters omitted from that projection.
+
+`as_mapping()`, `to_snapshot()`, the solver snapshot digest and the exact twenty
+serialized scientific keys remain byte-for-byte unchanged for equal prior
+fields. The bridge adds no field to HDF5, summary, UVFITS or Measurement Set
+snapshots, changes no unrelated direct-RIME identity, and grants no runtime
+identity to a loaded snapshot which lacks it. Production characterization
+continues to require the live result of the actual solve.
+
+The existing source test grant `tests/unit/test_sci004_phase3_evidence.py` may
+add decisive bridge tests: the public adapter must copy the pipeline's exact
+identity, a rehashed foreign phase preimage must fail against an unchanged
+result, and missing/invalid ownership must fail. An isolated synthetic pipeline
+may test the copy boundary but cannot replace the actual public-run same-input
+check and numerical/serialized-identity regression at source verification.
+The source range validator authenticates the two additional paths and their
+restricted AST deltas; independent reviewers inspect the complete source diff.
+
+**Readiness and acceptance.** First S adds the exact runtime R binding and a
+strict pre-measurement source-readiness check. It derives readiness from exact
+clean HEAD, complete authenticated P/R/S ranges with D31's eleven-path source
+aggregate, all four rejected outputs absent, all six approved constants AST
+literal None, and the complete production v2 and evidence/range schema. The
+last rejected-artifact disposal occurs only after source/evidence/acceptance
+logic is complete, keeping intermediate generation closed without a new
+readiness flag. Declarations alone do not prove correctness: complete source
+gates and fresh independent review remain required at the exact terminal S.
+E and A retain their sole-parent boundaries and restricted contents. A must
+independently rederive both design identities, the exact D31 role, the runtime
+input bridge and the full v2/output/performance joins; generator success is
+not independent acceptance.
+
+Original D24/D25/a65 observations, all 29 + 6 + 2 red inventories, and D30's
+two recovered-review exceptions are unchanged. M3 remains rejected/not
+accepted; SCI-004 remains ROADMAP and closure C remains locked. Public
+HEALPix/hybrid, non-scalar beam/Jones and real backend/precision/memory/worker
+integration still require their separate successor. PERF-001 remains ROADMAP,
+and no accepted accelerator-performance record exists.
+**Review status: fresh independent physics/governance and computational/
+provenance reviews pending against identical complete candidate pins.**
+
+**Review verification — 2026-09-07.** Fresh independent reviewers
+`/root/d30_physics_review` and `/root/d30_provenance_review` each returned exact
+`ACCEPT` against identical complete round-1 candidate bytes: memo
+`sha256:7fc98597d564c1e2201b365392691468270e9bbcfecfb1c083d43ce4d006dc92`,
+companion plan
+`sha256:68a6f2bc58d954423b9294ee3c7fb0bb5a6c4e8f6302043d90e97c43b33482ae`,
+and complete parent-relative binary/full-index diff
+`sha256:f9d2257ef156cec2b7872eec45dd55c0dd3b69555bf4cdec3e8c00b00e818de9`.
+Both independently reconstructed the frozen candidate from exact parent blobs.
+Only this verification record and the companion verdict completion postdate
+the reviewed bytes under Section 13.7. This landing becomes operative D31;
+it accepts the correction only, not a production phase.
+
 **Bounded correction #30 candidate — 2026-09-07 (authenticated review
 recovery and finite main-only phase ranges).** This prospective correction
 supersedes only corrections #28/#29's unfulfilled direct-child authoring route,
