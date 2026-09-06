@@ -2833,7 +2833,9 @@ def _red_commit_sha() -> str:
             )
     if (
         dependency.APPROVED_SCI004_D_SHA != _design_sha()
-        or history.DESIGN_SHA != dependency.APPROVED_SCI004_D_SHA
+        or history.OPERATIVE_DESIGN_SHA != dependency.APPROVED_SCI004_D_SHA
+        or dependency.D30_SHA != _frozen_binding("D30_SHA")
+        or history.DESIGN_SHA != dependency.D30_SHA
     ):
         raise EvidenceError(
             PREFLIGHT, "terminal R3 loaded design differs from frozen binding"
@@ -3040,7 +3042,7 @@ def validate_evidence_artifact(document: Any) -> dict[str, Any]:
     _require(
         envelope["design_sha"] == _design_sha(),
         DIGEST,
-        "design_sha must name the current frozen operative D30 binding",
+        "design_sha must name the current frozen operative D31 binding",
     )
     red_commit = _red_commit_sha()
     _require(

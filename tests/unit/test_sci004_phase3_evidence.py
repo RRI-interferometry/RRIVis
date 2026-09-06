@@ -97,7 +97,8 @@ FINGERPRINT_RED_RECORD_SHA256 = (
 )
 FINGERPRINT_DESIGN_SHA = "ca3c37171aaaeec175b5ad72d324957762303853"
 ORIGINAL_FINGERPRINT_R3_SHA = "a65c53a46e84f63c163c5ad15fba8645df33d1d2"
-CURRENT_D30_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
+CURRENT_D31_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
+RANGE_ORIGIN_D30_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
 HISTORICAL_RED_RECORD_SHA256 = (
     "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
 )
@@ -1286,7 +1287,7 @@ def test_the_design_sha_is_the_frozen_binding_not_a_memo_tip_search() -> None:
     module = _tool()
     frozen = module._frozen_binding("APPROVED_SCI004_D_SHA")
     assert GIT_SHA.fullmatch(frozen)
-    assert frozen == CURRENT_D30_SHA
+    assert frozen == CURRENT_D31_SHA
     assert module._design_sha() == frozen
     source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
     assert '"--", "docs/development/sci004_mmode_design.md"' not in source, (
@@ -1309,11 +1310,11 @@ def test_the_frozen_design_binding_is_read_from_the_dependency_validator() -> No
 
 
 def test_current_and_historical_design_roles_are_exact_and_distinct() -> None:
-    """Correction #29 keeps current D30, historical D24/D25, and R3 separate."""
+    """Correction #31 separates operative D31, range-origin D30 and red history."""
     module = _tool()
     post_source = json.loads((REPOSITORY_ROOT / POST_SOURCE_RED_RECORD).read_bytes())
     fingerprint = json.loads((REPOSITORY_ROOT / FINGERPRINT_RED_RECORD).read_bytes())
-    assert module._design_sha() == CURRENT_D30_SHA
+    assert module._design_sha() == CURRENT_D31_SHA
     assert post_source["design_sha"] == POST_SOURCE_DESIGN_SHA
     assert fingerprint["design_sha"] == FINGERPRINT_DESIGN_SHA
     assert (
@@ -1321,7 +1322,7 @@ def test_current_and_historical_design_roles_are_exact_and_distinct() -> None:
             {
                 POST_SOURCE_DESIGN_SHA,
                 FINGERPRINT_DESIGN_SHA,
-                CURRENT_D30_SHA,
+                CURRENT_D31_SHA,
                 ORIGINAL_FINGERPRINT_R3_SHA,
             }
         )
@@ -1333,7 +1334,7 @@ def test_current_and_historical_design_roles_are_exact_and_distinct() -> None:
     assert anchor.commit not in {
         POST_SOURCE_DESIGN_SHA,
         FINGERPRINT_DESIGN_SHA,
-        CURRENT_D30_SHA,
+        RANGE_ORIGIN_D30_SHA,
         ORIGINAL_FINGERPRINT_R3_SHA,
     }
     if anchor.role == "pre-commit-authoring-tip":
@@ -1342,6 +1343,7 @@ def test_current_and_historical_design_roles_are_exact_and_distinct() -> None:
         ):
             module._red_commit_sha()
     else:
+        assert anchor.commit != CURRENT_D31_SHA
         assert module._red_commit_sha() == anchor.commit
 
 
@@ -1369,18 +1371,63 @@ def test_terminal_r3_rejects_cached_validators_from_another_checkout(
         module._red_commit_sha()
 
 
-@pytest.mark.parametrize("target", ["dependency", "history"])
-def test_terminal_r3_rejects_stale_loaded_design_bindings(monkeypatch, target):
+@pytest.mark.parametrize(
+    "target,field,replacement",
+    [
+        ("dependency", "APPROVED_SCI004_D_SHA", POST_SOURCE_DESIGN_SHA),
+        ("history", "OPERATIVE_DESIGN_SHA", POST_SOURCE_DESIGN_SHA),
+        ("dependency", "APPROVED_SCI004_D_SHA", RANGE_ORIGIN_D30_SHA),
+        ("history", "OPERATIVE_DESIGN_SHA", RANGE_ORIGIN_D30_SHA),
+        ("dependency", "D30_SHA", CURRENT_D31_SHA),
+        ("history", "DESIGN_SHA", CURRENT_D31_SHA),
+    ],
+)
+def test_terminal_r3_rejects_stale_loaded_design_bindings(
+    monkeypatch, target, field, replacement
+):
     from tests.unit import test_sci004_phase3_dependency as dependency
     from tools import sci004_phase3_history as history
 
     module = _tool()
-    peer, field = (
-        (dependency, "APPROVED_SCI004_D_SHA")
-        if target == "dependency"
-        else (history, "DESIGN_SHA")
+    peer = dependency if target == "dependency" else history
+    monkeypatch.setattr(peer, field, replacement)
+    with pytest.raises(module.EvidenceError, match="loaded design differs"):
+        module._red_commit_sha()
+
+
+def test_terminal_r3_preserves_distinct_range_origin_and_operative_design(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+
+    from tests.unit import test_sci004_phase3_dependency as dependency
+    from tools import sci004_phase3_history as history
+
+    module = _tool()
+    assert history.DESIGN_SHA == dependency.D30_SHA == RANGE_ORIGIN_D30_SHA
+    assert (
+        history.OPERATIVE_DESIGN_SHA
+        == dependency.APPROVED_SCI004_D_SHA
+        == CURRENT_D31_SHA
     )
-    monkeypatch.setattr(peer, field, POST_SOURCE_DESIGN_SHA)
+    assert module._frozen_binding("D30_SHA") == RANGE_ORIGIN_D30_SHA
+    assert module._design_sha() == CURRENT_D31_SHA
+    terminal = "f" * 40
+    monkeypatch.setattr(
+        dependency,
+        "resolve_r3_replay_anchor",
+        lambda: SimpleNamespace(role="r3", commit=terminal),
+    )
+    assert module._red_commit_sha() == terminal
+
+
+def test_terminal_r3_rejects_jointly_substituted_range_origin(monkeypatch):
+    from tests.unit import test_sci004_phase3_dependency as dependency
+    from tools import sci004_phase3_history as history
+
+    module = _tool()
+    monkeypatch.setattr(dependency, "D30_SHA", CURRENT_D31_SHA)
+    monkeypatch.setattr(history, "DESIGN_SHA", CURRENT_D31_SHA)
     with pytest.raises(module.EvidenceError, match="loaded design differs"):
         module._red_commit_sha()
 
@@ -1426,17 +1473,17 @@ def _mutate_retained_record(
     (
         (POST_SOURCE_RED_RECORD, SIXTY_FOUR, "correction #24's D"),
         (FINGERPRINT_RED_RECORD, SIXTY_FOUR, "fingerprint red record"),
-        (POST_SOURCE_RED_RECORD, CURRENT_D30_SHA, "correction #24's D"),
-        (FINGERPRINT_RED_RECORD, CURRENT_D30_SHA, "fingerprint red record"),
+        (POST_SOURCE_RED_RECORD, CURRENT_D31_SHA, "correction #24's D"),
+        (FINGERPRINT_RED_RECORD, CURRENT_D31_SHA, "fingerprint red record"),
     ),
 )
-def test_historical_design_mutation_or_current_d30_substitution_is_rejected(
+def test_historical_design_mutation_or_current_d31_substitution_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
     path: str,
     replacement: str,
     expected: str,
 ) -> None:
-    """D24 and D25 reject both independent mutation and D30 substitution."""
+    """D24 and D25 reject both independent mutation and D31 substitution."""
     module = _tool()
     _mock_red_binding_for_historical_checks(module, monkeypatch)
     _mutate_retained_record(
@@ -1453,7 +1500,7 @@ def test_historical_design_mutation_or_current_d30_substitution_is_rejected(
 @pytest.mark.parametrize(
     "historical_design", [POST_SOURCE_DESIGN_SHA, FINGERPRINT_DESIGN_SHA]
 )
-def test_a_historical_design_cannot_replace_the_current_d30_envelope_binding(
+def test_a_historical_design_cannot_replace_the_current_d31_envelope_binding(
     historical_design: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1465,7 +1512,7 @@ def test_a_historical_design_cannot_replace_the_current_d30_envelope_binding(
     document["red_failure_record"] = module._red_failure_record_reference(
         document["red_commit_sha"]
     )
-    with pytest.raises(module.EvidenceError, match="current frozen operative D30"):
+    with pytest.raises(module.EvidenceError, match="current frozen operative D31"):
         module.validate_evidence_artifact(document)
 
 
@@ -1475,8 +1522,8 @@ def test_a_design_sha_cannot_stand_in_for_red_commit_sha(
     module = _tool()
     _mock_red_binding_for_historical_checks(module, monkeypatch)
     document = _synthetic_document(module)
-    document["design_sha"] = CURRENT_D30_SHA
-    document["red_commit_sha"] = CURRENT_D30_SHA
+    document["design_sha"] = CURRENT_D31_SHA
+    document["red_commit_sha"] = CURRENT_D31_SHA
     document["red_failure_record"] = module._red_failure_record_reference(
         module._red_commit_sha()
     )
@@ -2081,7 +2128,7 @@ def test_the_artifact_validator_authenticates_the_fresh_r3_and_both_inputs(
     _mock_red_binding_for_historical_checks(module, monkeypatch)
     document = _synthetic_document(module)
     red_commit = module._red_commit_sha()
-    document["design_sha"] = CURRENT_D30_SHA
+    document["design_sha"] = CURRENT_D31_SHA
     document["red_commit_sha"] = red_commit
     document["red_failure_record"] = module._red_failure_record_reference(red_commit)
     module.validate_evidence_artifact(document)
