@@ -52,9 +52,11 @@ import math
 import os
 import re
 import shutil
+import site
 import struct
 import subprocess
 import sys
+import sysconfig
 import tempfile
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -71,6 +73,15 @@ from tests.unit.test_sci004_phase3_dependency import (
     APPROVED_SCI004_G3_SHA,
     D24_SHA,
     D25_SHA,
+    D26_SHA,
+    D27_SHA,
+    D28_SHA,
+    D29_SHA,
+    D30_STATUS_BRIDGE_SHA,
+    DESIGN_LEDGER_PATH,
+    DESIGN_MEMO_PATH,
+    OLD_FRESH_VALIDATOR_R3_PATHS,
+    OLD_FRESH_VALIDATOR_R3_SHA,
     ORIGINAL_FINGERPRINT_R3_SHA,
     REJECTED_A3_SHA,
     REJECTED_E3_SHA,
@@ -78,9 +89,7 @@ from tests.unit.test_sci004_phase3_dependency import (
     SUPERSEDED_FINGERPRINT_S3_SHA,
     resolve_r3_replay_anchor,
 )
-from tests.unit.test_sci004_phase3_dependency import (
-    R3_AUTHORIZED_PATHS as VALIDATOR_ONLY_R3_AUTHORIZED_PATHS,
-)
+from tools import sci004_phase3_history as phase_history
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
@@ -1451,12 +1460,21 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
         REJECTED_A3_SHA,
         D25_SHA,
         ORIGINAL_FINGERPRINT_R3_SHA,
+        D26_SHA,
+        OLD_FRESH_VALIDATOR_R3_SHA,
+        D27_SHA,
+        D28_SHA,
+        D29_SHA,
+        D30_STATUS_BRIDGE_SHA,
         APPROVED_SCI004_D_SHA,
     )
     previous = _git("rev-parse", f"{D24_SHA}^").strip()
     for commit in chain:
         assert _peel_to_commit(commit) == commit
-        assert _git("rev-parse", f"{commit}^").strip() == previous
+        assert _git("rev-list", "--parents", "-n", "1", commit).split() == [
+            commit,
+            previous,
+        ]
         previous = commit
     anchor = resolve_r3_replay_anchor()
     assert _git("rev-parse", f"{ORIGINAL_FINGERPRINT_R3_SHA}^").strip() == D25_SHA
@@ -1472,20 +1490,56 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
         )
     )
     assert original_changed == tuple(sorted(FINGERPRINT_R3_AUTHORIZED_PATHS))
-    if anchor.role == "r3":
-        assert _git("rev-parse", f"{anchor.commit}^").strip() == (APPROVED_SCI004_D_SHA)
-        changed = tuple(
+    assert tuple(
+        sorted(
+            _git(
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                D26_SHA,
+            ).split()
+        )
+    ) == (DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH)
+    assert (
+        tuple(
             sorted(
                 _git(
                     "diff-tree",
                     "--no-commit-id",
                     "--name-only",
                     "-r",
-                    anchor.commit,
+                    OLD_FRESH_VALIDATOR_R3_SHA,
                 ).split()
             )
         )
-        assert changed == tuple(sorted(VALIDATOR_ONLY_R3_AUTHORIZED_PATHS))
+        == OLD_FRESH_VALIDATOR_R3_PATHS
+    )
+    for design in (D27_SHA, D28_SHA, D29_SHA, APPROVED_SCI004_D_SHA):
+        assert tuple(
+            sorted(
+                _git(
+                    "diff-tree",
+                    "--no-commit-id",
+                    "--name-only",
+                    "-r",
+                    design,
+                ).split()
+            )
+        ) == (DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH)
+    assert _git(
+        "diff-tree", "--no-commit-id", "--name-only", "-r", D30_STATUS_BRIDGE_SHA
+    ).splitlines() == [phase_history.STATUS_PATH]
+    assert anchor.role in {"r3", "pre-commit-authoring-tip"}
+    phase_history.describe_phase_range(
+        phase_history.PREREQUISITE_TIP_SHA,
+        anchor.commit,
+        "red",
+        root=REPOSITORY_ROOT,
+        require_complete=anchor.role == "r3",
+    )
+    if anchor.role == "pre-commit-authoring-tip":
+        assert anchor.commit == _peel_to_commit("HEAD")
 
 
 def test_the_fingerprint_supplement_binds_both_immutable_prior_records(
@@ -1510,6 +1564,28 @@ def test_the_fingerprint_supplement_binds_both_immutable_prior_records(
         fingerprint_post_source_record["correction24_post_source_red_record_sha256"]
         == CORRECTION24_POST_SOURCE_RED_RECORD_SHA256
     )
+
+
+def test_all_three_red_records_are_inherited_byte_for_byte_at_the_live_r3() -> None:
+    """Every D30 red-range tip inherits the exact three historical records."""
+    anchor = resolve_r3_replay_anchor()
+    for relative, expected_sha256, original in (
+        (RECORD_PATH, HISTORICAL_RED_RECORD_SHA256, HISTORICAL_RED_SLICE_SHA),
+        (
+            POST_SOURCE_RECORD_PATH,
+            CORRECTION24_POST_SOURCE_RED_RECORD_SHA256,
+            SUPERSEDED_FINGERPRINT_R3_SHA,
+        ),
+        (
+            FINGERPRINT_POST_SOURCE_RECORD_PATH,
+            FINGERPRINT_SUPPLEMENT_SHA256,
+            ORIGINAL_FINGERPRINT_R3_SHA,
+        ),
+    ):
+        raw = (REPOSITORY_ROOT / relative).read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == expected_sha256
+        assert raw == _tree_blob(original, relative)
+        assert raw == _tree_blob(anchor.commit, relative)
 
 
 def test_the_fingerprint_oracle_patch_digest_uses_the_exact_governed_framing(
@@ -1621,6 +1697,7 @@ def test_all_three_red_records_form_the_exact_disjoint_expected_red_union(
         [str(case["test_nodeid"]) for case in document["cases"]]
         for document in (record, post_source_record, fingerprint_post_source_record)
     ]
+    assert [len(rows) for rows in inventories] == [29, 6, 2]
     assert set(inventories[0]).isdisjoint(inventories[1])
     assert set(inventories[0]).isdisjoint(inventories[2])
     assert set(inventories[1]).isdisjoint(inventories[2])
@@ -1745,8 +1822,27 @@ def _validate_fingerprint_replay_import(stdout: bytes, worktree: Path) -> Path:
             "detached radiosim import path cannot be resolved"
         ) from exc
     assert imported.is_file()
+    assert detached_package.is_relative_to(worktree.resolve(strict=True) / "src")
     assert imported.is_relative_to(detached_package)
     assert not imported.is_relative_to(invoking_src)
+    registered_worktrees = {
+        Path(line.removeprefix("worktree ")).resolve()
+        for line in _git("worktree", "list", "--porcelain").splitlines()
+        if line.startswith("worktree ")
+    }
+    for registered in registered_worktrees - {worktree.resolve()}:
+        assert not imported.is_relative_to(registered)
+    site_paths = {
+        Path(path).resolve()
+        for path in (
+            site.getusersitepackages(),
+            sysconfig.get_path("purelib"),
+            sysconfig.get_path("platlib"),
+        )
+        if path
+    }
+    for site_path in site_paths:
+        assert not imported.is_relative_to(site_path)
     return imported
 
 
@@ -1857,6 +1953,26 @@ def test_the_fingerprint_import_preflight_selects_only_detached_source(
             f"{(REPOSITORY_ROOT / 'src' / 'radiosim' / '__init__.py').resolve()}\n".encode(),
             tmp_path,
         )
+
+
+@pytest.mark.parametrize("link_component", ["src", "radiosim"])
+def test_the_fingerprint_import_rejects_source_symlinks_outside_the_tree(
+    tmp_path: Path, link_component: str
+) -> None:
+    worktree = tmp_path / "replay"
+    worktree.mkdir()
+    external = tmp_path / "unregistered-copy"
+    package = external / "radiosim"
+    package.mkdir(parents=True)
+    imported = package / "__init__.py"
+    imported.write_text("# external source must not satisfy historical isolation\n")
+    if link_component == "src":
+        (worktree / "src").symlink_to(external, target_is_directory=True)
+    else:
+        (worktree / "src").mkdir()
+        (worktree / "src" / "radiosim").symlink_to(package, target_is_directory=True)
+    with pytest.raises(AssertionError):
+        _validate_fingerprint_replay_import(f"{imported}\n".encode(), worktree)
 
 
 def test_the_owned_fingerprint_replay_worktree_cleans_success_and_failure() -> None:
