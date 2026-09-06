@@ -1371,6 +1371,87 @@ def test_correction_26_final_binary_full_index_diff_identities_are_exact() -> No
     assert hashlib.sha256(design + ledger).hexdigest() == D26_FINAL_COMPLETE_DIFF_SHA256
 
 
+def recovered_rejected_review_bytes() -> bytes:
+    """Recover the original external contribution from the immutable A3 fields.
+
+    The original author-local path above remains a historical locator. A3 kept
+    every contribution field; restoring the original key order/indentation
+    reproduces all 5,515 original bytes and D25's independently frozen digest.
+    Both input artifact and recovered contribution hashes are mandatory.
+    """
+    raw = _tree_blob(REJECTED_A3_SHA, REJECTED_A3_ARTIFACT_PATH)
+    if hashlib.sha256(raw).hexdigest() != REJECTED_A3_ARTIFACT_SHA256:
+        raise DependencyCertificateError("rejected A3 artifact digest")
+    acceptance = json.loads(raw)
+    keys = (
+        "reviewer_identity",
+        "reviewer_independent",
+        "verdict",
+        "rederived_oracles",
+        "blockers",
+        "accepted_limitations",
+        "claims_not_licensed",
+    )
+    contribution = {key: acceptance[key] for key in keys}
+    for name, order in (
+        (
+            "rederived_oracles",
+            ("oracle_id", "method", "observed", "fixed_limit", "pass"),
+        ),
+        (
+            "blockers",
+            ("blocker_id", "requirement_id", "evidence", "required_remediation"),
+        ),
+    ):
+        rows = contribution[name]
+        if type(rows) is not list or any(
+            type(row) is not dict or set(row) != set(order) for row in rows
+        ):
+            raise DependencyCertificateError("rejected review row schema")
+        contribution[name] = [{key: row[key] for key in order} for row in rows]
+    recovered = (json.dumps(contribution, indent=2, ensure_ascii=False) + "\n").encode(
+        "utf-8"
+    )
+    if (
+        len(recovered) != 5515
+        or hashlib.sha256(recovered).hexdigest() != EXTERNAL_REVIEW_SHA256
+    ):
+        raise DependencyCertificateError("recovered external review digest")
+    return recovered
+
+
+def test_rejected_review_recovery_never_reads_the_author_local_file(monkeypatch):
+    def reject_filesystem_read(_path):
+        pytest.fail("review recovery must use authenticated Git objects")
+
+    monkeypatch.setattr(Path, "read_bytes", reject_filesystem_read)
+    raw = recovered_rejected_review_bytes()
+    assert hashlib.sha256(raw).hexdigest() == EXTERNAL_REVIEW_SHA256
+    recovered = json.loads(raw)
+    assert recovered["reviewer_independent"] is True
+    assert recovered["verdict"] == "REJECT"
+    assert len(recovered["rederived_oracles"]) == 10
+    assert len(recovered["blockers"]) == 1
+
+
+def test_rejected_review_recovery_rejects_substituted_git_bytes(monkeypatch):
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "_tree_blob", lambda *_args: b"{}\n")
+    with pytest.raises(DependencyCertificateError, match="rejected A3 artifact digest"):
+        recovered_rejected_review_bytes()
+
+
+def test_rejected_review_recovery_requires_the_original_contribution_digest(
+    monkeypatch,
+):
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "EXTERNAL_REVIEW_SHA256", "0" * 64)
+    with pytest.raises(
+        DependencyCertificateError, match="recovered external review digest"
+    ):
+        recovered_rejected_review_bytes()
+
+
 def test_rejected_fingerprint_attempt_is_authenticated_from_git_objects() -> None:
     """Bind the immutable E3/A3 rejection that correction #25 retries."""
     assert _commit_parents(REJECTED_E3_SHA) == (SUPERSEDED_FINGERPRINT_S3_SHA,)
@@ -1408,9 +1489,7 @@ def test_rejected_fingerprint_attempt_is_authenticated_from_git_objects() -> Non
         "m3.fingerprint-input-preimage-not-retained"
     ]
 
-    assert EXTERNAL_REVIEW_PATH.is_file()
-    assert not EXTERNAL_REVIEW_PATH.is_symlink()
-    external_raw = EXTERNAL_REVIEW_PATH.read_bytes()
+    external_raw = recovered_rejected_review_bytes()
     assert hashlib.sha256(external_raw).hexdigest() == EXTERNAL_REVIEW_SHA256
     external = json.loads(external_raw)
     assert external["verdict"] == "REJECT"
