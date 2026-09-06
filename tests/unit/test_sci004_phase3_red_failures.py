@@ -76,6 +76,8 @@ from tests.unit.test_sci004_phase3_dependency import (
     D27_SHA,
     D28_SHA,
     D29_SHA,
+    D30_R1_TERMINAL_SHA,
+    D30_SHA,
     D30_STATUS_BRIDGE_SHA,
     DESIGN_LEDGER_PATH,
     DESIGN_MEMO_PATH,
@@ -1456,6 +1458,20 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
         fingerprint_post_source_record == document
     )
 
+    assert phase_history.DESIGN_SHA == D30_SHA
+    assert phase_history.OPERATIVE_DESIGN_SHA == APPROVED_SCI004_D_SHA
+    prerequisite = phase_history.describe_phase_range(
+        D30_SHA,
+        phase_history.PREREQUISITE_TIP_SHA,
+        "prerequisite",
+        root=REPOSITORY_ROOT,
+    )
+    preceding_red = phase_history.describe_phase_range(
+        phase_history.PREREQUISITE_TIP_SHA,
+        D30_R1_TERMINAL_SHA,
+        "red",
+        root=REPOSITORY_ROOT,
+    )
     chain = (
         D24_SHA,
         SUPERSEDED_FINGERPRINT_R3_SHA,
@@ -1470,6 +1486,9 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
         D28_SHA,
         D29_SHA,
         D30_STATUS_BRIDGE_SHA,
+        D30_SHA,
+        *(row["sha"] for row in prerequisite["commits"]),
+        *(row["sha"] for row in preceding_red["commits"]),
         APPROVED_SCI004_D_SHA,
     )
     previous = _git("rev-parse", f"{D24_SHA}^").strip()
@@ -1519,7 +1538,7 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
         )
         == OLD_FRESH_VALIDATOR_R3_PATHS
     )
-    for design in (D27_SHA, D28_SHA, D29_SHA, APPROVED_SCI004_D_SHA):
+    for design in (D27_SHA, D28_SHA, D29_SHA, D30_SHA, APPROVED_SCI004_D_SHA):
         assert tuple(
             sorted(
                 _git(
@@ -1535,13 +1554,14 @@ def test_the_fingerprint_supplement_is_canonical_and_exactly_bound(
         "diff-tree", "--no-commit-id", "--name-only", "-r", D30_STATUS_BRIDGE_SHA
     ).splitlines() == [phase_history.STATUS_PATH]
     assert anchor.role in {"r3", "pre-commit-authoring-tip"}
-    phase_history.describe_phase_range(
+    current_red = phase_history.describe_phase_range(
         phase_history.PREREQUISITE_TIP_SHA,
         anchor.commit,
         "red",
         root=REPOSITORY_ROOT,
         require_complete=anchor.role == "r3",
     )
+    phase_history.require_design_successor(current_red["commits"])
     if anchor.role == "pre-commit-authoring-tip":
         assert anchor.commit == _peel_to_commit("HEAD")
 
@@ -1571,7 +1591,7 @@ def test_the_fingerprint_supplement_binds_both_immutable_prior_records(
 
 
 def test_all_three_red_records_are_inherited_byte_for_byte_at_the_live_r3() -> None:
-    """Every D30 red-range tip inherits the exact three historical records."""
+    """Every D31 red-range tip inherits the exact three historical records."""
     anchor = resolve_r3_replay_anchor()
     for relative, expected_sha256, original in (
         (RECORD_PATH, HISTORICAL_RED_RECORD_SHA256, HISTORICAL_RED_SLICE_SHA),
