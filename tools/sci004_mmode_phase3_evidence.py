@@ -103,6 +103,31 @@ POST_SOURCE_RED_FAILURE_SCHEMA = (
     "radiosim.sci004.mmode-phase3-post-source-red-failures.v1"
 )
 POST_SOURCE_PRE_FIX_SHA = "a61526d686ab768f05ecffa80cfd6223d4ee4c62"
+POST_SOURCE_RED_FAILURE_SHA256 = (
+    "724f75c246ebfcf5956fc40fb2f5e349d91ccca3e6a188b3785a65f4ae4c1e10"
+)
+POST_SOURCE_DESIGN_SHA = "4d507bf1333ccaa4c8beec3815370ba0f6043bb2"
+FINGERPRINT_RED_FAILURE_RECORD = (
+    "docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json"
+)
+FINGERPRINT_RED_FAILURE_SCHEMA = (
+    "radiosim.sci004.mmode-phase3-fingerprint-post-source-red-failures.v1"
+)
+FINGERPRINT_PRE_FIX_SHA = "b07925ab14b56b3ca0fa863f806290748a31df6b"
+FINGERPRINT_RED_FAILURE_SHA256 = (
+    "6bf1cf94b30961fd7a27519fad1252169155fdeee0e81618ea15115b50fbdb68"
+)
+FINGERPRINT_DESIGN_SHA = "ca3c37171aaaeec175b5ad72d324957762303853"
+ORIGINAL_FINGERPRINT_RED_COMMIT_SHA = "a65c53a46e84f63c163c5ad15fba8645df33d1d2"
+ORIGINAL_FINGERPRINT_RED_PATHS = frozenset(
+    {
+        FINGERPRINT_RED_FAILURE_RECORD,
+        "tests/characterization/test_sci004_mmode.py",
+        "tests/unit/test_sci004_phase3_dependency.py",
+        "tests/unit/test_sci004_phase3_red_failures.py",
+        "tools/sci004_mmode_phase3_red.py",
+    }
+)
 HISTORICAL_RED_FAILURE_SHA256 = (
     "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
 )
@@ -2709,21 +2734,123 @@ def _design_sha() -> str:
     return frozen
 
 
-def _red_commit_sha() -> str:
-    """Return the fresh correction-24 ``R3`` containing the supplement."""
+def _commit_parents(commit: str) -> tuple[str, ...]:
+    fields = _git("rev-list", "--parents", "-n", "1", commit).split()
+    if not fields or fields[0] != commit:
+        raise EvidenceError(PREFLIGHT, f"cannot resolve parents of {commit}")
+    return tuple(fields[1:])
+
+
+def _changed_paths(commit: str) -> frozenset[str]:
+    return frozenset(
+        path
+        for path in _git(
+            "diff-tree", "--no-commit-id", "--name-only", "-z", "-r", commit
+        ).split("\0")
+        if path
+    )
+
+
+def _is_ancestor(ancestor: str, descendant: str) -> bool:
+    completed = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode not in (0, 1):
+        raise EvidenceError(
+            PREFLIGHT, f"cannot authenticate ancestry {ancestor}..{descendant}"
+        )
+    return completed.returncode == 0
+
+
+def _authenticate_historical_design(
+    design: str, *, label: str, current_design: str
+) -> None:
+    peeled = _git("rev-parse", f"{design}^{{commit}}").strip()
+    if peeled != design or len(_commit_parents(design)) != 1:
+        raise EvidenceError(
+            PREFLIGHT, f"{label} does not resolve to its exact single-parent commit"
+        )
+    if _changed_paths(design) != frozenset(
+        {"PostTier8RemediationPlan.md", "docs/development/sci004_mmode_design.md"}
+    ):
+        raise EvidenceError(PREFLIGHT, f"{label} is not its exact design-only commit")
+    if not _is_ancestor(design, current_design):
+        raise EvidenceError(
+            PREFLIGHT, f"{label} is not connected to the current operative D"
+        )
+
+
+def _original_fingerprint_red_commit_sha() -> str:
+    """Authenticate the immutable correction-25 fingerprint observation."""
     commit = _git(
-        "log",
-        "-1",
-        "--format=%H",
-        "--",
-        POST_SOURCE_RED_FAILURE_RECORD,
+        "rev-parse", f"{ORIGINAL_FINGERPRINT_RED_COMMIT_SHA}^{{commit}}"
     ).strip()
-    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+    if commit != ORIGINAL_FINGERPRINT_RED_COMMIT_SHA:
         raise EvidenceError(
             PREFLIGHT,
-            "the correction-24 post-source red supplement has no containing R3",
+            "the original fingerprint R3 does not resolve to its exact commit object",
+        )
+    if _commit_parents(commit) != (FINGERPRINT_DESIGN_SHA,):
+        raise EvidenceError(
+            PREFLIGHT,
+            "the original fingerprint R3 is not correction #25's ruled non-merge",
+        )
+    if _changed_paths(commit) != ORIGINAL_FINGERPRINT_RED_PATHS:
+        raise EvidenceError(
+            PREFLIGHT,
+            "the original fingerprint R3 does not have its exact five-path delta",
         )
     return commit
+
+
+def _red_commit_sha() -> str:
+    """Require the terminal red SHA introduced and retained by first S3.
+
+    A dependency-only authoring replay is never an evidence-generation boundary.
+    The metadata literal is introduced in S3, separately from approval sentinels.
+    """
+    if str(REPOSITORY_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPOSITORY_ROOT))
+    from tests.unit import test_sci004_phase3_dependency as dependency
+    from tools import sci004_phase3_history as history
+
+    root = REPOSITORY_ROOT.resolve(strict=True)
+    for module, relative in (
+        (dependency, "tests/unit/test_sci004_phase3_dependency.py"),
+        (history, "tools/sci004_phase3_history.py"),
+    ):
+        module_file = module.__file__
+        if (
+            module_file is None
+            or Path(module_file).resolve(strict=True) != root / relative
+            or module.REPOSITORY_ROOT.resolve(strict=True) != root
+        ):
+            raise EvidenceError(
+                PREFLIGHT, "terminal R3 validator import belongs to another checkout"
+            )
+    if (
+        dependency.APPROVED_SCI004_D_SHA != _design_sha()
+        or history.DESIGN_SHA != dependency.APPROVED_SCI004_D_SHA
+    ):
+        raise EvidenceError(
+            PREFLIGHT, "terminal R3 loaded design differs from frozen binding"
+        )
+
+    try:
+        anchor = dependency.resolve_r3_replay_anchor()
+    except (dependency.DependencyCertificateError, history.HistoryError) as error:
+        raise EvidenceError(
+            PREFLIGHT, f"terminal R3 history does not authenticate: {error}"
+        ) from error
+    if anchor.role != "r3":
+        raise EvidenceError(
+            PREFLIGHT,
+            "first S3 has not frozen terminal R3; authoring cannot generate evidence",
+        )
+    return anchor.commit
 
 
 def _git_blob(commit: str, path: str) -> bytes:
@@ -2756,7 +2883,44 @@ def _canonical_artifact(path: str, *, label: str) -> tuple[bytes, dict[str, Any]
 
 
 def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
-    """Authenticate and join the immutable red record and post-source delta."""
+    """Authenticate all three records while retaining the pre-S3 join shape."""
+    if red_commit != _red_commit_sha():
+        raise EvidenceError(PREFLIGHT, "red_commit_sha is not the exact future R3")
+    current_design = _design_sha()
+    _authenticate_historical_design(
+        POST_SOURCE_DESIGN_SHA,
+        label="correction #24's historical design",
+        current_design=current_design,
+    )
+    _authenticate_historical_design(
+        FINGERPRINT_DESIGN_SHA,
+        label="correction #25's historical design",
+        current_design=current_design,
+    )
+    if not _is_ancestor(POST_SOURCE_DESIGN_SHA, FINGERPRINT_DESIGN_SHA):
+        raise EvidenceError(
+            PREFLIGHT, "correction #24's D is not connected to correction #25's D"
+        )
+    if (
+        len(
+            {
+                POST_SOURCE_DESIGN_SHA,
+                FINGERPRINT_DESIGN_SHA,
+                current_design,
+                ORIGINAL_FINGERPRINT_RED_COMMIT_SHA,
+            }
+        )
+        != 4
+    ):
+        raise EvidenceError(
+            PREFLIGHT, "historical and current identities are conflated"
+        )
+    original_fingerprint_red_commit = _original_fingerprint_red_commit_sha()
+    if not _is_ancestor(original_fingerprint_red_commit, current_design):
+        raise EvidenceError(
+            PREFLIGHT,
+            "the original fingerprint R3 is not connected to current operative D30",
+        )
     historical_raw, historical = _canonical_artifact(
         RED_FAILURE_RECORD, label="the historical phase-3 red record"
     )
@@ -2773,6 +2937,10 @@ def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
         )
     if historical.get("schema_version") != RED_FAILURE_SCHEMA:
         raise EvidenceError(PREFLIGHT, "the historical red schema literal is wrong")
+    if historical.get("phase") != PHASE or historical.get("status") != (
+        "expected-red-confirmed"
+    ):
+        raise EvidenceError(PREFLIGHT, "the historical red phase or status is wrong")
     historical_pre_fix = historical.get("pre_fix_source_sha")
     if (
         not isinstance(historical_pre_fix, str)
@@ -2792,9 +2960,9 @@ def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
         "post-source-expected-red-confirmed"
     ):
         raise EvidenceError(PREFLIGHT, "the post-source red phase or status is wrong")
-    if post_source.get("design_sha") != _design_sha():
+    if post_source.get("design_sha") != POST_SOURCE_DESIGN_SHA:
         raise EvidenceError(
-            PREFLIGHT, "the post-source red record does not bind the operative D"
+            PREFLIGHT, "the post-source red record does not bind correction #24's D"
         )
     if post_source.get("pre_fix_source_sha") != POST_SOURCE_PRE_FIX_SHA:
         raise EvidenceError(
@@ -2809,6 +2977,46 @@ def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
             PREFLIGHT,
             "the fresh R3 does not contain the checked-out post-source red bytes",
         )
+    post_sha256 = hashlib.sha256(post_raw).hexdigest()
+    if post_sha256 != POST_SOURCE_RED_FAILURE_SHA256:
+        raise EvidenceError(
+            PREFLIGHT, "the correction-24 post-source red record has changed raw bytes"
+        )
+
+    fingerprint_raw, fingerprint = _canonical_artifact(
+        FINGERPRINT_RED_FAILURE_RECORD,
+        label="the correction-25 fingerprint red record",
+    )
+    fingerprint_sha256 = hashlib.sha256(fingerprint_raw).hexdigest()
+    if fingerprint_sha256 != FINGERPRINT_RED_FAILURE_SHA256:
+        raise EvidenceError(
+            PREFLIGHT, "the correction-25 fingerprint red record has changed raw bytes"
+        )
+    if _git_blob(original_fingerprint_red_commit, FINGERPRINT_RED_FAILURE_RECORD) != (
+        fingerprint_raw
+    ):
+        raise EvidenceError(
+            PREFLIGHT,
+            "the original fingerprint R3 does not contain the immutable fingerprint "
+            "red bytes",
+        )
+    if _git_blob(red_commit, FINGERPRINT_RED_FAILURE_RECORD) != fingerprint_raw:
+        raise EvidenceError(
+            PREFLIGHT,
+            "the future R3 does not contain the immutable fingerprint red bytes",
+        )
+    if (
+        fingerprint.get("schema_version") != FINGERPRINT_RED_FAILURE_SCHEMA
+        or fingerprint.get("phase") != PHASE
+        or fingerprint.get("status") != "post-source-expected-red-confirmed"
+        or fingerprint.get("design_sha") != FINGERPRINT_DESIGN_SHA
+        or fingerprint.get("pre_fix_source_sha") != FINGERPRINT_PRE_FIX_SHA
+        or fingerprint.get("historical_red_record_sha256") != historical_sha256
+        or fingerprint.get("correction24_post_source_red_record_sha256") != post_sha256
+    ):
+        raise EvidenceError(
+            PREFLIGHT, "the fingerprint red record does not bind its ruled chain"
+        )
 
     return {
         "path": RED_FAILURE_RECORD,
@@ -2818,7 +3026,7 @@ def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
         "validated": True,
         "post_source_delta": {
             "path": POST_SOURCE_RED_FAILURE_RECORD,
-            "sha256": hashlib.sha256(post_raw).hexdigest(),
+            "sha256": post_sha256,
             "schema_version": POST_SOURCE_RED_FAILURE_SCHEMA,
             "pre_fix_source_sha": POST_SOURCE_PRE_FIX_SHA,
             "validated": True,
@@ -2829,6 +3037,11 @@ def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
 def validate_evidence_artifact(document: Any) -> dict[str, Any]:
     """Validate an envelope and authenticate both of its retained red inputs."""
     envelope = validate_evidence_document(document)
+    _require(
+        envelope["design_sha"] == _design_sha(),
+        DIGEST,
+        "design_sha must name the current frozen operative D30 binding",
+    )
     red_commit = _red_commit_sha()
     _require(
         envelope["red_commit_sha"] == red_commit,

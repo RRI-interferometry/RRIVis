@@ -82,6 +82,22 @@ POST_SOURCE_RED_RECORD_SCHEMA = (
     "radiosim.sci004.mmode-phase3-post-source-red-failures.v1"
 )
 POST_SOURCE_PRE_FIX_SHA = "a61526d686ab768f05ecffa80cfd6223d4ee4c62"
+POST_SOURCE_RED_RECORD_SHA256 = (
+    "724f75c246ebfcf5956fc40fb2f5e349d91ccca3e6a188b3785a65f4ae4c1e10"
+)
+POST_SOURCE_DESIGN_SHA = "4d507bf1333ccaa4c8beec3815370ba0f6043bb2"
+FINGERPRINT_RED_RECORD = (
+    "docs/development/sci004_mmode_phase3_fingerprint_post_source_red_failures.json"
+)
+FINGERPRINT_RED_RECORD_SCHEMA = (
+    "radiosim.sci004.mmode-phase3-fingerprint-post-source-red-failures.v1"
+)
+FINGERPRINT_RED_RECORD_SHA256 = (
+    "6bf1cf94b30961fd7a27519fad1252169155fdeee0e81618ea15115b50fbdb68"
+)
+FINGERPRINT_DESIGN_SHA = "ca3c37171aaaeec175b5ad72d324957762303853"
+ORIGINAL_FINGERPRINT_R3_SHA = "a65c53a46e84f63c163c5ad15fba8645df33d1d2"
+CURRENT_D30_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
 HISTORICAL_RED_RECORD_SHA256 = (
     "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
 )
@@ -1270,6 +1286,7 @@ def test_the_design_sha_is_the_frozen_binding_not_a_memo_tip_search() -> None:
     module = _tool()
     frozen = module._frozen_binding("APPROVED_SCI004_D_SHA")
     assert GIT_SHA.fullmatch(frozen)
+    assert frozen == CURRENT_D30_SHA
     assert module._design_sha() == frozen
     source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
     assert '"--", "docs/development/sci004_mmode_design.md"' not in source, (
@@ -1289,6 +1306,225 @@ def test_the_frozen_design_binding_is_read_from_the_dependency_validator() -> No
     assert frozen not in tool_source, (
         "the generator must read the frozen binding, never restate it"
     )
+
+
+def test_current_and_historical_design_roles_are_exact_and_distinct() -> None:
+    """Correction #29 keeps current D30, historical D24/D25, and R3 separate."""
+    module = _tool()
+    post_source = json.loads((REPOSITORY_ROOT / POST_SOURCE_RED_RECORD).read_bytes())
+    fingerprint = json.loads((REPOSITORY_ROOT / FINGERPRINT_RED_RECORD).read_bytes())
+    assert module._design_sha() == CURRENT_D30_SHA
+    assert post_source["design_sha"] == POST_SOURCE_DESIGN_SHA
+    assert fingerprint["design_sha"] == FINGERPRINT_DESIGN_SHA
+    assert (
+        len(
+            {
+                POST_SOURCE_DESIGN_SHA,
+                FINGERPRINT_DESIGN_SHA,
+                CURRENT_D30_SHA,
+                ORIGINAL_FINGERPRINT_R3_SHA,
+            }
+        )
+        == 4
+    )
+    from tests.unit.test_sci004_phase3_dependency import resolve_r3_replay_anchor
+
+    anchor = resolve_r3_replay_anchor()
+    assert anchor.commit not in {
+        POST_SOURCE_DESIGN_SHA,
+        FINGERPRINT_DESIGN_SHA,
+        CURRENT_D30_SHA,
+        ORIGINAL_FINGERPRINT_R3_SHA,
+    }
+    if anchor.role == "pre-commit-authoring-tip":
+        with pytest.raises(
+            module.EvidenceError, match="authoring cannot generate evidence"
+        ):
+            module._red_commit_sha()
+    else:
+        assert module._red_commit_sha() == anchor.commit
+
+
+@pytest.mark.parametrize(
+    "target,field",
+    [
+        ("dependency", "__file__"),
+        ("dependency", "REPOSITORY_ROOT"),
+        ("history", "__file__"),
+        ("history", "REPOSITORY_ROOT"),
+    ],
+)
+def test_terminal_r3_rejects_cached_validators_from_another_checkout(
+    monkeypatch, tmp_path, target, field
+):
+    from tests.unit import test_sci004_phase3_dependency as dependency
+    from tools import sci004_phase3_history as history
+
+    module = _tool()
+    peer = dependency if target == "dependency" else history
+    wrong = tmp_path / "other.py"
+    wrong.write_text("# unrelated cached module\n")
+    monkeypatch.setattr(peer, field, str(wrong) if field == "__file__" else tmp_path)
+    with pytest.raises(module.EvidenceError, match="another checkout"):
+        module._red_commit_sha()
+
+
+@pytest.mark.parametrize("target", ["dependency", "history"])
+def test_terminal_r3_rejects_stale_loaded_design_bindings(monkeypatch, target):
+    from tests.unit import test_sci004_phase3_dependency as dependency
+    from tools import sci004_phase3_history as history
+
+    module = _tool()
+    peer, field = (
+        (dependency, "APPROVED_SCI004_D_SHA")
+        if target == "dependency"
+        else (history, "DESIGN_SHA")
+    )
+    monkeypatch.setattr(peer, field, POST_SOURCE_DESIGN_SHA)
+    with pytest.raises(module.EvidenceError, match="loaded design differs"):
+        module._red_commit_sha()
+
+
+def _mock_red_binding_for_historical_checks(
+    module: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise historical joins during R3 without licensing evidence generation.
+
+    The real dependency resolver authenticates the committed candidate range.
+    Only these unit tests substitute that tip for a future frozen red boundary;
+    separate unmocked tests require production refusal of the authoring role.
+    """
+    from tests.unit.test_sci004_phase3_dependency import resolve_r3_replay_anchor
+
+    anchor = resolve_r3_replay_anchor()
+    assert anchor.role in {"pre-commit-authoring-tip", "r3"}
+    monkeypatch.setattr(module, "_red_commit_sha", lambda: anchor.commit)
+
+
+def _mutate_retained_record(
+    module: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    path: str,
+    field: str,
+    value: str,
+) -> None:
+    real = module._canonical_artifact
+
+    def mutated(requested: str, *, label: str) -> tuple[bytes, dict[str, Any]]:
+        raw, document = real(requested, label=label)
+        if requested == path:
+            document = copy.deepcopy(document)
+            document[field] = value
+        return raw, document
+
+    monkeypatch.setattr(module, "_canonical_artifact", mutated)
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement", "expected"),
+    (
+        (POST_SOURCE_RED_RECORD, SIXTY_FOUR, "correction #24's D"),
+        (FINGERPRINT_RED_RECORD, SIXTY_FOUR, "fingerprint red record"),
+        (POST_SOURCE_RED_RECORD, CURRENT_D30_SHA, "correction #24's D"),
+        (FINGERPRINT_RED_RECORD, CURRENT_D30_SHA, "fingerprint red record"),
+    ),
+)
+def test_historical_design_mutation_or_current_d30_substitution_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+    replacement: str,
+    expected: str,
+) -> None:
+    """D24 and D25 reject both independent mutation and D30 substitution."""
+    module = _tool()
+    _mock_red_binding_for_historical_checks(module, monkeypatch)
+    _mutate_retained_record(
+        module,
+        monkeypatch,
+        path=path,
+        field="design_sha",
+        value=replacement,
+    )
+    with pytest.raises(module.EvidenceError, match=expected):
+        module._red_failure_record_reference(module._red_commit_sha())
+
+
+@pytest.mark.parametrize(
+    "historical_design", [POST_SOURCE_DESIGN_SHA, FINGERPRINT_DESIGN_SHA]
+)
+def test_a_historical_design_cannot_replace_the_current_d30_envelope_binding(
+    historical_design: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _tool()
+    _mock_red_binding_for_historical_checks(module, monkeypatch)
+    document = _synthetic_document(module)
+    document["design_sha"] = historical_design
+    document["red_commit_sha"] = module._red_commit_sha()
+    document["red_failure_record"] = module._red_failure_record_reference(
+        document["red_commit_sha"]
+    )
+    with pytest.raises(module.EvidenceError, match="current frozen operative D30"):
+        module.validate_evidence_artifact(document)
+
+
+def test_a_design_sha_cannot_stand_in_for_red_commit_sha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _tool()
+    _mock_red_binding_for_historical_checks(module, monkeypatch)
+    document = _synthetic_document(module)
+    document["design_sha"] = CURRENT_D30_SHA
+    document["red_commit_sha"] = CURRENT_D30_SHA
+    document["red_failure_record"] = module._red_failure_record_reference(
+        module._red_commit_sha()
+    )
+    hypothetical_future_r3 = "f" * 40
+    monkeypatch.setattr(module, "_red_commit_sha", lambda: hypothetical_future_r3)
+    with pytest.raises(module.EvidenceError, match="red_commit_sha must name"):
+        module.validate_evidence_artifact(document)
+
+
+def test_historical_record_bytes_and_cross_record_digests_are_authenticated(
+    monkeypatch,
+) -> None:
+    module = _tool()
+    _mock_red_binding_for_historical_checks(module, monkeypatch)
+    historical_raw = (REPOSITORY_ROOT / RED_RECORD).read_bytes()
+    post_raw = (REPOSITORY_ROOT / POST_SOURCE_RED_RECORD).read_bytes()
+    fingerprint_raw = (REPOSITORY_ROOT / FINGERPRINT_RED_RECORD).read_bytes()
+    fingerprint = json.loads(fingerprint_raw)
+    assert hashlib.sha256(historical_raw).hexdigest() == HISTORICAL_RED_RECORD_SHA256
+    assert hashlib.sha256(post_raw).hexdigest() == POST_SOURCE_RED_RECORD_SHA256
+    assert hashlib.sha256(fingerprint_raw).hexdigest() == FINGERPRINT_RED_RECORD_SHA256
+    assert fingerprint["schema_version"] == FINGERPRINT_RED_RECORD_SCHEMA
+    assert fingerprint["historical_red_record_sha256"] == (HISTORICAL_RED_RECORD_SHA256)
+    assert fingerprint["correction24_post_source_red_record_sha256"] == (
+        POST_SOURCE_RED_RECORD_SHA256
+    )
+    module._red_failure_record_reference(module._red_commit_sha())
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["historical_red_record_sha256", "correction24_post_source_red_record_sha256"],
+)
+def test_a_fingerprint_cross_record_digest_mutation_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+) -> None:
+    module = _tool()
+    _mock_red_binding_for_historical_checks(module, monkeypatch)
+    _mutate_retained_record(
+        module,
+        monkeypatch,
+        path=FINGERPRINT_RED_RECORD,
+        field=field,
+        value=SIXTY_FOUR,
+    )
+    with pytest.raises(module.EvidenceError, match="fingerprint red record"):
+        module._red_failure_record_reference(module._red_commit_sha())
 
 
 # ---------------------------------------------------------------------------
@@ -1793,19 +2029,35 @@ def test_a_solver_exception_is_propagated_after_sampler_cleanup() -> None:
 
 
 def test_the_fresh_red_commit_is_the_commit_containing_the_supplement() -> None:
+    """Historical containment is distinct from a sealed generation boundary."""
+    from tests.unit.test_sci004_phase3_dependency import resolve_r3_replay_anchor
+
     module = _tool()
-    red_commit = module._red_commit_sha()
-    assert GIT_SHA.fullmatch(red_commit)
-    changed = _git("diff-tree", "--no-commit-id", "--name-only", "-r", red_commit)
-    assert POST_SOURCE_RED_RECORD in changed.splitlines()
+    anchor = resolve_r3_replay_anchor()
+    for retained in (RED_RECORD, POST_SOURCE_RED_RECORD, FINGERPRINT_RED_RECORD):
+        assert (
+            module._git_blob(anchor.commit, retained)
+            == (REPOSITORY_ROOT / retained).read_bytes()
+        )
+    if anchor.role == "pre-commit-authoring-tip":
+        with pytest.raises(
+            module.EvidenceError, match="first S3 has not frozen terminal R3"
+        ):
+            module._red_commit_sha()
+    else:
+        assert module._red_commit_sha() == anchor.commit
 
 
-def test_the_generator_authenticates_and_joins_both_red_records() -> None:
+def test_the_generator_authenticates_and_joins_both_red_records(monkeypatch) -> None:
     module = _tool()
+    _mock_red_binding_for_historical_checks(module, monkeypatch)
     reference = module._red_failure_record_reference(module._red_commit_sha())
     historical_raw = (REPOSITORY_ROOT / RED_RECORD).read_bytes()
     post_source_raw = (REPOSITORY_ROOT / POST_SOURCE_RED_RECORD).read_bytes()
+    fingerprint_raw = (REPOSITORY_ROOT / FINGERPRINT_RED_RECORD).read_bytes()
     assert hashlib.sha256(historical_raw).hexdigest() == (HISTORICAL_RED_RECORD_SHA256)
+    assert hashlib.sha256(post_source_raw).hexdigest() == POST_SOURCE_RED_RECORD_SHA256
+    assert hashlib.sha256(fingerprint_raw).hexdigest() == FINGERPRINT_RED_RECORD_SHA256
     assert reference == {
         "path": RED_RECORD,
         "sha256": HISTORICAL_RED_RECORD_SHA256,
@@ -1822,10 +2074,14 @@ def test_the_generator_authenticates_and_joins_both_red_records() -> None:
     }
 
 
-def test_the_artifact_validator_authenticates_the_fresh_r3_and_both_inputs() -> None:
+def test_the_artifact_validator_authenticates_the_fresh_r3_and_both_inputs(
+    monkeypatch,
+) -> None:
     module = _tool()
+    _mock_red_binding_for_historical_checks(module, monkeypatch)
     document = _synthetic_document(module)
     red_commit = module._red_commit_sha()
+    document["design_sha"] = CURRENT_D30_SHA
     document["red_commit_sha"] = red_commit
     document["red_failure_record"] = module._red_failure_record_reference(red_commit)
     module.validate_evidence_artifact(document)
@@ -1838,6 +2094,7 @@ def test_the_generator_rejects_a_supplement_not_contained_in_fresh_r3(
     monkeypatch,
 ) -> None:
     module = _tool()
+    _mock_red_binding_for_historical_checks(module, monkeypatch)
     real = module._git_blob
     monkeypatch.setattr(
         module,
