@@ -1,85 +1,17 @@
-"""Strict ``R3`` dependency and design-binding validator for SCI-004 phase M3.
+"""Strict SCI-004 M3 dependency history under correction #30.
 
-``docs/development/sci004_mmode_design.md`` Sections 13.2, 13.7 and 14.0 make the
-phase-M3 red slice conditional on facts no output oracle can establish for
-itself, and this module is the validator that holds all of them. It passes at
-``R3``: it authenticates an already accepted chain, never any m-mode physics.
+The immutable G3/A2 and SCI-005 dependency certificate remain authenticated from
+exact Git objects and replayed at G3 and the explicitly identified R3 venue.
+D30 extends the complete design chain using a total SHA-keyed review map. D28
+and D29 alone use their authenticated original-review recovery records; ordinary
+corrections retain reviewed-versus-landed inequality and exact header pins.
 
-**The phase unlock.** The retained phase-M2 acceptance record carries
-``acceptance_commit_sha = null`` with the reason "self-reference: the next R or C
-binds the containing A commit". This slice is that next ``R``, so it binds
-``A2`` explicitly: the commit is peeled, required to be a single-parent non-merge
-whose parent is exactly ``E2``, required to touch exactly the four paths
-Section 13.4 authorises an ``A2`` to touch, and required to carry the accepted
-``ACCEPT`` artifact at its retained digest, with the null self-SHA and its exact
-reason. That is the same shape ``tests/unit/test_sci004_phase1_dependency.py``
-used to bind the upstream WP-7 acceptance for M1 and
-``tests/unit/test_sci004_phase2_red_failures.py`` used to bind ``A1`` for M2.
-
-**The ``G3`` gate.** Section 13.2: "For M3, accepted SCI-004 ``A2`` and the
-independently accepted SCI-005 Stage-2 ``A2`` must both be ancestors of globally
-clean ``G3``; ancestry is inclusive and the first-parent range from SCI-004
-``A2`` to ``G3`` contains no merge."  Both are proved here from Git objects.
-Ancestry is inclusive, and the SCI-004 ``A2`` unlock is the later of the two
-dependency commits, so ``G3`` *is* that commit -- exactly the shape the M1 gate
-took, where ``G1`` equalled the operative ``D`` of its own time. The
-consequences of that inclusive equality are asserted, not assumed:
-:func:`test_the_gate_tip_carries_no_new_sci004_byte` requires the tip's
-parent-relative diff to be precisely the four paths Section 13.4 grants ``A2``
-when the tip *is* the named unlock, and to carry no SCI-004 byte at all
-otherwise. See the module note below on the one design-text tension this
-reading resolves.
-
-**The two replays.** Section 13.2 rules that at ``HEAD==G3``, before any M3 red
-byte exists, the exact Stage-2 verifier command runs and emits one canonical
-UTF-8 JSON line with a final LF, which ``R3`` retains at
-``docs/development/sci004_mmode_phase3_sci005_dependency.json``; and that "the
-M3 validator additionally creates a clean detached worktree at exact ``R3``,
-runs the Stage-2 verifier with ``--descendant <R3>``, and requires the stdout
-bytes to be identical to the retained ``G3`` line; the verifier output is
-descendant-independent while both ancestry checks must pass".  Both replays are
-performed here in fresh detached worktrees whose tool blob is authenticated
-before it is executed, and both compare stdout byte-for-byte with the retained
-file.
-
-``R3`` is the commit this file is committed in, so its SHA cannot be a frozen
-constant -- the same self-reference Section 14.1 handles with a null
-``red_commit_sha``. The ``R3`` replay anchor is therefore *derived* from Git
-rather than declared, and the derivation is itself ruled: it is the first
-first-parent commit *after the operative* ``D``, whose parent must be exactly
-that commit. Section 13.2 now reads "``R3^==G3`` unless a Section 13.7 accepted
-correction stars the ``G3 -> R3`` edge, in which case ``R3`` directly parents
-the operative correction commit", and this file is the re-cut that edge
-produced. The superseded derivation -- the first commit after ``G3`` that
-*added* this validator -- resolves the reopened red slice ``62a7d3d9…`` as an
-immutable Git fact forever and would silently authenticate it; the accepted
-correction's mandate says so in those words, so the live derivation searches
-strictly after the operative ``D``, where the superseded slice cannot appear.
-Before the re-cut commit exists the anchor is ``HEAD``, which the same rule
-forces to be the operative ``D`` itself, and the module says so in
-:func:`test_the_r3_replay_anchor_is_the_live_child_of_the_operative_correction`
-rather than pretending a not-yet-existing commit was replayed.
-
-**A design-text tension, resolved the way the M1 precedent resolved its own.**
-Section 13.2 closes with "Neither gate tip contains a new SCI-004 red, source,
-evidence, or acceptance byte", while inclusive ancestry makes the accepted
-SCI-004 ``A2`` -- an acceptance commit -- a legal ``G3``. The M1 gate met the
-same shape: ``G1`` equalled the operative ``D``, whose bytes are
-design-authority bytes, and its validator recorded that Section 13.2 "does not
-ban" those from the gate tip. The M3 reading is the exact analogue: when the
-gate tip *is* one of the two named dependency commits the gate authenticates,
-its own bytes are that dependency's accepted bytes rather than a *new* SCI-004
-byte smuggled into an otherwise unrelated tip, and the sentence binds a tip
-that is some other commit. The bounded alternative -- an interposed
-SCI-004-free commit -- is not constructible inside Section 13.5's ``R3``
-writable list, which is why the analogue is taken rather than invented.
-
-The byte comparison against the replayed stdout is what authenticates the
-retained certificate; its raw digest is pinned as well, because Section 14.3
-makes "the raw stdout digest" part of what the ``A3``
-``m3.sci005-dependency-gate`` oracle authenticates. Inability to create,
-authenticate, execute, or clean up a temporary worktree is a hard failure and
-never mutates the caller's checkout.
+During the finite R3 authoring range, a dependency replay may inspect the current
+committed tip with an explicit authoring role. That is not a sealed red boundary
+and cannot authorize evidence generation. The first S3 implementation introduces
+the literal terminal-R3 metadata SHA, which must authenticate a complete D30 red
+range and have been absent from that red tree. Historical fingerprint R3, D24,
+D25 and all rejected evidence identities remain separate immutable bindings.
 """
 
 from __future__ import annotations
@@ -104,21 +36,22 @@ from tests.unit.test_sci004_phase1_dependency import (
 from tests.unit.test_sci004_phase1_dependency import (
     _DesignCommit,
 )
+from tests.unit.test_sci004_phase3_history import phase_objects as _phase_objects
+from tools import sci004_phase3_history as phase_history
 from tools.sci004_phase3_history import _git as _history_git
 
-#: The operative SCI-004 design commit ``D`` (Section 13.7), frozen for phase M3
-#: exactly as Section 14.0 requires: "R1's dependency validator,
-#: ``tests/unit/test_sci004_phase2_red_failures.py`` at R2, and R3's dependency
-#: validator each freeze the exact assignment ``APPROVED_SCI004_D_SHA=...``".
-#: It is accepted correction #26, which re-cuts only the fingerprint replay
-#: validator venue after the replacement-S3 gate proved that a shared editable
-#: interpreter could import the invoking checkout rather than detached R3.
-#: Section 14.0 binds
-#: "the operative ``D`` current at that phase's ``R``", and the retained-evidence
-#: record states the rule for a re-cut: "a fresh ``R`` takes the ``D`` current at
-#: its own cut".  The binding therefore advances again, past the
-#: retained-evidence landing the previous cut froze.
-APPROVED_SCI004_D_SHA = "93321d331e4f6442d39fe79588be6f05ad4bee42"
+phase_objects = _phase_objects
+
+#: Immutable historical identities, never aliases for the current binding.
+D26_SHA = "93321d331e4f6442d39fe79588be6f05ad4bee42"
+OLD_FRESH_VALIDATOR_R3_SHA = "929263f3376e472e0b6da53c6c4e093c10ba7465"
+D27_SHA = "82fb0773890870a6fb90b3ed9b8065df89919a84"
+D28_SHA = "67da2b818b89511df8476b7010230c65d6cb6a75"
+D29_SHA = "cfc9b10d655a4d9bedbd7d7750c4743f504bbaf9"
+D30_STATUS_BRIDGE_SHA = "d432bcb50f60c880aca3d3e599786b9ebe62fa1c"
+
+#: Section 14.0's exact assignment for this reopened phase, operative D30.
+APPROVED_SCI004_D_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
 
 #: The globally clean programme tip ``G3`` (Section 13.2). Ancestry is
 #: inclusive, and this tip is the later of the two named dependency commits --
@@ -160,15 +93,14 @@ A2_AUTHORIZED_PATHS: tuple[str, ...] = (
     M2_ACCEPTANCE_VALIDATOR_PATH,
 )
 
-#: Correction #26's exact fresh validator-only ``R3`` writable list. Its own
-#: diff is checked against it, so a first child that is not the ruled two-path
-#: validator re-cut is refused rather than replayed.
-R3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
-    {
-        "tests/unit/test_sci004_phase3_dependency.py",
-        "tests/unit/test_sci004_phase3_red_failures.py",
-    }
+#: D30 permits the exact aggregate seven-path red range, not one giant commit.
+R3_AUTHORIZED_PATHS = phase_history.RED_PATHS
+OLD_FRESH_VALIDATOR_R3_PATHS = (
+    "tests/unit/test_sci004_phase3_dependency.py",
+    "tests/unit/test_sci004_phase3_red_failures.py",
 )
+R3_TERMINAL_METADATA_NAME = "SCI004_R3_TERMINAL_SHA"
+R3_METADATA_PATH = "tools/sci004_mmode_phase3_evidence.py"
 
 #: The superseded phase-3 slices before correction #25, in cut order. None may
 #: ever be resolved as the live anchor for the fresh fingerprint retry.
@@ -595,6 +527,84 @@ D26_PRE_LANDING_COMPLETE_DIFF_SHA256 = (
     "9d711cfa575df6b3dd3152767b0d17f70d3091fde4ab7713b253f68a0e520448"
 )
 
+D27_MEMO_BLOB_SHA256 = (
+    "cbb2d839e03e4333852d27e13bcb0be9bb6893f99c56ab34dfcb566058d6f39b"
+)
+D27_LEDGER_BLOB_SHA256 = (
+    "ec38bdaf70277113e0b7db7b91083dcb176b85a875202fac770f5880909a9df2"
+)
+D27_LANDED_MEMO_DIFF_SHA256 = (
+    "a2027ff41517329eaedd69fa26afb89bd2f80803764838d55f9fbb7165d12bdc"
+)
+D27_FINAL_COMPLETE_DIFF_SHA256 = (
+    "54d0dcb3587e75a55a3457fd31fd460fbc654488dafdc6fce56c5f2b076aacaa"
+)
+D27_PRE_LANDING_FILE_SHA256 = (
+    "afd9dc6d7e26641b295cc80385067d4f624af09afc814c70fa7d6934c654b831"
+)
+D27_PRE_LANDING_DIFF_SHA256 = (
+    "599e655ee5490c3c10693df2101d8f67b2ac43bffec12ee117b403325350ad69"
+)
+D27_PRE_LANDING_LEDGER_SHA256 = (
+    "18ef4cf0badfe3540d9e19247103a019c5a5294de813eacac7d8d9a9128b0562"
+)
+D27_PRE_LANDING_LEDGER_DIFF_SHA256 = (
+    "17b081f4c9787bdc5da499444772f592f3cdccd3ed1d8b8b71512be4cebd5502"
+)
+D27_PRE_LANDING_COMPLETE_DIFF_SHA256 = (
+    "0572bbc64983f6bab72f71db0ea9f1f9f016d38a87be3e048c8b640aaa891db1"
+)
+
+D28_MEMO_BLOB_SHA256 = (
+    "043ae81935e1b3161a6e0bb60922ebe13048b4f4ca6c49c1f2a31521eb914e2c"
+)
+D28_LEDGER_BLOB_SHA256 = (
+    "fbf6eec8c2eee287d36e8fcb117fb2da8e53ac8e2d1e30d337640442488bd014"
+)
+D28_LANDED_MEMO_DIFF_SHA256 = (
+    "8fc0dbed2875a790146e36f8e38b1687659adaab66bad217d1a04fe7abb6481d"
+)
+D28_FINAL_COMPLETE_DIFF_SHA256 = (
+    "93b042d42892a6063b52ab2090871d8985f3e9ef47a190f2436c729198465795"
+)
+D29_MEMO_BLOB_SHA256 = (
+    "a39e9d662450a9776c88c5d322fecdbb4c739ac82b672e8be2f3019cad95d40b"
+)
+D29_LEDGER_BLOB_SHA256 = (
+    "fa860e904fce6dafe92cdc0eabfdae43b1714f131cc6ea9bb01664ee0e72e6ad"
+)
+D29_LANDED_MEMO_DIFF_SHA256 = (
+    "f8d7ec9117233b8cb2d0542953429ea76d62309fafdcd5d2079b12354f4c214b"
+)
+D29_FINAL_DESIGN_DIFF_SHA256 = (
+    "f7a8553bb66086d5d72e05f75cb07f4d451288f5a113fcb279722feb99ab2d97"
+)
+D29_FINAL_LEDGER_DIFF_SHA256 = (
+    "de845a97a9d5c836abc5c91b25a8439151104b2508f24e9088592da86060d0ef"
+)
+D29_FINAL_COMPLETE_DIFF_SHA256 = (
+    "c589c3feae17a4dd4e4c8a1d1ef15197a4762968a84cd338bb8a1ef78d4162a4"
+)
+OLD_FRESH_VALIDATOR_R3_COMPLETE_DIFF_SHA256 = (
+    "3c54d86c38ba9c4d8150da7634999fce221c168e7802bc0b0b7573be97871553"
+)
+
+D30_MEMO_BLOB_SHA256 = (
+    "220bca0028d65742d80108effe46421e931158503a688d4b060e5543126e63d6"
+)
+D30_LANDED_MEMO_DIFF_SHA256 = (
+    "a8473f5f0b85a543bacb76649de4488b9cbe1ae22e24f5293a90944f124dc65b"
+)
+D30_PRE_LANDING_FILE_SHA256 = (
+    "bd1040b817360cba11261b5a0aa68453bba0b6e55cd9d7a86e6cf3764fd141a1"
+)
+D30_PRE_LANDING_COMPLETE_DIFF_SHA256 = (
+    "6180f9ecc34cc187d17d61b749de5102d0e49d904aaecb272e19449a655cae2c"
+)
+D30_FINAL_COMPLETE_DIFF_SHA256 = (
+    "f7093105a9adda4c63d2daa94cf29b841e1866e90053b061a5b200a43fa868be"
+)
+
 #: The ``D0 -> operative D`` chain past ``A1``, oldest first. Section 13.7's
 #: interval kinds are the authority for the allowed-path tuples.
 SCI004_DESIGN_CHAIN_CONTINUATION: tuple[_DesignCommit, ...] = (
@@ -719,17 +729,49 @@ SCI004_DESIGN_CHAIN_CONTINUATION: tuple[_DesignCommit, ...] = (
         landed_memo_diff_sha256=D25_LANDED_MEMO_DIFF_SHA256,
     ),
     _DesignCommit(
-        sha=APPROVED_SCI004_D_SHA,
-        kind="operative design",
+        sha=D26_SHA,
+        kind="superseded design",
         allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
         memo_blob_sha256=D26_MEMO_BLOB_SHA256,
         label="hermetic detached-R3 validator replay venue",
         landed_memo_diff_sha256=D26_LANDED_MEMO_DIFF_SHA256,
     ),
+    _DesignCommit(
+        sha=D27_SHA,
+        kind="superseded design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D27_MEMO_BLOB_SHA256,
+        label="Tier-8 prose citation gate",
+        landed_memo_diff_sha256=D27_LANDED_MEMO_DIFF_SHA256,
+    ),
+    _DesignCommit(
+        sha=D28_SHA,
+        kind="superseded design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D28_MEMO_BLOB_SHA256,
+        label="characterization oracle transition",
+        landed_memo_diff_sha256=D28_LANDED_MEMO_DIFF_SHA256,
+    ),
+    _DesignCommit(
+        sha=D29_SHA,
+        kind="superseded design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D29_MEMO_BLOB_SHA256,
+        label="historical evidence bindings",
+        landed_memo_diff_sha256=D29_LANDED_MEMO_DIFF_SHA256,
+    ),
+    _DesignCommit(
+        sha=APPROVED_SCI004_D_SHA,
+        kind="operative design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D30_MEMO_BLOB_SHA256,
+        label="authenticated recovery and finite phase ranges",
+        landed_memo_diff_sha256=D30_LANDED_MEMO_DIFF_SHA256,
+    ),
 )
 
 #: The complete header-enumerated chain for this phase: the eleven links R1
-#: froze -- which "no later phase may change" -- followed by the sixteen that landed
+#: froze -- which "no later phase may change" -- followed by the twenty that landed
 #: after ``A1``. The M1 tuple is imported rather than restated for exactly that
 #: reason. Its final entry was the operative ``D`` when R1 froze it and is now a
 #: ``superseded design`` chain commit: every correction's header record says so
@@ -753,8 +795,8 @@ NON_CHAIN_ACCEPTANCE_SHAS: tuple[str, ...] = (
 )
 
 #: Explicit SHA-keyed review records; conversion rejects duplicates before a map
-#: could hide them. The current operative binding is advanced in the next slice.
-CONTINUATION_REVIEW_PINS: tuple[tuple[str, tuple[str, str]], ...] = (
+#: could hide them. None is reserved for the two exact D30 recovery exceptions.
+CONTINUATION_REVIEW_PINS: tuple[tuple[str, tuple[str, str] | None], ...] = (
     (D10_SHA, (D10_PRE_LANDING_FILE_SHA256, D10_PRE_LANDING_DIFF_SHA256)),
     (D11_SHA, (D11_PRE_LANDING_FILE_SHA256, D11_PRE_LANDING_DIFF_SHA256)),
     (D12_SHA, (D12_PRE_LANDING_FILE_SHA256, D12_PRE_LANDING_DIFF_SHA256)),
@@ -770,7 +812,14 @@ CONTINUATION_REVIEW_PINS: tuple[tuple[str, tuple[str, str]], ...] = (
     (D22_SHA, (D22_PRE_LANDING_FILE_SHA256, D22_PRE_LANDING_DIFF_SHA256)),
     (D24_SHA, (D_PRE_LANDING_FILE_SHA256, D_PRE_LANDING_DIFF_SHA256)),
     (D25_SHA, (D25_PRE_LANDING_FILE_SHA256, D25_PRE_LANDING_DIFF_SHA256)),
-    (APPROVED_SCI004_D_SHA, (D26_PRE_LANDING_FILE_SHA256, D26_PRE_LANDING_DIFF_SHA256)),
+    (D26_SHA, (D26_PRE_LANDING_FILE_SHA256, D26_PRE_LANDING_DIFF_SHA256)),
+    (D27_SHA, (D27_PRE_LANDING_FILE_SHA256, D27_PRE_LANDING_DIFF_SHA256)),
+    (D28_SHA, None),
+    (D29_SHA, None),
+    (
+        APPROVED_SCI004_D_SHA,
+        (D30_PRE_LANDING_FILE_SHA256, D30_PRE_LANDING_COMPLETE_DIFF_SHA256),
+    ),
 )
 
 #: Hermetic Git configuration: a pinned diff digest must not depend on the
@@ -1027,72 +1076,268 @@ class _ReplayAnchor(NamedTuple):
     role: str
 
 
+def _terminal_r3_metadata(commit: str) -> str | None:
+    """Read the one literal terminal binding from a committed tool blob."""
+    try:
+        tree = ast.parse(_tree_blob(commit, R3_METADATA_PATH))
+    except SyntaxError as error:
+        raise DependencyCertificateError(
+            "terminal R3 tool blob is not valid Python"
+        ) from error
+    bindings = [
+        node
+        for node in ast.walk(tree)
+        if (
+            isinstance(node, ast.Name)
+            and node.id == R3_TERMINAL_METADATA_NAME
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+        )
+        or (
+            isinstance(
+                node,
+                (
+                    ast.FunctionDef,
+                    ast.AsyncFunctionDef,
+                    ast.ClassDef,
+                    ast.ExceptHandler,
+                    ast.MatchAs,
+                    ast.MatchStar,
+                ),
+            )
+            and node.name == R3_TERMINAL_METADATA_NAME
+        )
+        or (
+            isinstance(node, ast.MatchMapping)
+            and node.rest == R3_TERMINAL_METADATA_NAME
+        )
+        or (isinstance(node, ast.arg) and node.arg == R3_TERMINAL_METADATA_NAME)
+        or (
+            isinstance(node, ast.alias)
+            and (node.asname or node.name.split(".")[0])
+            in (R3_TERMINAL_METADATA_NAME, "*")
+        )
+    ]
+    assignments = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == R3_TERMINAL_METADATA_NAME
+    ]
+    if not bindings:
+        return None
+    if (
+        len(bindings) != 1
+        or len(assignments) != 1
+        or not isinstance(assignments[0].value, ast.Constant)
+        or type(assignments[0].value.value) is not str
+    ):
+        raise DependencyCertificateError(
+            "terminal R3 requires one literal SHA assignment"
+        )
+    value = assignments[0].value.value
+    if not _is_lower_hex(value, width=40):
+        raise DependencyCertificateError("terminal R3 requires an exact commit SHA")
+    return value
+
+
 def resolve_r3_replay_anchor() -> _ReplayAnchor:
-    """Return the live ``R3`` replay anchor, derived from Git rather than declared.
+    """Separate dependency-only authoring replay from a frozen source boundary.
 
-    ``R3`` is the commit that contains this file, so it cannot be a frozen
-    constant here -- the same self-reference Section 14.1 answers with a null
-    ``red_commit_sha``.  It is derived instead, and *how* it is derived is
-    itself a ruled fact.
-
-    The superseded derivation asked which first-parent commit after ``G3``
-    *added* this validator.  That question has one answer forever: the
-    superseded red slice ``62a7d3d9…``, which added the file and whose parent
-    genuinely is ``G3``.  The accepted 2026-08-24
-    accepted-capability-characterization-envelope correction reopened that slice
-    and recorded the consequence in its own mandate -- the ``--diff-filter=A``
-    derivation "resolves the superseded add-commit as an immutable git fact
-    forever and would silently authenticate it".  A re-cut validator that kept
-    it would replay a commit the memo has superseded while reporting success.
-
-    The live derivation follows the starred edge instead.  Section 13.7's
-    reopened-phase rule and Section 14.4 make the re-cut ``R3`` the direct child
-    of the operative correction commit -- Section 13.2's ``R3^==G3`` now reads
-    "unless a Section 13.7 accepted correction stars the ``G3 -> R3`` edge, in
-    which case ``R3`` directly parents the operative correction commit" -- so
-    the anchor is the first commit on the first-parent chain *after* the
-    operative ``D``, and its parent is required to be exactly that commit.  The
-    superseded slice is an ancestor of the operative ``D`` and therefore outside
-    the search range entirely, which is what makes the substitution impossible
-    rather than merely unlikely.
-
-    Until the re-cut commit exists the anchor is ``HEAD``, which the same rule
-    forces to be the operative ``D`` itself.
+    Evidence generation must refuse the authoring role. First S3 introduces its
+    actual sole parent's exact SHA, after complete red-range verification; all
+    later commits must preserve that assignment.
     """
     head = _peel_to_commit("HEAD")
-    if not _is_ancestor(APPROVED_SCI004_D_SHA, head):
-        raise DependencyCertificateError(
-            f"the operative D {APPROVED_SCI004_D_SHA} is not an ancestor of HEAD "
-            f"{head}; the live R3 replay anchor cannot be derived"
+    if APPROVED_SCI004_D_SHA != phase_history.DESIGN_SHA:
+        raise DependencyCertificateError("phase range operative design differs")
+    phase_history.describe_phase_range(
+        APPROVED_SCI004_D_SHA,
+        phase_history.PREREQUISITE_TIP_SHA,
+        "prerequisite",
+        root=REPOSITORY_ROOT,
+    )
+    terminal = _terminal_r3_metadata(head)
+    if terminal is None:
+        authoring = phase_history.describe_phase_range(
+            phase_history.PREREQUISITE_TIP_SHA,
+            head,
+            "red",
+            root=REPOSITORY_ROOT,
+            require_complete=False,
         )
-    successors = _git(
-        "rev-list",
-        "--first-parent",
-        "--reverse",
-        f"{APPROVED_SCI004_D_SHA}..{head}",
-    ).split()
-    if not successors:
-        if head != APPROVED_SCI004_D_SHA:
+        if any(
+            _terminal_r3_metadata(entry["sha"]) is not None
+            for entry in authoring["commits"]
+        ):
             raise DependencyCertificateError(
-                f"HEAD {head} is past the operative D with no first-parent "
-                "successor; the live R3 replay anchor cannot be derived"
+                "terminal R3 metadata cannot be removed to reopen authoring"
             )
         return _ReplayAnchor(commit=head, role="pre-commit-authoring-tip")
-    anchor = successors[0]
-    parents = _commit_parents(anchor)
-    if parents != (APPROVED_SCI004_D_SHA,):
+    red_range = phase_history.describe_phase_range(
+        phase_history.PREREQUISITE_TIP_SHA,
+        terminal,
+        "red",
+        root=REPOSITORY_ROOT,
+    )
+    if any(
+        _terminal_r3_metadata(entry["sha"]) is not None
+        for entry in red_range["commits"]
+    ):
+        raise DependencyCertificateError("terminal metadata was introduced before S3")
+    descendants = _git(
+        "rev-list", "--first-parent", "--reverse", f"{terminal}..{head}"
+    ).split()
+    if not descendants or descendants[-1] != head:
+        raise DependencyCertificateError("terminal R3 must precede source on main")
+    previous = terminal
+    for commit in descendants:
+        if _commit_parents(commit) != (previous,):
+            raise DependencyCertificateError(
+                "post-R3 history requires contiguous sole parents"
+            )
+        if _terminal_r3_metadata(commit) != terminal:
+            raise DependencyCertificateError(
+                "first S3 must introduce and retain terminal R3"
+            )
+        previous = commit
+    first_paths = set(_changed_paths(descendants[0]))
+    if (
+        R3_METADATA_PATH not in first_paths
+        or not first_paths <= phase_history.SOURCE_PATHS
+    ):
         raise DependencyCertificateError(
-            "Section 13.2's starred G3 -> R3 edge requires the re-cut R3 to "
-            f"directly parent the operative correction commit "
-            f"{APPROVED_SCI004_D_SHA}; {anchor} parents {parents}"
+            "terminal binding must be introduced by first S3 source"
         )
-    touched = _changed_paths(anchor)
-    if touched != tuple(sorted(R3_AUTHORIZED_PATHS)):
-        raise DependencyCertificateError(
-            f"the derived R3 anchor {anchor} touches {touched}, which is not a "
-            "correction-26 validator-only R3 with the exact two authorized paths"
+    return _ReplayAnchor(commit=terminal, role="r3")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "missing_first",
+        "changed_later",
+        "removed_later",
+        "ungranted_first",
+        "merge",
+        "incomplete_red",
+        "metadata_in_red",
+        "transient_in_red",
+    ],
+)
+def test_terminal_r3_binding_requires_the_first_source_commit(
+    phase_objects, monkeypatch, mutation
+):
+    root, commit, base, prerequisite, _, _, _, _ = phase_objects
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", root)
+    monkeypatch.setattr(module, "APPROVED_SCI004_D_SHA", base)
+    red = commit(
+        prerequisite, dict.fromkeys(phase_history.RED_PATHS, b"# red fixture\n")
+    )
+    if mutation in ("metadata_in_red", "transient_in_red"):
+        red = commit(
+            red, {R3_METADATA_PATH: f"{R3_TERMINAL_METADATA_NAME} = {red!r}\n".encode()}
         )
-    return _ReplayAnchor(commit=anchor, role="r3")
+        if mutation == "transient_in_red":
+            red = commit(red, {R3_METADATA_PATH: b"# hide earlier introduction\n"})
+    binding = f"{R3_TERMINAL_METADATA_NAME} = {red!r}\n".encode()
+    edits = {R3_METADATA_PATH: binding}
+    if mutation == "missing_first":
+        edits = {"src/radiosim/core/result.py": b"first source\n"}
+    elif mutation == "ungranted_first":
+        edits["Fix.md"] = b"ungranted\n"
+    first = commit(red, edits)
+    later_edits = {"src/radiosim/core/result.py": b"later source\n"}
+    if mutation == "missing_first":
+        later_edits[R3_METADATA_PATH] = binding
+    elif mutation == "changed_later":
+        later_edits[R3_METADATA_PATH] = (
+            f"{R3_TERMINAL_METADATA_NAME} = {first!r}\n".encode()
+        )
+    elif mutation == "removed_later":
+        # Tool-only source changes also belong to the red structural path set;
+        # retained metadata history must prevent reverting to the authoring role.
+        later_edits = {R3_METADATA_PATH: b"# removed binding\n"}
+    elif mutation == "incomplete_red":
+        later_edits[R3_METADATA_PATH] = (
+            f"{R3_TERMINAL_METADATA_NAME} = {prerequisite!r}\n".encode()
+        )
+    head = commit(first, later_edits, extra_parent=red if mutation == "merge" else None)
+    original_peel = _peel_to_commit
+    monkeypatch.setattr(
+        module,
+        "_peel_to_commit",
+        lambda ref: head if ref == "HEAD" else original_peel(ref),
+    )
+    if mutation is None:
+        anchor = resolve_r3_replay_anchor()
+        assert anchor == _ReplayAnchor(commit=red, role="r3")
+    else:
+        with pytest.raises((DependencyCertificateError, phase_history.HistoryError)):
+            resolve_r3_replay_anchor()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "SCI004_R3_TERMINAL_SHA = None\n",
+        "SCI004_R3_TERMINAL_SHA = 'abc'\n",
+        "SCI004_R3_TERMINAL_SHA: str = '" + "0" * 40 + "'\n",
+        "SCI004_R3_TERMINAL_SHA = '"
+        + "0" * 40
+        + "'\nSCI004_R3_TERMINAL_SHA = '"
+        + "1" * 40
+        + "'\n",
+        "SCI004_R3_TERMINAL_SHA = str('" + "0" * 40 + "')\n",
+        "SCI004_R3_TERMINAL_SHA = '" + "0" * 40 + "'\nSCI004_R3_TERMINAL_SHA += 'x'\n",
+        "if False:\n    SCI004_R3_TERMINAL_SHA = '" + "0" * 40 + "'\n",
+        "SCI004_R3_TERMINAL_SHA = alias = '" + "0" * 40 + "'\n",
+    ],
+)
+def test_terminal_r3_metadata_requires_one_literal_full_sha(monkeypatch, source):
+    monkeypatch.setattr(
+        sys.modules[__name__], "_tree_blob", lambda *_args: source.encode()
+    )
+    with pytest.raises(DependencyCertificateError):
+        _terminal_r3_metadata("unused fixture identity")
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "del SCI004_R3_TERMINAL_SHA\n",
+        "import os as SCI004_R3_TERMINAL_SHA\n",
+        "from other import SCI004_R3_TERMINAL_SHA\n",
+        "from other import *\n",
+        "def SCI004_R3_TERMINAL_SHA(): pass\n",
+        "async def SCI004_R3_TERMINAL_SHA(): pass\n",
+        "class SCI004_R3_TERMINAL_SHA: pass\n",
+        "def other(SCI004_R3_TERMINAL_SHA): pass\n",
+        "try: pass\nexcept Exception as SCI004_R3_TERMINAL_SHA: pass\n",
+        "match {}:\n    case {**SCI004_R3_TERMINAL_SHA}: pass\n",
+        "match []:\n    case [*SCI004_R3_TERMINAL_SHA]: pass\n",
+    ],
+)
+def test_terminal_r3_metadata_rejects_competing_bindings_and_deletion(
+    monkeypatch, suffix
+):
+    source = f"{R3_TERMINAL_METADATA_NAME} = {'0' * 40!r}\n" + suffix
+    monkeypatch.setattr(
+        sys.modules[__name__], "_tree_blob", lambda *_args: source.encode()
+    )
+    with pytest.raises(DependencyCertificateError):
+        _terminal_r3_metadata("unused fixture identity")
+
+
+def test_terminal_r3_metadata_permits_ordinary_read_references(monkeypatch):
+    source = f"{R3_TERMINAL_METADATA_NAME} = {'0' * 40!r}\nprint({R3_TERMINAL_METADATA_NAME})\n"
+    monkeypatch.setattr(
+        sys.modules[__name__], "_tree_blob", lambda *_args: source.encode()
+    )
+    assert _terminal_r3_metadata("unused fixture identity") == "0" * 40
 
 
 def replay_stage2_certificate(anchor: str) -> tuple[bytes, float]:
@@ -1258,7 +1503,7 @@ def test_the_phase_three_binding_advances_the_r1_binding_through_the_chain() -> 
     assert M1_DESIGN_CHAIN[-1].sha == R1_APPROVED_SCI004_D_SHA
     assert APPROVED_SCI004_D_SHA != R1_APPROVED_SCI004_D_SHA
     assert _is_ancestor(R1_APPROVED_SCI004_D_SHA, APPROVED_SCI004_D_SHA)
-    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 16
+    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 20
     assert SCI004_DESIGN_CHAIN[-1].sha == APPROVED_SCI004_D_SHA
     for superseded in (D17_SHA, D18_SHA, D19_SHA, D20_SHA, D21_SHA, D22_SHA):
         assert APPROVED_SCI004_D_SHA != superseded
@@ -1295,21 +1540,21 @@ def test_the_operative_design_commit_follows_the_gate_and_precedes_this_r() -> N
 def test_the_header_enumerated_chain_from_d0_to_the_operative_d_is_exact() -> None:
     """Section 13.7/14.0: every chain link matches its kind and allowed paths.
 
-    The chain is twenty-seven links here -- the memo-introducing ``D0``,
-    twenty-five ``superseded design`` corrections, and the operative one --
+    The chain is thirty-one links here -- the memo-introducing ``D0``,
+    twenty-nine ``superseded design`` corrections, and the operative one --
     and the test
     proves from Git objects that the only *other* commits between ``D0`` and the
     operative ``D`` that touched the memo are ``A1`` and ``A2``, which
     Section 13.7 explicitly rules "is not a chain commit and needs no interval
     kind" for an accepted phase acceptance commit inside the range.
     """
-    assert len(SCI004_DESIGN_CHAIN) == 27
+    assert len(SCI004_DESIGN_CHAIN) == 31
     assert SCI004_DESIGN_CHAIN[0].kind == "memo-introducing"
     assert SCI004_DESIGN_CHAIN[-1].kind == "operative design"
     assert [entry.kind for entry in SCI004_DESIGN_CHAIN[1:-1]] == [
         "superseded design"
-    ] * 25
-    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 27
+    ] * 29
+    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 31
 
     for earlier, later in zip(
         SCI004_DESIGN_CHAIN, SCI004_DESIGN_CHAIN[1:], strict=False
@@ -1363,12 +1608,37 @@ def test_correction_25_final_binary_full_index_diff_identities_are_exact() -> No
 
 def test_correction_26_final_binary_full_index_diff_identities_are_exact() -> None:
     """Authenticate D26's two files and ruled design-then-ledger raw patch."""
-    design = _binary_full_index_diff(APPROVED_SCI004_D_SHA, DESIGN_MEMO_PATH)
-    ledger = _binary_full_index_diff(APPROVED_SCI004_D_SHA, DESIGN_LEDGER_PATH)
+    design = _binary_full_index_diff(D26_SHA, DESIGN_MEMO_PATH)
+    ledger = _binary_full_index_diff(D26_SHA, DESIGN_LEDGER_PATH)
 
     assert hashlib.sha256(design).hexdigest() == D26_FINAL_DESIGN_DIFF_SHA256
     assert hashlib.sha256(ledger).hexdigest() == D26_FINAL_LEDGER_DIFF_SHA256
     assert hashlib.sha256(design + ledger).hexdigest() == D26_FINAL_COMPLETE_DIFF_SHA256
+
+
+def test_d27_d30_and_their_intervening_roles_are_exact_git_objects():
+    for commit, expected in (
+        (D27_SHA, D27_FINAL_COMPLETE_DIFF_SHA256),
+        (D28_SHA, D28_FINAL_COMPLETE_DIFF_SHA256),
+        (D29_SHA, D29_FINAL_COMPLETE_DIFF_SHA256),
+        (APPROVED_SCI004_D_SHA, D30_FINAL_COMPLETE_DIFF_SHA256),
+        (OLD_FRESH_VALIDATOR_R3_SHA, OLD_FRESH_VALIDATOR_R3_COMPLETE_DIFF_SHA256),
+    ):
+        raw = _history_git(
+            REPOSITORY_ROOT,
+            "diff",
+            "--binary",
+            "--full-index",
+            f"{commit}^",
+            commit,
+            "--",
+        )
+        assert hashlib.sha256(raw).hexdigest() == expected
+    assert _changed_paths(OLD_FRESH_VALIDATOR_R3_SHA) == OLD_FRESH_VALIDATOR_R3_PATHS
+    assert _changed_paths(D30_STATUS_BRIDGE_SHA) == (phase_history.STATUS_PATH,)
+    assert _commit_parents(D30_STATUS_BRIDGE_SHA) == (D29_SHA,)
+    assert _commit_parents(APPROVED_SCI004_D_SHA) == (D30_STATUS_BRIDGE_SHA,)
+    assert D30_PRE_LANDING_COMPLETE_DIFF_SHA256 != D30_FINAL_COMPLETE_DIFF_SHA256
 
 
 def recovered_rejected_review_bytes() -> bytes:
@@ -1500,9 +1770,9 @@ def test_rejected_fingerprint_attempt_is_authenticated_from_git_objects() -> Non
 
 
 def continuation_review_map(
-    records: Sequence[tuple[str, tuple[str, str]]],
+    records: Sequence[tuple[str, tuple[str, str] | None]],
     chain: Sequence[_DesignCommit],
-) -> dict[str, tuple[str, str]]:
+) -> dict[str, tuple[str, str] | None]:
     """Join every ordinary review to its exact correction, rejecting omissions.
 
     Pins must be introduced by that correction's own memo diff. Merely finding
@@ -1515,9 +1785,17 @@ def continuation_review_map(
     if set(keys) != set(shas):
         raise DependencyCertificateError("review map must cover the exact continuation")
     result = dict(records)
-    for entry, (file_pin, diff_pin) in zip(
-        chain, (result[sha] for sha in shas), strict=True
+    recovered_keys = {sha for sha, pins in records if pins is None}
+    if recovered_keys != set(phase_history.RECOVERED_DESIGNS):
+        raise DependencyCertificateError("exact recovered design exception set")
+    phase_history.authenticate_review_recovery(REPOSITORY_ROOT)
+    ordinary = [entry for entry in chain if entry.sha not in recovered_keys]
+    for entry, pins in zip(
+        ordinary, (result[entry.sha] for entry in ordinary), strict=True
     ):
+        if pins is None:
+            raise DependencyCertificateError("ordinary review cannot use recovery")
+        file_pin, diff_pin = pins
         if not all(_is_lower_hex(pin, width=64) for pin in (file_pin, diff_pin)):
             raise DependencyCertificateError("invalid ordinary review pin")
         patch = _history_git(
@@ -1582,6 +1860,23 @@ def test_continuation_review_map_rejects_incomplete_or_wrong_identity_joins(muta
         continuation_review_map(records, chain)
 
 
+@pytest.mark.parametrize(
+    "sha,pins",
+    [
+        (D26_SHA, None),
+        (D28_SHA, (D28_MEMO_BLOB_SHA256, D28_LANDED_MEMO_DIFF_SHA256)),
+    ],
+)
+def test_recovered_review_exception_cannot_be_reassigned(sha, pins):
+    records = [
+        (key, pins if key == sha else value) for key, value in CONTINUATION_REVIEW_PINS
+    ]
+    with pytest.raises(
+        DependencyCertificateError, match="exact recovered design exception set"
+    ):
+        continuation_review_map(records, SCI004_DESIGN_CHAIN_CONTINUATION)
+
+
 def test_continuation_review_map_order_does_not_imply_attribution():
     forward = continuation_review_map(
         CONTINUATION_REVIEW_PINS, SCI004_DESIGN_CHAIN_CONTINUATION
@@ -1616,7 +1911,10 @@ def test_every_continuation_review_digest_appears_in_the_accepted_header() -> No
     review_map = continuation_review_map(
         CONTINUATION_REVIEW_PINS, SCI004_DESIGN_CHAIN_CONTINUATION
     )
-    for file_pin, diff_pin in review_map.values():
+    for pins in review_map.values():
+        if pins is None:
+            continue
+        file_pin, diff_pin = pins
         assert _is_lower_hex(file_pin, width=64)
         assert _is_lower_hex(diff_pin, width=64)
         assert f"sha256:{file_pin}" in memo or f"`{file_pin}`" in memo, file_pin
@@ -1640,11 +1938,18 @@ def test_every_continuation_review_digest_appears_in_the_accepted_header() -> No
     assert "each returned exact `ACCEPT`" in memo
     for entry in SCI004_DESIGN_CHAIN_CONTINUATION:
         assert entry.sha in memo or entry.sha == APPROVED_SCI004_D_SHA, entry.label
-    for (file_pin, _diff_pin), entry in zip(
-        (review_map[entry.sha] for entry in SCI004_DESIGN_CHAIN_CONTINUATION),
-        SCI004_DESIGN_CHAIN_CONTINUATION,
+    ordinary = [
+        entry
+        for entry in SCI004_DESIGN_CHAIN_CONTINUATION
+        if review_map[entry.sha] is not None
+    ]
+    for pins, entry in zip(
+        (review_map[entry.sha] for entry in ordinary),
+        ordinary,
         strict=True,
     ):
+        assert pins is not None
+        file_pin, _diff_pin = pins
         assert file_pin != entry.memo_blob_sha256, entry.label
         assert file_pin != entry.landed_memo_diff_sha256, entry.label
 
@@ -1990,14 +2295,13 @@ def test_strict_parser_rejects_every_certificate_mutation(
 
 
 def test_the_r3_replay_anchor_is_the_live_child_of_the_operative_correction() -> None:
-    """Section 13.2's starred ``G3 -> R3`` edge, derived rather than declared.
+    """Distinguish partial committed authoring from the frozen red terminal.
 
-    Before the re-cut ``R3`` exists the anchor is ``HEAD``, which the same rule
-    forces to equal the operative ``D``; the two roles are named explicitly so
-    that a reader of a passing run can tell which state produced it.  Either
-    way the anchor is never the superseded red slice, which the correction
-    reopened and which the ``--diff-filter=A`` derivation would have resolved
-    forever.
+    Before first S3 metadata exists, the authoring role identifies committed
+    HEAD inside the bounded R3 range after P. It is never a generation-ready
+    terminal. Once metadata exists, the actual terminal must authenticate the
+    complete red range and first-source introduction; old red attempts cannot
+    become the current anchor.
     """
     anchor = resolve_r3_replay_anchor()
 
@@ -2010,11 +2314,23 @@ def test_the_r3_replay_anchor_is_the_live_child_of_the_operative_correction() ->
         SUPERSEDED_THIRD_RECUT_RED_SLICE_SHA,
     )
     if anchor.role == "pre-commit-authoring-tip":
-        assert anchor.commit == APPROVED_SCI004_D_SHA
+        assert anchor.commit == _peel_to_commit("HEAD")
+        assert _terminal_r3_metadata(anchor.commit) is None
+        phase_history.describe_phase_range(
+            phase_history.PREREQUISITE_TIP_SHA,
+            anchor.commit,
+            "red",
+            root=REPOSITORY_ROOT,
+            require_complete=False,
+        )
     else:
-        assert _commit_parents(anchor.commit) == (APPROVED_SCI004_D_SHA,)
-        assert DEPENDENCY_VALIDATOR_PATH in _changed_paths(anchor.commit)
-        assert _changed_paths(anchor.commit) == tuple(sorted(R3_AUTHORIZED_PATHS))
+        phase_history.describe_phase_range(
+            phase_history.PREREQUISITE_TIP_SHA,
+            anchor.commit,
+            "red",
+            root=REPOSITORY_ROOT,
+        )
+        assert anchor.commit == _terminal_r3_metadata(_peel_to_commit("HEAD"))
 
 
 def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> None:
@@ -2049,6 +2365,12 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
         REJECTED_A3_SHA,
         D25_SHA,
         ORIGINAL_FINGERPRINT_R3_SHA,
+        D26_SHA,
+        OLD_FRESH_VALIDATOR_R3_SHA,
+        D27_SHA,
+        D28_SHA,
+        D29_SHA,
+        D30_STATUS_BRIDGE_SHA,
         APPROVED_SCI004_D_SHA,
     )
     observed = tuple(
@@ -2103,6 +2425,10 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
         D22_SHA,
         D24_SHA,
         D25_SHA,
+        D26_SHA,
+        D27_SHA,
+        D28_SHA,
+        D29_SHA,
         APPROVED_SCI004_D_SHA,
     ):
         assert _changed_paths(sha) == (DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH), sha
