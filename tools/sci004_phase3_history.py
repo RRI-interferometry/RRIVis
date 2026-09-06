@@ -13,7 +13,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 DESIGN_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
@@ -66,7 +66,7 @@ def _git(root: Path, *arguments: str) -> bytes:
             *arguments[1:],
         )
     environment = os.environ.copy()
-    environment.pop("GIT_DIFF_OPTS", None)
+    _ = environment.pop("GIT_DIFF_OPTS", None)
     completed = subprocess.run(
         [
             "git",
@@ -105,13 +105,14 @@ def _raw_record(record: dict[str, Any], session_path: str) -> dict[str, Any]:
 
 def _authenticate_archive_records(value: Any, session_path: str) -> None:
     if isinstance(value, dict):
-        if "raw_json_line_utf8" in value:
-            _raw_record(value, session_path)
+        record = cast(dict[str, Any], value)
+        if "raw_json_line_utf8" in record:
+            _ = _raw_record(record, session_path)
         else:
-            for child in value.values():
+            for child in record.values():
                 _authenticate_archive_records(child, session_path)
     elif isinstance(value, list):
-        for child in value:
+        for child in cast(list[Any], value):
             _authenticate_archive_records(child, session_path)
 
 
@@ -119,7 +120,7 @@ def _authenticate_recovery(document: dict[str, Any], root: Path) -> None:
     corrections = document["corrections"]
     _require(len(corrections) == 2, "exactly two recovered designs are required")
     _require(
-        {row["commit_sha"] for row in corrections} == RECOVERED_DESIGNS,
+        frozenset(row["commit_sha"] for row in corrections) == RECOVERED_DESIGNS,
         "recovered design identity set",
     )
     for correction in corrections:
@@ -241,3 +242,252 @@ def authenticate_review_recovery(root: Path = REPOSITORY_ROOT) -> dict[str, Any]
     except (KeyError, TypeError, UnicodeError, json.JSONDecodeError) as error:
         raise HistoryError("malformed review recovery record") from error
     return document
+
+
+STATUS_PATH = "docs/development/completion_ledger.md"
+RED_PATHS = frozenset(
+    {
+        "tests/characterization/test_sci004_mmode.py",
+        "tests/unit/test_sci004_phase3_dependency.py",
+        "tests/unit/test_sci004_phase3_evidence.py",
+        "tests/unit/test_sci004_phase3_red_failures.py",
+        "tools/sci004_mmode_phase3_evidence.py",
+        "tools/sci004_phase3_history.py",
+        "tests/unit/test_sci004_phase3_history.py",
+    }
+)
+SOURCE_PATHS = frozenset(
+    {
+        "src/radiosim/core/result.py",
+        "tools/sci004_mmode_phase3_evidence.py",
+        "tests/unit/test_sci004_phase3_evidence.py",
+        "tools/sci004_mmode_phase3_acceptance.py",
+        "tests/unit/test_sci004_phase3_acceptance.py",
+    }
+)
+DISPOSAL_PINS = {
+    "docs/development/sci004_mmode_phase3_acceptance.json": "283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d",
+    "docs/development/sci004_mmode_phase3_evidence.json": "600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae",
+    "docs/development/sci004_mmode_phase3_evidence.md": "039539a865b5d92e86379f44a324271232e8a947301e380ec7b1b1848e907b4e",
+    "output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json": "07e59d3176866a78c17244849d6493365e9d410547e884cf56b254e60babe193",
+}
+# These already reviewed maintenance commits are exact immutable prerequisites,
+# not a generic permission for source edits in a red phase.
+PREREQUISITE_ROLES = {
+    "860222ac90eaa7b9a2a1c3b282e3ec0f51b7834b": "review-recovery",
+    "c245593df808e0a757925d5a02416b4608cd8661": "status",
+    "1909829d828078fd36a905aa68cde50fcb4bfa16": "frame-regression",
+    "cfad247831629241842ffecd5f7aaa5b2084493c": "frame-context-repair",
+}
+PREREQUISITE_PATHS = {
+    "review-recovery": {REVIEW_RECOVERY_PATH},
+    "status": {STATUS_PATH},
+    "frame-regression": {"tests/unit/test_core/test_sci004_frame.py"},
+    "frame-context-repair": {"src/radiosim/core/mmode/solver.py"},
+}
+
+
+def _exact_commit(root: Path, value: str) -> str:
+    _require(
+        type(value) is str
+        and len(value) == 40
+        and all(c in "0123456789abcdef" for c in value),
+        "exact commit SHA required",
+    )
+    _require(
+        _git(root, "rev-parse", "--verify", f"{value}^{{commit}}").decode().strip()
+        == value,
+        "commit SHA did not peel exactly",
+    )
+    return value
+
+
+def _commit_delta(root: Path, parent: str, commit: str) -> dict[str, str]:
+    fields = _git(root, "diff", "--name-status", "-z", parent, commit, "--").split(
+        b"\0"
+    )
+    _require(fields[-1] == b"", "Git path framing")
+    _ = fields.pop()
+    _require(len(fields) % 2 == 0, "Git delta framing")
+    delta = {
+        path.decode(): status.decode()
+        for status, path in zip(fields[::2], fields[1::2], strict=True)
+    }
+    _require(
+        len(delta) * 2 == len(fields) and bool(delta), "empty/duplicate commit delta"
+    )
+    return delta
+
+
+def _phase_role(
+    root: Path, phase: str, commit: str, parent: str, delta: dict[str, str]
+) -> str:
+    paths = set(delta)
+    if phase == "prerequisite":
+        _require(commit in PREREQUISITE_ROLES, "unknown prerequisite commit")
+        role = PREREQUISITE_ROLES[commit]
+        _require(paths == PREREQUISITE_PATHS[role], "prerequisite role paths")
+        return role
+    if paths == {STATUS_PATH}:
+        _require(set(delta.values()) == {"M"}, "status commits only modify the ledger")
+        return "status"
+    if phase == "red":
+        _require(
+            paths <= RED_PATHS and set(delta.values()) <= {"A", "M"},
+            "red role path/change-kind boundary",
+        )
+        return "red"
+    _require(phase == "source", "unknown phase role")
+    if paths <= DISPOSAL_PINS.keys():
+        _require(set(delta.values()) == {"D"}, "disposal must only delete artifacts")
+        for path in paths:
+            _require(
+                _sha256(_git(root, "show", f"{parent}:{path}")) == DISPOSAL_PINS[path],
+                "disposal predecessor bytes are not the rejected artifact",
+            )
+        return "disposal"
+    _require(
+        paths <= SOURCE_PATHS and set(delta.values()) == {"M"},
+        "source role path/change-kind boundary",
+    )
+    return "source"
+
+
+def describe_phase_range(
+    base_sha: str,
+    terminal_sha: str,
+    phase: str,
+    *,
+    root: Path = REPOSITORY_ROOT,
+    require_complete: bool = True,
+) -> dict[str, Any]:
+    """Recompute an exclusive-base/inclusive-tip first-parent phase range.
+
+    Partial authoring ranges can be inspected with ``require_complete=False``;
+    evidence/acceptance always call the complete three-range validator below.
+    This authenticates topology, paths, change kinds and exact bytes. Scientific
+    semantics, factual status prose, sentinels and phase acceptance remain checks
+    of the composing validators and independent reviews.
+    """
+    _require(phase in {"prerequisite", "red", "source"}, "unknown phase")
+    base = _exact_commit(root, base_sha)
+    terminal = _exact_commit(root, terminal_sha)
+    shas = (
+        _git(
+            root,
+            "rev-list",
+            "--first-parent",
+            "--ancestry-path",
+            "--reverse",
+            f"{base}..{terminal}",
+        )
+        .decode()
+        .split()
+    )
+    _require(
+        (not shas and base == terminal) or (bool(shas) and shas[-1] == terminal),
+        "phase terminal is not on the declared ancestry path",
+    )
+    previous = base
+    records: list[dict[str, Any]] = []
+    aggregate: set[str] = set()
+    for commit in shas:
+        parents = (
+            _git(root, "rev-list", "--parents", "-n", "1", commit).decode().split()
+        )
+        _require(
+            parents == [commit, previous], "phase requires contiguous sole parents"
+        )
+        delta = _commit_delta(root, previous, commit)
+        role = _phase_role(root, phase, commit, previous, delta)
+        for path, status in delta.items():
+            if status != "D":
+                metadata = _git(root, "ls-tree", commit, "--", path).decode().split()
+                _require(
+                    len(metadata) >= 3
+                    and metadata[0] in {"100644", "100755"}
+                    and metadata[1] == "blob",
+                    "phase files must be regular blobs",
+                )
+        records.append(
+            {
+                "sha": commit,
+                "parent_sha": previous,
+                "role": role,
+                "paths": sorted(delta),
+                "parent_diff_sha256": _sha256(
+                    _git(
+                        root, "diff", "--binary", "--full-index", previous, commit, "--"
+                    )
+                ),
+            }
+        )
+        if role != "status":
+            aggregate.update(delta)
+        previous = commit
+    if require_complete:
+        if phase == "prerequisite":
+            _require(
+                base == DESIGN_SHA
+                and terminal == PREREQUISITE_TIP_SHA
+                and shas == list(PREREQUISITE_ROLES),
+                "frozen prerequisite range",
+            )
+        else:
+            expected = (
+                RED_PATHS if phase == "red" else SOURCE_PATHS | DISPOSAL_PINS.keys()
+            )
+            _require(
+                bool(shas) and frozenset(aggregate) == frozenset(expected),
+                "complete phase path inventory",
+            )
+    return {"base_sha": base, "terminal_sha": terminal, "commits": records}
+
+
+def validate_phase_ranges(
+    document: Any,
+    *,
+    design_sha: str,
+    red_sha: str,
+    source_sha: str,
+    root: Path = REPOSITORY_ROOT,
+) -> None:
+    """Authenticate the exact closed range schema and all three terminal joins."""
+    _require(
+        type(document) is dict and set(document) == {"prerequisite", "red", "source"},
+        "phase_ranges keys",
+    )
+    _require(design_sha == DESIGN_SHA, "phase_ranges operative design")
+    endpoints = (
+        (design_sha, PREREQUISITE_TIP_SHA),
+        (PREREQUISITE_TIP_SHA, red_sha),
+        (red_sha, source_sha),
+    )
+    for phase, (base, terminal) in zip(
+        ("prerequisite", "red", "source"), endpoints, strict=True
+    ):
+        actual = document[phase]
+        _require(
+            type(actual) is dict
+            and set(actual) == {"base_sha", "terminal_sha", "commits"}
+            and type(actual["base_sha"]) is str
+            and type(actual["terminal_sha"]) is str
+            and type(actual["commits"]) is list,
+            f"{phase} range schema",
+        )
+        entries = cast(dict[str, Any], actual)["commits"]
+        for entry in cast(list[Any], entries):
+            _require(
+                type(entry) is dict
+                and set(entry)
+                == {"sha", "parent_sha", "role", "paths", "parent_diff_sha256"}
+                and all(
+                    type(entry[key]) is str
+                    for key in ("sha", "parent_sha", "role", "parent_diff_sha256")
+                )
+                and type(entry["paths"]) is list
+                and all(type(path) is str for path in entry["paths"]),
+                f"{phase} commit schema",
+            )
+        expected = describe_phase_range(base, terminal, phase, root=root)
+        _require(actual == expected, f"{phase} range differs from exact Git history")

@@ -158,3 +158,250 @@ def test_recovery_neutralizes_git_diff_environment_without_mutating_caller(monke
     monkeypatch.setenv("GIT_DIFF_OPTS", "--unified=0")
     assert len(history.authenticate_review_recovery()["corrections"]) == 2
     assert os.environ["GIT_DIFF_OPTS"] == "--unified=0"
+
+
+def test_live_prerequisite_range_retains_every_commit_and_role():
+    result = history.describe_phase_range(
+        history.DESIGN_SHA, history.PREREQUISITE_TIP_SHA, "prerequisite"
+    )
+    assert [row["sha"] for row in result["commits"]] == list(history.PREREQUISITE_ROLES)
+    assert [row["role"] for row in result["commits"]] == [
+        "review-recovery",
+        "status",
+        "frame-regression",
+        "frame-context-repair",
+    ]
+    assert all(len(row["parent_diff_sha256"]) == 64 for row in result["commits"])
+
+
+@pytest.fixture
+def phase_objects(tmp_path, monkeypatch):
+    """Synthetic Git objects only: no checkout, refs or implementation worktree."""
+    import subprocess
+
+    root = tmp_path / "objects.git"
+    environment = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "History fixture",
+        "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+        "GIT_COMMITTER_NAME": "History fixture",
+        "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+        "GIT_AUTHOR_DATE": "2026-01-01T00:00:00Z",
+        "GIT_COMMITTER_DATE": "2026-01-01T00:00:00Z",
+        "GIT_INDEX_FILE": str(tmp_path / "fixture.index"),
+    }
+    subprocess.run(
+        ["git", "init", "--bare", str(root)], check=True, capture_output=True
+    )
+
+    def git(*args, data=None):
+        return (
+            subprocess.run(
+                ["git", *args],
+                cwd=root,
+                env=environment,
+                input=data,
+                check=True,
+                capture_output=True,
+            )
+            .stdout.decode()
+            .strip()
+        )
+
+    def commit(parent, edits, *, extra_parent=None, mode="100644"):
+        git("read-tree", f"{parent}^{{tree}}" if parent else "--empty")
+        for path, content in edits.items():
+            if content is None:
+                git(
+                    "update-index",
+                    "--index-info",
+                    data=f"0 {'0' * 40}\t{path}\n".encode(),
+                )
+            else:
+                blob = git("hash-object", "-w", "--stdin", data=content)
+                git("update-index", "--add", "--cacheinfo", mode, blob, path)
+        parents = ["-p", parent] if parent else []
+        if extra_parent:
+            parents.extend(["-p", extra_parent])
+        return git("commit-tree", git("write-tree"), *parents, data=b"fixture\n")
+
+    # Preserve real path grants, substituting only synthetic prerequisite identities
+    # and rejected-artifact byte pins; production historical tests above use originals.
+    initial = dict.fromkeys(history.SOURCE_PATHS, b"before\n")
+    initial.update(dict.fromkeys(history.DISPOSAL_PINS, b"rejected\n"))
+    initial[history.STATUS_PATH] = b"initial status\n"
+    base = commit(None, initial)
+    prerequisite = commit(base, {history.REVIEW_RECOVERY_PATH: b"fixture recovery\n"})
+    monkeypatch.setattr(history, "DESIGN_SHA", base)
+    monkeypatch.setattr(history, "PREREQUISITE_TIP_SHA", prerequisite)
+    monkeypatch.setattr(
+        history, "PREREQUISITE_ROLES", {prerequisite: "review-recovery"}
+    )
+    monkeypatch.setattr(
+        history,
+        "DISPOSAL_PINS",
+        {path: history._sha256(b"rejected\n") for path in history.DISPOSAL_PINS},
+    )
+    red = commit(prerequisite, dict.fromkeys(history.RED_PATHS, b"red fixture\n"))
+    status = commit(red, {history.STATUS_PATH: b"red status\n"})
+    source = commit(status, dict.fromkeys(history.SOURCE_PATHS, b"source fixture\n"))
+    terminal = commit(source, dict.fromkeys(history.DISPOSAL_PINS))
+    return root, commit, base, prerequisite, red, status, source, terminal
+
+
+def _phase_document(objects):
+    root, _, base, prerequisite, _, red, _, source = objects
+    return {
+        phase: history.describe_phase_range(start, end, phase, root=root)
+        for phase, start, end in (
+            ("prerequisite", base, prerequisite),
+            ("red", prerequisite, red),
+            ("source", red, source),
+        )
+    }
+
+
+def _validate_document(document, objects):
+    root, _, base, _, _, red, _, source = objects
+    history.validate_phase_ranges(
+        document, design_sha=base, red_sha=red, source_sha=source, root=root
+    )
+
+
+def test_complete_ranges_join_git_objects_and_keep_status_and_disposal(phase_objects):
+    document = _phase_document(phase_objects)
+    _validate_document(document, phase_objects)
+    assert [row["role"] for row in document["red"]["commits"]] == ["red", "status"]
+    assert [row["role"] for row in document["source"]["commits"]] == [
+        "source",
+        "disposal",
+    ]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_phase",
+        "extra_phase",
+        "extra_range_key",
+        "extra_commit_key",
+        "tuple_commits",
+        "tuple_paths",
+        "missing_commit",
+        "duplicate_commit",
+        "reordered",
+        "wrong_parent",
+        "wrong_digest",
+        "wrong_role",
+        "unsorted_paths",
+        "duplicate_path",
+        "wrong_base",
+        "wrong_terminal",
+        "wrong_design",
+        "red_source_swap",
+    ],
+)
+def test_range_document_rejects_forged_or_incomplete_history(phase_objects, mutation):
+    document = _phase_document(phase_objects)
+    red = document["red"]
+    row = red["commits"][0]
+    if mutation == "missing_phase":
+        document.pop("source")
+    elif mutation == "extra_phase":
+        document["evidence"] = {}
+    elif mutation == "extra_range_key":
+        red["accepted"] = True
+    elif mutation == "extra_commit_key":
+        row["accepted"] = True
+    elif mutation == "tuple_commits":
+        red["commits"] = tuple(red["commits"])
+    elif mutation == "tuple_paths":
+        row["paths"] = tuple(row["paths"])
+    elif mutation == "missing_commit":
+        red["commits"].pop()
+    elif mutation == "duplicate_commit":
+        red["commits"].append(copy.deepcopy(row))
+    elif mutation == "reordered":
+        red["commits"].reverse()
+    elif mutation == "wrong_parent":
+        row["parent_sha"] = row["sha"]
+    elif mutation == "wrong_digest":
+        row["parent_diff_sha256"] = "0" * 64
+    elif mutation == "wrong_role":
+        row["role"] = "status"
+    elif mutation == "unsorted_paths":
+        row["paths"].reverse()
+    elif mutation == "duplicate_path":
+        row["paths"].append(row["paths"][0])
+    elif mutation == "wrong_base":
+        red["base_sha"] = red["terminal_sha"]
+    elif mutation == "wrong_terminal":
+        red["terminal_sha"] = red["base_sha"]
+    elif mutation == "wrong_design":
+        with pytest.raises(history.HistoryError, match="operative design"):
+            history.validate_phase_ranges(
+                document,
+                design_sha="0" * 40,
+                red_sha=phase_objects[5],
+                source_sha=phase_objects[7],
+            )
+        return
+    else:
+        document["red"], document["source"] = document["source"], document["red"]
+    with pytest.raises(history.HistoryError):
+        _validate_document(document, phase_objects)
+
+
+@pytest.mark.parametrize(
+    "violation",
+    [
+        "merge",
+        "nonancestor",
+        "ungranted_path",
+        "symlink",
+        "incomplete_paths",
+        "mixed_status",
+        "empty_red",
+        "abbreviated_sha",
+        "modified_disposal",
+        "forged_disposal",
+    ],
+)
+def test_actual_git_history_rejects_role_and_topology_violations(
+    phase_objects, violation
+):
+    root, commit, base, prerequisite, red, status, source, terminal = phase_objects
+    phase = "red"
+    start = prerequisite
+    end = red
+    if violation == "merge":
+        side = commit(prerequisite, {history.STATUS_PATH: b"side\n"})
+        end = commit(red, {history.STATUS_PATH: b"merge\n"}, extra_parent=side)
+    elif violation == "nonancestor":
+        end = commit(base, {history.STATUS_PATH: b"other descendant\n"})
+    elif violation == "ungranted_path":
+        end = commit(red, {"Fix.md": b"ungranted\n"})
+    elif violation == "symlink":
+        end = commit(red, {sorted(history.RED_PATHS)[0]: b"somewhere"}, mode="120000")
+    elif violation == "incomplete_paths":
+        end = commit(prerequisite, {sorted(history.RED_PATHS)[0]: b"one only\n"})
+    elif violation == "mixed_status":
+        end = commit(
+            red,
+            {history.STATUS_PATH: b"mixed\n", sorted(history.RED_PATHS)[0]: b"mixed\n"},
+        )
+    elif violation == "empty_red":
+        end = start
+    elif violation == "abbreviated_sha":
+        end = red[:12]
+    else:
+        phase, start = "source", status
+        path = next(iter(history.DISPOSAL_PINS))
+        forged = commit(source, {path: b"replacement artifact\n"})
+        end = (
+            forged if violation == "modified_disposal" else commit(forged, {path: None})
+        )
+        if violation == "forged_disposal":
+            start = forged
+    with pytest.raises(history.HistoryError):
+        history.describe_phase_range(start, end, phase, root=root)
