@@ -104,6 +104,7 @@ from tests.unit.test_sci004_phase1_dependency import (
 from tests.unit.test_sci004_phase1_dependency import (
     _DesignCommit,
 )
+from tools.sci004_phase3_history import _git as _history_git
 
 #: The operative SCI-004 design commit ``D`` (Section 13.7), frozen for phase M3
 #: exactly as Section 14.0 requires: "R1's dependency validator,
@@ -751,25 +752,25 @@ NON_CHAIN_ACCEPTANCE_SHAS: tuple[str, ...] = (
     APPROVED_SCI004_A2_SHA,
 )
 
-#: The pre-landing review pins the six continuation records carry. They were
-#: never committed, so the accepted header text is their only authority.
-CONTINUATION_REVIEW_PINS: tuple[tuple[str, str], ...] = (
-    (D10_PRE_LANDING_FILE_SHA256, D10_PRE_LANDING_DIFF_SHA256),
-    (D11_PRE_LANDING_FILE_SHA256, D11_PRE_LANDING_DIFF_SHA256),
-    (D12_PRE_LANDING_FILE_SHA256, D12_PRE_LANDING_DIFF_SHA256),
-    (D13_PRE_LANDING_FILE_SHA256, D13_PRE_LANDING_DIFF_SHA256),
-    (D14_PRE_LANDING_FILE_SHA256, D14_PRE_LANDING_DIFF_SHA256),
-    (D15_PRE_LANDING_FILE_SHA256, D15_PRE_LANDING_DIFF_SHA256),
-    (D16_PRE_LANDING_FILE_SHA256, D16_PRE_LANDING_DIFF_SHA256),
-    (D17_PRE_LANDING_FILE_SHA256, D17_PRE_LANDING_DIFF_SHA256),
-    (D18_PRE_LANDING_FILE_SHA256, D18_PRE_LANDING_DIFF_SHA256),
-    (D19_PRE_LANDING_FILE_SHA256, D19_PRE_LANDING_DIFF_SHA256),
-    (D20_PRE_LANDING_FILE_SHA256, D20_PRE_LANDING_DIFF_SHA256),
-    (D21_PRE_LANDING_FILE_SHA256, D21_PRE_LANDING_DIFF_SHA256),
-    (D22_PRE_LANDING_FILE_SHA256, D22_PRE_LANDING_DIFF_SHA256),
-    (D_PRE_LANDING_FILE_SHA256, D_PRE_LANDING_DIFF_SHA256),
-    (D25_PRE_LANDING_FILE_SHA256, D25_PRE_LANDING_DIFF_SHA256),
-    (D26_PRE_LANDING_FILE_SHA256, D26_PRE_LANDING_DIFF_SHA256),
+#: Explicit SHA-keyed review records; conversion rejects duplicates before a map
+#: could hide them. The current operative binding is advanced in the next slice.
+CONTINUATION_REVIEW_PINS: tuple[tuple[str, tuple[str, str]], ...] = (
+    (D10_SHA, (D10_PRE_LANDING_FILE_SHA256, D10_PRE_LANDING_DIFF_SHA256)),
+    (D11_SHA, (D11_PRE_LANDING_FILE_SHA256, D11_PRE_LANDING_DIFF_SHA256)),
+    (D12_SHA, (D12_PRE_LANDING_FILE_SHA256, D12_PRE_LANDING_DIFF_SHA256)),
+    (D13_SHA, (D13_PRE_LANDING_FILE_SHA256, D13_PRE_LANDING_DIFF_SHA256)),
+    (D14_SHA, (D14_PRE_LANDING_FILE_SHA256, D14_PRE_LANDING_DIFF_SHA256)),
+    (D15_SHA, (D15_PRE_LANDING_FILE_SHA256, D15_PRE_LANDING_DIFF_SHA256)),
+    (D16_SHA, (D16_PRE_LANDING_FILE_SHA256, D16_PRE_LANDING_DIFF_SHA256)),
+    (D17_SHA, (D17_PRE_LANDING_FILE_SHA256, D17_PRE_LANDING_DIFF_SHA256)),
+    (D18_SHA, (D18_PRE_LANDING_FILE_SHA256, D18_PRE_LANDING_DIFF_SHA256)),
+    (D19_SHA, (D19_PRE_LANDING_FILE_SHA256, D19_PRE_LANDING_DIFF_SHA256)),
+    (D20_SHA, (D20_PRE_LANDING_FILE_SHA256, D20_PRE_LANDING_DIFF_SHA256)),
+    (D21_SHA, (D21_PRE_LANDING_FILE_SHA256, D21_PRE_LANDING_DIFF_SHA256)),
+    (D22_SHA, (D22_PRE_LANDING_FILE_SHA256, D22_PRE_LANDING_DIFF_SHA256)),
+    (D24_SHA, (D_PRE_LANDING_FILE_SHA256, D_PRE_LANDING_DIFF_SHA256)),
+    (D25_SHA, (D25_PRE_LANDING_FILE_SHA256, D25_PRE_LANDING_DIFF_SHA256)),
+    (APPROVED_SCI004_D_SHA, (D26_PRE_LANDING_FILE_SHA256, D26_PRE_LANDING_DIFF_SHA256)),
 )
 
 #: Hermetic Git configuration: a pinned diff digest must not depend on the
@@ -1419,6 +1420,110 @@ def test_rejected_fingerprint_attempt_is_authenticated_from_git_objects() -> Non
     assert external["reviewer_independent"] is True
 
 
+def continuation_review_map(
+    records: Sequence[tuple[str, tuple[str, str]]],
+    chain: Sequence[_DesignCommit],
+) -> dict[str, tuple[str, str]]:
+    """Join every ordinary review to its exact correction, rejecting omissions.
+
+    Pins must be introduced by that correction's own memo diff. Merely finding
+    another correction's pins in a cumulative descendant header is insufficient.
+    """
+    shas = [entry.sha for entry in chain]
+    keys = [sha for sha, _pins in records]
+    if len(set(shas)) != len(shas) or len(set(keys)) != len(keys):
+        raise DependencyCertificateError("duplicate continuation or review identity")
+    if set(keys) != set(shas):
+        raise DependencyCertificateError("review map must cover the exact continuation")
+    result = dict(records)
+    for entry, (file_pin, diff_pin) in zip(
+        chain, (result[sha] for sha in shas), strict=True
+    ):
+        if not all(_is_lower_hex(pin, width=64) for pin in (file_pin, diff_pin)):
+            raise DependencyCertificateError("invalid ordinary review pin")
+        patch = _history_git(
+            REPOSITORY_ROOT,
+            "diff",
+            "--binary",
+            "--full-index",
+            f"{entry.sha}^",
+            entry.sha,
+            "--",
+            DESIGN_MEMO_PATH,
+        ).decode("utf-8")
+        added = "\n".join(
+            line[1:]
+            for line in patch.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        )
+        if file_pin not in added or diff_pin not in added:
+            raise DependencyCertificateError(
+                "review pins not introduced by their correction"
+            )
+        if (
+            file_pin == entry.memo_blob_sha256
+            or diff_pin == entry.landed_memo_diff_sha256
+        ):
+            raise DependencyCertificateError(
+                "ordinary reviewed and landed bytes must differ"
+            )
+    return result
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "unknown",
+        "duplicate",
+        "duplicate_chain",
+        "misattributed",
+        "landed_file",
+        "landed_diff",
+    ],
+)
+def test_continuation_review_map_rejects_incomplete_or_wrong_identity_joins(mutation):
+    records = list(CONTINUATION_REVIEW_PINS)
+    chain = list(SCI004_DESIGN_CHAIN_CONTINUATION)
+    if mutation == "missing":
+        records.pop()
+    elif mutation == "unknown":
+        records[0] = ("0" * 40, records[0][1])
+    elif mutation == "duplicate":
+        records.append(records[0])
+    elif mutation == "duplicate_chain":
+        chain.append(chain[0])
+    elif mutation == "landed_file":
+        chain[0] = chain[0]._replace(memo_blob_sha256=records[0][1][0])
+    elif mutation == "landed_diff":
+        chain[0] = chain[0]._replace(landed_memo_diff_sha256=records[0][1][1])
+    else:
+        records[0] = (records[0][0], records[1][1])
+    with pytest.raises(DependencyCertificateError):
+        continuation_review_map(records, chain)
+
+
+def test_continuation_review_map_order_does_not_imply_attribution():
+    forward = continuation_review_map(
+        CONTINUATION_REVIEW_PINS, SCI004_DESIGN_CHAIN_CONTINUATION
+    )
+    reverse = continuation_review_map(
+        tuple(reversed(CONTINUATION_REVIEW_PINS)), SCI004_DESIGN_CHAIN_CONTINUATION
+    )
+    assert forward == reverse
+
+
+def test_continuation_review_map_ignores_diff_presentation(monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "diff.outputIndicatorNew")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", ">")
+    assert len(
+        continuation_review_map(
+            CONTINUATION_REVIEW_PINS, SCI004_DESIGN_CHAIN_CONTINUATION
+        )
+    ) == len(SCI004_DESIGN_CHAIN_CONTINUATION)
+
+
 def test_every_continuation_review_digest_appears_in_the_accepted_header() -> None:
     """The memo header is the only authority for the pre-landing review pins.
 
@@ -1429,7 +1534,10 @@ def test_every_continuation_review_digest_appears_in_the_accepted_header() -> No
     """
     memo = _tree_blob(APPROVED_SCI004_D_SHA, DESIGN_MEMO_PATH).decode("utf-8")
 
-    for file_pin, diff_pin in CONTINUATION_REVIEW_PINS:
+    review_map = continuation_review_map(
+        CONTINUATION_REVIEW_PINS, SCI004_DESIGN_CHAIN_CONTINUATION
+    )
+    for file_pin, diff_pin in review_map.values():
         assert _is_lower_hex(file_pin, width=64)
         assert _is_lower_hex(diff_pin, width=64)
         assert f"sha256:{file_pin}" in memo or f"`{file_pin}`" in memo, file_pin
@@ -1454,7 +1562,9 @@ def test_every_continuation_review_digest_appears_in_the_accepted_header() -> No
     for entry in SCI004_DESIGN_CHAIN_CONTINUATION:
         assert entry.sha in memo or entry.sha == APPROVED_SCI004_D_SHA, entry.label
     for (file_pin, _diff_pin), entry in zip(
-        CONTINUATION_REVIEW_PINS, SCI004_DESIGN_CHAIN_CONTINUATION, strict=True
+        (review_map[entry.sha] for entry in SCI004_DESIGN_CHAIN_CONTINUATION),
+        SCI004_DESIGN_CHAIN_CONTINUATION,
+        strict=True,
     ):
         assert file_pin != entry.memo_blob_sha256, entry.label
         assert file_pin != entry.landed_memo_diff_sha256, entry.label
