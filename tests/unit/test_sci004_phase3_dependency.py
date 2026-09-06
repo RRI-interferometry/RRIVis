@@ -2,14 +2,14 @@
 
 The immutable G3/A2 and SCI-005 dependency certificate remain authenticated from
 exact Git objects and replayed at G3 and the explicitly identified R3 venue.
-D30 extends the complete design chain using a total SHA-keyed review map. D28
+D31 extends the complete design chain using a total SHA-keyed review map. D28
 and D29 alone use their authenticated original-review recovery records; ordinary
 corrections retain reviewed-versus-landed inequality and exact header pins.
 
 During the finite R3 authoring range, a dependency replay may inspect the current
 committed tip with an explicit authoring role. That is not a sealed red boundary
 and cannot authorize evidence generation. The first S3 implementation introduces
-the literal terminal-R3 metadata SHA, which must authenticate a complete D30 red
+the literal terminal-R3 metadata SHA, which must authenticate the complete D30-origin red
 range and have been absent from that red tree. Historical fingerprint R3, D24,
 D25 and all rejected evidence identities remain separate immutable bindings.
 """
@@ -50,8 +50,10 @@ D28_SHA = "67da2b818b89511df8476b7010230c65d6cb6a75"
 D29_SHA = "cfc9b10d655a4d9bedbd7d7750c4743f504bbaf9"
 D30_STATUS_BRIDGE_SHA = "d432bcb50f60c880aca3d3e599786b9ebe62fa1c"
 
-#: Section 14.0's exact assignment for this reopened phase, operative D30.
-APPROVED_SCI004_D_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
+#: D30 remains the immutable range origin; D31 is the operative authority.
+D30_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
+D30_R1_TERMINAL_SHA = "87b16ba16c8a4ab4ff8b9e6bf213c5ce45a41bfe"
+APPROVED_SCI004_D_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 
 #: The globally clean programme tip ``G3`` (Section 13.2). Ancestry is
 #: inclusive, and this tip is the later of the two named dependency commits --
@@ -607,6 +609,22 @@ D30_FINAL_COMPLETE_DIFF_SHA256 = (
 
 #: The ``D0 -> operative D`` chain past ``A1``, oldest first. Section 13.7's
 #: interval kinds are the authority for the allowed-path tuples.
+D31_MEMO_BLOB_SHA256 = (
+    "0a92f7c96298a1b76aa11c1f77c63d62d204024a7b50781d6dbf1d69a16d566c"
+)
+D31_LANDED_MEMO_DIFF_SHA256 = (
+    "4a4b1e09f9db815865baa7553b33dfc75957d9c48d09664aa01f9df39ef843a2"
+)
+D31_PRE_LANDING_FILE_SHA256 = (
+    "7fc98597d564c1e2201b365392691468270e9bbcfecfb1c083d43ce4d006dc92"
+)
+D31_PRE_LANDING_COMPLETE_DIFF_SHA256 = (
+    "f9d2257ef156cec2b7872eec45dd55c0dd3b69555bf4cdec3e8c00b00e818de9"
+)
+D31_FINAL_COMPLETE_DIFF_SHA256 = (
+    "555d08016aab5cc29106e0a1b9bf1389a580f1300d1d9efb4e4a83e1714182e7"
+)
+
 SCI004_DESIGN_CHAIN_CONTINUATION: tuple[_DesignCommit, ...] = (
     _DesignCommit(
         sha=D10_SHA,
@@ -761,17 +779,25 @@ SCI004_DESIGN_CHAIN_CONTINUATION: tuple[_DesignCommit, ...] = (
         landed_memo_diff_sha256=D29_LANDED_MEMO_DIFF_SHA256,
     ),
     _DesignCommit(
-        sha=APPROVED_SCI004_D_SHA,
-        kind="operative design",
+        sha=D30_SHA,
+        kind="superseded design",
         allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
         memo_blob_sha256=D30_MEMO_BLOB_SHA256,
         label="authenticated recovery and finite phase ranges",
         landed_memo_diff_sha256=D30_LANDED_MEMO_DIFF_SHA256,
     ),
+    _DesignCommit(
+        sha=APPROVED_SCI004_D_SHA,
+        kind="operative design",
+        allowed_paths=(DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH),
+        memo_blob_sha256=D31_MEMO_BLOB_SHA256,
+        label="solver-owned same-run characterization input",
+        landed_memo_diff_sha256=D31_LANDED_MEMO_DIFF_SHA256,
+    ),
 )
 
 #: The complete header-enumerated chain for this phase: the eleven links R1
-#: froze -- which "no later phase may change" -- followed by the twenty that landed
+#: froze -- which "no later phase may change" -- followed by the twenty-one that landed
 #: after ``A1``. The M1 tuple is imported rather than restated for exactly that
 #: reason. Its final entry was the operative ``D`` when R1 froze it and is now a
 #: ``superseded design`` chain commit: every correction's header record says so
@@ -817,8 +843,12 @@ CONTINUATION_REVIEW_PINS: tuple[tuple[str, tuple[str, str] | None], ...] = (
     (D28_SHA, None),
     (D29_SHA, None),
     (
-        APPROVED_SCI004_D_SHA,
+        D30_SHA,
         (D30_PRE_LANDING_FILE_SHA256, D30_PRE_LANDING_COMPLETE_DIFF_SHA256),
+    ),
+    (
+        APPROVED_SCI004_D_SHA,
+        (D31_PRE_LANDING_FILE_SHA256, D31_PRE_LANDING_COMPLETE_DIFF_SHA256),
     ),
 )
 
@@ -1142,6 +1172,14 @@ def _terminal_r3_metadata(commit: str) -> str | None:
     return value
 
 
+def _require_operative_design_in_red(red_range: Mapping[str, Any]) -> None:
+    design_entries = [
+        entry for entry in red_range["commits"] if entry["role"] == "design-successor"
+    ]
+    if len(design_entries) != 1 or design_entries[0]["sha"] != APPROVED_SCI004_D_SHA:
+        raise DependencyCertificateError("red range must contain exact operative D31")
+
+
 def resolve_r3_replay_anchor() -> _ReplayAnchor:
     """Separate dependency-only authoring replay from a frozen source boundary.
 
@@ -1150,10 +1188,10 @@ def resolve_r3_replay_anchor() -> _ReplayAnchor:
     later commits must preserve that assignment.
     """
     head = _peel_to_commit("HEAD")
-    if APPROVED_SCI004_D_SHA != phase_history.DESIGN_SHA:
+    if APPROVED_SCI004_D_SHA != phase_history.OPERATIVE_DESIGN_SHA:
         raise DependencyCertificateError("phase range operative design differs")
     phase_history.describe_phase_range(
-        APPROVED_SCI004_D_SHA,
+        phase_history.DESIGN_SHA,
         phase_history.PREREQUISITE_TIP_SHA,
         "prerequisite",
         root=REPOSITORY_ROOT,
@@ -1167,6 +1205,7 @@ def resolve_r3_replay_anchor() -> _ReplayAnchor:
             root=REPOSITORY_ROOT,
             require_complete=False,
         )
+        _require_operative_design_in_red(authoring)
         if any(
             _terminal_r3_metadata(entry["sha"]) is not None
             for entry in authoring["commits"]
@@ -1181,6 +1220,7 @@ def resolve_r3_replay_anchor() -> _ReplayAnchor:
         "red",
         root=REPOSITORY_ROOT,
     )
+    _require_operative_design_in_red(red_range)
     if any(
         _terminal_r3_metadata(entry["sha"]) is not None
         for entry in red_range["commits"]
@@ -1230,12 +1270,14 @@ def resolve_r3_replay_anchor() -> _ReplayAnchor:
 def test_terminal_r3_binding_requires_the_first_source_commit(
     phase_objects, monkeypatch, mutation
 ):
-    root, commit, base, prerequisite, _, _, _, _ = phase_objects
+    root, commit, _base, prerequisite, _, status, _, _ = phase_objects
     module = sys.modules[__name__]
     monkeypatch.setattr(module, "REPOSITORY_ROOT", root)
-    monkeypatch.setattr(module, "APPROVED_SCI004_D_SHA", base)
+    monkeypatch.setattr(
+        module, "APPROVED_SCI004_D_SHA", phase_history.OPERATIVE_DESIGN_SHA
+    )
     red = commit(
-        prerequisite, dict.fromkeys(phase_history.RED_PATHS, b"# red fixture\n")
+        status, dict.fromkeys(phase_history.RED_PATHS, b"# later red fixture\n")
     )
     if mutation in ("metadata_in_red", "transient_in_red"):
         red = commit(
@@ -1503,11 +1545,44 @@ def test_the_phase_three_binding_advances_the_r1_binding_through_the_chain() -> 
     assert M1_DESIGN_CHAIN[-1].sha == R1_APPROVED_SCI004_D_SHA
     assert APPROVED_SCI004_D_SHA != R1_APPROVED_SCI004_D_SHA
     assert _is_ancestor(R1_APPROVED_SCI004_D_SHA, APPROVED_SCI004_D_SHA)
-    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 20
+    assert len(SCI004_DESIGN_CHAIN_CONTINUATION) == 21
     assert SCI004_DESIGN_CHAIN[-1].sha == APPROVED_SCI004_D_SHA
     for superseded in (D17_SHA, D18_SHA, D19_SHA, D20_SHA, D21_SHA, D22_SHA):
         assert APPROVED_SCI004_D_SHA != superseded
         assert _is_ancestor(superseded, APPROVED_SCI004_D_SHA)
+
+
+@pytest.mark.parametrize("mutation", [None, "missing", "duplicate", "old_design"])
+def test_the_red_range_requires_the_one_operative_design_entry(mutation):
+    entries = [
+        {"role": "red", "sha": D30_R1_TERMINAL_SHA},
+        {"role": "design-successor", "sha": APPROVED_SCI004_D_SHA},
+    ]
+    if mutation == "missing":
+        entries.pop()
+    elif mutation == "duplicate":
+        entries.append(dict(entries[-1]))
+    elif mutation == "old_design":
+        entries[-1]["sha"] = D30_SHA
+    if mutation is None:
+        _require_operative_design_in_red({"commits": entries})
+    else:
+        with pytest.raises(DependencyCertificateError, match="exact operative D31"):
+            _require_operative_design_in_red({"commits": entries})
+
+
+def test_d31_operates_over_the_unchanged_d30_range_origin():
+    assert phase_history.DESIGN_SHA == D30_SHA
+    assert phase_history.OPERATIVE_DESIGN_SHA == APPROVED_SCI004_D_SHA
+    assert D30_SHA != APPROVED_SCI004_D_SHA
+    prerequisite = phase_history.describe_phase_range(
+        D30_SHA,
+        phase_history.PREREQUISITE_TIP_SHA,
+        "prerequisite",
+        root=REPOSITORY_ROOT,
+    )
+    assert prerequisite["base_sha"] == D30_SHA
+    assert _commit_parents(APPROVED_SCI004_D_SHA) == (D30_R1_TERMINAL_SHA,)
 
 
 def test_the_operative_design_commit_peels_and_is_a_single_parent_non_merge() -> None:
@@ -1540,21 +1615,21 @@ def test_the_operative_design_commit_follows_the_gate_and_precedes_this_r() -> N
 def test_the_header_enumerated_chain_from_d0_to_the_operative_d_is_exact() -> None:
     """Section 13.7/14.0: every chain link matches its kind and allowed paths.
 
-    The chain is thirty-one links here -- the memo-introducing ``D0``,
-    twenty-nine ``superseded design`` corrections, and the operative one --
+    The chain is thirty-two links here -- the memo-introducing ``D0``,
+    thirty ``superseded design`` corrections, and the operative one --
     and the test
     proves from Git objects that the only *other* commits between ``D0`` and the
     operative ``D`` that touched the memo are ``A1`` and ``A2``, which
     Section 13.7 explicitly rules "is not a chain commit and needs no interval
     kind" for an accepted phase acceptance commit inside the range.
     """
-    assert len(SCI004_DESIGN_CHAIN) == 31
+    assert len(SCI004_DESIGN_CHAIN) == 32
     assert SCI004_DESIGN_CHAIN[0].kind == "memo-introducing"
     assert SCI004_DESIGN_CHAIN[-1].kind == "operative design"
     assert [entry.kind for entry in SCI004_DESIGN_CHAIN[1:-1]] == [
         "superseded design"
-    ] * 29
-    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 31
+    ] * 30
+    assert len({entry.sha for entry in SCI004_DESIGN_CHAIN}) == 32
 
     for earlier, later in zip(
         SCI004_DESIGN_CHAIN, SCI004_DESIGN_CHAIN[1:], strict=False
@@ -1616,12 +1691,13 @@ def test_correction_26_final_binary_full_index_diff_identities_are_exact() -> No
     assert hashlib.sha256(design + ledger).hexdigest() == D26_FINAL_COMPLETE_DIFF_SHA256
 
 
-def test_d27_d30_and_their_intervening_roles_are_exact_git_objects():
+def test_d27_d31_and_their_intervening_roles_are_exact_git_objects():
     for commit, expected in (
         (D27_SHA, D27_FINAL_COMPLETE_DIFF_SHA256),
         (D28_SHA, D28_FINAL_COMPLETE_DIFF_SHA256),
         (D29_SHA, D29_FINAL_COMPLETE_DIFF_SHA256),
-        (APPROVED_SCI004_D_SHA, D30_FINAL_COMPLETE_DIFF_SHA256),
+        (D30_SHA, D30_FINAL_COMPLETE_DIFF_SHA256),
+        (APPROVED_SCI004_D_SHA, D31_FINAL_COMPLETE_DIFF_SHA256),
         (OLD_FRESH_VALIDATOR_R3_SHA, OLD_FRESH_VALIDATOR_R3_COMPLETE_DIFF_SHA256),
     ):
         raw = _history_git(
@@ -1637,7 +1713,9 @@ def test_d27_d30_and_their_intervening_roles_are_exact_git_objects():
     assert _changed_paths(OLD_FRESH_VALIDATOR_R3_SHA) == OLD_FRESH_VALIDATOR_R3_PATHS
     assert _changed_paths(D30_STATUS_BRIDGE_SHA) == (phase_history.STATUS_PATH,)
     assert _commit_parents(D30_STATUS_BRIDGE_SHA) == (D29_SHA,)
-    assert _commit_parents(APPROVED_SCI004_D_SHA) == (D30_STATUS_BRIDGE_SHA,)
+    assert _commit_parents(D30_SHA) == (D30_STATUS_BRIDGE_SHA,)
+    assert _commit_parents(APPROVED_SCI004_D_SHA) == (D30_R1_TERMINAL_SHA,)
+    assert D31_PRE_LANDING_COMPLETE_DIFF_SHA256 != D31_FINAL_COMPLETE_DIFF_SHA256
     assert D30_PRE_LANDING_COMPLETE_DIFF_SHA256 != D30_FINAL_COMPLETE_DIFF_SHA256
 
 
@@ -2336,14 +2414,10 @@ def test_the_r3_replay_anchor_is_the_live_child_of_the_operative_correction() ->
 def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> None:
     """Section 13.7: "A commit the header does not name invalidates the edge".
 
-    The exhaustive form of that sentence is an equality, not a membership test:
-    the first-parent range ``G3..D`` must be exactly correction #26's twenty
-    commits, oldest-first, with nothing else in it. Six are superseded red
-    slices, nine are superseded designs, two are superseded implementations,
-    one is rejected evidence, one is rejected acceptance, and the final commit
-    is the operative design. Every commit in the range is
-    required to be a single-parent non-merge, which is Section 14.4's separate
-    "No commit in either starred first-parent range is a merge".
+    The frozen G3-to-D30 interval is retained exactly. D31 extends it through
+    D30's authenticated prerequisite range and the exact pre-D31 red tip, then
+    its own sole-parent design edge. Every actual first-parent entry is covered;
+    an unknown path or a merge cannot be hidden by comparing selected designs.
     """
     expected = (
         SUPERSEDED_RED_SLICE_SHA,
@@ -2371,6 +2445,25 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
         D28_SHA,
         D29_SHA,
         D30_STATUS_BRIDGE_SHA,
+        D30_SHA,
+        *(
+            entry["sha"]
+            for entry in phase_history.describe_phase_range(
+                D30_SHA,
+                phase_history.PREREQUISITE_TIP_SHA,
+                "prerequisite",
+                root=REPOSITORY_ROOT,
+            )["commits"]
+        ),
+        *(
+            entry["sha"]
+            for entry in phase_history.describe_phase_range(
+                phase_history.PREREQUISITE_TIP_SHA,
+                D30_R1_TERMINAL_SHA,
+                "red",
+                root=REPOSITORY_ROOT,
+            )["commits"]
+        ),
         APPROVED_SCI004_D_SHA,
     )
     observed = tuple(
@@ -2429,6 +2522,7 @@ def test_the_starred_g3_to_r3_interval_is_exactly_the_enumerated_commits() -> No
         D27_SHA,
         D28_SHA,
         D29_SHA,
+        D30_SHA,
         APPROVED_SCI004_D_SHA,
     ):
         assert _changed_paths(sha) == (DESIGN_LEDGER_PATH, DESIGN_MEMO_PATH), sha
