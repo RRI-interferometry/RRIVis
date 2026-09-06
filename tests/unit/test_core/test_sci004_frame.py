@@ -464,3 +464,76 @@ def test_the_construction_tolerances_are_frozen_constants_not_configuration() ->
     assert frame.tangent_halving_limit_rad == TANGENT_HALVING_LIMIT_RAD
     with pytest.raises(AttributeError):
         frame.set_tolerance(era_center_limit_rad=1e-6)
+
+
+@pytest.mark.parametrize("shift_x,shift_y", [(0.0, 0.001), (-0.001, -0.001)])
+def test_outside_slab_signs_use_the_scans_iers_table(
+    shift_x: float, shift_y: float
+) -> None:
+    """A controlled ambient table must not change the certified horizon census.
+
+    This is production quadrature node 142 and an exact complement interval
+    from the Python-3.12 public integration failure. Its frozen sign is positive;
+    an alternate polar-motion table puts the operational midpoint below zero.
+    The scan and its later sign census must both use the installed IERS_A table.
+    """
+    from fractions import Fraction
+    from types import SimpleNamespace
+
+    from astropy import units as u
+    from astropy.utils.iers import conf, earth_orientation_table
+
+    from radiosim.core.mmode.frame import (
+        _OperationalTrajectory,
+        frozen_horizon_trajectory,
+    )
+    from radiosim.core.mmode.solver import _cirs_to_icrs, _sign_intervals
+    from radiosim.core.mmode.time import installed_iers, installed_iers_context
+    from radiosim.core.mmode.transfer import quadrature_grid
+
+    frame = _frozen_frame()
+    nodes, _ = quadrature_grid(8)
+    cirs = nodes[142:143]
+    icrs = _cirs_to_icrs(frame, cirs)
+    lo = Fraction("576883631421/53876069761024")
+    hi = Fraction("9230138102883/862017116176384")
+    midpoint = (lo + hi) / 2
+    grid = SimpleNamespace(horizon_domain=(lo, hi))
+    frozen = frozen_horizon_trajectory(frame, cirs[0], horizon_lo=lo, horizon_hi=hi)
+    assert frozen.value(float(midpoint)) > 0.0
+    evaluator = _OperationalTrajectory(frame, grid, icrs[:, 0], icrs[:, 1])
+    arguments = (
+        [SimpleNamespace(direction_id="transfer_quadrature:production:8:142")],
+        [frozen],
+        [()],
+        {},
+        grid,
+        evaluator,
+    )
+    with installed_iers_context():
+        baseline_rows, baseline_count = _sign_intervals(*arguments)
+    assert baseline_count == 0
+    assert len(baseline_rows) == 1
+    assert baseline_rows[0]["operational_sign"] == 1
+
+    alternate = installed_iers().table.copy(copy_data=True)
+    alternate["PM_x"] += shift_x * u.arcsec
+    alternate["PM_y"] += shift_y * u.arcsec
+    original_table = earth_orientation_table.get()
+    original_config = (conf.auto_download, conf.iers_degraded_accuracy)
+    with (
+        conf.set_temp("auto_download", True),
+        conf.set_temp("iers_degraded_accuracy", "warn"),
+        earth_orientation_table.set(alternate),
+    ):
+        # Independent public-coordinate negative control proves this fixture
+        # distinguishes the ambient table, without depending on a cache/version.
+        assert evaluator.at_pairs([0], [midpoint])[0] < 0.0
+        rows, mismatches = _sign_intervals(*arguments)
+        assert earth_orientation_table.get() is alternate
+        assert conf.auto_download is True
+        assert conf.iers_degraded_accuracy == "warn"
+    assert earth_orientation_table.get() is original_table
+    assert (conf.auto_download, conf.iers_degraded_accuracy) == original_config
+    assert mismatches == 0
+    assert rows == baseline_rows
