@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # RadioSim completion ledger
 
 Current programme opened 2026-09-07. This ledger records observed work and
@@ -35,10 +39,10 @@ fixtures. No implementation is authored in another worktree.
 
 | ID | Authority and current observation | Required result / small slices | Verification and acceptance | State |
 |---|---|---|---|---|
-| A1 | SCI-004 design Sections 13.7/14; D28/D29 committed review headers remain pending; stopped candidate has unequal review-pin/chain cardinality | Authenticate original records; reviewed prospective historical exceptions and main-only phase ranges; strict validator repair | Two fresh reviews of identical design bytes; full ancestry/path/blob checks and hostile mutations; preserve historical red inventories 29 + 6 + 2 | Investigating; first dependency for A2/C |
+| A1 | SCI-004 design Sections 13.7/14; D28/D29 committed review headers remain pending; stopped candidate has unequal review-pin/chain cardinality | Authenticate original records; reviewed prospective historical exceptions and main-only phase ranges; strict validator repair | Two fresh reviews of identical design bytes; full ancestry/path/blob checks and hostile mutations; preserve historical red inventories 29 + 6 + 2 | D30 reviewed and pushed; strict validator implementation pending |
 | A2 | D29 five-path candidate and original fingerprint R3 `a65c53a46e84f63c163c5ad15fba8645df33d1d2`; replacement-S3 overlaps two evidence paths | Integrate minimal historical/current binding and oracle deltas by hunk; isolate exact historical imports; freeze prerequisite range tip | Exactly two expected failures and three controls at historical source; explicit source path, PYTHONNOUSERSITE=1 and verified radiosim.__file__; complete governed serial suite | Pending A1 |
-| B1 | Failed CI at `cfc9b10`; frame certificate reports outside-slab horizon sign mismatches | Reproduce operational/frozen root/guard/slab issue with environment provenance; reviewed correction if contract changes; focused fix | Independent physics and numerical diagnosis; decisive regression with unchanged scientific budgets; serial and compatibility jobs | Investigating independently |
-| B2 | Failed CI reports SciPy intersphinx inventory ConnectTimeout | Inspect failed logs and current retrieval; bounded reliability fix if reproduced/justified | Clean warnings-as-errors Sphinx build; retain documentation validation | Pending diagnosis |
+| B1 | Failed CI at `cfc9b10`; frame certificate reports outside-slab horizon sign mismatches | Reproduce operational/frozen root/guard/slab issue with environment provenance; reviewed correction if contract changes; focused fix | Independent physics and numerical diagnosis; decisive regression with unchanged scientific budgets; serial and compatibility jobs | Cause reproduced; separate regression/source repair next |
+| B2 | Failed CI reports SciPy intersphinx inventory ConnectTimeout | Inspect failed logs and current retrieval; bounded reliability fix if reproduced/justified | Clean warnings-as-errors Sphinx build; retain documentation validation | Fresh retrieval succeeded for all inventories; original CI ConnectTimeout remains an observed transient retrieval failure |
 | C1 | D25 production v2 contract; preserved five-file replacement-S3 draft has 2,885 added and 145 removed handwritten lines | Account for every original hunk; separate strict input manifests, result records, evidence/schema, acceptance validation and hostile tests into coherent source commits | Path-independent reconstruction/relocation, semantic mutation and malformed-input rejection; exact nine-key production family and retained manifests | Pending A1/A2 |
 | C2 | SCI-004 M3 Sections 10–14; four rejected-artifact deletions and six null sentinels | Complete replacement source range; authenticate disposal; generate new evidence from clean exact terminal source tip; separate E and A commits | HDF5/bounded reads, summary, UVFITS/MS read-back, full correlations/time/solver/provenance; all families; retained non-gating performance; fresh independent manual/numerical/schema acceptance | Pending C1/B1 |
 | D1 | SCI-004 Sections 7/9/15; public solver currently rejects HEALPix/hybrid and non-scalar beams; accepted SCI-005 beam contracts remain authoritative | Reviewed successor public support contract; integrate point/HEALPix/hybrid full Stokes; stationary squint and applicable full-efield support through canonical BeamSystem/Jones | Public API and CLI tests; dense/sparse pixel measure, frequencies, tangent/receptor frames, component provenance; common direct oracle and two-tier predicates | Inventory underway; successor contract before implementation |
@@ -50,9 +54,12 @@ fixtures. No implementation is authored in another worktree.
 
 ## Original draft accounting
 
-Until integration, every original hunk remains retained verbatim in the primary
-checkout and verified external recovery bundle. D28/D29 candidates remain
-untouched. C1 must replace this provisional accounting with per-hunk dispositions
+The original nine-path draft is now parked in the verified external recovery
+bundle so prerequisite red tests and small source commits use committed source.
+Reversing only the authenticated five-file unstaged patch and four-file indexed
+deletion patch restored all nine paths to their exact current Git blobs and left
+the index/checkout clean. Every original hunk remains retained verbatim in the
+bundle; both stopped candidate worktrees remain untouched. C1 must replace this provisional accounting with per-hunk dispositions
 (retained, corrected, superseded with reason, or obsolete under reviewed successor
 contract) before source acceptance. Whole-file copying of overlapping candidates
 is not an integration method.
@@ -62,7 +69,11 @@ is not an integration method.
 | Slice | Commit / publication | Evidence |
 |---|---|---|
 | Recovery and fast-forward | No new commit; main at `cfc9b10` | Three recovery manifest reconstruction checks PASS; original primary patch hashes unchanged |
-| Initial ledger | This status-only commit; publication recorded in the next journal update | Markdown/source-reference review and git diff --check; no scientific gate or phase acceptance claimed |
+| Initial ledger | `d432bcb50f60c880aca3d3e599786b9ebe62fa1c`, pushed and live remote verified | Whitespace/source review; fresh Sphinx later found missing inclusion declaration, corrected with explicit orphan metadata in this status slice |
+| Reviewed D30 | `d3ddb10ae01ab450f5337d06c9588ce8144cf1e5`, pushed and live remote verified | Two fresh independent ACCEPTs; exact reviewed memo/ledger/diff pins in correction header; no phase acceptance |
+| Historical review retention | `860222ac90eaa7b9a2a1c3b282e3ec0f51b7834b`, pushed and live remote verified | Frozen 108,125-byte JSON SHA-256 `eb9b00fcdb7703cb40982bc7e445ba6e042fb45ca26bd0515387dfb644975d54`; exact Git/archive joins independently authenticated |
+| Frame diagnosis | External `frame-investigation/REPORT.md` under recovery root | Python 3.12: 279 outside-slab mismatches become zero with installed IERS context, unchanged geometry; controlled one-interval perturbation reproduces on both Python versions |
+| Draft type baseline | External `pyright-original-draft.json` under recovery root | 196 files, 2,983 errors, zero warnings; debt ceiling unchanged; this is not a clean type check |
 
 Every later slice records its actual commit and verified push in a subsequent
 journal update, avoiding self-referential commit hashes. An unexpected failing
