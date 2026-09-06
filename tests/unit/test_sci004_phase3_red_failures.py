@@ -6,12 +6,11 @@ validator "authenticates the file bytes, schema literal, node set, command
 hashes, pre-fix SHA, protected hashes, and expected non-zero outcomes **before**
 ``S`` is allowed to start".
 
-Like its M1 and M2 counterparts this module deliberately **does not re-run the
-red nodes**. They are red by construction at ``R3``; executing them here would
-fail the suite a second time and would authenticate nothing the record does not
-already carry. The record's own bytes are what get checked -- re-serialized under
-Section 14's canonical rules and compared to the raw file -- with three
-independent cross-checks that make the comparison meaningful:
+The three immutable records are authenticated from retained bytes and Git
+objects. The fingerprint partition is additionally replayed in an exact-SHA
+detached verification fixture: two governed assertion failures followed by
+three passing controls. The general characterization oracle runs separately
+and must pass. Record authentication uses three independent cross-checks:
 
 * every case row's ``fixture_identity_sha256`` is recomputed from the Section
   14.0 preimage, so a row cannot claim a fixture it does not name;
@@ -352,6 +351,11 @@ FINGERPRINT_NODEIDS: tuple[str, ...] = (
     "test_distinct_layout_roots_preserve_scientific_and_cube_identities",
     "tests/characterization/test_sci004_mmode.py::"
     "test_characterization_input_identity_changes_for_semantic_instrument_content",
+)
+
+GENERAL_TRANSITION_NODEID = (
+    "tests/characterization/test_sci004_mmode.py::"
+    "test_a_family_pin_is_a_ci001_observation_set_not_a_bare_digest"
 )
 
 FINGERPRINT_CASE_EXPECTATIONS: tuple[tuple[str, str, str, str], ...] = (
@@ -1870,10 +1874,23 @@ def _preflight_fingerprint_replay_import(
     return _validate_fingerprint_replay_import(completed.stdout, worktree)
 
 
+def _assert_immutable_replay_checkout(worktree: Path, anchor: str) -> None:
+    for arguments, expected in (
+        (["rev-parse", "HEAD"], anchor.encode() + b"\n"),
+        (["status", "--porcelain", "--untracked-files=no"], b""),
+    ):
+        checked = subprocess.run(
+            ["git", *arguments], cwd=worktree, capture_output=True, check=False
+        )
+        assert checked.returncode == 0, checked.stderr.decode("utf-8", "replace")
+        assert checked.stdout == expected, "historical replay checkout changed"
+
+
 @contextmanager
 def _detached_fingerprint_replay_worktree(
     anchor: str,
 ) -> Iterator[tuple[Path, Path]]:
+    assert re.fullmatch(r"[0-9a-f]{40}", anchor), "replay requires an exact SHA"
     temporary = Path(tempfile.mkdtemp(prefix="sci004-m3-fingerprint-r3-replay-"))
     worktree = temporary / "replay"
     registered = False
@@ -1886,10 +1903,15 @@ def _detached_fingerprint_replay_worktree(
         )
         assert added.returncode == 0, added.stderr.decode("utf-8", "replace")
         registered = True
+        _assert_immutable_replay_checkout(worktree, anchor)
         yield worktree, temporary
     finally:
         cleanup_errors: list[str] = []
         if registered:
+            try:
+                _assert_immutable_replay_checkout(worktree, anchor)
+            except AssertionError as exc:
+                cleanup_errors.append(str(exc))
             removed = subprocess.run(
                 ["git", "worktree", "remove", "--force", str(worktree)],
                 cwd=REPOSITORY_ROOT,
@@ -1992,10 +2014,177 @@ def test_the_owned_fingerprint_replay_worktree_cleans_success_and_failure() -> N
     assert _git("worktree", "list", "--porcelain") == before
 
 
+def _assert_fingerprint_replay_result(
+    completed: subprocess.CompletedProcess[bytes],
+    junit: Path,
+    nodeids: tuple[str, ...],
+    failure_patterns: tuple[str, ...],
+) -> None:
+    expected_failures = len(failure_patterns)
+    expected_passes = len(nodeids) - expected_failures
+    assert completed.returncode == (1 if expected_failures else 0), (
+        completed.stdout.decode("utf-8", "replace")
+        + completed.stderr.decode("utf-8", "replace")
+    )
+    rendered = completed.stdout.decode("utf-8", "replace").lower()
+    expected_summary = (
+        f"{expected_failures} failed, {expected_passes} passed"
+        if expected_failures
+        else f"{expected_passes} passed"
+    )
+    assert rendered.strip(), "pytest returned no terminal summary"
+    terminal_summary = rendered.rstrip().splitlines()[-1].strip("= ")
+    assert re.fullmatch(
+        re.escape(expected_summary)
+        + r"(?:, \d+ warnings?)? in \d+(?:\.\d+)?s(?: \([0-9:]+\))?",
+        terminal_summary,
+    )
+    assert not re.search(r"\b\d+ (?:skipped|xfailed|xpassed|errors?)\b", rendered)
+    root = ElementTree.parse(junit).getroot()
+    cases = list(root.iter("testcase"))
+    assert [(case.get("classname"), case.get("name")) for case in cases] == [
+        (
+            node.split("::", 1)[0].removesuffix(".py").replace("/", "."),
+            node.split("::", 1)[1],
+        )
+        for node in nodeids
+    ]
+    assert not list(root.iter("error"))
+    assert not list(root.iter("skipped"))
+    assert len(list(root.iter("failure"))) == expected_failures
+    for index, case in enumerate(cases):
+        failures = case.findall("failure")
+        assert len(failures) == (1 if index < expected_failures else 0)
+        if failures:
+            message = failures[0].get("message") or ""
+            assert message.startswith("AssertionError: ")
+            assert failure_patterns[index] in message
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "exit",
+        "missing",
+        "duplicate",
+        "reordered",
+        "class",
+        "frame",
+        "error",
+        "skip",
+        "xfail",
+        "xpass",
+        "wrong-control",
+        "duplicate-failure",
+        "inflated-count",
+    ],
+)
+def test_the_replay_result_rejects_any_partition_substitution(
+    tmp_path: Path, mutation: str | None
+) -> None:
+    root = ElementTree.Element("testsuites")
+    suite = ElementTree.SubElement(root, "testsuite")
+    for index, node in enumerate(FINGERPRINT_NODEIDS):
+        case = ElementTree.SubElement(
+            suite,
+            "testcase",
+            classname=node.split("::")[0].removesuffix(".py").replace("/", "."),
+            name=node.split("::", 1)[1],
+        )
+        if index < 2:
+            ElementTree.SubElement(
+                case,
+                "failure",
+                message="AssertionError: " + FINGERPRINT_CASE_EXPECTATIONS[index][3],
+            )
+    stdout = b"2 failed, 3 passed in 1.00s"
+    returncode = 1
+    if mutation == "exit":
+        returncode = 0
+    elif mutation == "inflated-count":
+        stdout = b"12 failed, 3 passed in 1.00s"
+    elif mutation == "missing":
+        suite.remove(suite[-1])
+    elif mutation == "duplicate":
+        suite.append(ElementTree.fromstring(ElementTree.tostring(suite[-1])))
+    elif mutation == "reordered":
+        first = suite[0]
+        suite.remove(first)
+        suite.append(first)
+    elif mutation == "class":
+        suite[0].set("classname", "wrong.module")
+    elif mutation == "frame":
+        suite[0][0].set("message", "RuntimeError: frame certificate rejected")
+    elif mutation in {"error", "skip"}:
+        ElementTree.SubElement(suite[-1], "error" if mutation == "error" else "skipped")
+    elif mutation in {"xfail", "xpass"}:
+        stdout += b", 1 " + (b"xfailed" if mutation == "xfail" else b"xpassed")
+    elif mutation == "wrong-control":
+        failure = suite[0][0]
+        suite[0].remove(failure)
+        suite[-1].append(failure)
+    elif mutation == "duplicate-failure":
+        ElementTree.SubElement(suite[0], "failure", message="AssertionError: extra")
+    junit = tmp_path / "partition.xml"
+    ElementTree.ElementTree(root).write(junit)
+    completed = subprocess.CompletedProcess(
+        ["synthetic partition"], returncode, stdout, b""
+    )
+    arguments = (
+        completed,
+        junit,
+        FINGERPRINT_NODEIDS,
+        tuple(row[3] for row in FINGERPRINT_CASE_EXPECTATIONS),
+    )
+    if mutation is None:
+        _assert_fingerprint_replay_result(*arguments)
+    else:
+        with pytest.raises(AssertionError):
+            _assert_fingerprint_replay_result(*arguments)
+
+
+@pytest.mark.parametrize("invalid", ["skip", "inflated-count"])
+def test_the_separate_general_replay_requires_one_real_pass(
+    tmp_path: Path, invalid: str
+) -> None:
+    junit = tmp_path / "general.xml"
+    root = ElementTree.Element("testsuite")
+    case = ElementTree.SubElement(
+        root,
+        "testcase",
+        classname="tests.characterization.test_sci004_mmode",
+        name=GENERAL_TRANSITION_NODEID.split("::", 1)[1],
+    )
+    completed = subprocess.CompletedProcess(
+        ["synthetic general"], 0, b"1 passed in 0.10s", b""
+    )
+    ElementTree.ElementTree(root).write(junit)
+    _assert_fingerprint_replay_result(
+        completed, junit, (GENERAL_TRANSITION_NODEID,), ()
+    )
+    if invalid == "skip":
+        ElementTree.SubElement(case, "skipped")
+    else:
+        completed.stdout = b"11 passed in 0.10s"
+    ElementTree.ElementTree(root).write(junit)
+    with pytest.raises(AssertionError):
+        _assert_fingerprint_replay_result(
+            completed, junit, (GENERAL_TRANSITION_NODEID,), ()
+        )
+
+
 def test_the_fresh_r3_detached_replay_reproduces_the_five_node_partition() -> None:
     anchor = resolve_r3_replay_anchor()
-    if anchor.role != "r3":
-        return
+    # Before S freezes its parent, the authenticated committed R tip is still
+    # a valid replay target. It must already have the complete R path inventory.
+    assert anchor.role in {"r3", "pre-commit-authoring-tip"}
+    phase_history.describe_phase_range(
+        phase_history.PREREQUISITE_TIP_SHA,
+        anchor.commit,
+        "red",
+        root=REPOSITORY_ROOT,
+    )
     with _detached_fingerprint_replay_worktree(anchor.commit) as (
         worktree,
         temporary,
@@ -2022,29 +2211,37 @@ def test_the_fresh_r3_detached_replay_reproduces_the_five_node_partition() -> No
             capture_output=True,
             check=False,
         )
-        assert completed.returncode == 1
-        testcases = list(ElementTree.parse(junit).iter("testcase"))
-        assert [case.get("name") for case in testcases] == [
-            nodeid.split("::", 1)[1] for nodeid in FINGERPRINT_NODEIDS
-        ]
-        assert [
-            "failed"
-            if case.find("failure") is not None
-            else "error"
-            if case.find("error") is not None
-            else "skipped"
-            if case.find("skipped") is not None
-            else "passed"
-            for case in testcases
-        ] == ["failed", "failed", "passed", "passed", "passed"]
-        for testcase, (_case_id, _requirement, _nodeid, pattern) in zip(
-            testcases[:2],
-            FINGERPRINT_CASE_EXPECTATIONS,
-            strict=True,
-        ):
-            failure = testcase.find("failure")
-            assert failure is not None
-            assert pattern in (failure.get("message") or "")
+        _assert_fingerprint_replay_result(
+            completed,
+            junit,
+            FINGERPRINT_NODEIDS,
+            tuple(row[3] for row in FINGERPRINT_CASE_EXPECTATIONS),
+        )
+        general_junit = temporary / "general-junit.xml"
+        general = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-p",
+                "no:randomly",
+                "-p",
+                "no:xdist",
+                "--junit-xml",
+                str(general_junit),
+                GENERAL_TRANSITION_NODEID,
+            ],
+            cwd=worktree,
+            env=replay_env,
+            capture_output=True,
+            check=False,
+        )
+        _assert_fingerprint_replay_result(
+            general,
+            general_junit,
+            (GENERAL_TRANSITION_NODEID,),
+            (),
+        )
 
 
 def test_the_retained_earlier_red_records_are_untouched_by_this_slice() -> None:
