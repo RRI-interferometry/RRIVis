@@ -1933,13 +1933,18 @@ def _sign_intervals(
             planned.append((index, interval_index, lower, upper, middle))
             interval_index += 1
 
-    observed = (
-        evaluator.at_pairs(
-            [entry[0] for entry in planned], [entry[4] for entry in planned]
+    # The scan's context has ended by this later census. Reinstall the same
+    # table: ambient IERS_Auto may substitute different polar-motion values.
+    from radiosim.core.mmode.time import installed_iers_context
+
+    with installed_iers_context():
+        observed = (
+            evaluator.at_pairs(
+                [entry[0] for entry in planned], [entry[4] for entry in planned]
+            )
+            if planned
+            else np.zeros(0, dtype=np.float64)
         )
-        if planned
-        else np.zeros(0, dtype=np.float64)
-    )
     rows: list[dict[str, Any]] = []
     mismatches = 0
     for position, (index, interval_index, lower, upper, middle) in enumerate(planned):
