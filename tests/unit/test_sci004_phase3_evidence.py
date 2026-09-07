@@ -5667,3 +5667,282 @@ def test_production_v2_rejects_before_derived_record_work(
             phase_input_identity_manifest=phase,
         )
     assert calls == []
+
+
+# D33 transport tests use tiny objects; a transport roundtrip is no science verdict.
+def _storage_envelope(
+    payload: bytes, compressed: bytes | None = None
+) -> dict[str, Any]:
+    import base64
+    import zlib
+
+    return {
+        "schema": "radiosim.sci004.frame-certificate-storage.v1",
+        "codec": "zlib+base64",
+        "uncompressed_byte_count": len(payload),
+        "uncompressed_sha256": hashlib.sha256(payload).hexdigest(),
+        "data_base64": base64.b64encode(
+            zlib.compress(payload) if compressed is None else compressed
+        ).decode("ascii"),
+    }
+
+
+def test_certificate_storage_roundtrip_uses_section14_j_and_accepts_other_levels() -> (
+    None
+):
+    import base64
+    import zlib
+
+    module = _tool()
+    certificate = {"nested": {"finite": 0.125}, "unicode": "é", "rows": [1.0, True]}
+    raw = b'{"nested":{"finite":0.125},"rows":[1,true],"unicode":"\\u00e9"}'
+    envelope = module.encode_frame_certificate_storage(certificate)
+    assert envelope == _storage_envelope(raw, zlib.compress(raw, level=9))
+    assert zlib.decompress(base64.b64decode(envelope["data_base64"])) == raw
+    for level in (0, 1, 9):
+        assert (
+            module.decode_frame_certificate_storage(
+                _storage_envelope(raw, zlib.compress(raw, level=level)),
+                label="transport",
+            )
+            == certificate
+        )
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("schema", "other"),
+        ("codec", "gzip"),
+        ("uncompressed_byte_count", True),
+        ("uncompressed_byte_count", 0),
+        ("uncompressed_byte_count", -1),
+        ("uncompressed_byte_count", 33_554_433),
+        ("uncompressed_byte_count", 2.0),
+        ("uncompressed_sha256", "A" * 64),
+        ("uncompressed_sha256", "0" * 63),
+        ("data_base64", None),
+    ],
+)
+def test_certificate_storage_rejects_envelope_fields(key: str, value: Any) -> None:
+    module = _tool()
+    envelope = _storage_envelope(b"{}")
+    envelope[key] = value
+    with pytest.raises(module.EvidenceError):
+        module.decode_frame_certificate_storage(envelope, label="transport")
+
+
+@pytest.mark.parametrize("mutation", ["missing", "extra", "not-object"])
+def test_certificate_storage_requires_closed_envelope(mutation: str) -> None:
+    module = _tool()
+    envelope: Any = _storage_envelope(b"{}")
+    if mutation == "missing":
+        del envelope["codec"]
+    elif mutation == "extra":
+        envelope["extra"] = True
+    else:
+        envelope = []
+    with pytest.raises(module.EvidenceError):
+        module.decode_frame_certificate_storage(envelope, label="transport")
+
+
+@pytest.mark.parametrize(
+    "encoded", ["AAAA\nAAA", "____", "e30", "e30=====", "Zh==", "éAAA"]
+)
+def test_certificate_storage_rejects_noncanonical_base64(encoded: str) -> None:
+    module = _tool()
+    envelope = _storage_envelope(b"{}")
+    envelope["data_base64"] = encoded
+    with pytest.raises(module.EvidenceError):
+        module.decode_frame_certificate_storage(envelope, label="transport")
+
+
+@pytest.mark.parametrize("encoded", ["A" * 16, "AAAA" * 3])
+def test_certificate_storage_bounds_before_base64_allocation(
+    monkeypatch: pytest.MonkeyPatch, encoded: str
+) -> None:
+    module = _tool()
+    envelope = _storage_envelope(b"{}")
+    envelope["data_base64"] = encoded
+    monkeypatch.setattr(module, "FRAME_CERTIFICATE_STORAGE_LIMIT", 8)
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("base64 buffer allocated before size refusal")
+
+    monkeypatch.setattr(module.base64, "b64decode", forbidden)
+    with pytest.raises(module.EvidenceError, match="length"):
+        module.decode_frame_certificate_storage(envelope, label="transport")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "raw",
+        "gzip",
+        "dictionary",
+        "truncated",
+        "garbage",
+        "concatenated",
+        "bomb",
+        "short",
+        "hash",
+    ],
+)
+def test_certificate_storage_rejects_stream_and_authentication(mutation: str) -> None:
+    import zlib
+
+    module = _tool()
+    raw = b"{}"
+    compressed = zlib.compress(raw)
+    if mutation in {"raw", "gzip", "dictionary"}:
+        if mutation == "dictionary":
+            encoder = zlib.compressobj(zdict=b"{}")
+        else:
+            encoder = zlib.compressobj(wbits=-15 if mutation == "raw" else 31)
+        compressed = encoder.compress(raw) + encoder.flush()
+    elif mutation == "truncated":
+        compressed = compressed[:-1]
+    elif mutation == "garbage":
+        compressed += b"trailing"
+    elif mutation == "concatenated":
+        compressed += zlib.compress(raw)
+    elif mutation == "bomb":
+        compressed = zlib.compress(b"x" * 100_000)
+    envelope = _storage_envelope(raw, compressed)
+    if mutation == "short":
+        envelope["uncompressed_byte_count"] = 3
+    elif mutation == "hash":
+        envelope["uncompressed_sha256"] = "0" * 64
+    with pytest.raises(module.EvidenceError):
+        module.decode_frame_certificate_storage(envelope, label="transport")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"x":1,"x":2}',
+        b'{"x":1,"\\u0078":2}',
+        b"[]",
+        b"\xef\xbb\xbf{}",
+        b"{}{}",
+        b'{"x":NaN}',
+        b'{"x":Infinity}',
+        b'{"x":-Infinity}',
+        b'{"x":1e9999}',
+        b'{"x": 1}',
+        b'{"x":1.0}',
+        b"{}\n",
+        b'{"x":"\xff"}',
+    ],
+)
+def test_certificate_storage_rejects_noncanonical_finite_json(payload: bytes) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError):
+        module.decode_frame_certificate_storage(
+            _storage_envelope(payload), label="transport"
+        )
+
+
+def test_certificate_storage_decompression_is_bounded_without_flush(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _tool()
+    envelope = _storage_envelope(b"{}")
+    original = module.zlib.decompressobj
+    calls: list[int] = []
+
+    class Bounded:
+        def __init__(self, **kwargs: Any) -> None:
+            self.stream = original(**kwargs)
+
+        def decompress(self, data: bytes, max_length: int) -> bytes:
+            calls.append(max_length)
+            assert max_length == 3
+            return self.stream.decompress(data, max_length)
+
+        def __getattr__(self, name: str) -> Any:
+            assert name != "flush", "unbounded finalization attempted"
+            return getattr(self.stream, name)
+
+    monkeypatch.setattr(module.zlib, "decompressobj", Bounded)
+    assert module.decode_frame_certificate_storage(envelope, label="transport") == {}
+    assert calls == [3]
+
+
+@pytest.mark.parametrize(
+    "certificate", [[], {"value": float("nan")}, {"value": float("inf")}]
+)
+def test_certificate_storage_encoder_requires_finite_object(certificate: Any) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError):
+        module.encode_frame_certificate_storage(certificate)
+
+
+def test_certificate_storage_encoder_checks_both_size_bounds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _tool()
+    monkeypatch.setattr(module, "FRAME_CERTIFICATE_STORAGE_LIMIT", 2)
+    with pytest.raises(module.EvidenceError, match="uncompressed size"):
+        module.encode_frame_certificate_storage({"long": "value"})
+    with pytest.raises(module.EvidenceError, match="compressed size"):
+        module.encode_frame_certificate_storage({})
+
+
+@pytest.mark.parametrize(
+    "value,raw",
+    [
+        ({"é": {"value": "𝄞"}}, b'{"\\u00e9":{"value":"\\ud834\\udd1e"}}'),
+        ({"n": 2**53 - 1}, b'{"n":9007199254740991}'),
+        ({"n": -(2**53 - 1)}, b'{"n":-9007199254740991}'),
+        ({"n": 2**53}, b'{"n":9007199254740992}'),
+        ({"n": -(2**53)}, b'{"n":-9007199254740992}'),
+        ({"n": 10**21}, b'{"n":1e+21}'),
+        ({"n": 1e-7}, b'{"n":1e-7}'),
+    ],
+)
+def test_certificate_storage_exact_section14_unicode_and_numbers(
+    value: Any, raw: bytes
+) -> None:
+    import base64
+    import zlib
+
+    module = _tool()
+    encoded = module.encode_frame_certificate_storage(value)
+    assert zlib.decompress(base64.b64decode(encoded["data_base64"])) == raw
+    assert (
+        module.decode_frame_certificate_storage(
+            _storage_envelope(raw), label="transport"
+        )
+        == value
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"unicode":"é"}'.encode(),
+        '{"é":1}'.encode(),
+        b'{"n":1000000000000000000000}',
+        b'{"n":9007199254740993}',
+        b'{"n":-9007199254740993}',
+        b'{"n":-0}',
+        b'{"x":"\\ud800"}',
+    ],
+)
+def test_certificate_storage_rejects_alternate_or_invalid_j(raw: bytes) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError):
+        module.decode_frame_certificate_storage(
+            _storage_envelope(raw), label="transport"
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [{"n": 2**53 + 1}, {"n": -(2**53 + 1)}, {"x": "\ud800"}, {1: "non-string key"}],
+)
+def test_certificate_storage_encoder_refuses_lossy_or_invalid_json(value: Any) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError):
+        module.encode_frame_certificate_storage(value)

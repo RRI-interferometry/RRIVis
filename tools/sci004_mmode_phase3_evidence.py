@@ -67,6 +67,8 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
+import binascii
 import hashlib
 import json
 import math
@@ -79,6 +81,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zlib
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -866,6 +869,203 @@ def _require_int(value: Any, label: str, *, minimum: int | None = None) -> int:
     if minimum is not None:
         _require(number >= minimum, SCHEMA, f"{label} must be at least {minimum}")
     return number
+
+
+FRAME_CERTIFICATE_STORAGE_SCHEMA = "radiosim.sci004.frame-certificate-storage.v1"
+FRAME_CERTIFICATE_STORAGE_CODEC = "zlib+base64"
+FRAME_CERTIFICATE_STORAGE_KEYS = (
+    "schema",
+    "codec",
+    "uncompressed_byte_count",
+    "uncompressed_sha256",
+    "data_base64",
+)
+FRAME_CERTIFICATE_STORAGE_LIMIT = 33_554_432
+
+
+def _certificate_storage_j(value: Any) -> bytes:
+    """Render D33 Section 14 J without changing historical evidence serialization."""
+
+    def string(text: str) -> str:
+        # Lone surrogates cannot represent Unicode scalar values in UTF-8 JSON.
+        _ = text.encode("utf-8")
+        return json.dumps(text, ensure_ascii=True, separators=(",", ":"))
+
+    def render(item: Any) -> str:
+        if item is None:
+            return "null"
+        if isinstance(item, bool):
+            return "true" if item else "false"
+        if isinstance(item, (int, float)):
+            number = float(item)
+            _require(math.isfinite(number), SCHEMA, "certificate number must be finite")
+            if isinstance(item, int):
+                _require(
+                    int(number) == item,
+                    SCHEMA,
+                    "certificate integer cannot roundtrip through binary64",
+                )
+            return ecmascript_number(number)
+        if isinstance(item, str):
+            return string(item)
+        if isinstance(item, Mapping):
+            mapping = cast(Mapping[Any, Any], item)
+            _require(
+                all(isinstance(key, str) for key in mapping),
+                SCHEMA,
+                "certificate object keys must be strings",
+            )
+            entries = cast(Mapping[str, Any], mapping)
+            return (
+                "{"
+                + ",".join(
+                    string(key) + ":" + render(entries[key]) for key in sorted(entries)
+                )
+                + "}"
+            )
+        if isinstance(item, (list, tuple)):
+            return (
+                "["
+                + ",".join(render(child) for child in cast(Sequence[Any], item))
+                + "]"
+            )
+        raise EvidenceError(SCHEMA, f"{type(item).__name__} is not certificate JSON")
+
+    return render(value).encode("utf-8")
+
+
+def _certificate_storage_json(payload: bytes, label: str) -> dict[str, Any]:
+    """Parse one finite object with exact Section 14 J bytes, without duplicates."""
+
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            _require(key not in result, SCHEMA, f"{label}: duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    def constant(value: str) -> Any:
+        raise EvidenceError(SCHEMA, f"{label}: non-finite JSON constant {value}")
+
+    def finite_float(value: str) -> float:
+        number = float(value)
+        _require(math.isfinite(number), SCHEMA, f"{label}: non-finite JSON number")
+        return number
+
+    try:
+        value = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=pairs,
+            parse_constant=constant,
+            parse_float=finite_float,
+            parse_int=lambda token: (
+                int(token) if abs(int(token)) <= 2**53 - 1 else finite_float(token)
+            ),
+        )
+        _require(isinstance(value, dict), SCHEMA, f"{label}: expected JSON object")
+        _require(
+            _certificate_storage_j(value) == payload,
+            SCHEMA,
+            f"{label}: noncanonical J bytes",
+        )
+    except (ValueError, UnicodeError, OverflowError, RecursionError) as error:
+        raise EvidenceError(
+            SCHEMA, f"{label}: invalid canonical JSON object"
+        ) from error
+    return cast(dict[str, Any], value)
+
+
+def encode_frame_certificate_storage(certificate: Any) -> dict[str, Any]:
+    """Encode D33 transport; full certificate schema and cascade checks are separate."""
+    _require(isinstance(certificate, Mapping), SCHEMA, "certificate must be an object")
+    try:
+        payload = _certificate_storage_j(certificate)
+    except (ValueError, UnicodeError, OverflowError, RecursionError) as error:
+        raise EvidenceError(SCHEMA, "certificate cannot be encoded as J") from error
+    _require(
+        1 <= len(payload) <= FRAME_CERTIFICATE_STORAGE_LIMIT,
+        SCHEMA,
+        "certificate uncompressed size is outside the D33 bound",
+    )
+    _ = _certificate_storage_json(payload, "certificate")
+    compressed = zlib.compress(payload, level=9)
+    _require(
+        len(compressed) <= FRAME_CERTIFICATE_STORAGE_LIMIT,
+        SCHEMA,
+        "certificate compressed size exceeds the D33 bound",
+    )
+    return {
+        "schema": FRAME_CERTIFICATE_STORAGE_SCHEMA,
+        "codec": FRAME_CERTIFICATE_STORAGE_CODEC,
+        "uncompressed_byte_count": len(payload),
+        "uncompressed_sha256": hashlib.sha256(payload).hexdigest(),
+        "data_base64": base64.b64encode(compressed).decode("ascii"),
+    }
+
+
+def decode_frame_certificate_storage(value: Any, *, label: str) -> dict[str, Any]:
+    """Authenticate bounded D33 transport, without granting a certificate verdict."""
+    envelope = _require_keys(value, FRAME_CERTIFICATE_STORAGE_KEYS, label)
+    _require(
+        envelope["schema"] == FRAME_CERTIFICATE_STORAGE_SCHEMA,
+        SCHEMA,
+        f"{label}: unknown storage schema",
+    )
+    _require(
+        envelope["codec"] == FRAME_CERTIFICATE_STORAGE_CODEC,
+        SCHEMA,
+        f"{label}: unknown storage codec",
+    )
+    declared = _require_int(envelope["uncompressed_byte_count"], label, minimum=1)
+    limit = FRAME_CERTIFICATE_STORAGE_LIMIT
+    _require(declared <= limit, SCHEMA, f"{label}: declared output exceeds D33 bound")
+    digest = _require_hex(envelope["uncompressed_sha256"], 64, label)
+    encoded = envelope["data_base64"]
+    _require(isinstance(encoded, str), SCHEMA, f"{label}: base64 must be a string")
+    # Check character and inferred byte lengths before allocating ASCII/decoded buffers.
+    _require(
+        0 < len(encoded) <= 4 * ((limit + 2) // 3) and len(encoded) % 4 == 0,
+        SCHEMA,
+        f"{label}: encoded length exceeds or violates D33 bounds",
+    )
+    padding = 2 if encoded.endswith("==") else int(encoded.endswith("="))
+    _require(
+        len(encoded) // 4 * 3 - padding <= limit,
+        SCHEMA,
+        f"{label}: compressed length exceeds D33 bound",
+    )
+    try:
+        compressed = base64.b64decode(encoded.encode("ascii"), validate=True)
+    except (ValueError, UnicodeError, binascii.Error) as error:
+        raise EvidenceError(SCHEMA, f"{label}: malformed base64") from error
+    _require(
+        base64.b64encode(compressed).decode("ascii") == encoded,
+        SCHEMA,
+        f"{label}: noncanonical base64",
+    )
+    _require(
+        2 <= len(compressed) <= limit and not compressed[1] & 0x20,
+        SCHEMA,
+        f"{label}: invalid stream length or preset dictionary",
+    )
+    try:
+        stream = zlib.decompressobj(wbits=zlib.MAX_WBITS)
+        # One overflow byte is a bounded rejection sentinel. Never use unbounded flush.
+        payload = stream.decompress(compressed, declared + 1)
+    except zlib.error as error:
+        raise EvidenceError(SCHEMA, f"{label}: invalid zlib stream") from error
+    _require(len(payload) == declared, SCHEMA, f"{label}: uncompressed length mismatch")
+    _require(
+        stream.eof and not stream.unused_data and not stream.unconsumed_tail,
+        SCHEMA,
+        f"{label}: incomplete stream or trailing compressed bytes",
+    )
+    _require(
+        hashlib.sha256(payload).hexdigest() == digest,
+        DIGEST,
+        f"{label}: uncompressed SHA-256 mismatch",
+    )
+    return _certificate_storage_json(payload, label)
 
 
 def _require_sorted_unique_strings(value: Any, label: str) -> list[str]:
