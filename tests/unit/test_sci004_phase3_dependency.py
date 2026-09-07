@@ -26,6 +26,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -37,6 +38,7 @@ from tests.unit.test_sci004_phase1_dependency import (
 from tests.unit.test_sci004_phase1_dependency import (
     _DesignCommit,
 )
+from tests.unit.test_sci004_phase3_history import PhaseObjects
 from tests.unit.test_sci004_phase3_history import phase_objects as _phase_objects
 from tools import sci004_phase3_history as phase_history
 from tools.sci004_phase3_history import _git as _history_git
@@ -55,6 +57,10 @@ D30_STATUS_BRIDGE_SHA = "d432bcb50f60c880aca3d3e599786b9ebe62fa1c"
 D30_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
 D30_R1_TERMINAL_SHA = "87b16ba16c8a4ab4ff8b9e6bf213c5ce45a41bfe"
 APPROVED_SCI004_D_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
+
+#: Separate source-era authorities; the historical R binding above stays D31.
+HISTORICAL_SOURCE_DESIGN_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
+SOURCE_DESIGN_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
 
 #: The globally clean programme tip ``G3`` (Section 13.2). Ancestry is
 #: inclusive, and this tip is the later of the two named dependency commits --
@@ -3016,3 +3022,218 @@ def test_detached_worktree_replay_at_r3_reproduces_the_same_bytes(
     assert parse_dependency_certificate(stdout) == certificate
     assert elapsed >= 0.0
     assert _git("status", "--porcelain") == before
+
+
+def authenticate_source_design_bindings() -> str:
+    """Authenticate current D33 and historical D32 without changing R resolution."""
+    root = REPOSITORY_ROOT.resolve(strict=True)
+    try:
+        history_file: object = vars(phase_history).get("__file__")
+        if (
+            not isinstance(history_file, str)
+            or Path(history_file).resolve(strict=True)
+            != root / "tools/sci004_phase3_history.py"
+            or phase_history.REPOSITORY_ROOT.resolve(strict=True) != root
+        ):
+            raise DependencyCertificateError(
+                "source design history validator belongs to another checkout"
+            )
+    except OSError as error:
+        raise DependencyCertificateError(
+            "source design history origin is missing"
+        ) from error
+    expected = (HISTORICAL_SOURCE_DESIGN_SHA, SOURCE_DESIGN_SHA)
+    if (
+        not all(_is_lower_hex(value, width=40) for value in expected)
+        or len(set(expected)) != 2
+        or expected
+        != (phase_history.HISTORICAL_SOURCE_DESIGN_SHA, phase_history.SOURCE_DESIGN_SHA)
+    ):
+        raise DependencyCertificateError("source design loaded bindings differ")
+    for design in expected:
+        try:
+            phase_history.authenticate_source_design_successor(design, root)
+        except phase_history.HistoryError as error:
+            raise DependencyCertificateError(
+                f"source design does not authenticate: {error}"
+            ) from error
+    # A second-parent-only join cannot supply current source authority.
+    head = _peel_to_commit("HEAD")
+    ancestry = _git("rev-list", "--first-parent", head).split()
+    if any(design not in ancestry for design in expected) or ancestry.index(
+        SOURCE_DESIGN_SHA
+    ) >= ancestry.index(HISTORICAL_SOURCE_DESIGN_SHA):
+        raise DependencyCertificateError(
+            "source designs are not ordered on HEAD first-parent history"
+        )
+    return SOURCE_DESIGN_SHA
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("HISTORICAL_SOURCE_DESIGN_SHA", "bcd79b1d6268859368d77c3f94cef334b001cb37"),
+        ("SOURCE_DESIGN_SHA", "343ea0467420d452e9d728f0475167e74721e22f"),
+    ],
+)
+def test_source_design_binding_is_one_exact_literal(name: str, expected: str) -> None:
+    tree = ast.parse(Path(__file__).read_bytes())
+    bindings = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Store)
+        and node.id == name
+    ]
+    assert len(bindings) == 1
+    declarations = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == name
+    ]
+    assert len(declarations) == 1
+    assert isinstance(declarations[0].value, ast.Constant)
+    assert declarations[0].value.value == expected
+
+
+def test_live_source_design_bindings_preserve_historical_r() -> None:
+    assert authenticate_source_design_bindings() == SOURCE_DESIGN_SHA
+    assert APPROVED_SCI004_D_SHA == phase_history.RED_DESIGN_SHA
+    assert SCI004_DESIGN_CHAIN[-1].sha == APPROVED_SCI004_D_SHA
+
+
+@pytest.fixture
+def source_design_objects(
+    phase_objects: PhaseObjects,
+    monkeypatch: pytest.MonkeyPatch,
+) -> PhaseObjects:
+    root = phase_objects[0]
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", root)
+    monkeypatch.setattr(
+        module,
+        "HISTORICAL_SOURCE_DESIGN_SHA",
+        phase_history.HISTORICAL_SOURCE_DESIGN_SHA,
+    )
+    monkeypatch.setattr(module, "SOURCE_DESIGN_SHA", phase_history.SOURCE_DESIGN_SHA)
+    # Origin is an explicit synthetic marker; all ancestry and bytes are Git objects.
+    marker = root / "tools/sci004_phase3_history.py"
+    marker.parent.mkdir(parents=True)
+    _ = marker.write_text("# synthetic validator origin\n")
+    monkeypatch.setattr(phase_history, "__file__", str(marker))
+    monkeypatch.setattr(phase_history, "REPOSITORY_ROOT", root)
+    _ = _git("update-ref", "--no-deref", "HEAD", phase_objects[-1])
+    return phase_objects
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "current_is_historical",
+        "historical_is_current",
+        "history_current",
+        "joint_swap",
+        "origin",
+        "root",
+        "missing_origin",
+        "bad_blob",
+        "bad_patch",
+    ],
+)
+def test_source_design_bindings_reject_false_roles_and_authentication(
+    source_design_objects: PhaseObjects,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str | None,
+) -> None:
+    root = source_design_objects[0]
+    module = sys.modules[__name__]
+    if mutation == "current_is_historical":
+        monkeypatch.setattr(module, "SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_DESIGN_SHA)
+    elif mutation == "historical_is_current":
+        monkeypatch.setattr(module, "HISTORICAL_SOURCE_DESIGN_SHA", SOURCE_DESIGN_SHA)
+    elif mutation == "history_current":
+        monkeypatch.setattr(phase_history, "SOURCE_DESIGN_SHA", APPROVED_SCI004_D_SHA)
+    elif mutation == "joint_swap":
+        old, current = HISTORICAL_SOURCE_DESIGN_SHA, SOURCE_DESIGN_SHA
+        for peer in (module, phase_history):
+            monkeypatch.setattr(peer, "HISTORICAL_SOURCE_DESIGN_SHA", current)
+            monkeypatch.setattr(peer, "SOURCE_DESIGN_SHA", old)
+    elif mutation == "origin":
+        monkeypatch.setattr(phase_history, "__file__", __file__)
+    elif mutation == "root":
+        monkeypatch.setattr(phase_history, "REPOSITORY_ROOT", root.parent)
+    elif mutation == "missing_origin":
+        monkeypatch.setattr(phase_history, "__file__", str(root / "absent.py"))
+    elif mutation in {"bad_blob", "bad_patch"}:
+        first, second = phase_history.SOURCE_DESIGN_EDGES
+        bad = (
+            replace(first, blobs=("0" * 64, first.blobs[1]))
+            if mutation == "bad_blob"
+            else replace(first, patch="0" * 64)
+        )
+        monkeypatch.setattr(phase_history, "SOURCE_DESIGN_EDGES", (bad, second))
+    if mutation is None:
+        assert authenticate_source_design_bindings() == SOURCE_DESIGN_SHA
+    else:
+        with pytest.raises(DependencyCertificateError):
+            _ = authenticate_source_design_bindings()
+
+
+@pytest.mark.parametrize(
+    "attack", ["before_d33", "second_parent", "replacement", "graft"]
+)
+def test_source_design_bindings_require_original_first_parent_ancestry(
+    source_design_objects: PhaseObjects,
+    attack: str,
+) -> None:
+    root, commit, base, _, _, _, _, terminal = source_design_objects
+    if attack == "before_d33":
+        bad = HISTORICAL_SOURCE_DESIGN_SHA
+    else:
+        bad = commit(
+            base,
+            {phase_history.STATUS_PATH: b"unrelated tip\n"},
+            extra_parent=terminal if attack == "second_parent" else None,
+        )
+    _ = _git("update-ref", "--no-deref", "HEAD", bad)
+    if attack == "second_parent":
+        assert _is_ancestor(SOURCE_DESIGN_SHA, bad)
+    elif attack == "replacement":
+        _ = _git("replace", bad, terminal)
+    elif attack == "graft":
+        _ = (root / "info/grafts").write_text(f"{bad} {terminal}\n")
+    if attack in {"replacement", "graft"}:
+        native = (
+            subprocess.check_output(
+                ["git", "rev-list", "--first-parent", "HEAD"],
+                cwd=root,
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.startswith("GIT_")
+                },
+            )
+            .decode()
+            .split()
+        )
+        assert SOURCE_DESIGN_SHA in native
+    with pytest.raises(DependencyCertificateError, match="first-parent history"):
+        _ = authenticate_source_design_bindings()
+
+
+@pytest.mark.parametrize(
+    "variable", ["GIT_DIR", "GIT_OBJECT_DIRECTORY", "GIT_CONFIG_GLOBAL"]
+)
+def test_source_design_bindings_ignore_inherited_git_routing(
+    source_design_objects: PhaseObjects,
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+) -> None:
+    wrong = str(source_design_objects[0] / "missing-redirect")
+    monkeypatch.setenv(variable, wrong)
+    assert authenticate_source_design_bindings() == SOURCE_DESIGN_SHA
+    assert os.environ[variable] == wrong
