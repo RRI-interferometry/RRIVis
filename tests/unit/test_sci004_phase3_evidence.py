@@ -1617,7 +1617,10 @@ def test_the_generator_produces_at_a_clean_source_rather_than_refusing() -> None
     build = build[: build.index("def main(")]
     assert "validate_performance_document(performance_document)" in build
     assert "validate_evidence_document(document)" in build
-    assert "write_atomic_no_overwrite(" in build
+    assert (
+        "_publish_evidence_payload(payload, performance_path, performance_payload)"
+        in build
+    )
 
 
 def test_the_generator_publishes_the_performance_record_before_the_envelope() -> None:
@@ -1625,12 +1628,17 @@ def test_the_generator_publishes_the_performance_record_before_the_envelope() ->
     source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
     build = source[source.index("def build_phase3_evidence") :]
     build = build[: build.index("def main(")]
-    first = build.index("write_atomic_no_overwrite(REPOSITORY_ROOT / performance_path")
-    second = build.index(
+    publication = build.index("_publish_evidence_payload(payload,")
+    assert build.index("validate_evidence_document(document)") < publication
+    assert build.index("payload = canonical_json(document)") < publication
+    assert build.index("require_declared_outputs_only(declared)") > publication
+    helper = source[source.index("def _publish_evidence_payload(") :]
+    helper = helper[: helper.index("def _read_evidence_payload(")]
+    first = helper.index("write_atomic_no_overwrite(REPOSITORY_ROOT / performance_path")
+    second = helper.index(
         "write_atomic_no_overwrite(REPOSITORY_ROOT / EVIDENCE_ARTIFACT"
     )
-    assert first < second
-    assert build.index("require_declared_outputs_only(declared)") > second
+    assert helper.index("len(payload) < EVIDENCE_BYTE_LIMIT") < first < second
 
 
 def test_the_generator_declares_exactly_the_two_m3_outputs() -> None:
@@ -5967,3 +5975,104 @@ def test_certificate_storage_encoder_refuses_lossy_or_invalid_json(value: Any) -
     module = _tool()
     with pytest.raises(module.EvidenceError):
         module.encode_frame_certificate_storage(value)
+
+
+@pytest.mark.parametrize("size", [7, 8, 9])
+def test_evidence_size_bound_precedes_both_final_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: int
+) -> None:
+    module = _tool()
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(module, "EVIDENCE_BYTE_LIMIT", 8)
+    performance = "performance.json"
+    payload = b"x" * size
+    if size >= 8:
+        with pytest.raises(module.EvidenceError, match="complete evidence payload"):
+            module._publish_evidence_payload(payload, performance, b"benchmark")
+        assert list(tmp_path.iterdir()) == []
+    else:
+        module._publish_evidence_payload(payload, performance, b"benchmark")
+        assert (tmp_path / performance).read_bytes() == b"benchmark"
+        assert (tmp_path / module.EVIDENCE_ARTIFACT).read_bytes() == payload
+
+
+def test_evidence_publication_keeps_performance_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _tool()
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path)
+    events: list[Path] = []
+    original = module.write_atomic_no_overwrite
+
+    def record(path: Path, payload: bytes) -> None:
+        events.append(path)
+        original(path, payload)
+
+    monkeypatch.setattr(module, "write_atomic_no_overwrite", record)
+    module._publish_evidence_payload(b"{}", "performance.json", b"{}")
+    assert events == [
+        tmp_path / "performance.json",
+        tmp_path / module.EVIDENCE_ARTIFACT,
+    ]
+
+
+@pytest.mark.parametrize("size", [7, 8, 9])
+def test_evidence_reader_enforces_strict_size_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, size: int
+) -> None:
+    module = _tool()
+    monkeypatch.setattr(module, "EVIDENCE_BYTE_LIMIT", 8)
+    path = tmp_path / "evidence.json"
+    _ = path.write_bytes(b"x" * size)
+    if size >= 8:
+        with pytest.raises(module.EvidenceError, match="evidence artifact"):
+            module._read_evidence_payload(path)
+    else:
+        assert module._read_evidence_payload(path) == b"x" * size
+
+
+def test_evidence_reader_caps_io_without_trusting_a_stat_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _tool()
+    monkeypatch.setattr(module, "EVIDENCE_BYTE_LIMIT", 8)
+
+    class GrowingReader:
+        def __enter__(self) -> GrowingReader:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+        def read(self, size: int) -> bytes:
+            assert size == 8, "unbounded or stat-dependent read"
+            return io.BytesIO(b"x" * 100).read(size)
+
+    class GrowingPath:
+        def open(self, mode: str) -> GrowingReader:
+            assert mode == "rb"
+            return GrowingReader()
+
+        def stat(self) -> Any:
+            pytest.fail("a stale stat size cannot authorize the read")
+
+    with pytest.raises(module.EvidenceError, match="evidence artifact"):
+        module._read_evidence_payload(GrowingPath())
+
+
+def test_evidence_check_rejects_size_before_json_or_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    module = _tool()
+    monkeypatch.setattr(module, "EVIDENCE_BYTE_LIMIT", 8)
+    path = tmp_path / "oversized.json"
+    _ = path.write_bytes(b"not-json" * 2)
+
+    def forbidden(value: Any) -> None:
+        pytest.fail("oversized artifact reached scientific validator")
+
+    monkeypatch.setattr(module, "validate_evidence_artifact", forbidden)
+    assert module.main(["check", "--artifact", str(path)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "evidence artifact must be smaller" in captured.err

@@ -3983,6 +3983,40 @@ def require_declared_outputs_only(declared: Sequence[str]) -> None:
     )
 
 
+EVIDENCE_BYTE_LIMIT = 104_857_600
+
+
+def _publish_evidence_payload(
+    payload: bytes, performance_path: str, performance_payload: bytes
+) -> None:
+    """Enforce D33's complete E size before publishing either declared output."""
+    _require(
+        len(payload) < EVIDENCE_BYTE_LIMIT,
+        SCHEMA,
+        "complete evidence payload must be smaller than 104857600 bytes",
+    )
+    # The caller validates and serializes both complete documents first.
+    write_atomic_no_overwrite(REPOSITORY_ROOT / performance_path, performance_payload)
+    write_atomic_no_overwrite(REPOSITORY_ROOT / EVIDENCE_ARTIFACT, payload)
+
+
+def _read_evidence_payload(path: Path) -> bytes:
+    """Read at most the forbidden threshold, even if a file grows during reading."""
+    try:
+        with path.open("rb") as handle:
+            payload = handle.read(EVIDENCE_BYTE_LIMIT)
+    except OSError as error:
+        raise EvidenceError(
+            SCHEMA, f"cannot read evidence artifact: {error}"
+        ) from error
+    _require(
+        len(payload) < EVIDENCE_BYTE_LIMIT,
+        SCHEMA,
+        "evidence artifact must be smaller than 104857600 bytes",
+    )
+    return payload
+
+
 def write_atomic_no_overwrite(path: Path, payload: bytes) -> None:
     """Publish one artifact atomically, refusing to overwrite anything."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -5142,9 +5176,8 @@ def build_phase3_evidence(source_sha: str | None) -> int:
     validate_evidence_document(document)
     payload = canonical_json(document)
 
-    # Section 14.2: performance record first, evidence last.
-    write_atomic_no_overwrite(REPOSITORY_ROOT / performance_path, performance_payload)
-    write_atomic_no_overwrite(REPOSITORY_ROOT / EVIDENCE_ARTIFACT, payload)
+    # D33 checks complete E size before either Section 14.2 publication.
+    _publish_evidence_payload(payload, performance_path, performance_payload)
     require_declared_outputs_only(declared)
     sys.stdout.write(
         canonical_json(
@@ -5188,7 +5221,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if arguments.command == "generate":
             return build_phase3_evidence(arguments.source_sha)
-        document = json.loads(Path(arguments.artifact).read_bytes().decode("utf-8"))
+        document = json.loads(
+            _read_evidence_payload(Path(arguments.artifact)).decode("utf-8")
+        )
         validate_evidence_artifact(document)
         if arguments.performance:
             record = json.loads(
