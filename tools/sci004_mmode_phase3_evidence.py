@@ -76,6 +76,7 @@ import os
 import platform
 import re
 import select
+import stat
 import struct
 import subprocess
 import sys
@@ -3411,6 +3412,92 @@ def performance_record_path(recorded_at_utc: str, host_tag: str) -> str:
     return f"{PERFORMANCE_DIRECTORY}/{stamp}-{host_tag}.json"
 
 
+def _require_raw_tracked_checkout(head: str) -> None:
+    """Authenticate tracked bytes and types without index or filter shortcuts."""
+    try:
+        _require(
+            stat.S_ISDIR(REPOSITORY_ROOT.lstat().st_mode),
+            PREFLIGHT,
+            "tracked checkout root type changed",
+        )
+        root = REPOSITORY_ROOT.resolve(strict=True)
+        entries = _git_bytes("ls-tree", "-r", "-z", "--full-tree", head).split(b"\0")
+        _require(entries[-1] == b"", PREFLIGHT, "tracked tree framing")
+        seen: set[bytes] = set()
+        for entry in entries[:-1]:
+            metadata, separator, relative = entry.partition(b"\t")
+            fields = metadata.split()
+            _require(
+                bool(separator) and len(fields) == 3 and relative not in seen,
+                PREFLIGHT,
+                "tracked tree entry",
+            )
+            seen.add(relative)
+            mode, kind, oid = fields
+            components = relative.split(b"/")
+            _require(
+                all(part not in {b"", b".", b".."} for part in components),
+                PREFLIGHT,
+                "tracked tree path",
+            )
+            parent = root
+            for component in components[:-1]:
+                parent /= os.fsdecode(component)
+                _require(
+                    stat.S_ISDIR(parent.lstat().st_mode),
+                    PREFLIGHT,
+                    "tracked parent directory type changed",
+                )
+            if mode == b"160000":
+                _require(kind == b"commit", PREFLIGHT, "tracked gitlink type")
+                continue
+            _require(
+                mode in {b"100644", b"100755", b"120000"} and kind == b"blob",
+                PREFLIGHT,
+                "tracked tree type",
+            )
+            path = parent / os.fsdecode(components[-1])
+            actual_mode = path.lstat().st_mode
+            if mode == b"120000":
+                _require(
+                    stat.S_ISLNK(actual_mode), PREFLIGHT, "tracked symlink type changed"
+                )
+                actual = os.fsencode(os.readlink(path))
+            else:
+                _require(
+                    stat.S_ISREG(actual_mode),
+                    PREFLIGHT,
+                    "tracked regular file type changed",
+                )
+                _require(
+                    bool(actual_mode & stat.S_IXUSR) == (mode == b"100755"),
+                    PREFLIGHT,
+                    "tracked executable mode changed",
+                )
+                actual = path.read_bytes()
+            original = _git_bytes("cat-file", "blob", oid.decode("ascii"))
+            matches = actual == original
+            if not matches and mode != b"120000":
+                pointer = re.fullmatch(
+                    rb"version https://git-lfs.github.com/spec/v1\n"
+                    rb"oid sha256:([0-9a-f]{64})\nsize (0|[1-9][0-9]*)\n",
+                    original,
+                )
+                matches = pointer is not None and (
+                    pointer[2] == str(len(actual)).encode("ascii")
+                    and pointer[1] == hashlib.sha256(actual).hexdigest().encode("ascii")
+                )
+            _require(
+                matches,
+                PREFLIGHT,
+                f"tracked raw bytes changed: {os.fsdecode(relative)}",
+            )
+    except OSError as error:
+        raise EvidenceError(
+            PREFLIGHT, "tracked checkout path cannot be read"
+        ) from error
+
+
 def preflight(
     source_sha: str | None = None, declared: Sequence[str] = ()
 ) -> dict[str, str]:
@@ -3428,6 +3515,7 @@ def preflight(
             raise EvidenceError(
                 PREFLIGHT, f"the declared output {relative} already exists"
             )
+    _require_raw_tracked_checkout(head)
     return {
         "source_sha": head,
         "pixi_manifest_sha256": raw_sha256(REPOSITORY_ROOT / "pixi.toml"),
@@ -4101,6 +4189,7 @@ def require_declared_outputs_only(declared: Sequence[str]) -> None:
     status = _git("status", "--porcelain=v1", "--untracked-files=all")
     observed = sorted(line[3:].strip() for line in status.splitlines() if line.strip())
     expected = sorted(declared)
+    _require_raw_tracked_checkout(_git("rev-parse", "HEAD").strip())
     _require(
         observed == expected,
         DIGEST,

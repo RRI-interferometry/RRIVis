@@ -6623,3 +6623,119 @@ def test_evidence_git_query_failures_keep_typed_preflight_refusal(
     monkeypatch.setattr(module, "REPOSITORY_ROOT", root / "absent-directory")
     with pytest.raises(module.EvidenceError, match="cannot start"):
         module._git_bytes("rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize("concealment", ["assume", "skip", "stat"])
+@pytest.mark.parametrize("after_publication", [False, True])
+def test_evidence_raw_checkout_refuses_hidden_scientific_changes(
+    raw_evidence_repository: tuple[Path, str, str],
+    concealment: str,
+    after_publication: bool,
+) -> None:
+    root, _, _ = raw_evidence_repository
+    module = _tool()
+    relative = "src/radiosim/core/mmode/frame.py"
+    _ = _e_topology_commit({relative: b"VALUE = 1\n"})
+    path = root / relative
+    _ = _native_evidence_git(root, "status", "--porcelain")
+    os.utime(path, (1_600_000_000, 1_600_000_000))
+    _ = _native_evidence_git(root, "update-index", "--refresh")
+    before_stat = path.stat()
+    if concealment == "stat":
+        _ = _native_evidence_git(root, "config", "core.trustctime", "false")
+        _ = _native_evidence_git(root, "config", "core.checkStat", "minimal")
+    else:
+        flag = "--assume-unchanged" if concealment == "assume" else "--skip-worktree"
+        _ = _native_evidence_git(root, "update-index", flag, relative)
+    before_index = (root / ".git/index").read_bytes()
+    _ = path.write_bytes(b"VALUE = 2\n")
+    if concealment == "stat":
+        os.utime(path, ns=(before_stat.st_atime_ns, before_stat.st_mtime_ns))
+    assert _native_evidence_git(root, "status", "--porcelain") == b""
+    with pytest.raises(module.EvidenceError, match="tracked raw bytes changed"):
+        if after_publication:
+            _ = (root / "evidence.json").write_bytes(b"{}")
+            module.require_declared_outputs_only(("evidence.json",))
+        else:
+            module.preflight()
+    assert (root / ".git/index").read_bytes() == before_index
+
+
+@pytest.mark.parametrize(
+    "mutation", ["missing", "symlink", "directory", "mode", "parent"]
+)
+def test_evidence_raw_checkout_authenticates_types_and_parent_directories(
+    raw_evidence_repository: tuple[Path, str, str], mutation: str
+) -> None:
+    root, _, _ = raw_evidence_repository
+    module = _tool()
+    relative = "tracked/leaf.py"
+    head = _e_topology_commit({relative: b"VALUE = 1\n"})
+    path = root / relative
+    if mutation == "parent":
+        _ = (root / "tracked").rename(root / "other")
+        (root / "tracked").symlink_to("other", target_is_directory=True)
+    elif mutation == "mode":
+        path.chmod(0o755)
+    else:
+        path.unlink()
+        if mutation == "symlink":
+            _ = (root / "other.py").write_bytes(b"VALUE = 1\n")
+            path.symlink_to("../other.py")
+        elif mutation == "directory":
+            path.mkdir()
+    before_index = (root / ".git/index").read_bytes()
+    with pytest.raises(module.EvidenceError) as error:
+        module._require_raw_tracked_checkout(head)
+    assert error.value.prefix == module.PREFLIGHT
+    assert (root / ".git/index").read_bytes() == before_index
+
+
+@pytest.mark.parametrize(
+    "representation", ["pointer", "content", "wrong-size", "wrong-hash"]
+)
+def test_evidence_raw_checkout_authenticates_lfs_without_filters(
+    raw_evidence_repository: tuple[Path, str, str], representation: str
+) -> None:
+    root, _, _ = raw_evidence_repository
+    module = _tool()
+    content = b"retained scientific data\x00\xff"
+    pointer = (
+        "version https://git-lfs.github.com/spec/v1\n"
+        f"oid sha256:{hashlib.sha256(content).hexdigest()}\nsize {len(content)}\n"
+    ).encode()
+    head = _e_topology_commit({"data.bin": pointer})
+    _ = _native_evidence_git(root, "config", "filter.test.clean", "false")
+    _ = (root / ".git/info/attributes").write_text("data.bin filter=test\n")
+    payload = {
+        "pointer": pointer,
+        "content": content,
+        "wrong-size": content + b"x",
+        "wrong-hash": b"x" * len(content),
+    }[representation]
+    _ = (root / "data.bin").write_bytes(payload)
+    before_index = (root / ".git/index").read_bytes()
+    if representation in {"pointer", "content"}:
+        module._require_raw_tracked_checkout(head)
+    else:
+        with pytest.raises(module.EvidenceError, match="tracked raw bytes changed"):
+            module._require_raw_tracked_checkout(head)
+    assert (root / ".git/index").read_bytes() == before_index
+
+
+def test_evidence_raw_checkout_preserves_symlinks_flags_and_uninitialized_gitlinks(
+    raw_evidence_repository: tuple[Path, str, str],
+) -> None:
+    root, _, child = raw_evidence_repository
+    module = _tool()
+    (root / "reference").mkdir()
+    (root / "link").symlink_to("missing-target")
+    _ = _native_evidence_git(root, "add", "link")
+    _ = _native_evidence_git(
+        root, "update-index", "--add", "--cacheinfo", f"160000,{child},reference"
+    )
+    _ = _native_evidence_git(root, "commit", "-qm", "Synthetic tracked types")
+    _ = _native_evidence_git(root, "update-index", "--skip-worktree", "source.py")
+    before_index = (root / ".git/index").read_bytes()
+    module.preflight()
+    assert (root / ".git/index").read_bytes() == before_index
