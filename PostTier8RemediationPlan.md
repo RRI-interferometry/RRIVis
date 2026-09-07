@@ -15,6 +15,63 @@ re-verified at execution time, not trusted from here.
 
 ---
 
+**Current continuation #36 candidate — 2026-09-08.** One prospective successor
+batches five confirmed direct-cube conformance defects: operational smooth
+integrands reuse frozen kernels, operational classes inherit frozen classes,
+per-piece error radii round to nearest, EF/EO accumulation rounds to nearest, and operational inner root bounds are
+omitted from guarded piece partitions.
+The memo defines independent model ownership and whole-open-piece operational
+classification from the actual successful same-run scan, with boundary events
+handled under existing half-open/guard rules. Restore every distinct inner
+root/outer guard bound under Section 12.1, with exact ordering/deduplication.
+Use a separately instantiated, ownership-bound existing operational-direction
+owner for witnesses; the live successful scan evaluator and counters stay
+untouched, with a causal preservation test. Equal signs do not establish equal
+smooth kernels. Radius and accumulation must implement the exact directed-up
+rules, including exact-zero and representable cases.
+
+The actual design edge changes exactly this file followed by
+`docs/development/sci004_mmode_design.md`; the current candidate uses committed
+`95737844c6c4d3fc8c95eba70f1966eccee70e0a` document baselines. No future landing
+SHA is asserted. Original round2 physics/governance reviewer
+`/root/d30_physics_review` and computational/provenance reviewer
+`/root/d30_provenance_review` both returned ACCEPT against the identical complete
+candidate pins recorded in the memo header. This is permitted own-header
+finalization only. Finalization review and actual landing-parent authentication
+are separately retained checks required before landing. No implementation,
+activation or numerical acceptance is asserted.
+A completion-ledger change is a separate status commit. Only finalized landing
+and the memo's executable activation gates make D36 current S/E/A authority.
+D35 remains explicit historical geometry authority, including its G1 state and
+causal regression; D34, D33, D32 and D31 roles remain unchanged. Complete current
+S requires five exact ordered source-design edges, D32 through D36.
+
+The memo enumerates eight code/test paths, adding the existing direct-convergence
+test to D35's seven-path inventory. Its exact aggregate becomes fourteen modified
+paths plus four final disposals, conditionally plus the already authorized
+verification-workflow path: eighteen or nineteen. No generic source edits,
+future AST pins, red/acceptance changes or budget increases are granted. The four
+canonical Section 11 families are the entire finite scope. Their actual resolved
+payload/factor ceiling proof is required; no general Jones ceiling theorem is
+assumed from the rounding witnesses.
+
+A real separately identified causal regression must precede the actual reviewed
+solver candidate. Freeze approved full-module ASTs under both Python versions
+only after source review, then atomically activate the five history/dependency/E
+owners before committing the repair. The old G1 terminal remains historical but
+cannot satisfy complete current direct conformance. Independent causal, physical
+and raw-source/preimage checks and fresh clean exact-source four-family captures
+remain mandatory, with all budgets unchanged. Old captures and stops are immutable.
+
+D36 admits no numerical observation or phase and supplies no measured transition
+relation. A later independently reviewed finite relation after full conformity
+remains required before append/E/A publication. D32 source-only transitions,
+D33 lossless storage, six literal None approvals, disposal ordering and all
+original acceptance gates remain. M3 is not accepted, SCI-004/PERF-001 remain
+ROADMAP and closure C stays locked. The memo alone defines the exact grant.
+
+The following correction-#35 continuation record is retained historically.
+
 **Current continuation #35 candidate — 2026-09-07.** Retained four-family
 arithmetic confirms that the solver returns a slab measure already converted
 to radians, labels it as turns and converts it again. It also emits 1,280
