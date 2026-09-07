@@ -214,7 +214,7 @@ def source_design_object(
     memo = (
         f"**Bounded correction #{edge.correction} candidate\n"
         "**Review verification\n"
-        "`/root/d30_physics_review` and `/root/d30_provenance_review` "
+        f"`{edge.reviewers[0]}` and `{edge.reviewers[1]}` "
         "each returned exact\n`ACCEPT`\n"
         f"complete round-{edge.round_number} candidate bytes\n{parent}\n"
         + "\n".join(edge.review_pins)
@@ -979,13 +979,25 @@ def test_complete_history_refuses_configured_default_diff_driver(
         _validate_document(expected, phase_objects)
 
 
-@pytest.mark.parametrize("edge", history.SOURCE_DESIGN_EDGES)
+@pytest.mark.parametrize(
+    "edge", (*history.SOURCE_DESIGN_EDGES, history.D34_DESIGN_EDGE)
+)
 def test_live_source_design_edges_authenticate(edge: history.SourceDesignEdge) -> None:
     history.authenticate_source_design_successor(edge.sha)
     assert history.RED_DESIGN_SHA == history.OPERATIVE_DESIGN_SHA
     assert tuple(item.sha for item in history.SOURCE_DESIGN_EDGES) == (
         history.HISTORICAL_SOURCE_DESIGN_SHA,
         history.SOURCE_DESIGN_SHA,
+    )
+    assert history.SOURCE_DESIGN_SHA == "343ea0467420d452e9d728f0475167e74721e22f"
+    assert history.D34_DESIGN_EDGE.sha not in {
+        item.sha for item in history.SOURCE_DESIGN_EDGES
+    }
+    assert edge.reviewers == (
+        "/root/e_lifecycle_physics"
+        if edge.correction == 34
+        else "/root/d30_physics_review",
+        "/root/d30_provenance_review",
     )
 
 
@@ -995,7 +1007,9 @@ def test_source_design_authentication_rejects_other_identities(sha: str) -> None
         history.authenticate_source_design_successor(sha)
 
 
-@pytest.mark.parametrize("edge", history.SOURCE_DESIGN_EDGES)
+@pytest.mark.parametrize(
+    "edge", (*history.SOURCE_DESIGN_EDGES, history.D34_DESIGN_EDGE)
+)
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1010,6 +1024,9 @@ def test_source_design_authentication_rejects_other_identities(sha: str) -> None
         "missing_verification",
         "inherited_verification",
         "missing_reviewer",
+        "substituted_physics_reviewer",
+        "substituted_provenance_reviewer",
+        "swapped_reviewers",
         "missing_verdict",
         "crossed_review_pins",
         "missing_companion_verdict",
@@ -1042,7 +1059,26 @@ def test_source_design_real_objects_require_own_review(
             b"**Review verification", marker + b"\n**Review verification", 1
         )
     elif mutation == "missing_reviewer":
-        memo = memo.replace(b"`/root/d30_physics_review`", b"`another reviewer`", 1)
+        memo = memo.replace(f"`{edge.reviewers[0]}`".encode(), b"`another reviewer`", 1)
+    elif mutation == "substituted_physics_reviewer":
+        other_reviewer = (
+            "/root/d30_physics_review"
+            if edge.correction == 34
+            else "/root/e_lifecycle_physics"
+        )
+        memo = memo.replace(
+            f"`{edge.reviewers[0]}`".encode(), f"`{other_reviewer}`".encode(), 1
+        )
+    elif mutation == "substituted_provenance_reviewer":
+        memo = memo.replace(
+            f"`{edge.reviewers[1]}`".encode(), b"`/root/raw_git_governance`", 1
+        )
+    elif mutation == "swapped_reviewers":
+        memo = memo.replace(
+            f"`{edge.reviewers[0]}` and `{edge.reviewers[1]}`".encode(),
+            f"`{edge.reviewers[1]}` and `{edge.reviewers[0]}`".encode(),
+            1,
+        )
     elif mutation == "missing_verdict":
         memo = memo.replace(b"each returned exact\n`ACCEPT`", b"review pending", 1)
     elif mutation == "crossed_review_pins":
@@ -1258,14 +1294,26 @@ def test_source_document_cannot_rebind_or_disguise_design_entries(
         _validate_document(document, phase_objects)
 
 
-def test_live_partial_source_preserves_early_s_and_authenticates_current_designs() -> (
-    None
-):
+def test_live_pre_d34_prefix_preserves_early_s_and_designs() -> None:
     red = "567f9ac68730044fc8e887930d3531d794534412"
     first = "72a0a5c5ebd203b63e091342f3655ebf808bac4b"
     early = history.describe_phase_range(red, first, "source", require_complete=False)
     assert [row["role"] for row in early["commits"]] == ["source"]
-    head = history_git(history.REPOSITORY_ROOT, "rev-parse", "HEAD").decode().strip()
-    current = history.describe_phase_range(red, head, "source", require_complete=False)
-    history.require_source_design_successors(current["commits"])
+    # Additive edge authentication leaves the range at D33. The coordinated D34
+    # activation must restore the live-HEAD positive and require all three edges.
+    historical = history.describe_phase_range(
+        red, history.D34_DESIGN_EDGE.parent, "source", require_complete=False
+    )
+    history.require_source_design_successors(historical["commits"])
     assert history.OPERATIVE_DESIGN_SHA == history.RED_DESIGN_SHA
+
+
+def test_d34_edge_authentication_does_not_activate_its_source_range() -> None:
+    history.authenticate_source_design_successor(history.D34_DESIGN_EDGE.sha)
+    with pytest.raises(history.HistoryError, match="source role path/change-kind"):
+        _ = history.describe_phase_range(
+            "567f9ac68730044fc8e887930d3531d794534412",
+            history.D34_DESIGN_EDGE.sha,
+            "source",
+            require_complete=False,
+        )

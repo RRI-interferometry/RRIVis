@@ -465,6 +465,7 @@ class SourceDesignEdge:
     blobs: tuple[str, str]  # Companion, then memo, matching DESIGN_PATHS.
     patch: str
     review_pins: tuple[str, str, str]  # Memo, companion, complete patch.
+    reviewers: tuple[str, str]  # Exact original physics and provenance identities.
 
 
 SOURCE_DESIGN_EDGES = (
@@ -483,6 +484,7 @@ SOURCE_DESIGN_EDGES = (
             "4df50a35949abcc1cd9d7580f250b30c7bc92e9ace09eb8959fd61590bbce172",
             "8e7b01f4a8839bc6b759ce1e32956cc3bd7f2ad96f97fc6cb0bb6db46fdf5bd7",
         ),
+        ("/root/d30_physics_review", "/root/d30_provenance_review"),
     ),
     SourceDesignEdge(
         SOURCE_DESIGN_SHA,
@@ -499,7 +501,28 @@ SOURCE_DESIGN_EDGES = (
             "ca8dc4fd99f1ee2a65e615c3127c2b0be2c1a62553ffb7c3723d3ddf41d22cc8",
             "bd6c21d0c54f5ccb92d57f35562874f397ed2e689f17992040359cb44611583f",
         ),
+        ("/root/d30_physics_review", "/root/d30_provenance_review"),
     ),
+)
+
+# D34 is independently authenticatable here; active range bindings remain D33
+# until the separate range/grant and dependency/evidence integration lands.
+D34_DESIGN_EDGE = SourceDesignEdge(
+    "90ef12e10c869b0928ad0afd51b9f7069729aa26",
+    "a8a9f53943d7d964f475c376b6ce0dbb9b0157fc",
+    34,
+    2,
+    (
+        "777b6f4513a5e060d8c9fc163290701101519a2cb1dc2c986268013059670d8e",
+        "36ebfbf38cf57bc5a82afb27bc5a588e40766be5162e386a7c1b8908b9e6e88d",
+    ),
+    "2f8af073ac8510b95b1e24d6a2abd87ed4a743a4835f23bde787b08103ce6b96",
+    (
+        "5bf13a1f4492bec7ff91d5bc26e91b17189b6bf301e18cd5254bf7c5a91eff42",
+        "a1d364417ec5287f03d475e14c50369030c119be33e75d36119e9542242dc3a6",
+        "ae704c7256671298755ab33303938c8a6ce5538326189c2a8eb06baae396dc14",
+    ),
+    ("/root/e_lifecycle_physics", "/root/d30_provenance_review"),
 )
 
 
@@ -515,8 +538,12 @@ def _source_design_header(text: str, label: str, correction: int) -> str:
 def authenticate_source_design_successor(
     commit_sha: str, root: Path = REPOSITORY_ROOT
 ) -> None:
-    """Authenticate only the finalized D32 or D33 edge, without changing ranges."""
-    matches = [edge for edge in SOURCE_DESIGN_EDGES if edge.sha == commit_sha]
+    """Authenticate a finalized D32/D33/D34 edge, without changing active ranges."""
+    matches = [
+        edge
+        for edge in (*SOURCE_DESIGN_EDGES, D34_DESIGN_EDGE)
+        if edge.sha == commit_sha
+    ]
     _require(len(matches) == 1, "unknown source design successor")
     edge = matches[0]
     _ = _exact_commit(root, commit_sha)
@@ -567,14 +594,14 @@ def authenticate_source_design_successor(
         all(
             value in verification and value in added
             for value in (
-                "`/root/d30_physics_review`",
-                "`/root/d30_provenance_review`",
+                f"`{edge.reviewers[0]}` and `{edge.reviewers[1]}` "
                 "each returned exact\n`ACCEPT`",
                 edge.parent,
                 f"complete round-{edge.round_number} candidate bytes",
                 *edge.review_pins,
             )
         )
+        and len(set(edge.reviewers)) == 2
         and len(set(edge.review_pins)) == 3
         and not set(edge.review_pins) & {*edge.blobs, edge.patch},
         "source design ordinary own-header review pins",
