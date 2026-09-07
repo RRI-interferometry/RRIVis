@@ -895,3 +895,137 @@ def test_complete_history_refuses_configured_default_diff_driver(
         _ = _phase_document(phase_objects)
     with pytest.raises(history.HistoryError, match="configured default diff driver"):
         _validate_document(expected, phase_objects)
+
+
+@pytest.mark.parametrize("edge", history.SOURCE_DESIGN_EDGES)
+def test_live_source_design_edges_authenticate(edge: history.SourceDesignEdge) -> None:
+    history.authenticate_source_design_successor(edge.sha)
+    assert history.RED_DESIGN_SHA == history.OPERATIVE_DESIGN_SHA
+    assert tuple(item.sha for item in history.SOURCE_DESIGN_EDGES) == (
+        history.HISTORICAL_SOURCE_DESIGN_SHA,
+        history.SOURCE_DESIGN_SHA,
+    )
+
+
+@pytest.mark.parametrize("sha", [history.RED_DESIGN_SHA, history.DESIGN_SHA, "HEAD"])
+def test_source_design_authentication_rejects_other_identities(sha: str) -> None:
+    with pytest.raises(history.HistoryError, match="unknown source design"):
+        history.authenticate_source_design_successor(sha)
+
+
+@pytest.mark.parametrize("edge", history.SOURCE_DESIGN_EDGES)
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "wrong_parent",
+        "merge",
+        "extra_path",
+        "missing_path",
+        "symlink",
+        "blob_pin",
+        "patch_pin",
+        "missing_verification",
+        "inherited_verification",
+        "missing_reviewer",
+        "missing_verdict",
+        "crossed_review_pins",
+        "missing_companion_verdict",
+        "inherited_companion_verdict",
+        "wrong_round",
+        "duplicate_header",
+        "preexisting_verification",
+    ],
+)
+def test_source_design_real_objects_require_own_review(
+    phase_objects: PhaseObjects,
+    monkeypatch: pytest.MonkeyPatch,
+    edge: history.SourceDesignEdge,
+    mutation: str | None,
+) -> None:
+    from dataclasses import replace
+    from hashlib import sha256
+
+    root, commit, base, _, red, _, _, _ = phase_objects
+    edits = {
+        path: history_git(
+            history.REPOSITORY_ROOT, "show", f"{edge.sha}:{path}"
+        ).replace(edge.parent.encode(), red.encode())
+        for path in history.DESIGN_PATHS
+    }
+    companion_path, memo_path = history.DESIGN_PATHS
+    memo = edits[memo_path]
+    if mutation == "missing_verification":
+        memo = memo.replace(b"**Review verification", b"**Pending review", 1)
+    elif mutation == "inherited_verification":
+        marker = f"**Bounded correction #{edge.correction - 1} candidate".encode()
+        memo = memo.replace(marker, b"Historical candidate", 1).replace(
+            b"**Review verification", marker + b"\n**Review verification", 1
+        )
+    elif mutation == "missing_reviewer":
+        memo = memo.replace(b"`/root/d30_physics_review`", b"`another reviewer`", 1)
+    elif mutation == "missing_verdict":
+        memo = memo.replace(b"each returned exact\n`ACCEPT`", b"review pending", 1)
+    elif mutation == "crossed_review_pins":
+        other = next(item for item in history.SOURCE_DESIGN_EDGES if item != edge)
+        for pin, other_pin in zip(edge.review_pins, other.review_pins, strict=True):
+            memo = memo.replace(pin.encode(), other_pin.encode(), 1)
+    elif mutation == "missing_companion_verdict":
+        edits[companion_path] = edits[companion_path].replace(
+            b"returned ACCEPT", b"remain pending", 1
+        )
+    elif mutation == "inherited_companion_verdict":
+        marker = f"**Current continuation #{edge.correction - 1} candidate".encode()
+        edits[companion_path] = (
+            edits[companion_path]
+            .replace(marker, b"Historical continuation", 1)
+            .replace(b"physics/governance", marker + b"\nphysics/governance", 1)
+        )
+    elif mutation == "wrong_round":
+        memo = memo.replace(
+            f"complete round-{edge.round_number} candidate bytes".encode(),
+            b"complete round-99 candidate bytes",
+            1,
+        )
+    elif mutation == "duplicate_header":
+        memo += f"\n**Bounded correction #{edge.correction} candidate\n".encode()
+    edits[memo_path] = memo
+    parent = red
+    if mutation == "preexisting_verification":
+        parent = commit(red, edits)
+        # Correct the new parent join while keeping review/pin lines inherited.
+        # Only added-text membership should reject this otherwise valid header.
+        edits[memo_path] = edits[memo_path].replace(red.encode(), parent.encode())
+        edits = {path: raw + b"\nnew unrelated text\n" for path, raw in edits.items()}
+    if mutation == "extra_path":
+        edits[history.STATUS_PATH] = b"ungranted ledger companion\n"
+    elif mutation == "missing_path":
+        del edits[companion_path]
+    forged = commit(
+        parent,
+        edits,
+        extra_parent=base if mutation == "merge" else None,
+        mode="120000" if mutation == "symlink" else "100644",
+    )
+    spec = replace(
+        edge,
+        sha=forged,
+        parent=base if mutation == "wrong_parent" else parent,
+        blobs=tuple(  # Both landed hashes are repinned to the actual forged tree.
+            sha256(history_git(root, "show", f"{forged}:{path}")).hexdigest()
+            for path in history.DESIGN_PATHS
+        ),
+        patch=sha256(
+            history_git(root, "diff", "--binary", "--full-index", parent, forged, "--")
+        ).hexdigest(),
+    )
+    if mutation == "blob_pin":
+        spec = replace(spec, blobs=("0" * 64, spec.blobs[1]))
+    elif mutation == "patch_pin":
+        spec = replace(spec, patch="0" * 64)
+    monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", (spec,))
+    if mutation is None:
+        history.authenticate_source_design_successor(forged, root)
+    else:
+        with pytest.raises(history.HistoryError):
+            history.authenticate_source_design_successor(forged, root)

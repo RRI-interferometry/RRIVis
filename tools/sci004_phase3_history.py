@@ -13,12 +13,17 @@ import hashlib
 import json
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 DESIGN_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
 OPERATIVE_DESIGN_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
+# Historical R authority remains D31; source authority has separate exact edges.
+RED_DESIGN_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
+HISTORICAL_SOURCE_DESIGN_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
+SOURCE_DESIGN_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
 DESIGN_SUCCESSOR_PARENT = "87b16ba16c8a4ab4ff8b9e6bf213c5ce45a41bfe"
 DESIGN_SUCCESSOR_BLOBS = (
     "4f5e61dfc03a983d0806c656e8785c656f84bc17f2c52e1fa1151639dcd16f33",
@@ -442,6 +447,141 @@ def authenticate_design_successor(root: Path = REPOSITORY_ROOT) -> None:
         and not set(DESIGN_SUCCESSOR_REVIEW_PINS) & set(DESIGN_SUCCESSOR_BLOBS)
         and len({DESIGN_SUCCESSOR_REVIEW_PINS[2], DESIGN_SUCCESSOR_DIFF}) == 2,
         "design successor ordinary own-header review pins",
+    )
+
+
+@dataclass(frozen=True)
+class SourceDesignEdge:
+    """Exact ordinary landing and its distinct prelanding review identities."""
+
+    sha: str
+    parent: str
+    correction: int
+    round_number: int
+    blobs: tuple[str, str]  # Companion, then memo, matching DESIGN_PATHS.
+    patch: str
+    review_pins: tuple[str, str, str]  # Memo, companion, complete patch.
+
+
+SOURCE_DESIGN_EDGES = (
+    SourceDesignEdge(
+        HISTORICAL_SOURCE_DESIGN_SHA,
+        "babc0fc7cfd541d54250e087371fe5177511c826",
+        32,
+        3,
+        (
+            "eaf7daaea5c4207b2aa6aaf373980940dc85a89bbb36f1a0f29531d663d6a957",
+            "cb0e73312dbed24b57563fb3b5eaa59320fa274214b7ea70d27027ec50405f16",
+        ),
+        "3c258906cbacbb0452e503590e9d6a594faee032a595897f668c243a158ba0bc",
+        (
+            "e6bacfbb2d9bc8f73d86c863c1a17f06002e1f1b1d933502eb1158c985cd8baa",
+            "4df50a35949abcc1cd9d7580f250b30c7bc92e9ace09eb8959fd61590bbce172",
+            "8e7b01f4a8839bc6b759ce1e32956cc3bd7f2ad96f97fc6cb0bb6db46fdf5bd7",
+        ),
+    ),
+    SourceDesignEdge(
+        SOURCE_DESIGN_SHA,
+        "3b317218fa8239a230e208600f3bcb4bfc2af4b8",
+        33,
+        2,
+        (
+            "d432869391a7948846343cbbf636d4ef2818ac6be7a3ed894ad82e95c52c5a35",
+            "de2d05e648efc6b7c3c8237ccf0156fa4950ce9ca7ff6ef4c0a3626196fcf454",
+        ),
+        "6d14c145ecbe76e96f312e287ae3efdc8ffdea971a0cd255b222a64862f98824",
+        (
+            "a13465df28713a941589b4108cfa307bee5f2c244b03279d478961a32dcf096f",
+            "ca8dc4fd99f1ee2a65e615c3127c2b0be2c1a62553ffb7c3723d3ddf41d22cc8",
+            "bd6c21d0c54f5ccb92d57f35562874f397ed2e689f17992040359cb44611583f",
+        ),
+    ),
+)
+
+
+def _source_design_header(text: str, label: str, correction: int) -> str:
+    start = f"**{label} #{correction} candidate"
+    end = f"**{label} #{correction - 1} candidate"
+    _require(text.count(start) == 1 and text.count(end) == 1, "source design headers")
+    prefix, tail = text.split(start)
+    _require(end not in prefix, "source design header order")
+    return tail.split(end)[0]
+
+
+def authenticate_source_design_successor(
+    commit_sha: str, root: Path = REPOSITORY_ROOT
+) -> None:
+    """Authenticate only the finalized D32 or D33 edge, without changing ranges."""
+    matches = [edge for edge in SOURCE_DESIGN_EDGES if edge.sha == commit_sha]
+    _require(len(matches) == 1, "unknown source design successor")
+    edge = matches[0]
+    _ = _exact_commit(root, commit_sha)
+    _require(
+        _git(root, "rev-list", "--parents", "-n", "1", commit_sha).decode().split()
+        == [commit_sha, edge.parent],
+        "source design sole parent",
+    )
+    _require(
+        _commit_delta(root, edge.parent, commit_sha)
+        == dict.fromkeys(DESIGN_PATHS, "M"),
+        "source design exact paths/change kinds",
+    )
+    texts: list[str] = []
+    for path, pin in zip(DESIGN_PATHS, edge.blobs, strict=True):
+        metadata = _git(root, "ls-tree", commit_sha, "--", path).decode().split()
+        _require(
+            len(metadata) == 4
+            and metadata[0] in {"100644", "100755"}
+            and metadata[1] == "blob"
+            and metadata[3] == path,
+            "source design regular blob",
+        )
+        raw = _git(root, "show", f"{commit_sha}:{path}")
+        _require(_sha256(raw) == pin, "source design landed blob")
+        texts.append(raw.decode("utf-8"))
+    _require(
+        _sha256(
+            _git(
+                root, "diff", "--binary", "--full-index", edge.parent, commit_sha, "--"
+            )
+        )
+        == edge.patch,
+        "source design complete diff",
+    )
+    companion = _source_design_header(texts[0], "Current continuation", edge.correction)
+    header = _source_design_header(texts[1], "Bounded correction", edge.correction)
+    _require(header.count("**Review verification") == 1, "source design verification")
+    verification = header.split("**Review verification")[1]
+    added = "\n".join(
+        line[1:]
+        for line in _git(root, "diff", edge.parent, commit_sha, "--", DESIGN_PATHS[1])
+        .decode()
+        .splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    )
+    _require(
+        all(
+            value in verification and value in added
+            for value in (
+                "`/root/d30_physics_review`",
+                "`/root/d30_provenance_review`",
+                "each returned exact\n`ACCEPT`",
+                edge.parent,
+                f"complete round-{edge.round_number} candidate bytes",
+                *edge.review_pins,
+            )
+        )
+        and len(set(edge.review_pins)) == 3
+        and not set(edge.review_pins) & {*edge.blobs, edge.patch},
+        "source design ordinary own-header review pins",
+    )
+    normalized = " ".join(companion.split())
+    _require(
+        "physics/governance and computational/provenance" in normalized
+        and any(f"{verb} returned ACCEPT" in normalized for verb in ("each", "both"))
+        and f"complete round-{edge.round_number}" in normalized
+        and f"final D{edge.correction} header" in normalized,
+        "source design companion verdict completion",
     )
 
 
