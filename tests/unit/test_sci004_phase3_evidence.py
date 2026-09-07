@@ -46,6 +46,7 @@ import functools
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shlex
@@ -8452,6 +8453,42 @@ def characterization_projection(
         "solver",
         json.dumps(solver, sort_keys=True, separators=(",", ":")).encode(),
     )
+    # Independently assemble the two known family antenna identities and native
+    # feed angles. The carried runtime hash is synthetic, not a reduced preimage.
+    for tag, content in (
+        (
+            "instrument",
+            {
+                "antennas": [
+                    {"number": 0, "name": "ANT0"},
+                    {"number": 1, "name": "ANT1"},
+                ]
+            },
+        ),
+        (
+            "receptor",
+            {
+                "schema_version": "1.0.0",
+                "output_basis": "linear_xy",
+                "receptor_sha256": "a" * 64,
+                "receptors": [
+                    {
+                        "antenna_number": number,
+                        "antenna_name": name,
+                        "basis": "linear",
+                        "feed_rotation_rad": 0.0,
+                        "feed_angle_rad": [math.pi / 2.0, 0.0],
+                    }
+                    for number, name in ((0, "ANT0"), (1, "ANT1"))
+                ],
+            },
+        ),
+    ):
+        _projection_segment(
+            segments,
+            tag,
+            json.dumps(content, sort_keys=True, separators=(",", ":")).encode(),
+        )
     result = {
         "value": manifest,
         "source_identities": copy.deepcopy(characterization_source_inventory),
@@ -8690,3 +8727,317 @@ def test_characterization_projection_signed_zero_width(
         bytes.fromhex("0000000000000080"),
     )
     assert _tool().validate_characterization_input_projection(**case) == case["value"]
+
+
+def _receptor_projection_content(case: dict[str, Any]) -> dict[str, Any]:
+    return {
+        tag: json.loads(
+            bytes.fromhex(
+                next(
+                    row["payload_hex"]
+                    for row in case["common_segments"]
+                    if row["tag"] == tag
+                )
+            )
+        )
+        for tag in ("receptor", "instrument")
+    }
+
+
+def _receptor_projection_rehash(case: dict[str, Any], content: dict[str, Any]) -> None:
+    for tag, value in content.items():
+        _projection_segment(
+            case["common_segments"],
+            tag,
+            json.dumps(value, sort_keys=True, separators=(",", ":")).encode(),
+        )
+    case["value"]["receptor_manifest"]["receptor_rows"] = copy.deepcopy(
+        case["value"]["phase_input_identity_manifest"]["receptor_rows"]
+    )
+    case["value"]["instrument_manifest"]["antenna_rows"] = copy.deepcopy(
+        case["value"]["phase_input_identity_manifest"]["antenna_rows"]
+    )
+    _projection_rehash(case)
+
+
+def _receptor_family_projection(
+    characterization_projection: dict[str, Any], family: str
+) -> dict[str, Any]:
+    case = copy.deepcopy(characterization_projection)
+    content = _receptor_projection_content(case)
+    value, phase = case["value"], case["value"]["phase_input_identity_manifest"]
+    case["family_id"] = value["family_id"] = value["fixture_id"] = family
+    solver = _scientific_solver_fixture(family)
+    solver["iers_table_sha256"] = phase["iers_table_sha256"]
+    _projection_segment(
+        [case["solver_segment"]],
+        "solver",
+        json.dumps(solver, sort_keys=True, separators=(",", ":")).encode(),
+    )
+    if family == "mmode_circular_receptor":
+        value["polarization_basis"] = content["receptor"]["output_basis"] = (
+            "circular_rl"
+        )
+        value["correlations"] = ["RR", "RL", "LR", "LL"]
+        for tag in ("polarization_basis", "correlations"):
+            _projection_segment(
+                case["common_segments"],
+                tag,
+                json.dumps(value[tag], sort_keys=True, separators=(",", ":")).encode(),
+            )
+        for index, label in enumerate(value["correlations"]):
+            phase["correlation_rows"][index].update(p_label=label[0], q_label=label[1])
+        for row, scientific in zip(
+            phase["receptor_rows"], content["receptor"]["receptors"], strict=True
+        ):
+            row.update(
+                basis="circular",
+                labels=["r", "l"],
+                feed_angle_rad_f64be=["0000000000000000"] * 2,
+            )
+            scientific.update(basis="circular", feed_angle_rad=[0.0, 0.0])
+    _receptor_projection_rehash(case, content)
+    return case
+
+
+@pytest.mark.parametrize("family", SECTION_11_FAMILIES)
+def test_characterization_receptor_family_join(
+    characterization_projection: dict[str, Any], family: str
+) -> None:
+    case = _receptor_family_projection(characterization_projection, family)
+    before = repr(case)
+    assert _tool().validate_characterization_input_projection(**case) == case["value"]
+    assert repr(case) == before
+
+
+@pytest.mark.parametrize("family", SECTION_11_FAMILIES)
+def test_characterization_receptor_native_family(
+    characterization_projection: dict[str, Any], family: str
+) -> None:
+    """Receptor-only positive; no claim about the runtime's locked IERS join."""
+    case = _receptor_family_projection(characterization_projection, family)
+    content = _receptor_projection_content(case)
+    phase = case["value"]["phase_input_identity_manifest"]
+    before = repr((phase, content))
+    _tool()._validate_characterization_receptors(
+        phase,
+        content,
+        case["value"]["polarization_basis"],
+        "characterization input receptors",
+    )
+    assert repr((phase, content)) == before
+
+
+@pytest.mark.parametrize(
+    "target,key",
+    [
+        ("owner", key)
+        for key in ("schema_version", "output_basis", "receptor_sha256", "receptors")
+    ]
+    + [
+        ("scientific", key)
+        for key in (
+            "antenna_number",
+            "antenna_name",
+            "basis",
+            "feed_rotation_rad",
+            "feed_angle_rad",
+        )
+    ]
+    + [
+        ("phase", key)
+        for key in (
+            "antenna_index",
+            "basis",
+            "labels",
+            "feed_rotation_rad_f64be",
+            "feed_angle_rad_f64be",
+        )
+    ],
+)
+@pytest.mark.parametrize("operation", ["missing", "extra"])
+def test_characterization_receptor_closed_keys(
+    characterization_projection: dict[str, Any], target: str, key: str, operation: str
+) -> None:
+    case = copy.deepcopy(characterization_projection)
+    content = _receptor_projection_content(case)
+    row = {
+        "owner": content["receptor"],
+        "scientific": content["receptor"]["receptors"][0],
+        "phase": case["value"]["phase_input_identity_manifest"]["receptor_rows"][0],
+    }[target]
+    field = key if operation == "missing" else key + "_extra"
+    if operation == "missing":
+        del row[field]
+    else:
+        row[field] = row[key]
+    _receptor_projection_rehash(case, content)
+    before = repr(case)
+    with pytest.raises(_tool().EvidenceError) as caught:
+        _tool().validate_characterization_input_projection(**case)
+    assert caught.value.prefix == "SCI004_M3_EVIDENCE_SCHEMA"
+    label = "characterization input receptors" + (
+        "" if target == "owner" else "[0] " + target
+    )
+    assert caught.value.detail.startswith(label + " must have exactly ")
+    assert (
+        f"; {'missing' if operation == 'missing' else 'unknown'} {[field]!r}"
+        in caught.value.detail
+    )
+    assert repr(case) == before
+
+
+@pytest.mark.parametrize(
+    "target,key,replacement,reason",
+    [
+        ("owner", "schema_version", "2.0.0", "schema version"),
+        ("owner", "output_basis", "circular_rl", "output basis"),
+        ("owner", "receptor_sha256", "A" * 64, "runtime digest"),
+        ("owner", "receptors", [], "antenna cardinality"),
+        ("owner", "receptors", {}, "receptor and instrument arrays"),
+        ("scientific", "antenna_number", True, "antenna identity types"),
+        ("scientific", "antenna_number", 2, "antenna identity order"),
+        ("scientific", "antenna_name", "", "antenna identity types"),
+        ("scientific", "antenna_name", "foreign", "antenna identity order"),
+        ("instrument", "number", True, "antenna identity types"),
+        ("instrument", "name", "foreign", "antenna identity order"),
+        ("antenna", "antenna_index", True, "antenna identity types"),
+        ("antenna", "name", "foreign", "antenna identity order"),
+        ("phase", "antenna_index", True, "antenna identity types"),
+        ("phase", "antenna_index", 1, "antenna identity order"),
+        ("phase", "basis", "LINEAR", "native basis"),
+        ("phase", "labels", ["X", "Y"], "native labels"),
+        ("phase", "labels", ["y", "x"], "native labels"),
+        ("phase", "labels", ("x", "y"), "native labels"),
+        ("phase", "feed_angle_rad_f64be", ["0000000000000000"], "angle arrays"),
+        ("phase", "feed_rotation_rad_f64be", "7ff0000000000000", "nonfinite binary64"),
+        ("phase", "feed_rotation_rad_f64be", "bad", "lower-case hex"),
+        ("scientific", "feed_rotation_rad", True, "must be exact floats"),
+        ("scientific", "feed_rotation_rad", 10**400, "must be exact floats"),
+        ("scientific", "feed_rotation_rad", -0.0, "binary64 differs"),
+        ("scientific", "feed_angle_rad", [math.pi / 2.0, -0.0], "binary64 differs"),
+        ("scientific", "feed_angle_rad", [math.pi / 2.0], "angle arrays"),
+    ],
+)
+def test_characterization_receptor_rehashed_mutations(
+    characterization_projection: dict[str, Any],
+    target: str,
+    key: str,
+    replacement: Any,
+    reason: str,
+) -> None:
+    case = copy.deepcopy(characterization_projection)
+    content = _receptor_projection_content(case)
+    phase = case["value"]["phase_input_identity_manifest"]
+    row = {
+        "owner": content["receptor"],
+        "scientific": content["receptor"]["receptors"][0],
+        "phase": phase["receptor_rows"][0],
+        "antenna": phase["antenna_rows"][0],
+        "instrument": content["instrument"]["antennas"][0],
+    }[target]
+    row[key] = replacement
+    _receptor_projection_rehash(case, content)
+    before = repr(case)
+    with pytest.raises(_tool().EvidenceError, match=reason):
+        _tool().validate_characterization_input_projection(**case)
+    assert repr(case) == before
+
+
+@pytest.mark.parametrize(
+    "mutation,reason",
+    [
+        ("angle_ulp", "resolved angle rule"),
+        ("rotation", "positive-zero rotation"),
+        ("rotation_negative_zero", "positive-zero rotation"),
+        ("rotation_range", "rotation range"),
+        ("native", "positive-zero rotation"),
+        ("duplicate", "duplicate number"),
+        ("reordered", "antenna identity order"),
+        ("dropped", "antenna cardinality"),
+    ],
+)
+def test_characterization_receptor_coherent_foreign_rows(
+    characterization_projection: dict[str, Any], mutation: str, reason: str
+) -> None:
+    case = copy.deepcopy(characterization_projection)
+    content = _receptor_projection_content(case)
+    row = case["value"]["phase_input_identity_manifest"]["receptor_rows"][0]
+    scientific = content["receptor"]["receptors"][0]
+    rotation = {
+        "rotation": 0.125,
+        "rotation_negative_zero": -0.0,
+        "rotation_range": -math.pi,
+    }.get(mutation, 0.0)
+    angles = [math.pi / 2.0 + rotation, rotation]
+    if mutation == "angle_ulp":
+        angles[0] = math.nextafter(angles[0], math.inf)
+    elif mutation == "native":
+        row.update(basis="circular", labels=["r", "l"])
+        scientific["basis"] = "circular"
+        angles = [0.0, 0.0]
+    row.update(
+        feed_rotation_rad_f64be=struct.pack(">d", rotation).hex(),
+        feed_angle_rad_f64be=[struct.pack(">d", angle).hex() for angle in angles],
+    )
+    scientific.update(feed_rotation_rad=rotation, feed_angle_rad=angles)
+    if mutation == "duplicate":
+        content["receptor"]["receptors"][1]["antenna_number"] = 0
+    elif mutation == "reordered":
+        content["receptor"]["receptors"].reverse()
+    elif mutation == "dropped":
+        content["receptor"]["receptors"].pop()
+    _receptor_projection_rehash(case, content)
+    before = repr(case)
+    with pytest.raises(_tool().EvidenceError, match=reason):
+        _tool().validate_characterization_input_projection(**case)
+    assert repr(case) == before
+
+
+@pytest.mark.parametrize(
+    "family,field",
+    [
+        ("mmode_point_stokes_i", "rotation"),
+        ("mmode_point_stokes_i", "second"),
+        ("mmode_circular_receptor", "rotation"),
+        ("mmode_circular_receptor", "first"),
+        ("mmode_circular_receptor", "second"),
+    ],
+)
+def test_characterization_receptor_integer_zero_is_not_float_zero(
+    characterization_projection: dict[str, Any], family: str, field: str
+) -> None:
+    case = _receptor_family_projection(characterization_projection, family)
+    content = _receptor_projection_content(case)
+    phase = case["value"]["phase_input_identity_manifest"]
+    module = _tool()
+    # The independent positive remains a pure receptor check on both runtimes;
+    # full projection/time acceptance on py312 is a separate retained limitation.
+    before = repr((phase, content))
+    module._validate_characterization_receptors(
+        phase,
+        content,
+        case["value"]["polarization_basis"],
+        "characterization input receptors",
+    )
+    assert repr((phase, content)) == before
+    row = content["receptor"]["receptors"][0]
+    if field == "rotation":
+        assert type(row["feed_rotation_rad"]) is float
+        assert struct.pack(">d", row["feed_rotation_rad"]) == bytes(8)
+        row["feed_rotation_rad"] = 0
+    else:
+        index = 0 if field == "first" else 1
+        assert type(row["feed_angle_rad"][index]) is float
+        assert struct.pack(">d", row["feed_angle_rad"][index]) == bytes(8)
+        row["feed_angle_rad"][index] = 0
+    _receptor_projection_rehash(case, content)
+    before = repr(case)
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_input_projection(**case)
+    assert caught.value.prefix == "SCI004_M3_EVIDENCE_SCHEMA"
+    assert caught.value.detail == (
+        "characterization input receptors[0]: scientific receptor values "
+        "must be exact floats"
+    )
+    assert repr(case) == before

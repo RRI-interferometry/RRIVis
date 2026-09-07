@@ -4555,6 +4555,153 @@ def _input_projection_locators(value: Any, label: str) -> None:
             _input_projection_locators(item, label)
 
 
+def _validate_characterization_receptors(
+    phase: dict[str, Any], scientific: dict[str, Any], basis: str, label: str
+) -> None:
+    """Join resolved receptor rows; instrument geometry remains a separate check.
+
+    The four characterized families have homogeneous native feeds and positive
+    zero rotation. The scientific receptor digest carries its original content;
+    its full runtime preimage also includes source/feed-array fields absent here.
+    """
+    obj = _input_projection_object
+    receptor = _require_keys(
+        obj(scientific["receptor"], label),
+        ("schema_version", "output_basis", "receptor_sha256", "receptors"),
+        label,
+    )
+    _require(receptor["schema_version"] == "1.0.0", SCHEMA, label + ": schema version")
+    _require(receptor["output_basis"] == basis, DIGEST, label + ": output basis")
+    _ = _require_hex(receptor["receptor_sha256"], 64, label + ": runtime digest")
+    instrument = obj(scientific["instrument"], label + " instrument")
+    rows_value, antennas_value = receptor["receptors"], instrument.get("antennas")
+    _require(
+        type(rows_value) is list and type(antennas_value) is list,
+        SCHEMA,
+        label + ": receptor and instrument arrays",
+    )
+    rows = cast(list[Any], rows_value)
+    antennas = cast(list[Any], antennas_value)
+    phase_rows: list[dict[str, Any]] = phase["receptor_rows"]
+    phase_antennas: list[dict[str, Any]] = phase["antenna_rows"]
+    _require(
+        0 < len(rows) == len(antennas) == len(phase_rows) == len(phase_antennas),
+        SCHEMA,
+        label + ": antenna cardinality",
+    )
+    native = "circular" if basis == "circular_rl" else "linear"
+    seen: set[int] = set()
+    for index, (item, antenna, phase_row, phase_antenna) in enumerate(
+        zip(rows, antennas, phase_rows, phase_antennas, strict=True)
+    ):
+        row_label = f"{label}[{index}]"
+        row = _require_keys(
+            obj(item, row_label),
+            (
+                "antenna_number",
+                "antenna_name",
+                "basis",
+                "feed_rotation_rad",
+                "feed_angle_rad",
+            ),
+            row_label + " scientific",
+        )
+        source = _require_keys(
+            phase_row,
+            (
+                "antenna_index",
+                "basis",
+                "labels",
+                "feed_rotation_rad_f64be",
+                "feed_angle_rad_f64be",
+            ),
+            row_label + " phase",
+        )
+        identity = obj(antenna, row_label + " instrument")
+        number, name = row["antenna_number"], row["antenna_name"]
+        _require(
+            type(number) is int
+            and number not in seen
+            and type(name) is str
+            and bool(name)
+            and type(identity.get("number")) is int
+            and type(identity.get("name")) is str
+            and type(phase_antenna.get("antenna_index")) is int
+            and type(phase_antenna.get("name")) is str
+            and type(source["antenna_index"]) is int,
+            SCHEMA,
+            row_label + ": antenna identity types or duplicate number",
+        )
+        seen.add(number)
+        _require(
+            identity["number"] == number
+            and identity["name"] == name
+            and phase_antenna["name"] == name
+            and phase_antenna["antenna_index"] == source["antenna_index"] == index,
+            DIGEST,
+            row_label + ": antenna identity order differs",
+        )
+        _require(
+            type(source["basis"]) is str
+            and source["basis"] in ("linear", "circular")
+            and type(row["basis"]) is str
+            and row["basis"] == source["basis"],
+            SCHEMA,
+            row_label + ": native basis",
+        )
+        _require(
+            type(source["labels"]) is list
+            and source["labels"]
+            == (["x", "y"] if row["basis"] == "linear" else ["r", "l"]),
+            SCHEMA,
+            row_label + ": native labels",
+        )
+        words, angles = source["feed_angle_rad_f64be"], row["feed_angle_rad"]
+        _require(
+            type(words) is list
+            and len(words) == 2
+            and type(angles) is list
+            and len(angles) == 2,
+            SCHEMA,
+            row_label + ": angle arrays",
+        )
+        rotation = _characterization_time_f64(
+            source["feed_rotation_rad_f64be"], row_label
+        )
+        values = [_characterization_time_f64(word, row_label) for word in words]
+        scientific_values: list[Any] = [row["feed_rotation_rad"], *angles]
+        _require(
+            all(type(value) is float for value in scientific_values),
+            SCHEMA,
+            row_label + ": scientific receptor values must be exact floats",
+        )
+        numbers = [_require_finite(value, row_label) for value in scientific_values]
+        _require(
+            [struct.pack(">d", value) for value in numbers]
+            == [struct.pack(">d", value) for value in [rotation, *values]],
+            DIGEST,
+            row_label + ": receptor binary64 differs",
+        )
+        _require(-math.pi < rotation <= math.pi, SCHEMA, row_label + ": rotation range")
+        expected = (
+            [math.pi / 2.0 + rotation, rotation]
+            if row["basis"] == "linear"
+            else [rotation, rotation]
+        )
+        _require(
+            words == [struct.pack(">d", value).hex() for value in expected],
+            DIGEST,
+            row_label + ": resolved angle rule",
+        )
+        _require(
+            row["basis"] == native
+            and source["feed_rotation_rad_f64be"] == "0000000000000000",
+            DIGEST,
+            row_label
+            + ": characterized family requires native basis and positive-zero rotation",
+        )
+
+
 def validate_characterization_input_projection(
     value: Any,
     digest: Any,
@@ -4570,9 +4717,10 @@ def validate_characterization_input_projection(
     """Join input14/phase26 outer projections, source content, time and buffers.
 
     This additive utility does not admit evidence or authenticate Git bytes.
-    Nested site/baseline geometry, receptor/beam/sky/direction semantics,
+    Receptor rows join their decoded scientific owner and antenna identities.
+    Nested site/baseline geometry, beam/sky/direction semantics,
     transfer grids, convention preimages and frame ownership remain deferred.
-    Scientific instrument/selection/receptor/beam JSON is not a physical oracle.
+    Remaining scientific instrument/selection/beam semantics are deferred.
     """
     obj = _input_projection_object
     manifest = _require_keys(obj(value, label), _SOURCE_CONTRACT_KEYS["input"], label)
@@ -4788,6 +4936,9 @@ def validate_characterization_input_projection(
         and scientific["polarization_basis"] == manifest["polarization_basis"],
         DIGEST,
         label + ": correlation basis differs",
+    )
+    _validate_characterization_receptors(
+        phase, scientific, manifest["polarization_basis"], label + " receptors"
     )
     time = validate_characterization_time_manifest(time_manifest, time_digest, phase)
     for key, role in (
