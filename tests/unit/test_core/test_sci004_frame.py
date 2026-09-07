@@ -1123,3 +1123,314 @@ def test_d35_real_caller_zero_slab_and_owned_roots_control(
             assert (
                 struct.pack(">d", row["horizon_mismatch_measure_rad"]).hex() == "0" * 16
             )
+
+
+@pytest.mark.parametrize(
+    ("bounds", "expected_wrap", "expected_pieces"),
+    [
+        (("1/4", "3/4", "0", "1"), False, (("1/4", "3/4"),)),
+        (("-1/8", "1/4", "0", "1"), True, (("0", "1/4"), ("7/8", "1"))),
+        (("7/8", "5/4", "0", "1"), True, (("0", "1/4"), ("7/8", "1"))),
+        (("-1/8", "0", "0", "1"), False, (("7/8", "1"),)),
+        (("1", "9/8", "0", "1"), False, (("0", "1/8"),)),
+        (("0", "0", "0", "1"), False, (("0", "0"),)),
+        (("1", "1", "0", "1"), False, (("1", "1"),)),
+        (("1/2", "1/2", "0", "1"), False, (("1/2", "1/2"),)),
+        (("-1/4", "1/4", "-1/4", "3/4"), False, (("-1/4", "1/4"),)),
+        (("-3/8", "0", "-1/4", "3/4"), True, (("-1/4", "0"), ("5/8", "3/4"))),
+    ],
+)
+def test_d35_project_slab_exact_closed_pieces(
+    bounds: tuple[str, ...],
+    expected_wrap: bool,
+    expected_pieces: tuple[tuple[str, str], ...],
+) -> None:
+    """Literal projections independently specify both seams and endpoint touches."""
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+
+    project: Any = vars(solver)["_project_slab_hull"]
+    arguments = tuple(Fraction(value) for value in bounds)
+    result: tuple[bool, tuple[tuple[Fraction, Fraction], ...]] = project(*arguments)
+    wrapped, pieces = result
+    assert type(wrapped) is bool and wrapped is expected_wrap
+    assert type(pieces) is tuple
+    assert pieces == tuple((Fraction(lo), Fraction(hi)) for lo, hi in expected_pieces)
+    assert all(type(piece) is tuple for piece in pieces)
+    assert all(type(value) is Fraction for piece in pieces for value in piece)
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        ("1/2", "1/4", "0", "1"),
+        ("0", "1", "0", "1"),
+        ("-1/8", "9/8", "0", "1"),
+        ("-1/4", "-1/8", "0", "1"),
+        ("9/8", "5/4", "0", "1"),
+        ("0", "0", "0", "2"),
+        ("0", "0", "1", "0"),
+    ],
+)
+def test_d35_project_slab_rejects_invalid_geometry(bounds: tuple[str, ...]) -> None:
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+
+    project: Any = vars(solver)["_project_slab_hull"]
+    with pytest.raises(ValueError):
+        project(*(Fraction(value) for value in bounds))
+
+
+@pytest.mark.parametrize("position", range(4))
+@pytest.mark.parametrize("kind", ["int", "bool", "float", "str", "fraction_subclass"])
+def test_d35_project_slab_rejects_endpoint_coercion(position: int, kind: str) -> None:
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+
+    class DerivedFraction(Fraction):
+        pass
+
+    values: dict[str, Any] = {
+        "int": 0,
+        "bool": False,
+        "float": 0.0,
+        "str": "0",
+        "fraction_subclass": DerivedFraction(0),
+    }
+    arguments: list[Any] = [Fraction(1, 4), Fraction(1, 2), Fraction(0), Fraction(1)]
+    arguments[position] = values[kind]
+    project: Any = vars(solver)["_project_slab_hull"]
+    with pytest.raises(TypeError):
+        project(*arguments)
+
+
+@pytest.mark.parametrize(
+    ("bounds", "expected"),
+    [
+        ((), "0"),
+        ((("1/4", "1/4"),), "0"),
+        ((("1/4", "1/2"), ("3/8", "5/8")), "3/8"),
+        ((("1/4", "5/8"), ("1/4", "5/8"), ("3/8", "1/2")), "3/8"),
+        ((("1/4", "1/2"), ("1/2", "3/4")), "1/2"),
+        ((("1/2", "3/4"), ("0", "1/8")), "3/8"),
+    ],
+)
+def test_d35_slab_union_exact_and_immutable(
+    bounds: tuple[tuple[str, str], ...], expected: str
+) -> None:
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+
+    union: Any = vars(solver)["_slab_union_measure"]
+    pieces = [(Fraction(lo), Fraction(hi)) for lo, hi in bounds]
+    original = tuple(pieces)
+    for supplied in (pieces, tuple(reversed(pieces))):
+        result = union(supplied)
+        assert type(result) is Fraction and result == Fraction(expected)
+    assert tuple(pieces) == original
+    assert all(actual is prior for actual, prior in zip(pieces, original, strict=True))
+
+
+@pytest.mark.parametrize("bad", ["reversed", "int", "bool", "float", "str"])
+def test_d35_slab_union_rejects_invalid_piece(bad: str) -> None:
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+
+    union: Any = vars(solver)["_slab_union_measure"]
+    low: Any = {
+        "reversed": Fraction(1),
+        "int": 0,
+        "bool": False,
+        "float": 0.0,
+        "str": "0",
+    }[bad]
+    with pytest.raises(ValueError if bad == "reversed" else TypeError):
+        union([(low, Fraction(1, 2))])
+
+
+@pytest.mark.parametrize("lift", [-1, 1])
+def test_d35_pair_caller_projects_selected_seam_without_reowning(
+    d35_slab_caller: Any, lift: int
+) -> None:
+    """Real pairing selects the lift; literal geometry checks the projection."""
+    from dataclasses import replace
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+    from radiosim.core.mmode.frame import HorizonRootEnclosure
+
+    case = d35_slab_caller()
+    epsilon = Fraction(1, 100000000)
+    near_low = HorizonRootEnclosure(epsilon, 2 * epsilon, "rising", 0.0)
+    near_high = HorizonRootEnclosure(1 - epsilon, 1 - epsilon / 2, "rising", 0.0)
+    first, second = (near_high, near_low) if lift == 1 else (near_low, near_high)
+    owned = (first.turn_lo, first.turn_hi, second.turn_lo, second.turn_hi)
+    trajectory = replace(case.trajectory, roots=(first,))
+    pair_roots: Any = vars(solver)["_pair_roots"]
+    pairs, slabs, _, measure = pair_roots(
+        [case.direction], [trajectory], [(second,)], case.grid
+    )
+    assert measure == Fraction(3, 100000000)
+    assert pairs[0]["pairs"][0]["operational_turn_lift"] == lift
+    assert slabs[0]["wraps_seam"] is True
+    assert slabs[0]["pair_index"] == 0
+    assert slabs[0]["pieces"] == [
+        {"piece_index": 0, "turn_lo": "0/1", "turn_hi": "1/50000000"},
+        {"piece_index": 1, "turn_lo": "99999999/100000000", "turn_hi": "1/1"},
+    ]
+    pieces = [
+        (Fraction(p["turn_lo"]), Fraction(p["turn_hi"])) for p in slabs[0]["pieces"]
+    ]
+    for turn, inside in [
+        (Fraction(0), True),
+        (2 * epsilon, True),
+        (1 - epsilon, True),
+        (Fraction(1), True),
+        (Fraction(1, 2), False),
+    ]:
+        assert any(lo <= turn <= hi for lo, hi in pieces) is inside
+    assert trajectory.roots[0] is first
+    for after, before in zip(
+        (first.turn_lo, first.turn_hi, second.turn_lo, second.turn_hi),
+        owned,
+        strict=True,
+    ):
+        assert after is before
+    pair = pairs[0]["pairs"][0]
+    assert Fraction(pair["operational_root_turn_lo"]) == second.turn_lo
+    assert Fraction(pair["operational_root_turn_hi"]) == second.turn_hi
+
+
+@pytest.mark.parametrize("owners", [1, 2])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_d35_pair_caller_unions_within_owner_and_sums_owners(
+    d35_slab_caller: Any, owners: int, reverse: bool
+) -> None:
+    """Overlapping synthetic orientations test measure, not general root admission."""
+    from dataclasses import replace
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+    from radiosim.core.mmode.frame import HorizonRootEnclosure
+
+    case = d35_slab_caller()
+    start = Fraction(1, 4)
+    epsilon = Fraction(1, 100000000)
+    first = HorizonRootEnclosure(start, start + epsilon, "setting", 0.0)
+    second = HorizonRootEnclosure(
+        start + 2 * epsilon, start + 3 * epsilon, "rising", 0.0
+    )
+    roots = (second, first) if reverse else (first, second)
+    operational = tuple(
+        replace(
+            root, turn_lo=root.turn_lo + 2 * epsilon, turn_hi=root.turn_hi + 2 * epsilon
+        )
+        for root in roots
+    )
+    pair_roots: Any = vars(solver)["_pair_roots"]
+    pairs, slabs, _, measure = pair_roots(
+        [
+            replace(case.direction, direction_id=f"owner-{index}")
+            for index in range(owners)
+        ],
+        [replace(case.trajectory, roots=roots) for _ in range(owners)],
+        [operational] * owners,
+        case.grid,
+    )
+    assert type(measure) is Fraction and measure == owners * Fraction(1, 20000000)
+    assert len(slabs) == owners * 2
+    for row in pairs:
+        assert [pair["orientation"] for pair in row["pairs"]] == ["setting", "rising"]
+        assert [pair["pair_index"] for pair in row["pairs"]] == [0, 1]
+
+
+@pytest.mark.parametrize("point", ["0", "1/2", "1"])
+def test_d35_pair_caller_retains_singleton(point: str, d35_slab_caller: Any) -> None:
+    from dataclasses import replace
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+    from radiosim.core.mmode.frame import HorizonRootEnclosure
+
+    case = d35_slab_caller()
+    endpoint = Fraction(point)
+    root = HorizonRootEnclosure(endpoint, endpoint, "rising", 0.0)
+    pair_roots: Any = vars(solver)["_pair_roots"]
+    _, slabs, displacement, measure = pair_roots(
+        [case.direction],
+        [replace(case.trajectory, roots=(root,))],
+        [(root,)],
+        case.grid,
+    )
+    assert measure == Fraction(0) and displacement == 0.0
+    assert slabs[0]["wraps_seam"] is False
+    assert slabs[0]["operational_turn_lift"] == 0
+    pieces = slabs[0]["pieces"]
+    assert len(pieces) == 1 and pieces[0]["piece_index"] == 0
+    assert Fraction(pieces[0]["turn_lo"]) == Fraction(pieces[0]["turn_hi"]) == endpoint
+    assert root.turn_lo is endpoint and root.turn_hi is endpoint
+
+
+@pytest.mark.parametrize("side", ["frozen", "operational"])
+@pytest.mark.parametrize("invalid", ["reversed", "int", "bool", "float", "str"])
+def test_d35_pair_caller_rejects_invalid_owned_root(
+    side: str, invalid: str, d35_slab_caller: Any
+) -> None:
+    from dataclasses import replace
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+    from radiosim.core.mmode.frame import HorizonRootEnclosure
+
+    case = d35_slab_caller()
+    endpoint: Any = {
+        "reversed": Fraction(3, 4),
+        "int": 0,
+        "bool": False,
+        "float": 0.0,
+        "str": "0",
+    }[invalid]
+    valid = HorizonRootEnclosure(Fraction(1, 4), Fraction(1, 4), "rising", 0.0)
+    invalid_root = replace(valid, turn_lo=endpoint)
+    frozen, operational = (
+        (invalid_root, valid) if side == "frozen" else (valid, invalid_root)
+    )
+    pair_roots: Any = vars(solver)["_pair_roots"]
+    with pytest.raises(ValueError if invalid == "reversed" else TypeError):
+        pair_roots(
+            [case.direction],
+            [replace(case.trajectory, roots=(frozen,))],
+            [(operational,)],
+            case.grid,
+        )
+    assert invalid_root.turn_lo is endpoint
+
+
+def test_d35_pair_order_uses_exact_frozen_upper_tiebreak(d35_slab_caller: Any) -> None:
+    from dataclasses import replace
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+    from radiosim.core.mmode.frame import HorizonRootEnclosure
+
+    case = d35_slab_caller()
+    start = Fraction(1, 4)
+    epsilon = Fraction(1, 100000000)
+    rising = HorizonRootEnclosure(start, start + 2 * epsilon, "rising", 0.0)
+    setting = HorizonRootEnclosure(start, start + epsilon, "setting", 0.0)
+    roots = (rising, setting)
+    pair_roots: Any = vars(solver)["_pair_roots"]
+    pairs, slabs, _, measure = pair_roots(
+        [case.direction], [replace(case.trajectory, roots=roots)], [roots], case.grid
+    )
+    assert [pair["orientation"] for pair in pairs[0]["pairs"]] == ["setting", "rising"]
+    assert [(slab["pair_index"], slab["orientation"]) for slab in slabs] == [
+        (0, "setting"),
+        (1, "rising"),
+    ]
+    assert measure == 2 * epsilon

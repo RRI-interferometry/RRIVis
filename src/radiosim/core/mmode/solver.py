@@ -2193,13 +2193,59 @@ class _operational_directions:  # noqa: N801 - a callable evaluator, not a type
         return self._triad(altaz, self._units)
 
 
+def _project_slab_hull(
+    low: Fraction, high: Fraction, horizon_lo: Fraction, horizon_hi: Fraction
+) -> tuple[bool, tuple[tuple[Fraction, Fraction], ...]]:
+    """Project one exact short hull into the closed one-turn horizon domain."""
+    if any(
+        type(value) is not Fraction for value in (low, high, horizon_lo, horizon_hi)
+    ):
+        raise TypeError("slab and horizon endpoints must be exact Fractions")
+    if horizon_hi - horizon_lo != 1:
+        raise ValueError("slab projection requires a one-turn horizon")
+    if high < low or high - low >= 1:
+        raise ValueError("slab hull must be ordered and shorter than one turn")
+    if high < horizon_lo or low > horizon_hi:
+        raise ValueError("slab hull must intersect the horizon")
+    if low < horizon_lo:
+        if high == horizon_lo:
+            return False, ((low + 1, horizon_hi),)
+        return True, ((horizon_lo, high), (low + 1, horizon_hi))
+    if high > horizon_hi:
+        if low == horizon_hi:
+            return False, ((horizon_lo, high - 1),)
+        return True, ((horizon_lo, high - 1), (low, horizon_hi))
+    return False, ((low, high),)
+
+
+def _slab_union_measure(pieces: Sequence[tuple[Fraction, Fraction]]) -> Fraction:
+    """Return exact union length for pieces belonging to one direction owner."""
+    for low, high in pieces:
+        if type(low) is not Fraction or type(high) is not Fraction:
+            raise TypeError("slab endpoints must be exact Fractions")
+        if high < low:
+            raise ValueError("slab pieces must be ordered")
+    ordered = sorted(pieces)
+    measure = Fraction(0)
+    if not ordered:
+        return measure
+    low, high = ordered[0]
+    for next_low, next_high in ordered[1:]:
+        if next_low <= high:
+            high = max(high, next_high)
+        else:
+            measure += high - low
+            low, high = next_low, next_high
+    return measure + high - low
+
+
 def _pair_roots(
     directions: Sequence[LedgerDirection],
     frozen: Sequence[FrozenHorizonTrajectory],
     operational: Sequence[tuple[HorizonRootEnclosure, ...]],
     grid: CanonicalEraGrid,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], float, float]:
-    """Pair frozen and operational roots by orientation and build the slabs."""
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], float, Fraction]:
+    """Pair owned roots and return projected direction-union measure in turns."""
     exact_tau = Fraction(*TAU.as_integer_ratio())
     pair_rows: list[dict[str, Any]] = []
     slab_rows: list[dict[str, Any]] = []
@@ -2209,6 +2255,8 @@ def _pair_roots(
         frozen_roots = frozen[index].roots
         operational_roots = operational[index]
         pairs: list[dict[str, Any]] = []
+        selected: list[tuple[HorizonRootEnclosure, HorizonRootEnclosure]] = []
+        direction_pieces: list[tuple[Fraction, Fraction]] = []
         mismatch = 0
         for orientation in ("rising", "setting"):
             left = [root for root in frozen_roots if root.orientation == orientation]
@@ -2216,50 +2264,66 @@ def _pair_roots(
                 root for root in operational_roots if root.orientation == orientation
             ]
             mismatch += abs(len(left) - len(right))
-            for first, second in zip(left, right, strict=False):
-                lift, delta = _best_lift(first, second)
-                delta_rad = _round_up_fraction(exact_tau * delta)
-                root_max = max(root_max, delta_rad)
-                pairs.append(
-                    {
-                        "pair_index": len(pairs),
-                        "orientation": orientation,
-                        "operational_turn_lift": lift,
-                        "frozen_root_turn_lo": canonical_rational(first.turn_lo),
-                        "frozen_root_turn_hi": canonical_rational(first.turn_hi),
-                        "operational_root_turn_lo": canonical_rational(second.turn_lo),
-                        "operational_root_turn_hi": canonical_rational(second.turn_hi),
-                        "lifted_operational_root_turn_lo": canonical_rational(
-                            second.turn_lo + lift
-                        ),
-                        "lifted_operational_root_turn_hi": canonical_rational(
-                            second.turn_hi + lift
-                        ),
-                        "worst_case_delta_turn": canonical_rational(delta),
-                        "worst_case_delta_rad_f64be": f64be(delta_rad),
-                    }
-                )
-                low = min(first.turn_lo, second.turn_lo + lift)
-                high = max(first.turn_hi, second.turn_hi + lift)
-                measure += high - low
-                slab_rows.append(
-                    {
-                        "direction_id": row.direction_id,
-                        "pair_index": pairs[-1]["pair_index"],
-                        "orientation": orientation,
-                        "operational_turn_lift": lift,
-                        "worst_case_delta_turn": canonical_rational(delta),
-                        "worst_case_delta_rad_f64be": f64be(delta_rad),
-                        "wraps_seam": False,
-                        "pieces": [
-                            {
-                                "piece_index": 0,
-                                "turn_lo": canonical_rational(low),
-                                "turn_hi": canonical_rational(high),
-                            }
-                        ],
-                    }
-                )
+            selected.extend(zip(left, right, strict=False))
+        for first, second in selected:
+            for root in (first, second):
+                if (
+                    type(root.turn_lo) is not Fraction
+                    or type(root.turn_hi) is not Fraction
+                ):
+                    raise TypeError("root enclosure endpoints must be exact Fractions")
+                if root.turn_hi < root.turn_lo:
+                    raise ValueError("root enclosures must be ordered")
+        selected.sort(key=lambda pair: (pair[0].turn_lo, pair[0].turn_hi))
+        for pair_index, (first, second) in enumerate(selected):
+            lift, delta = _best_lift(first, second)
+            if type(lift) is not int or lift not in (-1, 0, 1):
+                raise ValueError("slab projection requires a selected adjacent lift")
+            delta_rad = _round_up_fraction(exact_tau * delta)
+            root_max = max(root_max, delta_rad)
+            low = min(first.turn_lo, second.turn_lo + lift)
+            high = max(first.turn_hi, second.turn_hi + lift)
+            wraps_seam, pieces = _project_slab_hull(low, high, *grid.horizon_domain)
+            direction_pieces.extend(pieces)
+            pairs.append(
+                {
+                    "pair_index": pair_index,
+                    "orientation": first.orientation,
+                    "operational_turn_lift": lift,
+                    "frozen_root_turn_lo": canonical_rational(first.turn_lo),
+                    "frozen_root_turn_hi": canonical_rational(first.turn_hi),
+                    "operational_root_turn_lo": canonical_rational(second.turn_lo),
+                    "operational_root_turn_hi": canonical_rational(second.turn_hi),
+                    "lifted_operational_root_turn_lo": canonical_rational(
+                        second.turn_lo + lift
+                    ),
+                    "lifted_operational_root_turn_hi": canonical_rational(
+                        second.turn_hi + lift
+                    ),
+                    "worst_case_delta_turn": canonical_rational(delta),
+                    "worst_case_delta_rad_f64be": f64be(delta_rad),
+                }
+            )
+            slab_rows.append(
+                {
+                    "direction_id": row.direction_id,
+                    "pair_index": pair_index,
+                    "orientation": first.orientation,
+                    "operational_turn_lift": lift,
+                    "worst_case_delta_turn": canonical_rational(delta),
+                    "worst_case_delta_rad_f64be": f64be(delta_rad),
+                    "wraps_seam": wraps_seam,
+                    "pieces": [
+                        {
+                            "piece_index": piece_index,
+                            "turn_lo": canonical_rational(piece_low),
+                            "turn_hi": canonical_rational(piece_high),
+                        }
+                        for piece_index, (piece_low, piece_high) in enumerate(pieces)
+                    ],
+                }
+            )
+        measure += _slab_union_measure(direction_pieces)
         pair_rows.append(
             {
                 "direction_id": row.direction_id,
@@ -2269,7 +2333,7 @@ def _pair_roots(
                 "pairs": pairs,
             }
         )
-    return pair_rows, slab_rows, root_max, _round_up_fraction(exact_tau * measure)
+    return pair_rows, slab_rows, root_max, measure
 
 
 def _best_lift(
