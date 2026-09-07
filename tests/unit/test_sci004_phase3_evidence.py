@@ -4308,3 +4308,47 @@ def test_runtime_bridge_is_required_immutable_and_absent_from_serialization(
     assert other.solver_snapshot_sha256() == snapshot.solver_snapshot_sha256()
     loaded = LoadedMModeSolverSnapshot(stored=snapshot.to_snapshot())
     assert not hasattr(loaded, "input_identity_sha256")
+
+
+def test_result_runtime_identity_requires_the_live_snapshot_owner(
+    synthetic_runtime_bridge: tuple[Any, Any, dict[str, Any], list[object], Any],
+) -> None:
+    from types import SimpleNamespace
+
+    from radiosim.core.result import (
+        InvalidResultError,
+        LoadedMModeSolverSnapshot,
+        MModeSolverResultProvenance,
+    )
+
+    solver, request, solved, _, _ = synthetic_runtime_bridge
+    snapshot = solver.solve_mmode(request).solver_record
+    provenance = MModeSolverResultProvenance(snapshot=snapshot)
+    assert provenance.input_identity_sha256 == solved["input_identity_sha256"]
+    assert "input_identity_sha256" not in provenance.as_mapping()
+    for foreign in (
+        LoadedMModeSolverSnapshot(stored=snapshot.as_mapping()),
+        SimpleNamespace(input_identity_sha256=solved["input_identity_sha256"]),
+        None,
+    ):
+        with pytest.raises(InvalidResultError, match="requires a live"):
+            _ = MModeSolverResultProvenance(snapshot=foreign).input_identity_sha256
+
+
+@pytest.mark.parametrize(
+    "identity", [None, True, 1, b"a" * 64, "", "a" * 63, "A" * 64, "g" * 64]
+)
+def test_result_runtime_identity_rejects_malformed_owned_values(
+    synthetic_runtime_bridge: tuple[Any, Any, dict[str, Any], list[object], Any],
+    identity: object,
+) -> None:
+    from dataclasses import replace
+
+    from radiosim.core.result import InvalidResultError, MModeSolverResultProvenance
+
+    solver, request, _, _, _ = synthetic_runtime_bridge
+    snapshot = solver.solve_mmode(request).solver_record
+    malformed = replace(snapshot, input_identity_sha256=identity)
+    assert malformed.as_mapping() == snapshot.as_mapping()
+    with pytest.raises(InvalidResultError, match="not a SHA-256"):
+        _ = MModeSolverResultProvenance(snapshot=malformed).input_identity_sha256

@@ -336,6 +336,22 @@ class MModeSolverResultProvenance:
         return tuple(int(count) for count in self.snapshot.component_element_counts)
 
     @property
+    def input_identity_sha256(self) -> str:
+        """Return the valid phase input identity owned by the live solve.
+
+        Serialized snapshots do not retain this runtime field. A loaded result
+        therefore cannot supply the ownership anchor for characterization.
+        """
+        from radiosim.core.mmode.solver import MModeSolverSnapshot
+
+        if type(self.snapshot) is not MModeSolverSnapshot:
+            raise InvalidResultError("input identity requires a live m-mode snapshot")
+        identity: object = self.snapshot.input_identity_sha256
+        if type(identity) is not str or _SHA256.fullmatch(identity) is None:
+            raise InvalidResultError("live m-mode input identity is not a SHA-256")
+        return identity
+
+    @property
     def direct_gate(self) -> Any:
         """Return Section 7.3's every-run complete frozen-direct comparison."""
         return self.snapshot.direct_gate
