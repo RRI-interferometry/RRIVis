@@ -15,6 +15,45 @@ re-verified at execution time, not trusted from here.
 
 ---
 
+**Current continuation #35 candidate — 2026-09-07.** Retained four-family
+arithmetic confirms that the solver returns a slab measure already converted
+to radians, labels it as turns and converts it again. It also emits 1,280
+direction pair arrays out of canonical frozen-bound order. Correction #35
+prospectively defines the aggregate as the sum of exact per-direction slab
+unions, converts once outward to radians, and grants only the named solver
+measure/projection/order owners plus independent semantic proof and activation.
+All original captures, fingerprints, stops and historical roles remain unchanged.
+
+D35 has exact sole parent `08549c2ed937ff18793c3dd43d4e60d0b91f6936` and changes
+only this plan and `docs/development/sci004_mmode_design.md`. Only finalized
+landing and executable activation after fresh actual-document dual review make
+it current S/E/A authority. Exact D32/D33/D34/D35 become the four ordered source
+edges; D34 remains historical frame/workflow authority and D31 retains original
+R/bridge authority. The memo enumerates seven existing code/test paths with
+narrow function/AST grants; the seventeen/eighteen-path conditional aggregate
+does not expand. No blanket red-failure or acceptance-file changes are granted.
+
+For finite M3, every future admitted endpoint must independently prove at most
+one root per orientation and the unique owned admissible lift/bijection. The
+exact existing root/guard-refined sign event partition becomes canonical only
+with full ordered per-direction coverage proof. Its 361 guard-intersecting rows
+per retained family are not a proof of constant signs in guards. All numerical
+sign/probe/error and existing fidelity obligations remain before admission.
+
+A separate causal-red S regression precedes the narrow repair, independent source
+reviews, both Python versions' checks, public numerical gates and fresh clean
+four-family captures. This correction accepts no observation or complete numerical
+transition; a further reviewed relation after measured full conformity remains
+necessary before append/E/A publication. D32/D33 historical relation/storage rules,
+all budgets, six `None` approval sentinels and final disposal order remain intact.
+Fresh independent physics/governance and computational/provenance reviewers
+both returned ACCEPT against identical complete round-2 candidate pins recorded
+in the final D35 header. External proposal reviews are not their substitutes.
+M3 remains not accepted, SCI-004/PERF-001 remain
+ROADMAP and closure C stays locked. The memo alone defines the exact grant.
+
+The following correction-#34 continuation record is retained historically.
+
 **Current continuation #34 candidate — 2026-09-07.** Independent source and
 retained-data checks found that the operational horizon scanner omits the
 frozen root bounds required by Section 12.1 from its initial partition. The

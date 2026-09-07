@@ -32,6 +32,272 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #35 candidate — 2026-09-07 (direction-owned slab
+measure and finite pairing/sign dispositions).** At measured source
+`e7623fb82b3af0e0c299ba60f9c5135c2f328af2`, `_pair_roots` accumulates exact
+turn widths but returns outward-rounded radians as a float. Its caller names
+that value `mismatch_measure_turn`, serializes the float ratio as turns and
+multiplies by tau again. The second `Fraction * float` product also discards
+exact outward arithmetic. All four retained certificates reproduce this defect.
+Their direction-owned union measure is exactly
+`84785867361587534523/115697978830306307735552` turn, with one-conversion
+outward radian bits `3f72dc1d1295f3ae`; the stored doubly converted radian bits
+are `3f9d9ffba95caadb`. These are diagnostic values, not replacement pins.
+The same records contain 1,280 direction pair arrays out of the required
+frozen-bound order. No retained fixture exercises seam projection or overlap
+within one direction; cross-direction overlap is real and must not erase
+separate direction ownership. All original captures and stops remain unchanged.
+
+**Exact successor and authority.** D35 is one ordinary, independently reviewed,
+sole-parent design-only commit with exact parent
+`08549c2ed937ff18793c3dd43d4e60d0b91f6936`, changing only
+`docs/development/sci004_mmode_design.md` and `PostTier8RemediationPlan.md`.
+Section 13.7's complete candidate pins, two original independent ACCEPT reviews,
+own-header finalization and landed raw-blob/full-diff checks apply. Only the
+finalized exact landing, with its executable activation gates satisfied, becomes
+current S/E/A source-design authority. External proposal reviews are not reviews
+of these actual document bytes; fresh reviews of this candidate are pending.
+
+Complete S now requires exact D32, D33, D34 and D35 in that order as its only
+four `source-design-successor` entries, each authenticated against its own real
+parent, two paths, original reviews, header and bytes. This supersedes only the
+current three-edge completeness rule; D34 remains the historical frame-regression,
+frame-source and optional verification-workflow authority. Preserve D30/P,
+D31/R including terminal R567, the D31 runtime-identity bridge, first S, every
+historical prefix and the three unchanged `phase_ranges` keys. The scientific
+aggregate remains thirteen modified paths and four disposals, conditionally
+plus the already ruled workflow path: seventeen or eighteen aggregate paths.
+The exact D35 document edge is excluded only through its authenticated design
+role. No unrecorded path, source edge or disposal is licensed.
+
+**Exact measure, projection and output order.** Prospectively resolve the
+aggregate wording in Sections 4.2, 12.1 and 14.2 as follows. For each exact
+ordered direction-ledger owner `d`, let `S_d` be the union of its projected
+closed slab pieces. Then
+
+```text
+M_turn = sum_d measure(S_d)
+M_rad = least finite binary64 >= exact(retained tau) * M_turn
+```
+
+`horizon_mismatch_measure_turn` is the canonical rational `M_turn`; its radian
+field is `M_rad`, with one exact multiplication and one outward conversion.
+Merge duplicate, nested, overlapping and touching intervals within a direction
+for measure. Distinct direction IDs remain separate owners even when their
+coordinates or pieces coincide. Pair/slab counts remain owned-pair counts,
+not merged-component counts. The limit remains exactly the existing
+`2e-5*horizon_paired_root_count` radian limit. This is a prospective resolution
+of ambiguous aggregate ownership, not a retroactive reinterpretation of old E.
+
+Permit only these numerical owners in `src/radiosim/core/mmode/solver.py`:
+`_pair_roots`, and two new private helpers `_project_slab_hull` and
+`_slab_union_measure`. The first helper takes exact Fraction hull endpoints and
+horizon endpoints and returns a bool plus an immutable tuple of ordered exact
+endpoint pairs. The second takes a finite sequence of exact endpoint pairs and
+returns their exact Fraction union measure. Neither evaluates coordinates.
+`_pair_roots` returns `(pair_rows, slab_rows, root_max_rad, M_turn)`, with fourth
+type Fraction; preserve `root_max_rad`'s outward displacement semantics.
+Group measure by direction. Sort selected pair records by exact frozen lower,
+then upper bound before assigning contiguous pair indices and matching slab
+references. Preserve the selected physical pairs, lifts and original owned
+enclosures; output sorting is not a new pairing algorithm. In
+`build_frame_certificate`, permit only necessary type clarification at this
+return binding and the measure fields; preserve its existing one-tau outward
+assembly expression and fixed limit. No other scientific function/AST change
+or broad helper grant follows from this correction.
+
+Projection consumes the selected lift; it does not choose a new one. Require
+ordered nonempty exact Fraction enclosures `F` and `O`, exact integer
+`j in {-1,0,1}`, and captured `[L,H]` with `H-L=1`. The authenticated root/census
+owners must place `hull(F,O+j)=[a,b]` intersecting `[L,H]`, with `0<=b-a<1`.
+Invalid, reversed, wholly disjoint exterior or full-circle hulls reject; do not reduce
+them modulo one. A zero-width slab is legal only for the same singleton on
+both sides. For `L<=a<=b<=H`, retain `[a,b]` with `wraps_seam=false`, including
+an exact singleton at L or H. For `a<L<b`, retain sorted pieces `[L,b]` and
+`[a+1,H]`, with `wraps_seam=true`; if `b=L`, retain only `[a+1,H]`, false.
+For `a<H<b`, retain `[L,b-1]` and `[a,H]`, sorted, true; if `a=H`, retain only
+`[L,b-1]`, false. Assign contiguous piece indices after sorting. The short-hull
+condition excludes crossing both seams. Endpoint touch creates no duplicate
+zero-width piece. All pieces are closed for membership; preserve the separate
+half-open root census. Do not clip, mutate or relift an owned root, or assume
+operational equality at L and H. These geometry rules do not replace the
+existing per-pair displacement or uniqueness predicates.
+
+**Finite M3 pairing disposition.** For the four exact Section 11 families,
+require independent value-bearing proof at every future admitted endpoint that
+each direction's frozen and operational root counts agree and are at most one
+per orientation. For each nonempty class, enumerate `j=-1,0,1` and the existing
+exact `D_j`; require one uniquely minimizing lift and one uniquely admissible
+lift under `exact(tau)*D_j<=1/50000`, and require them to be the same lift.
+Join that pair to the actual frozen owner and operational crossing enclosure.
+Empty classes have the unique empty bijection; singleton classes then have
+the unique owned bijection. Counts outside this finite class, ties, missing or
+foreign roots, or zero/multiple admissible lifts stop its admission. Do not
+expand the class or nearest-match floats. Retained arithmetic establishes this
+restriction for the current four captures; future corrected endpoints must be
+checked again. It does not repair or certify the general multi-root cyclic
+pairing implementation. `_best_lift` and the selected-pair computation receive
+no general redesign grant here. The separately required canonical output-order
+repair preserves this finite physical pairing.
+
+**Canonical sign refinement.** Prospectively replace the connected-complement
+row/count wording with the exact existing `_sign_intervals` event rule. For each
+direction, form `{L,H}` plus strictly in-domain frozen root lower/upper bounds,
+operational ambiguous-span lower/upper bounds, and projected slab-piece bounds.
+An ambiguous span uses its owned guard outer endpoint when present, otherwise
+that root endpoint. Add no other operational-root endpoint merely because a
+guard exists. Sort/deduplicate exactly; retain each adjacent positive-width
+interval iff its exact midpoint lies outside every closed slab piece of that
+direction. Assign contiguous indices in lower-bound order. This specifies the
+canonical sign-row count; it permits neither arbitrary subdivisions nor gaps.
+No `_sign_intervals` code, evaluated midpoint set or numerical sample/count
+change is granted. Corrected slab inputs still flow through its existing rule.
+
+Independently reproduce each event, bound, midpoint and index, join guarded spans
+to the actual crossing/adjacent guard rows, and tile each connected complement
+component with all its sign subintervals: exact first/last boundaries, contiguous
+intermediate boundaries and disjoint interiors. Remove closed slab boundaries
+from the outside-slab domain. Shared internal cut points are partition boundaries,
+not extra evaluated midpoints; the union of open interiors alone need not contain
+those cut points. Preserve separate strict sample-centre membership. The retained
+four-family check proves this geometry for 9,322 scalar and 9,324 other rows,
+including 361 extra subdivisions relative to connected components, without
+proving their numerical values merely from equal measure or geometry.
+
+Exactly 361 rows per retained family intersect guard uncertainty outside slabs.
+Do not promote a guard to a certified constant-sign interval. Distinguish the
+retained midpoint census, constant-sign claims where the complete root-free
+proof applies, and guards governed by existing probe/error rules. Before any
+admission, independently authenticate the frozen analytic and public-Astropy
+midpoint/sign owners, probe/residual/ceiling predicates, sample membership,
+applicable direct guard/error accounting and all transfer-direction obligations.
+Geometry or a structural parser is not a numerical evaluation; stored signs
+alone do not establish unretained magnitudes or resolve unexpected zeros.
+Preserve strict `alt>0`, all outside-slab mismatch predicates and every existing
+phase/root/width/residual/guard/fidelity/direct-cube budget. No small geometric
+measure supplies an additional tolerance or proof of guard sign constancy.
+
+**Seven existing code/test paths and activation grant.** In addition to the
+two design documents, enumerate only the following existing aggregate paths:
+
+- `src/radiosim/core/mmode/solver.py`: only the owners/helpers and exact AST
+  scope above, after this finalized edge and its separate causal regression.
+- `tests/unit/test_core/test_sci004_frame.py`: independent nonzero real-caller
+  unit/conversion, union ownership, seam/touch/singleton, immutable-owner and
+  earlier-setting/later-rising ordering regressions; preserve all existing tests.
+- `tools/sci004_phase3_history.py`: authenticate the one real D35 edge and four
+  ordered source edges; separate current authority from an explicit historical
+  D34 identity. Preserve `_require_d34_parent`, the D34 frame baseline, optional
+  workflow rules and `describe_phase_range` pre-regression recursion against
+  historical D34. Preserve D31 `_bridge_ast`/`_validate_bridge_delta` semantics
+  globally. First independently review the actual finite solver candidate; then
+  bind its approved whole-module AST states in a distinct D35 guard, without
+  invented future pins or generic function erasure. Per-commit and cumulative
+  checks must compose these exact states after D35 and its causal regression.
+  Never globally repoint historical `SOURCE_DESIGN_SHA` uses to a successor.
+- `tests/unit/test_sci004_phase3_history.py`: exact edge/role/order/prefix and
+  narrow solver-delta controls, with premature, stale, foreign and extra-function
+  negatives; preserve original D34 historical controls.
+- `tests/unit/test_sci004_phase3_dependency.py`: extend
+  `authenticate_source_design_bindings`, its exact literals, ordered first-parent
+  joins and tests to D32/D33/D34/D35. Preserve `APPROVED_SCI004_D_SHA`, original
+  R resolution at D31, P/R and first-S identities.
+- `tools/sci004_mmode_phase3_evidence.py`: independent decoded slab geometry,
+  direction-owned measure, exact turn/radian, order/index and fixed-limit proof;
+  finite pairing and canonical sign-refinement/coverage checks above; and current
+  `_design_sha` disk/AST/loaded-module authority tuple and source-readiness joins.
+  Preserve historical evidence and exact D32 source-only transition bindings.
+- `tests/unit/test_sci004_phase3_evidence.py`: independent semantic negatives
+  including wrong units/outward ULP, within/cross-direction union confusion,
+  seam/index errors, invalid finite pairing and omitted/extra sign events;
+  current-authority and stale/foreign/mixed-binding cases, preserving history.
+
+No production geometry helper, fake fixture/pass adapter or self-consistent
+hash substitutes for independent semantic proof. Current red-failure and
+acceptance files receive no blanket change grant; no concrete binding repair
+there is licensed by this amendment. Any later dependency must be identified
+and prospectively scoped before expansion. Preserve D34's original numerical
+and fingerprint deferrals and all seven paths' existing unrelated ASTs.
+
+**Required activation sequence.** Authenticate finalized D35 and establish its
+genuine separately identified causal S regression first; neither the D34 scanner
+regression nor an arbitrary edit to that test path satisfies this identity.
+Author, test and independently review the actual solver candidate while it remains
+uncommitted. Freeze its approved whole-module AST state(s) before constructing
+the strict guard. With the actual D35 edge, causal-regression identity and approved
+states available, wire current authority and the strict guard atomically across
+`tools/sci004_phase3_history.py`, `tests/unit/test_sci004_phase3_history.py`,
+`tests/unit/test_sci004_phase3_dependency.py`,
+`tools/sci004_mmode_phase3_evidence.py` and
+`tests/unit/test_sci004_phase3_evidence.py`. All five owners must agree on current
+D35 and the same ordered historical edges. Preparatory edge-authentication or
+guard helpers may precede this wiring, but cannot open complete source readiness
+or admit geometry prematurely. Complete affected activation gates must pass before
+committing the production geometry repair. Per-commit and cumulative directed
+transition checks admit predecessor solver states only in legitimate pre-repair
+prefixes; complete terminal S requires the exact approved repaired state.
+Intermediate foreign states, later restoration or recognition of a predecessor
+as a valid prefix cannot bypass causal ancestry or satisfy complete S. This
+sequence changes no path grant, historical role, numerical rule or budget.
+
+**Regressions, execution and admission boundary.** Land a separately identified
+causal S regression before the units/geometry repair. Original source must fail
+the intended nonzero real-caller units and pair-order assertions, without
+collection/import substitution or relabelling as another historical R record.
+Synthetic exact-Fraction cases must distinguish overlapping slabs within one
+direction from equal intervals under different owners and exercise actual
+caller lift/seam projection, both endpoint touches, legal singletons, invalid
+hulls and immutable roots. Test the real assembly's one outward conversion,
+including a downward-nearest-rounding case; a zero-only or helper-only unit
+test is insufficient. Preserve all original red outcomes and historical bytes.
+
+Obtain fresh independent physics/numerical and computational/provenance reviews
+of the identical complete source candidate. Run focused/static/lint gates,
+Python 3.11 and 3.12 checks and all relevant public numerical integration gates
+with unchanged budgets. Then obtain fresh four-family captures from clean exact
+corrected source, retaining all value-bearing inputs, cubes, complete certificates,
+scientific segments and source/environment/execution provenance. Do not edit
+current captures to manufacture new certificate/scientific identities. Retain
+original and new measurements separately and stop acceptance at an unexpected
+gate failure. General pairing, numerical sign/guard, full terminal comparison
+and complete certificate conformity claims still require their own applicable
+proofs; this finite disposition discharges no unperformed numerical check.
+
+D35 admits no observation and defines no complete numerical transition acceptance
+relation. After corrected measurements and full conformity proof, a further
+prospective independently reviewed finite relation must specify exact changed
+and unchanged quantities, complete proofs and per-family admission obligations
+before any append or E/A publication. D32's historical three-stage source-only
+cascade remains unchanged and cannot admit this numerical repair. D33 lossless
+storage and size/decoded-value requirements remain mandatory. Six approval
+sentinels stay literal `None`; four disposals retain their ruled final ordering.
+Clean exact terminal S, sole-child E and sole-child A, exact-S CI and all other
+phase gates remain required. M3 is not accepted, SCI-004/PERF-001 remain ROADMAP
+and closure C remains locked. Fresh reviews of these exact D35 document bytes
+are pending; own-header finalization may later record only genuine original
+reviews under Section 13.7.
+
+**Review verification — 2026-09-07.** Fresh independent reviewers
+`/root/d30_physics_review` and `/root/d30_provenance_review` each returned exact
+`ACCEPT` against identical complete round-2 candidate bytes: memo
+`sha256:d5559c58309ebcb5ca918310bdb364f5709aea000d8555d696382f717d4c4e48`,
+companion plan
+`sha256:eaef94843cef4e32492218e802607fd4f3de0505628cc90139b854ade1b9a5c5`,
+and complete parent-relative binary/full-index diff
+`sha256:9db88cbbcf09e827588ca2c489b6adb0538ffc515a51b7bc5da13312357f080f`.
+Both independently reconstructed the complete candidate against exact sole
+parent `08549c2ed937ff18793c3dd43d4e60d0b91f6936`. Their original review-text
+SHA-256 values are respectively
+`b6a95000b0ccf7e8aaa5e77ad30ce1280a86f5a6ed63656b74ca278ca3bc4949` and
+`d641ba148d75eb408161f09e904fee48785ae8c77f1d489d85224d9dc9b8bc66`.
+The original round-1 physics ACCEPT and provenance REJECT remain retained;
+round 2 adds only the required activation and terminal-state sequence. Only
+this verification record and the companion verdict completion postdate the
+reviewed bytes under Section 13.7. This finalized landing becomes current
+S/E/A design authority D35 subject to its explicit executable activation gates;
+it accepts only the prospective finite scope, not an implementation, numerical
+proof, observation or production phase.
+
 **Bounded correction #34 candidate — 2026-09-07 (restore the required
 operational-scan partition).** Independent inspection at
 `786413f2aa7bdcfc8f695b07aca48921359bf211` found that
