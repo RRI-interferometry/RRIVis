@@ -491,3 +491,287 @@ def test_a_wrong_linear_bridge_control_misses_the_direct_oracle() -> None:
         np.max(np.abs(np.asarray(correct.cube) - np.asarray(flipped.cube)))
     )
     assert separation > NON_VACUITY_FACTOR * max(passing, ANALYTIC_RESIDUAL_LIMIT)
+
+
+# D36 causal controls: bounded dependency injection into the real direct owner.
+# No scan, harmonic solve, or production expected-value helper participates.
+D36_CAUSAL_NODES = (
+    "test_d36_operational_smooth_cube_owns_its_fringe",
+    "test_d36_shifted_roots_keep_opposite_piece_signs",
+    "test_d36_frozen_ambiguity_does_not_classify_operational_piece",
+    "test_d36_piece_radius_is_the_least_binary64_upper_bound",
+    "test_d36_error_cells_add_stored_radii_toward_positive_infinity",
+    "test_d36_guarded_partition_keeps_inner_root_bounds",
+)
+
+
+def _d36_direct_case(
+    monkeypatch: Any,
+    *,
+    frozen_roots: tuple[tuple[Any, ...], ...] = ((),),
+    operational_roots: tuple[tuple[Any, ...], ...] = ((),),
+    frozen_sign_root: Any = None,
+    operational_sign_root: Any = None,
+    frozen_below: bool = False,
+    operational_east: float = 0.0,
+    intensity: float = 2.0,
+) -> tuple[dict[str, Any], list[Any]]:
+    """Inject owned geometry/payload only; execute real kernels and reductions.
+
+    The 49 exact exposure intervals match N=49, integration_fraction=1. The
+    scanner is intentionally absent: controlled trajectories isolate direct
+    ownership, not scan correctness or successful-family admission.
+    """
+    from fractions import Fraction
+    from importlib import import_module
+    from types import SimpleNamespace
+
+    solver: Any = import_module("radiosim.core.mmode.solver")
+
+    class Grid:
+        sidereal_samples = 49
+        canonical_era_grid_sha256 = "0" * 64
+
+        def exposure_turns(self, index: int) -> tuple[Fraction, Fraction]:
+            return Fraction(2 * index - 1, 98), Fraction(2 * index + 1, 98)
+
+    class Beam:
+        def evaluate_jones(self, _antenna: Any, **kwargs: Any) -> np.ndarray:
+            size = len(kwargs["altitude_rad"])
+            return np.broadcast_to(np.eye(2, dtype=np.complex128), (size, 2, 2))
+
+    class Frozen:
+        def __init__(self, roots: tuple[Any, ...]):
+            self.roots = roots
+
+        def value_interval(
+            self, lower: Fraction, upper: Fraction
+        ) -> tuple[float, float]:
+            if frozen_sign_root is not None:
+                sign = 1.0 if (lower + upper) / 2 > frozen_sign_root else -1.0
+            else:
+                sign = -1.0 if frozen_below else 1.0
+            return sign, sign
+
+    calls: list[Any] = []
+
+    class Operational:
+        def __init__(self, _frame: Any, _directions: Any):
+            pass
+
+        def at_pairs(self, indices: Any, turns: Any) -> np.ndarray:
+            calls.append((tuple(indices), tuple(turns)))
+            result = np.tile(
+                [operational_east, 0.0, math.sqrt(1.0 - operational_east**2)],
+                (len(turns), 1),
+            )
+            if operational_sign_root is not None:
+                result[:, 2] = [
+                    1.0 if Fraction(turn) > operational_sign_root else -1.0
+                    for turn in turns
+                ]
+            return result
+
+    def frozen_enu(_frame: Any, cirs: np.ndarray, _phase: float) -> np.ndarray:
+        return np.tile([0.0, 0.0, 1.0], (len(cirs), 1))
+
+    monkeypatch.setattr(solver, "frozen_enu_at_phase", frozen_enu)
+    monkeypatch.setattr(solver, "_operational_directions", Operational)
+    frame = SimpleNamespace()
+    context = solver.KernelContext(
+        frame=frame,
+        beam_system=Beam(),
+        antenna_ids=(0, 1),
+        selected_pairs=((0, 1),),
+        baseline_vectors_enu_m=np.array([[20.0, 0.0, 0.0]]),
+        frequencies_hz=np.array([299792458.0]),
+        time_mjd=0.0,
+    )
+    directions = tuple(
+        solver.LedgerDirection(
+            direction_id=f"point:0:{index}",
+            source_kind="point",
+            component_index=0,
+            source_index=index,
+            transfer_role="",
+            transfer_nside=0,
+            cirs_direction=np.array([0.0, 0.0, 1.0]),
+            icrs_ra_rad=0.0,
+            icrs_dec_rad=0.0,
+            active_frequency_mask=(intensity != 0.0,),
+            resolved_stokes_iau=np.array([[intensity, 0.0, 0.0, 0.0]]),
+            integration_weight=1.0,
+        )
+        for index in range(len(frozen_roots))
+    )
+    result = solver._direct_cubes(
+        grid=Grid(),
+        frame=frame,
+        context=context,
+        directions=directions,
+        frozen=tuple(Frozen(roots) for roots in frozen_roots),
+        operational_roots=operational_roots,
+        beam_peak_ceiling=1.0,
+        input_identity_sha256="1" * 64,
+        enclosure_manifest_sha256="2" * 64,
+    )
+    return result, calls
+
+
+def _d36_root(lower: Any, upper: Any, **guards: Any) -> Any:
+    from radiosim.core.mmode.frame import HorizonRootEnclosure
+
+    return HorizonRootEnclosure(lower, upper, "rising", 0.0, **guards)
+
+
+def _d36_rows(result: dict[str, Any], lower: Any, upper: Any) -> list[Any]:
+    from fractions import Fraction
+
+    return [
+        row
+        for row in result["split_rows"]
+        if Fraction(row["turn_lo"]) == lower
+        and Fraction(row["turn_hi"]) == upper
+        and row["correlation_index"] == 0
+    ]
+
+
+def test_d36_operational_smooth_cube_owns_its_fringe(monkeypatch: Any) -> None:
+    # At lambda=1 m, the real identity-Jones Stokes-I kernel has unit XX/YY.
+    # Its analytic fringe for an east displacement epsilon is exp(-2pi*i*20*eps).
+    epsilon = 1e-6
+    result, calls = _d36_direct_case(monkeypatch, operational_east=epsilon)
+    expected = complex(
+        math.cos(-math.tau * 20 * epsilon), math.sin(-math.tau * 20 * epsilon)
+    )
+    np.testing.assert_allclose(result["F128"][..., 0], 1.0, rtol=0, atol=1e-14)
+    np.testing.assert_allclose(result["O128"][..., 0], expected, rtol=0, atol=1e-14)
+    assert calls, "operational direction owner must actually be evaluated"
+
+
+def test_d36_shifted_roots_keep_opposite_piece_signs(monkeypatch: Any) -> None:
+    from fractions import Fraction
+
+    frozen_root = Fraction(1, 4)
+    operational_root = frozen_root + Fraction(1, 2**42)
+    result, _ = _d36_direct_case(
+        monkeypatch,
+        frozen_roots=((_d36_root(frozen_root, frozen_root),),),
+        operational_roots=((_d36_root(operational_root, operational_root),),),
+        frozen_sign_root=frozen_root,
+        operational_sign_root=operational_root,
+    )
+    rows = _d36_rows(result, frozen_root, operational_root)
+    assert len(rows) == 1
+    assert rows[0]["frozen_piece_class"] == "smooth_above"
+    assert rows[0]["operational_piece_class"] == "smooth_below"
+    assert rows[0]["operational_gauss128_node_count"] == 0
+
+
+def test_d36_frozen_ambiguity_does_not_classify_operational_piece(
+    monkeypatch: Any,
+) -> None:
+    from fractions import Fraction
+
+    lower, upper = Fraction(1, 4), Fraction(1, 4) + Fraction(1, 2**48)
+    result, _ = _d36_direct_case(
+        monkeypatch, frozen_roots=((_d36_root(lower, upper),),)
+    )
+    rows = _d36_rows(result, lower, upper)
+    assert len(rows) == 1
+    assert rows[0]["frozen_piece_class"] == "root_enclosure"
+    assert rows[0]["operational_piece_class"] == "smooth_above"
+    assert rows[0]["operational_gauss128_node_count"] == 128
+
+
+def test_d36_piece_radius_is_the_least_binary64_upper_bound(monkeypatch: Any) -> None:
+    import struct
+    from fractions import Fraction
+
+    lower = Fraction(1, 4)
+    upper = Fraction(40407052320769, 161628209283072)
+    exact = Fraction(4503599627370497, 14855280471424563298789490688)
+    expected = struct.unpack(">d", bytes.fromhex("3d55555555555557"))[0]
+    assert Fraction(math.nextafter(expected, -math.inf)) < exact <= Fraction(expected)
+    result, _ = _d36_direct_case(
+        monkeypatch, frozen_roots=((_d36_root(lower, upper),),), frozen_below=True
+    )
+    rows = _d36_rows(result, lower, upper)
+    assert len(rows) == 1
+    assert rows[0]["frozen_enclosure_error_f64be"] == "3d55555555555557"
+    assert result["EF"][12, 0, 0, 0] == expected
+
+
+def test_d36_error_cells_add_stored_radii_toward_positive_infinity(
+    monkeypatch: Any,
+) -> None:
+    import struct
+    from fractions import Fraction
+
+    lower = Fraction(1, 4)
+    ends = (lower + Fraction(1, 49 * 2**41), lower + Fraction(1, 49 * 2**43))
+    exact = Fraction(22517998136852485, 39614081257132168796771975168)
+    expected = struct.unpack(">d", bytes.fromhex("3d64000000000002"))[0]
+    assert Fraction(math.nextafter(expected, -math.inf)) < exact <= Fraction(expected)
+    result, _ = _d36_direct_case(
+        monkeypatch,
+        frozen_roots=tuple((_d36_root(lower, end),) for end in ends),
+        operational_roots=((), ()),
+        frozen_below=True,
+    )
+    for end, bits in zip(ends, ("3d60000000000001", "3d40000000000001"), strict=True):
+        rows = _d36_rows(result, lower, end)
+        assert len(rows) == 1
+        assert rows[0]["frozen_enclosure_error_f64be"] == bits
+    assert result["EF"][12, 0, 0, 0] == expected
+
+
+def test_d36_guarded_partition_keeps_inner_root_bounds() -> None:
+    from fractions import Fraction
+    from importlib import import_module
+
+    solver: Any = import_module("radiosim.core.mmode.solver")
+
+    start = Fraction(1, 4)
+    step = Fraction(1, 2**49)
+    bounds = tuple(start + index * step for index in range(4))
+    exposure = (Fraction(23, 98), Fraction(25, 98))
+    root = _d36_root(
+        bounds[1], bounds[2], guard_turn_lo=bounds[0], guard_turn_hi=bounds[3]
+    )
+    expected = (exposure[0], *bounds, exposure[1])
+    # Duplicate owners and touching exposure endpoints cannot duplicate cuts.
+    endpoint = _d36_root(exposure[0], exposure[0])
+    assert solver._piece_cuts(*exposure, (endpoint,), (root, root)) == expected
+
+
+def test_d36_exact_radius_and_zero_payload_controls(monkeypatch: Any) -> None:
+    from fractions import Fraction
+
+    lower, upper = Fraction(1, 4), Fraction(1, 4) + Fraction(1, 49 * 2**41)
+    result, _ = _d36_direct_case(
+        monkeypatch, frozen_roots=((_d36_root(lower, upper),),), frozen_below=True
+    )
+    expected = float.fromhex("0x1.0000000000001p-41")
+    assert result["EF"][12, 0, 0, 0] == expected
+    assert (
+        _d36_rows(result, lower, upper)[0]["frozen_enclosure_error_f64be"]
+        == "3d60000000000001"
+    )
+    empty, _ = _d36_direct_case(
+        monkeypatch,
+        frozen_roots=((_d36_root(lower, upper),),),
+        frozen_below=True,
+        intensity=0.0,
+    )
+    for key in ("F64", "F128", "O64", "O128", "EF", "EO"):
+        assert not np.any(empty[key])
+
+
+def test_d36_identity_fringe_and_zero_error_control(monkeypatch: Any) -> None:
+    result, _ = _d36_direct_case(monkeypatch)
+    for key in ("F64", "F128", "O64", "O128"):
+        np.testing.assert_allclose(result[key][..., (0, 3)], 1.0, rtol=0, atol=1e-14)
+        assert not np.any(result[key][..., (1, 2)])
+    assert not np.any(result["EF"])
+    assert not np.any(result["EO"])
