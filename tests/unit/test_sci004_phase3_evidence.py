@@ -1,10 +1,12 @@
 """Strict authentication of the SCI-004 phase-M3 evidence and Section 11 record.
 
 ``docs/development/sci004_mmode_design.md`` Sections 13.5, 14.2 and 14.4 freeze
-this module's successor authority: it lands in ``S3`` with all four approved
+this module's successor authority: terminal ``S3`` has all four approved
 constants as the literal ``None``, the official evidence path and the retained
 performance record **absent**, and every synthetic strict schema and digest
-fixture passing.  ``E3`` then changes *only* the four constants below and adds
+fixture passing. During intermediate S, D31 permits only exact rejected historical
+bytes pending individually authenticated disposal; these are never current approvals.
+``E3`` then changes *only* the four constants below and adds
 the two artifacts plus the reproduction record.  No import, expression,
 annotation, key, surrounding token, or other literal in any of the four
 assignments may change, so this module's own token stream outside those four
@@ -59,16 +61,34 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 #: Section 14.2/13.5's four approved constants.  ``E3`` replaces exactly these
 #: four ``None`` literals and nothing else in this module.
-APPROVED_SOURCE_SHA: str | None = "b07925ab14b56b3ca0fa863f806290748a31df6b"
-APPROVED_ARTIFACT_SHA256: str | None = (
-    "600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae"
+APPROVED_SOURCE_SHA: str | None = None  # fmt: skip
+APPROVED_ARTIFACT_SHA256: str | None = None  # fmt: skip
+APPROVED_PERFORMANCE_PATH: str | None = None  # fmt: skip
+APPROVED_PERFORMANCE_SHA256: str | None = None  # fmt: skip
+
+# Historical rejected bytes remain eligible only for intermediate S retention.
+# The four narrowly skipped lines keep future E's literal-only edits format-stable.
+HISTORICAL_REJECT_S = "b07925ab14b56b3ca0fa863f806290748a31df6b"
+HISTORICAL_REJECT_E = "886e62fd9f8328826b388b8960ed7413da26b6d1"
+HISTORICAL_REJECT_A = "8529da951e2378115ffde8d5da3e2af56f3323d0"
+HISTORICAL_REJECT_A_PATH = "docs/development/sci004_mmode_phase3_acceptance.json"
+HISTORICAL_REJECT_A_SHA256 = (
+    "283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d"
 )
-APPROVED_PERFORMANCE_PATH: str | None = (
+HISTORICAL_REJECT_PERFORMANCE_PATH = (
     "output/benchmarks/reference/sci004/20260825T122048Z-macbook-pro-2.json"
 )
-APPROVED_PERFORMANCE_SHA256: str | None = (
-    "07e59d3176866a78c17244849d6493365e9d410547e884cf56b254e60babe193"
-)
+HISTORICAL_REJECT_PINS = {
+    "docs/development/sci004_mmode_phase3_evidence.json": (
+        "600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae"
+    ),
+    "docs/development/sci004_mmode_phase3_evidence.md": (
+        "039539a865b5d92e86379f44a324271232e8a947301e380ec7b1b1848e907b4e"
+    ),
+    HISTORICAL_REJECT_PERFORMANCE_PATH: (
+        "07e59d3176866a78c17244849d6493365e9d410547e884cf56b254e60babe193"
+    ),
+}
 
 TOOL = "tools/sci004_mmode_phase3_evidence.py"
 ARTIFACT = "docs/development/sci004_mmode_phase3_evidence.json"
@@ -1110,37 +1130,379 @@ def _rejects(module: Any, document: Any, *, performance: bool = False) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _historical_evidence_bytes() -> dict[str, bytes]:
+    """Authenticate original rejected S/E/A objects without using approval pins."""
+    for commit, parent in (
+        (HISTORICAL_REJECT_E, HISTORICAL_REJECT_S),
+        (HISTORICAL_REJECT_A, HISTORICAL_REJECT_E),
+    ):
+        assert _git("rev-list", "--parents", "-n", "1", commit).split() == [
+            commit,
+            parent,
+        ]
+    rejected = _e3_regular_blob(HISTORICAL_REJECT_A, HISTORICAL_REJECT_A_PATH)
+    assert hashlib.sha256(rejected).hexdigest() == HISTORICAL_REJECT_A_SHA256
+    acceptance = json.loads(rejected)
+    assert acceptance["verdict"] == "REJECT"
+    assert acceptance["evidence_commit_sha"] == HISTORICAL_REJECT_E
+    assert acceptance["source_sha"] == HISTORICAL_REJECT_S
+    assert acceptance["evidence_artifact_sha256"] == HISTORICAL_REJECT_PINS[ARTIFACT]
+    payloads: dict[str, bytes] = {}
+    for path, digest in HISTORICAL_REJECT_PINS.items():
+        payload = _e3_regular_blob(HISTORICAL_REJECT_E, path)
+        assert hashlib.sha256(payload).hexdigest() == digest
+        payloads[path] = payload
+    envelope = json.loads(payloads[ARTIFACT])
+    performance = json.loads(payloads[HISTORICAL_REJECT_PERFORMANCE_PATH])
+    assert envelope["source_sha"] == HISTORICAL_REJECT_S
+    assert performance["provenance"]["source_sha"] == HISTORICAL_REJECT_S
+    bound = envelope["results"]["performance_record"]
+    assert bound["path"] == HISTORICAL_REJECT_PERFORMANCE_PATH
+    assert bound["sha256"] == HISTORICAL_REJECT_PINS[HISTORICAL_REJECT_PERFORMANCE_PATH]
+    return payloads
+
+
+def _evidence_lifecycle(
+    root: Path,
+    source_sha: str | None,
+    artifact_sha256: str | None,
+    performance_path: str | None,
+    performance_sha256: str | None,
+) -> str:
+    """Permit exact historical retention without licensing terminal S or E."""
+    constants = (source_sha, artifact_sha256, performance_path, performance_sha256)
+    assert all(value is None for value in constants) or all(
+        value is not None for value in constants
+    ), "mixed approval pins"
+    if source_sha is not None:
+        for value, pattern in zip(
+            constants, (GIT_SHA, SHA256, PERFORMANCE_PATH, SHA256), strict=True
+        ):
+            assert type(value) is str and pattern.fullmatch(value)
+        assert source_sha != HISTORICAL_REJECT_S, "rejected S cannot be approved"
+        assert artifact_sha256 != HISTORICAL_REJECT_PINS[ARTIFACT], (
+            "rejected artifact cannot be approved"
+        )
+        assert performance_path != HISTORICAL_REJECT_PERFORMANCE_PATH, (
+            "rejected performance path cannot be approved"
+        )
+        assert (
+            performance_sha256
+            != HISTORICAL_REJECT_PINS[HISTORICAL_REJECT_PERFORMANCE_PATH]
+        ), "rejected performance bytes cannot be approved"
+        return "current-approval"
+    directory = root / PERFORMANCE_DIRECTORY
+    assert not directory.is_symlink(), (
+        "phase performance directory must not be a symlink"
+    )
+    if directory.exists():
+        assert directory.is_dir(), "phase performance directory must be a directory"
+        for path in directory.iterdir():
+            assert path == root / HISTORICAL_REJECT_PERFORMANCE_PATH, (
+                "unapproved entry in phase performance directory"
+            )
+            assert not path.is_symlink(), "historical benchmark must not be a symlink"
+            assert path.is_file(), "historical benchmark must be a regular file"
+    retained: dict[str, bytes] = {}
+    for relative in HISTORICAL_REJECT_PINS:
+        path = root / relative
+        assert not path.is_symlink(), "historical artifact must not be a symlink"
+        if path.exists():
+            assert path.is_file(), "historical artifact must be a regular file"
+            retained[relative] = path.read_bytes()
+    if not retained:
+        return "unapproved-absent"
+    historical = _historical_evidence_bytes()
+    for relative, raw in retained.items():
+        assert raw == historical[relative], "unapproved bytes differ from historical E"
+    return "historical-reject"
+
+
 def test_the_approved_constants_are_null_sentinels_before_e3() -> None:
-    """Section 14.2: at ``S3`` all four approved values are ``None``."""
-    constants = (
+    """All four approvals transition together; rejected history is never current."""
+    _ = _evidence_lifecycle(
+        REPOSITORY_ROOT,
         APPROVED_SOURCE_SHA,
         APPROVED_ARTIFACT_SHA256,
         APPROVED_PERFORMANCE_PATH,
         APPROVED_PERFORMANCE_SHA256,
     )
-    if any(constant is None for constant in constants):
-        assert all(constant is None for constant in constants), (
-            "the four approved constants flip together at E3, never partially"
-        )
-        return
-    assert GIT_SHA.fullmatch(str(APPROVED_SOURCE_SHA))
-    assert SHA256.fullmatch(str(APPROVED_ARTIFACT_SHA256))
-    assert SHA256.fullmatch(str(APPROVED_PERFORMANCE_SHA256))
-    assert PERFORMANCE_PATH.fullmatch(str(APPROVED_PERFORMANCE_PATH))
 
 
 def test_the_official_artifacts_are_absent_in_the_s3_state() -> None:
-    """Section 14.2: null constants require both declared outputs to be absent.
-
-    For M3 the declared set is two files, not one, so both are checked; a
-    retained performance record without its evidence envelope is exactly the
-    partial set Section 14.2 refuses to reuse.
-    """
+    """Intermediate S permits exact history; source readiness requires disposal."""
     if APPROVED_ARTIFACT_SHA256 is not None:
         return
-    assert not (REPOSITORY_ROOT / ARTIFACT).exists()
-    directory = REPOSITORY_ROOT / PERFORMANCE_DIRECTORY
-    assert not directory.exists() or not sorted(directory.glob("*.json"))
+    assert _evidence_lifecycle(REPOSITORY_ROOT, None, None, None, None) in {
+        "unapproved-absent",
+        "historical-reject",
+    }
+
+
+@pytest.fixture(scope="module")
+def historical_evidence_payloads() -> dict[str, bytes]:
+    return _historical_evidence_bytes()
+
+
+@pytest.mark.parametrize("retained_mask", range(8))
+def test_evidence_lifecycle_allows_individual_historical_disposal(
+    tmp_path: Path, historical_evidence_payloads: dict[str, bytes], retained_mask: int
+) -> None:
+    for index, (relative, raw) in enumerate(historical_evidence_payloads.items()):
+        if retained_mask & (1 << index):
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _ = path.write_bytes(raw)
+    expected = "historical-reject" if retained_mask else "unapproved-absent"
+    assert _evidence_lifecycle(tmp_path, None, None, None, None) == expected
+
+
+@pytest.mark.parametrize("null_mask", range(1, 15))
+def test_evidence_lifecycle_rejects_every_mixed_approval(
+    tmp_path: Path, null_mask: int
+) -> None:
+    current = (FORTY, SIXTY_FOUR, SYNTHETIC_PERFORMANCE_PATH, SIXTY_FOUR)
+    pins = [None if null_mask & (1 << i) else value for i, value in enumerate(current)]
+    with pytest.raises(AssertionError, match="mixed approval pins"):
+        _ = _evidence_lifecycle(tmp_path, *pins)
+
+
+@pytest.mark.parametrize("historical_index", range(4))
+def test_evidence_lifecycle_never_approves_rejected_identities(
+    tmp_path: Path, historical_index: int
+) -> None:
+    current = [FORTY, SIXTY_FOUR, SYNTHETIC_PERFORMANCE_PATH, SIXTY_FOUR]
+    assert _evidence_lifecycle(tmp_path, *current) == "current-approval"
+    historical = (
+        HISTORICAL_REJECT_S,
+        HISTORICAL_REJECT_PINS[ARTIFACT],
+        HISTORICAL_REJECT_PERFORMANCE_PATH,
+        HISTORICAL_REJECT_PINS[HISTORICAL_REJECT_PERFORMANCE_PATH],
+    )
+    current[historical_index] = historical[historical_index]
+    with pytest.raises(AssertionError, match="cannot be approved"):
+        _ = _evidence_lifecycle(tmp_path, *current)
+
+
+@pytest.mark.parametrize("relative", tuple(HISTORICAL_REJECT_PINS))
+@pytest.mark.parametrize("mutation", ["bytes", "symlink", "directory"])
+def test_evidence_lifecycle_rejects_changed_or_nonregular_history(
+    tmp_path: Path,
+    historical_evidence_payloads: dict[str, bytes],
+    relative: str,
+    mutation: str,
+) -> None:
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if mutation == "bytes":
+        _ = path.write_bytes(historical_evidence_payloads[relative] + b"\n")
+    elif mutation == "symlink":
+        target = tmp_path / "target"
+        _ = target.write_bytes(historical_evidence_payloads[relative])
+        path.symlink_to(target)
+    else:
+        path.mkdir()
+    with pytest.raises(AssertionError, match="historical E|symlink|regular file"):
+        _ = _evidence_lifecycle(tmp_path, None, None, None, None)
+
+
+@pytest.mark.parametrize("historical_present", [False, True])
+@pytest.mark.parametrize("mutation", ["new-record", "symlink", "fifo", "nested"])
+def test_evidence_lifecycle_rejects_unapproved_phase_performance_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    historical_evidence_payloads: dict[str, bytes],
+    historical_present: bool,
+    mutation: str,
+) -> None:
+    directory = tmp_path / PERFORMANCE_DIRECTORY
+    directory.mkdir(parents=True)
+    if historical_present:
+        historical = tmp_path / HISTORICAL_REJECT_PERFORMANCE_PATH
+        _ = historical.write_bytes(
+            historical_evidence_payloads[HISTORICAL_REJECT_PERFORMANCE_PATH]
+        )
+    path = tmp_path / SYNTHETIC_PERFORMANCE_PATH
+    if mutation == "new-record":
+        _ = path.write_bytes(b'{"unapproved":true}\n')
+    elif mutation == "symlink":
+        path.symlink_to(tmp_path / "missing-benchmark")
+    elif mutation == "fifo":
+        os.mkfifo(path)
+    else:
+        path = directory / "nested" / "record.json"
+        path.parent.mkdir()
+        _ = path.write_bytes(b"{}")
+    with pytest.raises(AssertionError, match="unapproved entry"):
+        _ = _evidence_lifecycle(tmp_path, None, None, None, None)
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", tmp_path)
+    for name in APPROVED_CONSTANT_NAMES:
+        monkeypatch.setattr(sys.modules[__name__], name, None)
+    with pytest.raises(AssertionError, match="unapproved entry"):
+        test_the_official_artifacts_are_absent_in_the_s3_state()
+
+
+@pytest.mark.parametrize("mutation", ["dangling-symlink", "directory-symlink", "file"])
+def test_evidence_lifecycle_rejects_nonregular_phase_directory(
+    tmp_path: Path, mutation: str
+) -> None:
+    directory = tmp_path / PERFORMANCE_DIRECTORY
+    directory.parent.mkdir(parents=True)
+    if mutation == "file":
+        _ = directory.write_bytes(b"not a directory")
+    else:
+        target = tmp_path / "target"
+        if mutation == "directory-symlink":
+            target.mkdir()
+        directory.symlink_to(target, target_is_directory=True)
+    with pytest.raises(AssertionError, match="phase performance directory"):
+        _ = _evidence_lifecycle(tmp_path, None, None, None, None)
+
+
+def test_evidence_approval_literal_changes_are_formatter_stable() -> None:
+    source = (REPOSITORY_ROOT / VALIDATOR).read_text(encoding="utf-8")
+    lines = source.splitlines(keepends=True)
+    _spans, bodies = _constant_spans(source)
+    nulls = "".join(lines[int(body[0].start[0]) - 1] for body in bodies)
+    approved = nulls
+    for value in (FORTY, SIXTY_FOUR, SYNTHETIC_PERFORMANCE_PATH, SIXTY_FOUR):
+        approved = approved.replace("= None", f'= "{value}"', 1)
+    assert nulls.count("# fmt: skip") == len(APPROVED_CONSTANT_NAMES)
+    for original in (nulls, approved):
+        completed = subprocess.run(
+            ["ruff", "format", "--stdin-filename", VALIDATOR, "-"],
+            input=original.encode("utf-8"),
+            capture_output=True,
+            check=True,
+            cwd=REPOSITORY_ROOT,
+        )
+        assert completed.stdout == original.encode("utf-8")
+
+
+@pytest.mark.parametrize(
+    "relative", (*HISTORICAL_REJECT_PINS, HISTORICAL_REJECT_A_PATH)
+)
+def test_evidence_readiness_still_requires_every_rejected_output_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: str
+) -> None:
+    module = _tool()
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path)
+
+    def clean_preflight(
+        _source_sha: str | None, _declared: tuple[str, ...]
+    ) -> dict[str, str]:
+        return {"source_sha": FORTY}
+
+    monkeypatch.setattr(module, "preflight", clean_preflight)
+    monkeypatch.setattr(module, "_red_commit_sha", lambda: FORTY)
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _ = path.write_bytes(b"retained rejected output")
+    with pytest.raises(module.EvidenceError, match="rejected output remains at source"):
+        module.source_readiness(FORTY, ())
+
+
+@pytest.mark.parametrize("overlay", ["replace", "replace-blob", "graft", "routing"])
+def test_historical_evidence_reads_actual_git_objects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, overlay: str
+) -> None:
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", tmp_path)
+    _ = _git("init", "-q")
+    for key, value in {
+        "user.name": "Synthetic Fixture",
+        "user.email": "fixture@example.invalid",
+        "commit.gpgsign": "false",
+        "core.autocrlf": "false",
+        "core.hooksPath": os.devnull,
+    }.items():
+        _ = _git("config", key, value)
+
+    def commit(files: dict[str, bytes]) -> str:
+        for relative, raw in files.items():
+            path = tmp_path / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _ = path.write_bytes(raw)
+        _ = _git("add", "--all")
+        _ = _git("commit", "--allow-empty", "-qm", "synthetic historical E")
+        return _git("rev-parse", "HEAD").strip()
+
+    source = commit({"seed": b"synthetic"})
+    performance = json.dumps({"provenance": {"source_sha": source}}).encode()
+    raw = (
+        json.dumps(
+            {
+                "source_sha": source,
+                "results": {
+                    "performance_record": {
+                        "path": HISTORICAL_REJECT_PERFORMANCE_PATH,
+                        "sha256": hashlib.sha256(performance).hexdigest(),
+                    }
+                },
+            }
+        ).encode()
+        + b"\r\n"
+    )
+    payloads = {
+        ARTIFACT: raw,
+        REPRODUCTION: b"synthetic\r\n",
+        HISTORICAL_REJECT_PERFORMANCE_PATH: performance,
+    }
+    evidence = commit(payloads)
+    rejected_raw = json.dumps(
+        {
+            "verdict": "REJECT",
+            "source_sha": source,
+            "evidence_commit_sha": evidence,
+            "evidence_artifact_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+    ).encode()
+    rejected = commit({HISTORICAL_REJECT_A_PATH: rejected_raw})
+    for name, value in (
+        ("HISTORICAL_REJECT_S", source),
+        ("HISTORICAL_REJECT_E", evidence),
+        ("HISTORICAL_REJECT_A", rejected),
+        ("HISTORICAL_REJECT_A_SHA256", hashlib.sha256(rejected_raw).hexdigest()),
+    ):
+        monkeypatch.setattr(sys.modules[__name__], name, value)
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "HISTORICAL_REJECT_PINS",
+        {path: hashlib.sha256(value).hexdigest() for path, value in payloads.items()},
+    )
+    if overlay == "replace":
+        alternate = _git(
+            "commit-tree", _git("write-tree").strip(), "-p", source, "-m", "forged"
+        ).strip()
+        _ = _git("replace", rejected, alternate)
+    elif overlay == "replace-blob":
+        bad = tmp_path / "bad-blob"
+        _ = bad.write_bytes(b"forged bytes")
+        _ = _git(
+            "replace",
+            _git("rev-parse", f"{evidence}:{ARTIFACT}").strip(),
+            _git("hash-object", "-w", str(bad)).strip(),
+        )
+        assert (
+            subprocess.check_output(
+                ["git", "show", f"{evidence}:{ARTIFACT}"], cwd=tmp_path
+            )
+            != raw
+        )
+    elif overlay == "graft":
+        graft = tmp_path / ".git/info/grafts"
+        graft.parent.mkdir(parents=True, exist_ok=True)
+        _ = graft.write_text(f"{rejected} {source}\n")
+    else:
+        for name in ("GIT_DIR", "GIT_OBJECT_DIRECTORY", "GIT_CONFIG_GLOBAL"):
+            monkeypatch.setenv(name, str(tmp_path / "missing"))
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "diff.external")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/usr/bin/false")
+    if overlay in {"replace", "graft"}:
+        assert subprocess.check_output(
+            ["git", "rev-list", "--parents", "-n", "1", rejected], cwd=tmp_path
+        ).decode().split() == [rejected, source]
+    assert _historical_evidence_bytes() == payloads
 
 
 def test_the_tracked_generator_and_its_inputs_exist_at_s3() -> None:
@@ -3331,19 +3693,57 @@ def test_the_f64be_encoding_is_the_big_endian_double() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _git(*arguments: str) -> str:
-    """Return the stdout of one hermetic ``git`` invocation in this repository."""
+def _git_bytes(*arguments: str) -> bytes:
+    # Read actual objects in this repository, not a caller's redirected store,
+    # replacement refs, grafted ancestry or configured diff presentation.
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_GLOBAL=os.devnull,
+    )
+    if arguments[0] == "diff":
+        arguments = (
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--no-relative",
+            "--ignore-submodules=none",
+            *arguments[1:],
+        )
+    elif arguments[0] == "show":
+        arguments = ("show", "--no-ext-diff", "--no-textconv", *arguments[1:])
     completed = subprocess.run(
-        ["git", *arguments],
+        [
+            "git",
+            "--no-pager",
+            "--no-replace-objects",
+            "--literal-pathspecs",
+            "-c",
+            "color.ui=false",
+            "-c",
+            "core.commitGraph=false",
+            *arguments,
+        ],
         cwd=REPOSITORY_ROOT,
+        env=environment,
         capture_output=True,
-        text=True,
         check=False,
     )
     assert completed.returncode == 0, (
-        f"git {' '.join(arguments)} failed: {completed.stderr.strip()}"
+        f"git {' '.join(arguments)} failed: {completed.stderr!r}"
     )
     return completed.stdout
+
+
+def _git(*arguments: str) -> str:
+    return _git_bytes(*arguments).decode("utf-8")
 
 
 def _locate_evidence_commit() -> str:
@@ -3358,6 +3758,15 @@ def _locate_evidence_commit() -> str:
     located = introductions[0]
     assert GIT_SHA.fullmatch(located)
     return located
+
+
+def _e3_regular_blob(commit: str, path: str) -> bytes:
+    entry = _git_bytes("ls-tree", "-z", commit, "--", path)
+    assert re.fullmatch(
+        rb"100644 blob [0-9a-f]{40}\t" + re.escape(path.encode("utf-8")) + rb"\x00",
+        entry,
+    ), f"{path} must be an exact regular-file entry at {commit}"
+    return _git_bytes("show", f"{commit}:{path}")
 
 
 def _constant_spans(source: str) -> tuple[list[tuple[int, int]], list[list[Any]]]:
