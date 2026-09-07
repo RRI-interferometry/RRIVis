@@ -744,3 +744,107 @@ def test_frame_certificate_passes_original_owned_root_endpoints(
             assert trajectory.roots[index] is root
             assert root.turn_lo is lo and root.turn_hi is hi
             assert passed[2 * index] is lo and passed[2 * index + 1] is hi
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "outer_generator",
+        "outer_mapping",
+        "outer_set",
+        "outer_none",
+        "inner_generator",
+        "inner_mapping",
+        "inner_set",
+        "inner_none",
+        "boolean",
+        "integer",
+        "float",
+        "string",
+        "fraction_subclass",
+        "missing_direction",
+        "extra_direction",
+        "valid_empty_list",
+        "valid_empty_tuple",
+    ],
+)
+def test_scan_validates_frozen_bound_inputs_before_evaluation(
+    monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    """Reject malformed ownership inputs without evaluating the trajectory."""
+    from contextlib import nullcontext
+    from fractions import Fraction
+
+    from radiosim.core.mmode import frame as frame_module
+    from radiosim.core.mmode import time as time_module
+
+    class FractionSubclass(Fraction):
+        pass
+
+    cases: dict[str, Any] = {
+        "outer_generator": (row for row in [()]),
+        "outer_mapping": {(): None},
+        "outer_set": {()},
+        "outer_none": None,
+        "inner_generator": [(bound for bound in [Fraction(1, 8)])],
+        "inner_mapping": [{Fraction(1, 8): None}],
+        "inner_set": [{Fraction(1, 8)}],
+        "inner_none": [None],
+        "boolean": [[True]],
+        "integer": [[1]],
+        "float": [[0.125]],
+        "string": [["1/8"]],
+        "fraction_subclass": [[FractionSubclass(1, 8)]],
+        "missing_direction": [],
+        "extra_direction": [[], []],
+        "valid_empty_list": [[]],
+        "valid_empty_tuple": ((),),
+    }
+
+    class Grid:
+        horizon_domain = (Fraction(0), Fraction(1, 4096))
+        sidereal_samples = 1
+
+        def center_turn(self, _index: int) -> Fraction:
+            return Fraction(0)
+
+        def exposure_turns(self, _index: int) -> tuple[Fraction, Fraction]:
+            return Fraction(0), Fraction(1, 8192)
+
+    class InitialEvaluationReached(Exception):
+        pass
+
+    evaluated: list[Fraction] = []
+
+    class RecordingTrajectory:
+        direction_count = 1
+
+        def __init__(self, *_arguments: Any) -> None:
+            pass
+
+        def at_common_turn(self, turn: Fraction) -> Any:
+            evaluated.append(turn)
+            raise InitialEvaluationReached
+
+    monkeypatch.setattr(frame_module, "_OperationalTrajectory", RecordingTrajectory)
+    monkeypatch.setattr(time_module, "installed_iers_context", nullcontext)
+    fake_frame: Any = object()
+
+    def invoke() -> None:
+        _ = frame_module.scan_operational_horizon(
+            frame=fake_frame,
+            grid=Grid(),
+            ra_rad=[0.0],
+            dec_rad=[0.0],
+            frozen_root_bounds=cases[case],
+            direction_ids=["only"],
+        )
+
+    if case.startswith("valid_empty"):
+        with pytest.raises(InitialEvaluationReached):
+            invoke()
+        assert evaluated == [Fraction(0)]
+    else:
+        with pytest.raises(ValueError):
+            invoke()
+        assert evaluated == []

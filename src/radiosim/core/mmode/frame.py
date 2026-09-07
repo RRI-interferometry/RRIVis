@@ -952,6 +952,14 @@ def scan_operational_horizon(
 
     from radiosim.core.mmode.time import installed_iers, installed_iers_context
 
+    if not isinstance(frozen_root_bounds, (list, tuple)):
+        raise ValueError("frozen root bounds must be a list or tuple")
+    for bounds in frozen_root_bounds:
+        if not isinstance(bounds, (list, tuple)):
+            raise ValueError("each frozen root-bound entry must be a list or tuple")
+        for bound in bounds:
+            if type(bound) is not Fraction:
+                raise ValueError("frozen root-bound endpoints must be exact Fractions")
     horizon_lo, horizon_hi = grid.horizon_domain
     trajectory = _OperationalTrajectory(frame, grid, ra_rad, dec_rad)
     direction_count = trajectory.direction_count
@@ -970,6 +978,8 @@ def scan_operational_horizon(
         lower, upper = grid.exposure_turns(index)
         base.add(lower)
         base.add(upper)
+    for bounds in frozen_root_bounds:
+        base.update(bounds)
     shared = sorted(bound for bound in base if horizon_lo <= bound <= horizon_hi)
 
     with installed_iers_context():
