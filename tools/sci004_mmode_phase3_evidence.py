@@ -4516,6 +4516,295 @@ def validate_characterization_source_inventory(
     return parsed_rows[expected.index(family_id)]
 
 
+def _input_projection_object(value: Any, label: str) -> dict[str, Any]:
+    _require(type(value) is dict, SCHEMA, f"{label}: JSON object required")
+    return cast(dict[str, Any], value)
+
+
+def _input_projection_locators(value: Any, label: str) -> None:
+    """Reject the explicit locator-key forms, without interpreting semantic text.
+
+    Unknown nested scientific fields remain deferred to their closed schemas.
+    """
+    if type(value) is dict:
+        for key, item in cast(dict[str, Any], value).items():
+            _require(type(key) is str, SCHEMA, f"{label}: string key required")
+            normalized = key.strip().lower().replace("-", "_")
+            _require(
+                normalized != "path"
+                and not normalized.endswith(
+                    (
+                        "_path",
+                        "_paths",
+                        "_file",
+                        "_files",
+                        "_dir",
+                        "_directory",
+                        "_root",
+                        "_uri",
+                    )
+                ),
+                SCHEMA,
+                f"{label}: filesystem locator key {key}",
+            )
+            _input_projection_locators(item, label)
+    elif type(value) is list:
+        for item in cast(list[Any], value):
+            _input_projection_locators(item, label)
+
+
+def validate_characterization_input_projection(
+    value: Any,
+    digest: Any,
+    *,
+    family_id: str,
+    source_identities: Any,
+    common_segments: Any,
+    solver_segment: Any,
+    time_manifest: Any,
+    time_digest: Any,
+    label: str = "characterization input",
+) -> dict[str, Any]:
+    """Join input14/phase26 outer projections, source content, time and buffers.
+
+    This additive utility does not admit evidence or authenticate Git bytes.
+    Nested site/baseline geometry, receptor/beam/sky/direction semantics,
+    transfer grids, convention preimages and frame ownership remain deferred.
+    Scientific instrument/selection/receptor/beam JSON is not a physical oracle.
+    """
+    obj = _input_projection_object
+    manifest = _require_keys(obj(value, label), _SOURCE_CONTRACT_KEYS["input"], label)
+    phase = _require_keys(
+        obj(manifest["phase_input_identity_manifest"], label),
+        _SOURCE_CONTRACT_KEYS["phase"],
+        label + " phase",
+    )
+    for tree in (manifest, phase):
+        for key in tree:
+            if key.endswith("_sha256") or key == "beam_loaded_fingerprint":
+                _ = _require_hex(tree[key], 64, label + "." + key)
+    _input_projection_locators(manifest, label)
+    expected_strings = {
+        "schema_version": "radiosim.sci004.characterization-input.v2",
+        "family_id": family_id,
+        "fixture_id": family_id,
+        "polarization_basis": "circular_rl"
+        if family_id == "mmode_circular_receptor"
+        else "linear_xy",
+    }
+    for key, expected in expected_strings.items():
+        _require(
+            type(manifest[key]) is str and manifest[key] == expected,
+            SCHEMA,
+            f"{label}.{key}: value",
+        )
+    for key, expected in (
+        ("schema_version", "radiosim.mmode-input-identity.v1"),
+        ("precision", "standard"),
+        ("result_dtype", "complex128"),
+    ):
+        _require(
+            type(phase[key]) is str and phase[key] == expected,
+            SCHEMA,
+            f"{label} phase.{key}: value",
+        )
+    for key in (
+        "site_manifest",
+        "canonical_era_turn_grid",
+        "canonical_era_grid",
+        "utc_manifest",
+        "ut1_manifest",
+        "mmode_dimensions",
+    ):
+        _ = obj(phase[key], label + "." + key)
+    for key in (
+        "antenna_rows",
+        "baseline_rows",
+        "frequency_rows",
+        "receptor_rows",
+        "correlation_rows",
+        "beam_rows",
+        "sky_component_rows",
+        "direction_input_rows",
+        "jones_term_rows",
+        "transfer_grid_catalog",
+    ):
+        _require(type(phase[key]) is list, SCHEMA, f"{label}.{key}: JSON array")
+        for row in cast(list[Any], phase[key]):
+            _ = obj(row, label + "." + key)
+    _require(phase["jones_term_rows"] == [], SCHEMA, label + ": Jones must be empty")
+    selected = validate_characterization_source_inventory(
+        source_identities, family_id=family_id, label=label + " source"
+    )
+    _require(
+        canonical_json(phase) == canonical_json(selected["input_identity_manifest"])
+        and manifest["phase_input_identity_sha256"]
+        == selected["input_identity_sha256"],
+        DIGEST,
+        label + ": selected phase differs",
+    )
+    _require(
+        phase["convention_identity_sha256"]
+        == source_identities["convention_identity_sha256"],
+        DIGEST,
+        label + ": source convention differs",
+    )
+    for key, domain, fields, hash_key in (
+        (
+            "instrument_manifest",
+            "radiosim.sci004.characterization-instrument.v1",
+            ("site_manifest", "antenna_rows", "baseline_rows"),
+            "instrument_sha256",
+        ),
+        (
+            "receptor_manifest",
+            "radiosim.sci004.characterization-receptors.v1",
+            ("receptor_rows",),
+            "receptor_sha256",
+        ),
+        (
+            "loaded_beam_manifest",
+            "radiosim.sci004.characterization-loaded-beam.v1",
+            ("beam_rows",),
+            "beam_loaded_fingerprint",
+        ),
+    ):
+        projection = _require_keys(
+            obj(manifest[key], label), ("schema_version", *fields), label + "." + key
+        )
+        expected_projection = {
+            "schema_version": domain,
+            **{field: phase[field] for field in fields},
+        }
+        _require(
+            canonical_json(projection) == canonical_json(expected_projection)
+            and manifest[hash_key] == object_digest(domain, expected_projection),
+            DIGEST,
+            label + ": " + key + " projection differs",
+        )
+    _require(
+        _require_hex(digest, 64, label)
+        == object_digest(expected_strings["schema_version"], manifest),
+        DIGEST,
+        label + ": input digest differs",
+    )
+    dimensions = _require_keys(
+        phase["mmode_dimensions"],
+        tuple(
+            "sidereal_samples lmax mmax quadrature_nside lcheck mcheck qcheck".split()
+        ),
+        label,
+    )
+    for key in dimensions:
+        _require(type(dimensions[key]) is int, SCHEMA, label + ": dimension type")
+    _require(
+        dimensions
+        == {
+            "sidereal_samples": 49,
+            "lmax": 16,
+            "mmax": 16,
+            "quadrature_nside": 8,
+            "lcheck": 24,
+            "mcheck": 24,
+            "qcheck": 16,
+        },
+        DIGEST,
+        label + ": dimensions differ",
+    )
+    decoded = decode_scientific_stream(common_segments, solver_segment, label=label)
+    payloads: dict[str, bytes] = decoded["payloads"]
+    scientific: dict[str, Any] = decoded["json_segments"]
+    _ = validate_scientific_solver(
+        scientific["solver"],
+        family_id,
+        phase["iers_table_sha256"],
+        label=label + " solver",
+    )
+    axes: list[int] = scientific["visibilities.metadata"]["shape"]
+    _require(
+        dimensions["sidereal_samples"] == axes[0]
+        and len(phase["baseline_rows"]) == axes[1]
+        and len(phase["frequency_rows"]) == axes[2]
+        and len(phase["correlation_rows"]) == axes[3],
+        DIGEST,
+        label + ": cube axes differ",
+    )
+    centers: list[str] = []
+    for index, item in enumerate(phase["frequency_rows"]):
+        row = _require_keys(
+            item, ("frequency_index", "center_hz_f64be", "width_hz_f64be"), label
+        )
+        _require(
+            type(row["frequency_index"]) is int and row["frequency_index"] == index,
+            SCHEMA,
+            label + ": frequency index",
+        )
+        for key, role, positive in (
+            ("center_hz_f64be", "frequency_hz", True),
+            ("width_hz_f64be", "channel_width_hz", False),
+        ):
+            number = _characterization_time_f64(row[key], label)
+            _require(
+                number > 0 if positive else number >= 0,
+                SCHEMA,
+                label + ": frequency value",
+            )
+            _require(
+                struct.pack("<d", number)
+                == payloads[role + ".data"][8 * index : 8 * (index + 1)],
+                DIGEST,
+                label + ": " + role + " bits differ",
+            )
+        centers.append(row["center_hz_f64be"])
+    _require(
+        type(manifest["frequencies_hz_f64be"]) is list
+        and manifest["frequencies_hz_f64be"] == centers,
+        DIGEST,
+        label + ": centers differ",
+    )
+    correlations = (
+        ["RR", "RL", "LR", "LL"]
+        if expected_strings["polarization_basis"] == "circular_rl"
+        else ["XX", "XY", "YX", "YY"]
+    )
+    for index, item in enumerate(phase["correlation_rows"]):
+        row = _require_keys(item, ("correlation_index", "p_label", "q_label"), label)
+        _require(
+            type(row["correlation_index"]) is int
+            and row["correlation_index"] == index
+            and type(row["p_label"]) is str
+            and type(row["q_label"]) is str
+            and row["p_label"] == correlations[index][0]
+            and row["q_label"] == correlations[index][1],
+            SCHEMA,
+            label + ": correlation row",
+        )
+    _require(
+        type(manifest["correlations"]) is list
+        and manifest["correlations"] == correlations
+        and scientific["correlations"] == correlations
+        and scientific["polarization_basis"] == manifest["polarization_basis"],
+        DIGEST,
+        label + ": correlation basis differs",
+    )
+    time = validate_characterization_time_manifest(time_manifest, time_digest, phase)
+    for key, role in (
+        ("center_jd1_f64be", "time.utc_jd1"),
+        ("center_jd2_f64be", "time.utc_jd2"),
+        ("integration_time_seconds_f64be", "time.integration_time_seconds"),
+    ):
+        expected_bytes = b"".join(
+            struct.pack("<d", _characterization_time_f64(item, label))
+            for item in time[key]
+        )
+        _require(
+            payloads[role + ".data"] == expected_bytes,
+            DIGEST,
+            label + ": " + role + " bits differ",
+        )
+    return manifest
+
+
 def _host_tag() -> str:
     """Return Section 11's ``[a-z0-9][a-z0-9-]{0,62}`` host tag."""
     raw = platform.node().split(".")[0].lower()

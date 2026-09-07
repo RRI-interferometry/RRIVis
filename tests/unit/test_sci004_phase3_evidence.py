@@ -8353,3 +8353,312 @@ def test_evidence_raw_checkout_rechecks_source_head_after_reading_blobs(
     with pytest.raises(module.EvidenceError, match="source HEAD changed"):
         module._require_raw_tracked_checkout(original)
     assert _git("rev-parse", "HEAD").strip() == replacement
+
+
+@pytest.fixture(scope="module")
+def characterization_projection(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+    characterization_source_inventory: dict[str, Any],
+) -> dict[str, Any]:
+    """Real Point-I preparation plus explicitly synthetic scientific cube/JSON.
+
+    D/J projections and scientific payloads are assembled here, without the
+    production characterization factory; other-family source rows are synthetic.
+    """
+    _, time, phase = prepared_characterization_time
+    family = "mmode_point_stokes_i"
+    manifest = {
+        "schema_version": "radiosim.sci004.characterization-input.v2",
+        "family_id": family,
+        "fixture_id": family,
+        "phase_input_identity_manifest": copy.deepcopy(phase),
+        "phase_input_identity_sha256": "",
+        "instrument_sha256": "",
+        "receptor_sha256": "",
+        "beam_loaded_fingerprint": "",
+        "correlations": ["XX", "XY", "YX", "YY"],
+        "polarization_basis": "linear_xy",
+        "frequencies_hz_f64be": [
+            row["center_hz_f64be"] for row in phase["frequency_rows"]
+        ],
+        "instrument_manifest": {
+            "schema_version": "radiosim.sci004.characterization-instrument.v1",
+            **{
+                key: copy.deepcopy(phase[key])
+                for key in ("site_manifest", "antenna_rows", "baseline_rows")
+            },
+        },
+        "receptor_manifest": {
+            "schema_version": "radiosim.sci004.characterization-receptors.v1",
+            "receptor_rows": copy.deepcopy(phase["receptor_rows"]),
+        },
+        "loaded_beam_manifest": {
+            "schema_version": "radiosim.sci004.characterization-loaded-beam.v1",
+            "beam_rows": copy.deepcopy(phase["beam_rows"]),
+        },
+    }
+    segments, _ = _synthetic_scientific_stream()
+    for key, role in (
+        ("center_jd1_f64be", "time.utc_jd1"),
+        ("center_jd2_f64be", "time.utc_jd2"),
+        ("integration_time_seconds_f64be", "time.integration_time_seconds"),
+    ):
+        _projection_segment(
+            segments,
+            role + ".data",
+            b"".join(bytes.fromhex(v)[::-1] for v in time[key]),
+        )
+    for key, role in (
+        ("center_hz_f64be", "frequency_hz"),
+        ("width_hz_f64be", "channel_width_hz"),
+    ):
+        _projection_segment(
+            segments,
+            role + ".data",
+            b"".join(bytes.fromhex(row[key])[::-1] for row in phase["frequency_rows"]),
+        )
+    solver = _scientific_solver_fixture(family)
+    solver["iers_table_sha256"] = phase["iers_table_sha256"]
+    _projection_segment(
+        segments,
+        "solver",
+        json.dumps(solver, sort_keys=True, separators=(",", ":")).encode(),
+    )
+    result = {
+        "value": manifest,
+        "source_identities": copy.deepcopy(characterization_source_inventory),
+        "common_segments": segments[:24],
+        "solver_segment": segments[24],
+        "time_manifest": copy.deepcopy(time),
+        "time_digest": _object_digest(time["schema_version"], time),
+        "family_id": family,
+    }
+    _projection_rehash(result)
+    return result
+
+
+def _projection_segment(segments: list[Any], tag: str, payload: bytes) -> None:
+    row = next(item for item in segments if item["tag"] == tag)
+    row.update(
+        payload_hex=payload.hex(),
+        byte_count=len(payload),
+        sha256=hashlib.sha256(payload).hexdigest(),
+    )
+
+
+def _projection_rehash(case: dict[str, Any], *, join_source: bool = True) -> None:
+    value = case["value"]
+    phase = value["phase_input_identity_manifest"]
+    value["phase_input_identity_sha256"] = _object_digest(
+        "radiosim.mmode-input-identity.v1", phase
+    )
+    if join_source:
+        row = next(
+            row
+            for row in case["source_identities"]["fixture_input_rows"]
+            if row["fixture_id"] == case["family_id"]
+        )
+        row["input_identity_manifest"] = copy.deepcopy(phase)
+    _rehash_characterization_source(case["source_identities"])
+    for name, key in (
+        ("instrument_manifest", "instrument_sha256"),
+        ("receptor_manifest", "receptor_sha256"),
+        ("loaded_beam_manifest", "beam_loaded_fingerprint"),
+    ):
+        projection = value[name]
+        value[key] = _object_digest(projection["schema_version"], projection)
+    case["digest"] = _object_digest(value["schema_version"], value)
+
+
+def test_characterization_projection_positive_and_deferred_semantics(
+    characterization_projection: dict[str, Any],
+) -> None:
+    case = copy.deepcopy(characterization_projection)
+    module = _tool()
+    assert module.validate_characterization_input_projection(**case) == case["value"]
+    # The same outer content can carry an unvalidated semantic extension. A
+    # slash in semantic text is legal; this is not a beam-physics acceptance.
+    phase = case["value"]["phase_input_identity_manifest"]
+    phase["beam_rows"][0]["deferred_semantic_label"] = "example/token"
+    case["value"]["loaded_beam_manifest"]["beam_rows"] = copy.deepcopy(
+        phase["beam_rows"]
+    )
+    case["value"] = dict(reversed(list(case["value"].items())))
+    phase["mmode_dimensions"] = dict(reversed(list(phase["mmode_dimensions"].items())))
+    _projection_rehash(case)
+    assert module.validate_characterization_input_projection(**case) == case["value"]
+
+
+@pytest.mark.parametrize(
+    "container,key",
+    [
+        ("input", key)
+        for key in (
+            "schema_version family_id fixture_id phase_input_identity_manifest phase_input_identity_sha256 instrument_manifest instrument_sha256 receptor_manifest receptor_sha256 loaded_beam_manifest beam_loaded_fingerprint correlations polarization_basis frequencies_hz_f64be".split()
+        )
+    ]
+    + [
+        ("phase", key)
+        for key in (
+            "schema_version site_manifest site_sha256 iers_table_sha256 canonical_era_turn_grid canonical_era_turn_grid_sha256 canonical_era_grid canonical_era_grid_sha256 utc_manifest utc_sha256 ut1_manifest ut1_sha256 mmode_dimensions antenna_rows baseline_rows frequency_rows receptor_rows correlation_rows beam_rows sky_component_rows direction_input_rows jones_term_rows transfer_grid_catalog precision result_dtype convention_identity_sha256".split()
+        )
+    ],
+)
+@pytest.mark.parametrize("operation", ["missing", "extra"])
+def test_characterization_projection_closed_outer(
+    characterization_projection: dict[str, Any],
+    container: str,
+    key: str,
+    operation: str,
+) -> None:
+    case = copy.deepcopy(characterization_projection)
+    row = (
+        case["value"]
+        if container == "input"
+        else case["value"]["phase_input_identity_manifest"]
+    )
+    if operation == "missing":
+        del row[key]
+    else:
+        row[key + "_extra"] = row[key]
+        _projection_rehash(case)
+    with pytest.raises(_tool().EvidenceError) as caught:
+        _tool().validate_characterization_input_projection(**case)
+    assert caught.value.prefix == "SCI004_M3_EVIDENCE_SCHEMA"
+    label = "characterization input" + (" phase" if container == "phase" else "")
+    assert caught.value.detail.startswith(label + " must have exactly ")
+    field = key if operation == "missing" else key + "_extra"
+    reason = "missing" if operation == "missing" else "unknown"
+    assert f"; {reason} {[field]!r}" in caught.value.detail
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "phase_source",
+        "convention",
+        "instrument",
+        "receptor",
+        "beam",
+        "dimension_bool",
+        "dimension_float",
+        "diagnostic",
+        "rows_tuple",
+        "manifest_list",
+        "width",
+        "center",
+        "frequency_index",
+        "frequency_nan",
+        "frequency_hex",
+        "correlation_order",
+        "basis",
+        "solver_iers",
+        "time_jd1",
+        "time_jd2",
+        "time_width",
+        "locator",
+        "uppercase_digest",
+        "jones",
+        "baseline_count",
+    ],
+)
+def test_characterization_projection_rehashed_join_failures(
+    characterization_projection: dict[str, Any], mutation: str
+) -> None:
+    case = copy.deepcopy(characterization_projection)
+    value = case["value"]
+    phase = value["phase_input_identity_manifest"]
+    segments = [*case["common_segments"], case["solver_segment"]]
+    if mutation == "phase_source":
+        phase["site_manifest"]["extra"] = "contradiction"
+    elif mutation == "convention":
+        phase["convention_identity_sha256"] = "f" * 64
+    elif mutation in ("instrument", "receptor", "beam"):
+        name = {
+            "instrument": "instrument_manifest",
+            "receptor": "receptor_manifest",
+            "beam": "loaded_beam_manifest",
+        }[mutation]
+        nested = next(key for key in value[name] if key != "schema_version")
+        value[name][nested] = []
+    elif mutation in ("dimension_bool", "dimension_float", "diagnostic"):
+        phase["mmode_dimensions"]["qcheck"] = {
+            "dimension_bool": True,
+            "dimension_float": 16.0,
+            "diagnostic": 8,
+        }[mutation]
+    elif mutation == "rows_tuple":
+        phase["antenna_rows"] = tuple(phase["antenna_rows"])
+    elif mutation == "manifest_list":
+        phase["site_manifest"] = []
+    elif mutation in (
+        "width",
+        "center",
+        "frequency_nan",
+        "frequency_hex",
+        "frequency_index",
+    ):
+        row = phase["frequency_rows"][0]
+        key = "width_hz_f64be" if mutation == "width" else "center_hz_f64be"
+        row[key] = {
+            "width": struct.pack(">d", 1.0).hex(),
+            "center": struct.pack(">d", 2e8).hex(),
+            "frequency_nan": "7ff8000000000000",
+            "frequency_hex": "bad",
+            "frequency_index": row[key],
+        }[mutation]
+        if mutation == "frequency_index":
+            row["frequency_index"] = True
+    elif mutation == "correlation_order":
+        phase["correlation_rows"].reverse()
+    elif mutation == "basis":
+        value["polarization_basis"] = "circular_rl"
+    elif mutation == "solver_iers":
+        solver = json.loads(bytes.fromhex(case["solver_segment"]["payload_hex"]))
+        solver["iers_table_sha256"] = "f" * 64
+        _projection_segment(
+            segments,
+            "solver",
+            json.dumps(solver, sort_keys=True, separators=(",", ":")).encode(),
+        )
+    elif mutation.startswith("time_"):
+        tag = {
+            "time_jd1": "time.utc_jd1.data",
+            "time_jd2": "time.utc_jd2.data",
+            "time_width": "time.integration_time_seconds.data",
+        }[mutation]
+        _projection_segment(segments, tag, struct.pack("<d", 0.125) * 49)
+    elif mutation == "locator":
+        phase["direction_input_rows"][0]["Source_Path"] = "relative-token"
+    elif mutation == "jones":
+        phase["jones_term_rows"] = [{}]
+    elif mutation == "baseline_count":
+        phase["baseline_rows"].pop()
+        value["instrument_manifest"]["baseline_rows"] = copy.deepcopy(
+            phase["baseline_rows"]
+        )
+    _projection_rehash(case, join_source=mutation != "phase_source")
+    if mutation == "uppercase_digest":
+        value["phase_input_identity_sha256"] = value[
+            "phase_input_identity_sha256"
+        ].upper()
+        case["digest"] = _object_digest(value["schema_version"], value)
+    with pytest.raises(_tool().EvidenceError):
+        _tool().validate_characterization_input_projection(**case)
+
+
+def test_characterization_projection_signed_zero_width(
+    characterization_projection: dict[str, Any],
+) -> None:
+    case = copy.deepcopy(characterization_projection)
+    phase = case["value"]["phase_input_identity_manifest"]
+    phase["frequency_rows"][0]["width_hz_f64be"] = "8000000000000000"
+    _projection_rehash(case)
+    with pytest.raises(_tool().EvidenceError, match="channel_width_hz bits"):
+        _tool().validate_characterization_input_projection(**case)
+    _projection_segment(
+        case["common_segments"],
+        "channel_width_hz.data",
+        bytes.fromhex("0000000000000080"),
+    )
+    assert _tool().validate_characterization_input_projection(**case) == case["value"]
