@@ -1688,6 +1688,7 @@ def test_the_historical_and_post_source_generator_semantics_are_separate() -> No
     completed = subprocess.run(
         [sys.executable, str(tool_path), "generate"],
         cwd=REPOSITORY_ROOT,
+        env=_closed_fingerprint_replay_environment(REPOSITORY_ROOT),
         capture_output=True,
         check=False,
     )
@@ -2232,6 +2233,7 @@ def test_the_fingerprint_generator_refuses_to_overwrite_its_retained_record() ->
     completed = subprocess.run(
         [sys.executable, str(tool_path), "generate-fingerprint-post-source"],
         cwd=REPOSITORY_ROOT,
+        env=_closed_fingerprint_replay_environment(REPOSITORY_ROOT),
         capture_output=True,
         check=False,
     )
@@ -2244,9 +2246,15 @@ def test_the_fingerprint_generator_refuses_to_overwrite_its_retained_record() ->
 
 
 def _closed_fingerprint_replay_environment(worktree: Path) -> dict[str, str]:
-    replay_env = os.environ.copy()
+    replay_env = {
+        key: value
+        for key, value in _red_git_environment().items()
+        if not key.startswith(("PYTHON", "_PYTHON", "PYTEST_"))
+        and key != "__PYVENV_LAUNCHER__"
+    }
     replay_env["PYTHONPATH"] = str(worktree / "src")
     replay_env["PYTHONNOUSERSITE"] = "1"
+    replay_env["PYTHONSAFEPATH"] = "1"
     return replay_env
 
 
@@ -2704,6 +2712,24 @@ def test_the_fingerprint_replay_environment_replaces_inherited_import_paths(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv("PYTHONPATH", "/untrusted/editable/src")
+    blocked = (
+        "PYTHONHOME",
+        "PYTHONOPTIMIZE",
+        "PYTHONIOENCODING",
+        "PYTHONUSERBASE",
+        "_PYTHON_SYSCONFIGDATA_NAME",
+        "__PYVENV_LAUNCHER__",
+        "PYTEST_ADDOPTS",
+        "PYTEST_PLUGINS",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+        "PYTEST_CURRENT_TEST",
+        "GIT_DIR",
+    )
+    for key in blocked:
+        monkeypatch.setenv(key, "hostile inherited value")
+    monkeypatch.setenv("OMP_NUM_THREADS", "2")
+    monkeypatch.setenv("SCI004_ENV_CONTROL", "preserved")
+    parent = dict(os.environ)
     worktree = tmp_path / "detached"
 
     replay_env = _closed_fingerprint_replay_environment(worktree)
@@ -2711,6 +2737,135 @@ def test_the_fingerprint_replay_environment_replaces_inherited_import_paths(
     assert replay_env["PYTHONPATH"] == str(worktree / "src")
     assert replay_env["PYTHONNOUSERSITE"] == "1"
     assert "/untrusted/editable/src" not in replay_env["PYTHONPATH"]
+    assert replay_env["PYTHONSAFEPATH"] == "1"
+    assert not set(blocked).intersection(replay_env)
+    assert replay_env["OMP_NUM_THREADS"] == "2"
+    assert replay_env["SCI004_ENV_CONTROL"] == "preserved"
+    assert replay_env["PATH"] == parent["PATH"]
+    assert dict(os.environ) == parent
+
+
+@pytest.mark.parametrize(
+    "route", ["PYTHONPATH", "PYTHONUSERBASE", "PYTHONHOME", "PYTHONOPTIMIZE"]
+)
+def test_python_child_environment_blocks_native_startup_routes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, route: str
+) -> None:
+    for key in tuple(os.environ):
+        if (
+            key.startswith(("PYTHON", "_PYTHON", "PYTEST_"))
+            or key == "__PYVENV_LAUNCHER__"
+        ):
+            monkeypatch.delenv(key)
+    package = tmp_path / "src/radiosim"
+    package.mkdir(parents=True)
+    imported = package / "__init__.py"
+    _ = imported.write_text("# owned detached import fixture\n")
+    marker = tmp_path / "external-startup"
+    external = tmp_path / "external"
+    external.mkdir()
+    if route == "PYTHONUSERBASE":
+        monkeypatch.setenv(route, str(external))
+        located = subprocess.run(
+            [sys.executable, "-c", "import site; print(site.getusersitepackages())"],
+            cwd=tmp_path,
+            capture_output=True,
+            check=True,
+        )
+        external = Path(located.stdout.decode().strip())
+        assert external.is_relative_to(tmp_path)
+        external.mkdir(parents=True)
+    elif route == "PYTHONOPTIMIZE":
+        monkeypatch.setenv(route, "1")
+    else:
+        monkeypatch.setenv(route, str(external))
+    if route in {"PYTHONPATH", "PYTHONUSERBASE"}:
+        startup = "sitecustomize.py" if route == "PYTHONPATH" else "usercustomize.py"
+        _ = (external / startup).write_text(
+            f"from pathlib import Path; Path({str(marker)!r}).write_text('external')\n"
+        )
+    argv = [sys.executable, "-c", "import sys; print(sys.flags.optimize)"]
+    native = subprocess.run(argv, cwd=tmp_path, capture_output=True, check=False)
+    if route == "PYTHONHOME":
+        assert native.returncode != 0
+    elif route == "PYTHONOPTIMIZE":
+        assert native.returncode == 0 and native.stdout == b"1\n"
+    else:
+        assert native.returncode == 0 and marker.read_text() == "external"
+        marker.unlink()
+    safe = _closed_fingerprint_replay_environment(tmp_path)
+    checked = subprocess.run(
+        argv, cwd=tmp_path, env=safe, capture_output=True, check=False
+    )
+    assert checked.returncode == 0 and checked.stdout == b"0\n"
+    assert checked.stderr == b"" and not marker.exists()
+    assert _preflight_fingerprint_replay_import(tmp_path, safe) == imported
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("route", ["PYTEST_ADDOPTS", "PYTEST_PLUGINS"])
+def test_python_child_environment_preserves_pytest_defaults_without_injection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, route: str
+) -> None:
+    for key in tuple(os.environ):
+        if (
+            key.startswith(("PYTHON", "_PYTHON", "PYTEST_"))
+            or key == "__PYVENV_LAUNCHER__"
+        ):
+            monkeypatch.delenv(key)
+    source = tmp_path / "src"
+    source.mkdir()
+    monkeypatch.setenv("PYTHONPATH", str(source))
+    marker = tmp_path / "plugin-marker"
+    _ = (source / "hostile_plugin.py").write_text(
+        f"from pathlib import Path; Path({str(marker)!r}).write_text('loaded')\n"
+    )
+    report = tmp_path / "plugins.json"
+    test = tmp_path / "test_child.py"
+    _ = test.write_text(
+        "import json\nfrom pathlib import Path\n"
+        "def test_child(request):\n"
+        "    names = sorted(d.project_name for _, d in request.config.pluginmanager.list_plugin_distinfo())\n"
+        f"    Path({str(report)!r}).write_text(json.dumps(names))\n"
+    )
+    junit = tmp_path / "junit.xml"
+    argv = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:randomly",
+        "-p",
+        "no:xdist",
+        "--junit-xml",
+        str(junit),
+        str(test),
+    ]
+    reference = subprocess.run(argv, cwd=tmp_path, capture_output=True, check=False)
+    assert reference.returncode == 0
+    expected_plugins = report.read_bytes()
+    assert json.loads(expected_plugins), "trusted environment autoload positive control"
+    monkeypatch.setenv(
+        route, "-k absent_test" if route == "PYTEST_ADDOPTS" else "hostile_plugin"
+    )
+    native = subprocess.run(argv, cwd=tmp_path, capture_output=True, check=False)
+    if route == "PYTEST_ADDOPTS":
+        assert native.returncode == 5
+    else:
+        assert native.returncode == 0 and marker.read_text() == "loaded"
+        marker.unlink()
+    # Also refuse inherited autoload disablement; preserve the clean reference.
+    monkeypatch.setenv("PYTEST_DISABLE_PLUGIN_AUTOLOAD", "1")
+    safe = _closed_fingerprint_replay_environment(tmp_path)
+    checked = subprocess.run(
+        argv, cwd=tmp_path, env=safe, capture_output=True, check=False
+    )
+    assert checked.returncode == 0, checked.stderr.decode("utf-8", "replace")
+    assert not marker.exists() and report.read_bytes() == expected_plugins
+    cases = list(ElementTree.parse(junit).iter("testcase"))
+    assert len(cases) == 1 and cases[0].get("name") == "test_child"
+    assert not list(cases[0])
 
 
 def test_the_fingerprint_import_preflight_selects_only_detached_source(
