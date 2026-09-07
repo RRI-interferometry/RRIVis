@@ -79,13 +79,15 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+
+SCI004_R3_TERMINAL_SHA = "567f9ac68730044fc8e887930d3531d794534412"
 
 PHASE = "M3"
 EVIDENCE_SCHEMA = "radiosim.sci004.mmode-phase3-evidence.v1"
@@ -3106,6 +3108,668 @@ def preflight(
     }
 
 
+# Fixed schema expectations are checks against actual producer/validator ASTs,
+# not a declaration that an intermediate source commit is ready.
+_SOURCE_CONTRACT_KEYS: dict[str, tuple[str, ...]] = {
+    "results": tuple(
+        "dependency_certificate output_cases fingerprint_rows "
+        "ci_artifacts performance_record release_scan_cases "
+        "rejection_cases".split()
+    ),
+    "phase": tuple(
+        "schema_version site_manifest site_sha256 "
+        "iers_table_sha256 canonical_era_turn_grid "
+        "canonical_era_turn_grid_sha256 canonical_era_grid "
+        "canonical_era_grid_sha256 utc_manifest utc_sha256 "
+        "ut1_manifest ut1_sha256 mmode_dimensions antenna_rows "
+        "baseline_rows frequency_rows receptor_rows "
+        "correlation_rows beam_rows sky_component_rows "
+        "direction_input_rows jones_term_rows "
+        "transfer_grid_catalog precision result_dtype "
+        "convention_identity_sha256".split()
+    ),
+    "input": tuple(
+        "schema_version family_id fixture_id "
+        "phase_input_identity_manifest phase_input_identity_sha256 "
+        "instrument_manifest instrument_sha256 receptor_manifest "
+        "receptor_sha256 loaded_beam_manifest "
+        "beam_loaded_fingerprint correlations polarization_basis "
+        "frequencies_hz_f64be".split()
+    ),
+    "record": tuple(
+        "family_id raw_cube_sha256 scientific_sha256 "
+        "solver_snapshot characterization_time_manifest "
+        "era_utc_grid_sha256 harmonic_index_table_sha256 "
+        "characterization_input_manifest input_identity_sha256".split()
+    ),
+    "fingerprint": tuple(
+        "family_id fixture_id characterization_input_manifest "
+        "input_identity_sha256 characterization_time_manifest "
+        "era_utc_grid_sha256 solver_snapshot "
+        "solver_snapshot_sha256 cube_sha256 scientific_sha256 "
+        "expected_change_reason pass".split()
+    ),
+    "envelope": tuple(
+        "schema_version phase status generated_at_utc design_sha "
+        "red_commit_sha source_sha phase_ranges "
+        "evidence_commit_sha evidence_commit_sha_reason "
+        "working_tree_clean environment source_identities "
+        "red_failure_record results commands limitations "
+        "claims_not_licensed".split()
+    ),
+    "red": tuple(
+        "path sha256 schema_version pre_fix_source_sha validated "
+        "post_source_delta fingerprint_post_source_delta".split()
+    ),
+}
+_SOURCE_SENTINELS: dict[str, tuple[str, ...]] = {
+    "tests/unit/test_sci004_phase3_evidence.py": (
+        "APPROVED_SOURCE_SHA",
+        "APPROVED_ARTIFACT_SHA256",
+        "APPROVED_PERFORMANCE_PATH",
+        "APPROVED_PERFORMANCE_SHA256",
+    ),
+    "tests/unit/test_sci004_phase3_acceptance.py": (
+        "APPROVED_EVIDENCE_SHA",
+        "APPROVED_ACCEPTANCE_ARTIFACT_SHA256",
+    ),
+}
+
+
+def _source_tree(head: str, relative: str) -> ast.Module:
+    completed = subprocess.run(
+        ["git", "show", f"{head}:{relative}"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    _require(
+        completed.returncode == 0, PREFLIGHT, f"missing committed source: {relative}"
+    )
+    raw = completed.stdout
+    path = REPOSITORY_ROOT / relative
+    _require(
+        path.is_file() and not path.is_symlink() and path.read_bytes() == raw,
+        PREFLIGHT,
+        f"source contract differs from committed HEAD: {relative}",
+    )
+    try:
+        return ast.parse(raw)
+    except (SyntaxError, ValueError) as error:
+        raise EvidenceError(
+            PREFLIGHT, f"invalid source contract AST: {relative}"
+        ) from error
+
+
+def _source_binding(
+    tree: ast.AST, name: str, *, body_owner: ast.With | None = None
+) -> ast.AST:
+    bindings = [
+        node
+        for node in ast.walk(tree)
+        if (
+            isinstance(node, ast.Name)
+            and node.id == name
+            and isinstance(node.ctx, (ast.Store, ast.Del))
+            or isinstance(
+                node,
+                (
+                    ast.FunctionDef,
+                    ast.AsyncFunctionDef,
+                    ast.ClassDef,
+                    ast.ExceptHandler,
+                    ast.MatchAs,
+                    ast.MatchStar,
+                ),
+            )
+            and node.name == name
+            or isinstance(node, ast.arg)
+            and node.arg == name
+            or isinstance(node, ast.alias)
+            and (node.name == "*" or (node.asname or node.name.split(".")[0]) == name)
+            or isinstance(node, ast.MatchMapping)
+            and node.rest == name
+        )
+    ]
+    _require(
+        len(bindings) == 1, PREFLIGHT, f"source contract binding must be unique: {name}"
+    )
+    owner = body_owner if body_owner is not None else tree
+    body = (
+        owner.body if isinstance(owner, (ast.Module, ast.FunctionDef, ast.With)) else []
+    )
+    values = [
+        node.value
+        for node in body
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+            or isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == name
+        )
+    ]
+    if len(values) == 1 and values[0] is not None:
+        return values[0]
+    definitions = [
+        node for node in body if isinstance(node, ast.FunctionDef) and node.name == name
+    ]
+    _require(
+        len(definitions) == 1,
+        PREFLIGHT,
+        f"source contract needs direct definition: {name}",
+    )
+    return definitions[0]
+
+
+def _source_literal(tree: ast.Module, name: str, expected: object) -> None:
+    value = _source_binding(tree, name)
+    try:
+        observed = ast.literal_eval(value)
+    except (ValueError, TypeError) as error:
+        raise EvidenceError(
+            PREFLIGHT, f"source contract requires literal {name}"
+        ) from error
+    _require(
+        type(observed) is type(expected) and observed == expected,
+        PREFLIGHT,
+        f"source contract literal mismatch: {name}",
+    )
+
+
+def _source_function(tree: ast.Module, name: str) -> ast.FunctionDef:
+    node = _source_binding(tree, name)
+    _require(
+        isinstance(node, ast.FunctionDef),
+        PREFLIGHT,
+        f"source contract function: {name}",
+    )
+    return cast(ast.FunctionDef, node)
+
+
+def _source_dict(node: ast.AST, keys: tuple[str, ...]) -> ast.Dict:
+    _require(
+        isinstance(node, ast.Dict),
+        PREFLIGHT,
+        "source contract needs actual producer dictionary",
+    )
+    value = cast(ast.Dict, node)
+    observed = tuple(
+        key.value if isinstance(key, ast.Constant) else None for key in value.keys
+    )
+    _require(observed == keys, PREFLIGHT, "source contract producer dictionary keys")
+    return value
+
+
+def _source_terminal_return(function: ast.FunctionDef) -> ast.Return:
+    returns = [node for node in ast.walk(function) if isinstance(node, ast.Return)]
+    _require(
+        len(returns) == 1
+        and function.body[-1] is returns[0]
+        and not any(
+            isinstance(node, (ast.Yield, ast.YieldFrom)) for node in ast.walk(function)
+        )
+        and not any(isinstance(node, ast.Raise) for node in function.body),
+        PREFLIGHT,
+        f"source contract requires one terminal return: {function.name}",
+    )
+    return returns[0]
+
+
+def _source_return(function: ast.FunctionDef, keys: tuple[str, ...]) -> ast.Dict:
+    value = _source_terminal_return(function).value
+    if isinstance(value, ast.Name):
+        name = value.id
+        value = _source_binding(function, name)
+        _ = _source_dict(value, keys)
+        definition = next(
+            index
+            for index, node in enumerate(function.body)
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is value
+        )
+        suffix = function.body[definition + 1 : -1]
+        # A retained dictionary may only cross the donor's immutable shape guard
+        # before return: no alias, escape, descriptor call or indirect mutation.
+        constants = {
+            "mmode_characterization_record": "MMODE_CHARACTERIZATION_RECORD_KEYS",
+            "_characterization_input_manifest": "_CHARACTERIZATION_INPUT_KEYS",
+        }
+        if suffix:
+            _require(
+                function.name in constants
+                and len(suffix) == 1
+                and isinstance(suffix[0], ast.If),
+                PREFLIGHT,
+                "source contract returned dictionary suffix",
+            )
+            guard = cast(ast.If, suffix[0])
+            _source_expression(
+                guard.test, f"tuple({name}) != {constants[function.name]}"
+            )
+            _require(
+                not guard.orelse
+                and len(guard.body) == 1
+                and isinstance(guard.body[0], ast.Raise),
+                PREFLIGHT,
+                "source contract immutable shape guard",
+            )
+            rejection = cast(ast.Raise, guard.body[0])
+            error = rejection.exc
+            _require(
+                rejection.cause is None
+                and isinstance(error, ast.Call)
+                and isinstance(error.func, ast.Name)
+                and error.func.id == "InvalidResultError"
+                and not error.keywords
+                and len(error.args) == 1
+                and isinstance(error.args[0], ast.Constant)
+                and type(error.args[0].value) is str,
+                PREFLIGHT,
+                "source contract immutable shape rejection",
+            )
+    return _source_dict(value if value is not None else ast.Constant(None), keys)
+
+
+def _source_expression(node: ast.AST, expression: str) -> None:
+    _require(
+        ast.dump(node) == ast.dump(ast.parse(expression, mode="eval").body),
+        PREFLIGHT,
+        "source contract value wiring",
+    )
+
+
+def _source_has_call(function: ast.FunctionDef, expression: str) -> None:
+    _ = _source_terminal_return(function)
+    expected = ast.dump(ast.parse(expression, mode="eval").body)
+    # Direct executable statements only: an unused nested function or if-False
+    # call cannot stand in for validator wiring.
+    calls = [
+        node
+        for statement in function.body
+        if isinstance(statement, (ast.Assign, ast.AnnAssign, ast.Expr))
+        for node in [statement.value]
+        if isinstance(node, ast.Call)
+    ]
+    _require(
+        any(ast.dump(node) == expected for node in calls),
+        PREFLIGHT,
+        f"source contract call wiring: {function.name}",
+    )
+
+
+def _require_source_schema_contract(head: str) -> None:
+    result = _source_tree(head, "src/radiosim/core/result.py")
+    producer = _source_tree(head, "tools/sci004_mmode_phase3_evidence.py")
+    oracle = _source_tree(head, "tests/unit/test_sci004_phase3_evidence.py")
+    _source_literal(
+        result,
+        "MMODE_CHARACTERIZATION_INPUT_DOMAIN",
+        "radiosim.sci004.characterization-input.v2",
+    )
+    _source_literal(
+        result, "_MMODE_PHASE_INPUT_DOMAIN", "radiosim.mmode-input-identity.v1"
+    )
+    for name, key in (
+        ("MMODE_CHARACTERIZATION_RECORD_KEYS", "record"),
+        ("_CHARACTERIZATION_INPUT_KEYS", "input"),
+        ("_MMODE_PHASE_INPUT_KEYS", "phase"),
+    ):
+        _source_literal(result, name, _SOURCE_CONTRACT_KEYS[key])
+    factory = _source_function(result, "mmode_characterization_record")
+    for name in ("family_id", "phase_input_identity_manifest"):
+        required = dict(
+            zip(
+                (arg.arg for arg in factory.args.kwonlyargs),
+                factory.args.kw_defaults,
+                strict=True,
+            )
+        )
+        _require(
+            name in required and required[name] is None,
+            PREFLIGHT,
+            f"source contract required keyword: {name}",
+        )
+    record = _source_return(factory, _SOURCE_CONTRACT_KEYS["record"])
+    _source_expression(
+        _source_binding(factory, "characterization_input"),
+        "_characterization_input_manifest(result, family_id, "
+        "phase_input_identity_manifest)",
+    )
+    _source_expression(record.values[7], "characterization_input")
+    _source_expression(
+        record.values[8],
+        "object_digest(MMODE_CHARACTERIZATION_INPUT_DOMAIN, characterization_input)",
+    )
+    _source_has_call(
+        factory,
+        "_characterization_input_manifest(result, family_id, "
+        "phase_input_identity_manifest)",
+    )
+    inputs = _source_function(result, "_characterization_input_manifest")
+    input_record = _source_return(inputs, _SOURCE_CONTRACT_KEYS["input"])
+    _source_expression(input_record.values[0], "MMODE_CHARACTERIZATION_INPUT_DOMAIN")
+    _source_expression(input_record.values[3], "phase")
+    _source_expression(input_record.values[4], "phase_digest")
+    _source_expression(
+        _source_binding(inputs, "phase_digest"),
+        "object_digest(_MMODE_PHASE_INPUT_DOMAIN, phase)",
+    )
+    _source_expression(
+        _source_binding(inputs, "phase"),
+        "_characterization_mapping(phase_input_identity_manifest, "
+        "_MMODE_PHASE_INPUT_KEYS, "
+        'field_name="phase_input_identity_manifest")',
+    )
+    _source_has_call(
+        inputs,
+        "_characterization_mapping(phase_input_identity_manifest, "
+        "_MMODE_PHASE_INPUT_KEYS, "
+        'field_name="phase_input_identity_manifest")',
+    )
+    schema_test = ast.dump(
+        ast.parse(
+            'phase["schema_version"] != _MMODE_PHASE_INPUT_DOMAIN', mode="eval"
+        ).body
+    )
+    _require(
+        any(
+            isinstance(node, ast.If)
+            and ast.dump(node.test) == schema_test
+            and any(isinstance(child, ast.Raise) for child in node.body)
+            for node in inputs.body
+        ),
+        PREFLIGHT,
+        "source contract phase domain enforcement",
+    )
+    for tree in (producer, oracle):
+        for name, key in (
+            ("ENVELOPE_KEYS", "envelope"),
+            ("FINGERPRINT_ROW_KEYS", "fingerprint"),
+            ("RED_FAILURE_RECORD_KEYS", "red"),
+        ):
+            if tree is producer or name != "RED_FAILURE_RECORD_KEYS":
+                _source_literal(tree, name, _SOURCE_CONTRACT_KEYS[key])
+    _source_literal(
+        producer,
+        "SECTION_11_FAMILIES",
+        (
+            "mmode_single_scalar_mode",
+            "mmode_point_stokes_i",
+            "mmode_point_full_stokes",
+            "mmode_circular_receptor",
+        ),
+    )
+    generation = _source_function(producer, "build_phase3_evidence")
+    _ = _source_terminal_return(generation)
+    workspaces = [node for node in generation.body if isinstance(node, ast.With)]
+    _require(
+        len(workspaces) == 1 and len(workspaces[0].items) == 1,
+        PREFLIGHT,
+        "source contract generation workspace",
+    )
+    workspace = workspaces[0]
+    _source_expression(workspace.items[0].context_expr, "tempfile.TemporaryDirectory()")
+    _require(
+        ast.dump(workspace.items[0].optional_vars or ast.Constant(None))
+        == ast.dump(ast.Name(id="scratch", ctx=ast.Store())),
+        PREFLIGHT,
+        "source contract generation workspace binding",
+    )
+    generated_rows = _source_binding(
+        generation, "fingerprint_rows", body_owner=workspace
+    )
+    _source_expression(generated_rows, "_fingerprint_rows(results, bundles)")
+    groups = _source_binding(generation, "groups", body_owner=workspace)
+    _source_expression(groups, "{}")
+    ordered_values: list[ast.AST | None] = [
+        node.value
+        for node in workspace.body
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+    ]
+    _require(
+        ordered_values.index(generated_rows) < ordered_values.index(groups),
+        PREFLIGHT,
+        "source contract fingerprint preparation precedes measurement",
+    )
+    document = _source_dict(
+        _source_binding(generation, "document"), _SOURCE_CONTRACT_KEYS["envelope"]
+    )
+    results = _source_dict(
+        document.values[_SOURCE_CONTRACT_KEYS["envelope"].index("results")],
+        _SOURCE_CONTRACT_KEYS["results"],
+    )
+    _source_expression(
+        results.values[_SOURCE_CONTRACT_KEYS["results"].index("fingerprint_rows")],
+        "fingerprint_rows",
+    )
+    value = document.values[_SOURCE_CONTRACT_KEYS["envelope"].index("phase_ranges")]
+    _require(
+        ast.dump(value)
+        == ast.dump(ast.parse('state["phase_ranges"]', mode="eval").body),
+        PREFLIGHT,
+        "source contract generated range binding",
+    )
+    _ = _source_return(
+        _source_function(producer, "_red_failure_record_reference"),
+        _SOURCE_CONTRACT_KEYS["red"],
+    )
+    fingerprint = _source_function(producer, "_fingerprint_rows")
+    _source_expression(
+        _source_terminal_return(fingerprint).value or ast.Constant(None), "rows"
+    )
+    body = fingerprint.body
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and type(body[0].value.value) is str
+    ):
+        body = body[1:]
+    # Authenticate the complete small producer, including import ownership,
+    # same-family result/input joins, iteration and the actual returned list.
+    _require(len(body) == 4, PREFLIGHT, "source contract fingerprint body")
+    _require(
+        ast.dump(body[0])
+        == ast.dump(
+            ast.parse(
+                "from radiosim.core.result import mmode_characterization_record"
+            ).body[0]
+        ),
+        PREFLIGHT,
+        "source contract fingerprint factory import",
+    )
+    _require(
+        ast.dump(body[1]) == ast.dump(ast.parse("rows = []").body[0]),
+        PREFLIGHT,
+        "source contract fingerprint output initialization",
+    )
+    _require(
+        isinstance(body[2], ast.For), PREFLIGHT, "source contract fingerprint iteration"
+    )
+    loop = cast(ast.For, body[2])
+    _require(
+        ast.dump(loop.target) == ast.dump(ast.Name(id="family_id", ctx=ast.Store()))
+        and not loop.orelse
+        and len(loop.body) == 3,
+        PREFLIGHT,
+        "source contract fingerprint iteration target/body",
+    )
+    _source_expression(loop.iter, "SECTION_11_FAMILIES")
+    for statement, expected in zip(
+        loop.body[:2],
+        (
+            "result = results[family_id]",
+            "record = mmode_characterization_record(result, "
+            "family_id=family_id, "
+            "phase_input_identity_manifest=bundles[family_id]['inpu"
+            "t_identity_manifest'])",
+        ),
+        strict=True,
+    ):
+        _require(
+            ast.dump(statement) == ast.dump(ast.parse(expected).body[0]),
+            PREFLIGHT,
+            "source contract fingerprint same-family input/result",
+        )
+    append = loop.body[2]
+    _require(
+        isinstance(append, ast.Expr) and isinstance(append.value, ast.Call),
+        PREFLIGHT,
+        "source contract fingerprint producer",
+    )
+    call = cast(ast.Call, cast(ast.Expr, append).value)
+    _source_expression(call.func, "rows.append")
+    _require(
+        len(call.args) == 1 and not call.keywords,
+        PREFLIGHT,
+        "source contract fingerprint append",
+    )
+    _ = _source_dict(call.args[0], _SOURCE_CONTRACT_KEYS["fingerprint"])
+    validator = _source_function(producer, "validate_evidence_artifact")
+    _source_has_call(
+        validator,
+        'history.validate_phase_ranges(envelope["phase_ranges"], '
+        'design_sha=envelope["design_sha"], '
+        'red_sha=envelope["red_commit_sha"], '
+        'source_sha=envelope["source_sha"], root=REPOSITORY_ROOT)',
+    )
+
+
+def source_readiness(source_sha: str | None, declared: Sequence[str]) -> dict[str, Any]:
+    """Require D31's complete source boundary before any evidence measurement.
+
+    This checks structural source readiness. Full source tests and independent
+    review remain mandatory; an AST check cannot establish scientific acceptance.
+    """
+    state = preflight(source_sha, declared)
+    red = _red_commit_sha()
+    from tools import sci004_phase3_history as history
+
+    try:
+        for relative in history.DISPOSAL_PINS:
+            path = REPOSITORY_ROOT / relative
+            _require(
+                not path.exists() and not path.is_symlink(),
+                PREFLIGHT,
+                f"rejected output remains at source: {relative}",
+            )
+        ranges = {
+            phase: history.describe_phase_range(
+                base, terminal, phase, root=REPOSITORY_ROOT
+            )
+            for phase, base, terminal in (
+                ("prerequisite", history.DESIGN_SHA, history.PREREQUISITE_TIP_SHA),
+                ("red", history.PREREQUISITE_TIP_SHA, red),
+                ("source", red, state["source_sha"]),
+            )
+        }
+        history.validate_phase_ranges(
+            ranges,
+            design_sha=_design_sha(),
+            red_sha=red,
+            source_sha=state["source_sha"],
+            root=REPOSITORY_ROOT,
+        )
+        for relative in history.SOURCE_PATHS:
+            _ = _source_tree(state["source_sha"], relative)
+        for relative, names in _SOURCE_SENTINELS.items():
+            tree = _source_tree(state["source_sha"], relative)
+            for name in names:
+                _source_literal(tree, name, None)
+        _require_source_schema_contract(state["source_sha"])
+    except history.HistoryError as error:
+        raise EvidenceError(
+            PREFLIGHT, f"source history does not authenticate: {error}"
+        ) from error
+    return {**state, "red_commit_sha": red, "phase_ranges": ranges}
+
+
+def _require_generation_source_imports() -> None:
+    """Bind the actual imported scientific entry points to this source checkout."""
+    import importlib
+    import inspect
+    from dataclasses import MISSING, fields, is_dataclass
+
+    root = REPOSITORY_ROOT.resolve(strict=True)
+    modules: dict[str, Any] = {}
+    for name, relative in (
+        ("radiosim", "src/radiosim/__init__.py"),
+        ("radiosim.core.result", "src/radiosim/core/result.py"),
+        ("radiosim.core.mmode.solver", "src/radiosim/core/mmode/solver.py"),
+        ("radiosim.core.mmode.types", "src/radiosim/core/mmode/types.py"),
+    ):
+        try:
+            module = importlib.import_module(name)
+            origin = module.__file__
+            resolved = Path(origin).resolve(strict=True) if origin is not None else None
+        except (ImportError, OSError) as error:
+            raise EvidenceError(
+                PREFLIGHT, f"generation import cannot authenticate: {name}"
+            ) from error
+        _require(
+            resolved == root / relative,
+            PREFLIGHT,
+            f"generation import belongs to another checkout: {name}",
+        )
+        modules[name] = module
+    result = modules["radiosim.core.result"]
+    keys = getattr(result, "MMODE_CHARACTERIZATION_RECORD_KEYS", None)
+    _require(
+        getattr(result, "MMODE_CHARACTERIZATION_INPUT_DOMAIN", None)
+        == "radiosim.sci004.characterization-input.v2"
+        and type(keys) is tuple
+        and keys == _SOURCE_CONTRACT_KEYS["record"],
+        PREFLIGHT,
+        "generation loaded result schema is not v2",
+    )
+    try:
+        factory = getattr(result, "mmode_characterization_record", None)
+        _require(
+            callable(factory), PREFLIGHT, "generation loaded factory is not callable"
+        )
+        signature = inspect.signature(cast(Callable[..., Any], factory))
+    except (TypeError, ValueError) as error:
+        raise EvidenceError(
+            PREFLIGHT, "generation loaded factory has no valid signature"
+        ) from error
+    for name in ("family_id", "phase_input_identity_manifest"):
+        parameter = signature.parameters.get(name)
+        _require(
+            parameter is not None
+            and parameter.kind is inspect.Parameter.KEYWORD_ONLY
+            and parameter.default is inspect.Parameter.empty,
+            PREFLIGHT,
+            f"generation loaded factory requires keyword: {name}",
+        )
+    snapshot = getattr(
+        modules["radiosim.core.mmode.solver"], "MModeSolverSnapshot", None
+    )
+    _require(
+        isinstance(snapshot, type) and is_dataclass(snapshot),
+        PREFLIGHT,
+        "generation loaded snapshot is not a dataclass",
+    )
+    identity = [
+        field
+        for field in fields(cast(Any, snapshot))
+        if field.name == "input_identity_sha256"
+    ]
+    _require(
+        len(identity) == 1
+        and identity[0].default is MISSING
+        and identity[0].default_factory is MISSING
+        and identity[0].type in (str, "str")
+        and getattr(
+            getattr(cast(Any, snapshot), "__dataclass_params__", None), "frozen", False
+        )
+        is True,
+        PREFLIGHT,
+        "generation loaded snapshot lacks required immutable input identity",
+    )
+
+
 def require_declared_outputs_only(declared: Sequence[str]) -> None:
     """Require the repository's only new paths to equal the declared set."""
     status = _git("status", "--porcelain=v1", "--untracked-files=all")
@@ -4029,19 +4693,21 @@ def _workload_rows(
 
 def build_phase3_evidence(source_sha: str | None) -> int:
     """Measure, validate and publish the phase-M3 declared output set."""
+    started = datetime.now(UTC)
+    recorded_at_utc = started.strftime("%Y-%m-%dT%H:%M:%SZ")
+    host_tag = _host_tag()
+    performance_path = performance_record_path(recorded_at_utc, host_tag)
+    declared = (performance_path, EVIDENCE_ARTIFACT)
+    state = source_readiness(source_sha, declared)
+    red_commit_sha = state["red_commit_sha"]
+    _require_generation_source_imports()
+
     from importlib.resources import files
 
     import numpy as np
 
     from radiosim.core.mmode.types import CONVENTION_IDENTITY
 
-    started = datetime.now(UTC)
-    recorded_at_utc = started.strftime("%Y-%m-%dT%H:%M:%SZ")
-    host_tag = _host_tag()
-    performance_path = performance_record_path(recorded_at_utc, host_tag)
-    declared = (performance_path, EVIDENCE_ARTIFACT)
-    state = preflight(source_sha, declared)
-    red_commit_sha = _red_commit_sha()
     red_failure_record = _red_failure_record_reference(red_commit_sha)
 
     iers_sha256 = hashlib.sha256(

@@ -3571,3 +3571,599 @@ def test_the_reproduction_record_states_the_own_environment_requirement() -> Non
         assert token in text, token
     assert TOOL in text
     assert str(APPROVED_PERFORMANCE_PATH) in text
+
+
+# First-S readiness is structural and generation-only; these fixtures never solve.
+def _ready_source_blobs(module):
+    keys = module._SOURCE_CONTRACT_KEYS
+
+    def literal_dict(kind, values=None):
+        replacements = values or {}
+        return (
+            "{"
+            + ", ".join(
+                f"{key!r}: {replacements.get(key, 'None')}" for key in keys[kind]
+            )
+            + "}"
+        )
+
+    input_literal = literal_dict(
+        "input",
+        {
+            "schema_version": "MMODE_CHARACTERIZATION_INPUT_DOMAIN",
+            "phase_input_identity_manifest": "phase",
+            "phase_input_identity_sha256": "phase_digest",
+        },
+    )
+    record_literal = literal_dict(
+        "record",
+        {
+            "characterization_input_manifest": "characterization_input",
+            "input_identity_sha256": "object_digest(MMODE_CHARACTERIZATION_INPUT_"
+            "DOMAIN, characterization_input)",
+        },
+    )
+    result = (
+        "MMODE_CHARACTERIZATION_INPUT_DOMAIN = "
+        "'radiosim.sci004.characterization-input.v2'\n"
+        "_MMODE_PHASE_INPUT_DOMAIN = 'radiosim.mmode-input-identity.v1'\n"
+        + "".join(
+            f"{name} = {keys[kind]!r}\n"
+            for name, kind in (
+                ("MMODE_CHARACTERIZATION_RECORD_KEYS", "record"),
+                ("_CHARACTERIZATION_INPUT_KEYS", "input"),
+                ("_MMODE_PHASE_INPUT_KEYS", "phase"),
+            )
+        )
+        + "def _characterization_input_manifest(result, family_id, "
+        "phase_input_identity_manifest):\n"
+        "    phase = _characterization_mapping(phase_input_identity"
+        "_manifest, _MMODE_PHASE_INPUT_KEYS, "
+        "field_name='phase_input_identity_manifest')\n"
+        "    if phase['schema_version'] != "
+        "_MMODE_PHASE_INPUT_DOMAIN:\n        raise "
+        "ValueError('schema')\n"
+        "    phase_digest = object_digest(_MMODE_PHASE_INPUT_DOMAIN, phase)\n"
+        f"    manifest = {input_literal}\n"
+        "    if tuple(manifest) != _CHARACTERIZATION_INPUT_KEYS:\n  "
+        "      raise InvalidResultError('shape')\n"
+        "    return manifest\n"
+        "def mmode_characterization_record(result, *, family_id, "
+        "phase_input_identity_manifest):\n"
+        "    characterization_input = "
+        "_characterization_input_manifest(result, family_id, "
+        "phase_input_identity_manifest)\n"
+        f"    record = {record_literal}\n"
+        "    if tuple(record) != "
+        "MMODE_CHARACTERIZATION_RECORD_KEYS:\n        raise "
+        "InvalidResultError('shape')\n"
+        "    return record\n"
+    )
+    declarations = (
+        "SECTION_11_FAMILIES = ('mmode_single_scalar_mode', "
+        "'mmode_point_stokes_i', 'mmode_point_full_stokes', "
+        "'mmode_circular_receptor')\n"
+        + "".join(
+            f"{name} = {keys[kind]!r}\n"
+            for name, kind in (
+                ("ENVELOPE_KEYS", "envelope"),
+                ("FINGERPRINT_ROW_KEYS", "fingerprint"),
+                ("RED_FAILURE_RECORD_KEYS", "red"),
+            )
+        )
+    )
+    results_literal = literal_dict("results", {"fingerprint_rows": "fingerprint_rows"})
+    document_literal = literal_dict(
+        "envelope",
+        {"phase_ranges": "state['phase_ranges']", "results": results_literal},
+    )
+    tool = declarations + (
+        "def build_phase3_evidence(source_sha):\n"
+        "    with tempfile.TemporaryDirectory() as scratch:\n"
+        "        fingerprint_rows = _fingerprint_rows(results, bundles)\n"
+        "        groups = {}\n"
+        f"    document = {document_literal}\n    return document\n"
+        "def _red_failure_record_reference(red):\n"
+        f"    return {literal_dict('red')}\n"
+        "def _fingerprint_rows(results, bundles):\n    from "
+        "radiosim.core.result import "
+        "mmode_characterization_record\n    rows = []\n    for "
+        "family_id in SECTION_11_FAMILIES:\n"
+        "        result = results[family_id]\n"
+        "        record = mmode_characterization_record(result, "
+        "family_id=family_id, "
+        "phase_input_identity_manifest=bundles[family_id]['input_id"
+        "entity_manifest'])\n"
+        f"        rows.append({literal_dict('fingerprint')})\n    return rows\n"
+        "def validate_evidence_artifact(document):\n    envelope = "
+        "validate_evidence_document(document)\n"
+        "    history.validate_phase_ranges(envelope['phase_ranges']"
+        ", design_sha=envelope['design_sha'], "
+        "red_sha=envelope['red_commit_sha'], "
+        "source_sha=envelope['source_sha'], root=REPOSITORY_ROOT)\n"
+        "    return envelope\n"
+    )
+    blobs = {"src/radiosim/core/result.py": result, TOOL: tool}
+    for path, names in module._SOURCE_SENTINELS.items():
+        blobs[path] = "".join(f"{name}: str | None = None\n" for name in names)
+    blobs[VALIDATOR] += declarations
+    return blobs
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "v1",
+        "old_return",
+        "optional_input",
+        "input_schema",
+        "phase_schema",
+        "old_fingerprint",
+        "missing_third",
+        "missing_ranges",
+        "wrong_ranges",
+        "unwired_ranges",
+        "decoy_ranges",
+        "wrong_family",
+        "lambda_ranges",
+        "short_circuit_ranges",
+        "false_schema_literal",
+    ],
+)
+def test_source_readiness_checks_actual_schema_and_wiring(monkeypatch, mutation):
+    import ast
+
+    module = _tool()
+    blobs = _ready_source_blobs(module)
+    result = "src/radiosim/core/result.py"
+    if mutation == "v1":
+        blobs[result] = blobs[result].replace(
+            "characterization-input.v2", "characterization-input.v1"
+        )
+    elif mutation == "old_return":
+        blobs[result] = blobs[result].replace(
+            "'characterization_input_manifest': characterization_input, ", ""
+        )
+    elif mutation == "optional_input":
+        blobs[result] = blobs[result].replace(
+            "*, family_id, phase_input_identity_manifest)",
+            "*, family_id, phase_input_identity_manifest=None)",
+        )
+    elif mutation in ("input_schema", "phase_schema"):
+        blobs[result] = (
+            blobs[result].replace("'polarization_basis', ", "")
+            if mutation == "input_schema"
+            else blobs[result].replace("'sky_component_rows', ", "")
+        )
+    elif mutation == "old_fingerprint":
+        blobs[TOOL] = blobs[TOOL].replace(
+            "'characterization_time_manifest': None, ", ""
+        )
+    elif mutation == "missing_third":
+        blobs[TOOL] = blobs[TOOL].replace(", 'fingerprint_post_source_delta': None", "")
+    elif mutation == "missing_ranges":
+        blobs[TOOL] = blobs[TOOL].replace("'phase_ranges': state['phase_ranges'], ", "")
+    elif mutation == "wrong_ranges":
+        blobs[TOOL] = blobs[TOOL].replace("state['phase_ranges']", "{}")
+    elif mutation in ("unwired_ranges", "decoy_ranges"):
+        blobs[TOOL] = blobs[TOOL].replace(
+            "    history.validate_phase_ranges",
+            "    if False:\n        history.validate_phase_ranges"
+            if mutation == "decoy_ranges"
+            else "    other_validator",
+        )
+    elif mutation in ("lambda_ranges", "short_circuit_ranges"):
+        blobs[TOOL] = blobs[TOOL].replace(
+            "    history.validate_phase_ranges",
+            "    unused = lambda: history.validate_phase_ranges"
+            if mutation == "lambda_ranges"
+            else "    False and history.validate_phase_ranges",
+        )
+    elif mutation == "false_schema_literal":
+        blobs[result] = blobs[result].replace(
+            "'schema_version': MMODE_CHARACTERIZATION_INPUT_DOMAIN",
+            "'schema_version': 'radiosim.sci004.characterization-input.v1'",
+        )
+    elif mutation == "wrong_family":
+        blobs[TOOL] = blobs[TOOL].replace("bundles[family_id]", "bundles['other']")
+    monkeypatch.setattr(
+        module, "_source_tree", lambda _head, path: ast.parse(blobs[path])
+    )
+    if mutation is None:
+        module._require_source_schema_contract(FORTY)
+    else:
+        with pytest.raises(module.EvidenceError, match="source contract"):
+            module._require_source_schema_contract(FORTY)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "FLAG = 'None'",
+        "FLAG = str(None)",
+        "FLAG = None\nFLAG = None",
+        "if False:\n    FLAG = None",
+        "FLAG = None\ndel FLAG",
+        "FLAG = None\nfrom other import FLAG",
+        "FLAG = None\ndef f(FLAG): pass",
+        "FLAG = None\nFLAG += 1",
+    ],
+)
+def test_source_readiness_requires_unique_ast_null_sentinels(source):
+    import ast
+
+    module = _tool()
+    with pytest.raises(module.EvidenceError, match="source contract"):
+        module._source_literal(ast.parse(source), "FLAG", None)
+    module._source_literal(ast.parse("FLAG: str | None = None"), "FLAG", None)
+
+
+@pytest.fixture
+def ready_source_objects(tmp_path, monkeypatch):
+    from tests.unit import test_sci004_phase3_dependency as dependency
+    from tests.unit.test_sci004_phase3_history import phase_objects
+    from tools import sci004_phase3_history as history
+
+    objects = phase_objects.__wrapped__(tmp_path, monkeypatch)
+    root, commit, _, _, _, red, prior_source, _ = objects
+    module = _tool()
+    blobs = _ready_source_blobs(module)
+    blobs[TOOL] = f"SCI004_R3_TERMINAL_SHA = {red!r}\n" + blobs[TOOL]
+    edits = {
+        path: history._git(root, "show", f"{prior_source}:{path}")
+        for path in history.SOURCE_PATHS
+    }
+    edits.update({path: raw.encode() for path, raw in blobs.items()})
+    # Acceptance sentinels are one of the seven source paths, not extra scope.
+    first = commit(red, edits)
+    head = commit(first, dict.fromkeys(history.DISPOSAL_PINS))
+    for path, content in edits.items():
+        raw = content.decode()
+        destination = root / path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(raw)
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", root)
+    monkeypatch.setattr(dependency, "REPOSITORY_ROOT", root)
+    monkeypatch.setattr(
+        dependency, "APPROVED_SCI004_D_SHA", history.OPERATIVE_DESIGN_SHA
+    )
+    original_peel = dependency._peel_to_commit
+    monkeypatch.setattr(
+        dependency,
+        "_peel_to_commit",
+        lambda ref: head if ref == "HEAD" else original_peel(ref),
+    )
+    monkeypatch.setattr(module, "preflight", lambda *_args: {"source_sha": head})
+    monkeypatch.setattr(
+        module, "_red_commit_sha", lambda: dependency.resolve_r3_replay_anchor().commit
+    )
+    monkeypatch.setattr(module, "_design_sha", lambda: history.OPERATIVE_DESIGN_SHA)
+    return module, history, dependency, root, red, first, head
+
+
+def test_source_readiness_accepts_complete_synthetic_source_history(
+    ready_source_objects,
+):
+    module, history, dependency, _, red, first, head = ready_source_objects
+    assert dependency._commit_parents(first) == (red,)
+    assert dependency._terminal_r3_metadata(red) is None
+    assert dependency._terminal_r3_metadata(first) == red
+    state = module.source_readiness(head, ())
+    assert state["red_commit_sha"] == red
+    assert state["phase_ranges"]["source"]["terminal_sha"] == head
+    assert set(history.SOURCE_PATHS) | set(history.DISPOSAL_PINS) == {
+        path
+        for entry in state["phase_ranges"]["source"]["commits"]
+        for path in entry["paths"]
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation", ["output", "symlink", "partial", "sentinel", "working_source"]
+)
+def test_source_readiness_refuses_before_any_measurement(
+    ready_source_objects, monkeypatch, mutation
+):
+    module, history, _, root, _, first, head = ready_source_objects
+    if mutation in ("output", "symlink"):
+        path = root / next(iter(history.DISPOSAL_PINS))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(root / "absent") if mutation == "symlink" else path.write_bytes(
+            b"rejected"
+        )
+    elif mutation == "partial":
+        monkeypatch.setattr(module, "preflight", lambda *_args: {"source_sha": first})
+    elif mutation == "sentinel":
+        original = module._source_tree
+        import ast
+
+        monkeypatch.setattr(
+            module,
+            "_source_tree",
+            lambda sha, path: ast.parse("APPROVED_SOURCE_SHA = 'old'\n")
+            if path == VALIDATOR
+            else original(sha, path),
+        )
+    else:
+        (root / "src/radiosim/core/result.py").write_text("# different source\n")
+    monkeypatch.setattr(
+        module,
+        "_red_failure_record_reference",
+        lambda *_: pytest.fail("measurement boundary reached"),
+    )
+    with pytest.raises(module.EvidenceError):
+        module.build_phase3_evidence(head)
+
+
+@pytest.mark.parametrize(
+    "foreign",
+    [
+        None,
+        "radiosim",
+        "radiosim.core.result",
+        "radiosim.core.mmode.solver",
+        "radiosim.core.mmode.types",
+        "missing_file",
+        "stale_domain",
+        "stale_keys",
+        "optional_keyword",
+        "missing_keyword",
+        "missing_bridge",
+        "optional_bridge",
+        "mutable_bridge",
+    ],
+)
+def test_generation_requires_own_scientific_imports(tmp_path, monkeypatch, foreign):
+    import importlib
+    from dataclasses import field, make_dataclass
+    from types import SimpleNamespace
+
+    module = _tool()
+    names = (
+        "radiosim",
+        "radiosim.core.result",
+        "radiosim.core.mmode.solver",
+        "radiosim.core.mmode.types",
+    )
+    paths = (
+        "src/radiosim/__init__.py",
+        "src/radiosim/core/result.py",
+        "src/radiosim/core/mmode/solver.py",
+        "src/radiosim/core/mmode/types.py",
+    )
+    origins = {}
+    for name, path in zip(names, paths, strict=True):
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# fixture\n")
+        origins[name] = str(target)
+    if foreign == "missing_file":
+        origins["radiosim"] = None
+    elif foreign in names:
+        other = tmp_path / "foreign.py"
+        other.write_text("# another checkout\n")
+        origins[foreign] = str(other)
+    modules = {
+        name: SimpleNamespace(__file__=origin) for name, origin in origins.items()
+    }
+    result = modules["radiosim.core.result"]
+    result.MMODE_CHARACTERIZATION_INPUT_DOMAIN = (
+        "radiosim.sci004.characterization-input.v2"
+    )
+    result.MMODE_CHARACTERIZATION_RECORD_KEYS = module._SOURCE_CONTRACT_KEYS["record"]
+
+    def factory(result, *, family_id, phase_input_identity_manifest):
+        pass
+
+    result.mmode_characterization_record = factory
+    bridge = [("input_identity_sha256", str)]
+    if foreign == "stale_domain":
+        result.MMODE_CHARACTERIZATION_INPUT_DOMAIN = (
+            "radiosim.sci004.characterization-input.v1"
+        )
+    elif foreign == "stale_keys":
+        result.MMODE_CHARACTERIZATION_RECORD_KEYS = (
+            result.MMODE_CHARACTERIZATION_RECORD_KEYS[:7]
+        )
+    elif foreign == "optional_keyword":
+        result.mmode_characterization_record = (
+            lambda result, *, family_id, phase_input_identity_manifest=None: None
+        )
+    elif foreign == "missing_keyword":
+        result.mmode_characterization_record = lambda result, *, family_id: None
+    elif foreign == "missing_bridge":
+        bridge = []
+    elif foreign == "optional_bridge":
+        bridge = [("input_identity_sha256", str, field(default=None))]
+    modules["radiosim.core.mmode.solver"].MModeSolverSnapshot = make_dataclass(
+        "SnapshotFixture", bridge, frozen=foreign != "mutable_bridge"
+    )
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(importlib, "import_module", lambda name: modules[name])
+    if foreign is None:
+        module._require_generation_source_imports()
+    else:
+        with pytest.raises(module.EvidenceError, match="generation"):
+            module._require_generation_source_imports()
+
+
+def test_first_source_metadata_names_the_reviewed_terminal_red(monkeypatch):
+    from tests.unit import test_sci004_phase3_dependency as dependency
+
+    module = _tool()
+    terminal = "567f9ac68730044fc8e887930d3531d794534412"
+    assert module.SCI004_R3_TERMINAL_SHA == terminal
+    assert dependency._terminal_r3_metadata(terminal) is None
+    raw = (REPOSITORY_ROOT / TOOL).read_bytes()
+    monkeypatch.setattr(dependency, "_tree_blob", lambda *_args: raw)
+    assert dependency._terminal_r3_metadata("current source candidate") == terminal
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "unreachable_ranges",
+        "yield_ranges",
+        "empty_iteration",
+        "wrong_result",
+        "wrong_family_keyword",
+        "break",
+        "continue",
+        "wrong_return",
+        "wrong_target",
+        "dirty_rows",
+        "foreign_factory",
+        "clear_record",
+        "alias_record",
+        "clear_manifest",
+        "mutating_guard",
+        "unused_phase_call",
+        "unused_factory_call",
+    ],
+)
+def test_source_readiness_rejects_control_flow_and_dictionary_escape(
+    monkeypatch, mutation
+):
+    import ast
+
+    module = _tool()
+    blobs = _ready_source_blobs(module)
+    result = "src/radiosim/core/result.py"
+    if mutation in ("unreachable_ranges", "yield_ranges"):
+        prefix = (
+            "return envelope" if mutation == "unreachable_ranges" else "yield envelope"
+        )
+        blobs[TOOL] = blobs[TOOL].replace(
+            "    history.validate_phase_ranges",
+            f"    {prefix}\n    history.validate_phase_ranges",
+        )
+    elif mutation == "empty_iteration":
+        blobs[TOOL] = blobs[TOOL].replace("in SECTION_11_FAMILIES:", "in ():")
+    elif mutation == "wrong_result":
+        blobs[TOOL] = blobs[TOOL].replace(
+            "result = results[family_id]", "result = results['other']"
+        )
+    elif mutation == "wrong_family_keyword":
+        blobs[TOOL] = blobs[TOOL].replace("family_id=family_id,", "family_id='other',")
+    elif mutation in ("break", "continue"):
+        blobs[TOOL] = blobs[TOOL].replace(
+            "        result =", f"        {mutation}\n        result ="
+        )
+    elif mutation == "wrong_return":
+        blobs[TOOL] = blobs[TOOL].replace("    return rows", "    return []")
+    elif mutation == "wrong_target":
+        blobs[TOOL] = blobs[TOOL].replace("for family_id in", "for other in")
+    elif mutation == "dirty_rows":
+        blobs[TOOL] = blobs[TOOL].replace("rows = []", "rows = [{}]")
+    elif mutation == "foreign_factory":
+        blobs[TOOL] = blobs[TOOL].replace(
+            "from radiosim.core.result import", "from other import"
+        )
+    elif mutation in ("clear_record", "alias_record"):
+        change = (
+            "dict.clear(record)"
+            if mutation == "clear_record"
+            else "alias = record\n    alias.clear()"
+        )
+        blobs[result] = blobs[result].replace(
+            "    if tuple(record)", f"    {change}\n    if tuple(record)"
+        )
+    elif mutation == "clear_manifest":
+        blobs[result] = blobs[result].replace(
+            "    if tuple(manifest)", "    dict.clear(manifest)\n    if tuple(manifest)"
+        )
+    elif mutation == "mutating_guard":
+        blobs[result] = blobs[result].replace(
+            "raise InvalidResultError('shape')",
+            "raise InvalidResultError(manifest.clear())",
+        )
+    elif mutation == "unused_phase_call":
+        blobs[result] = blobs[result].replace(
+            "    phase = _characterization_mapping",
+            "    phase = {}\n    unused = _characterization_mapping",
+        )
+    else:
+        blobs[result] = blobs[result].replace(
+            "    characterization_input = _characterization_input_manifest",
+            "    characterization_input = {}\n    unused = "
+            "_characterization_input_manifest",
+        )
+    monkeypatch.setattr(
+        module, "_source_tree", lambda _head, path: ast.parse(blobs[path])
+    )
+    with pytest.raises(module.EvidenceError, match="source contract"):
+        module._require_source_schema_contract(FORTY)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing_families",
+        "empty_families",
+        "substituted_families",
+        "rebound_families",
+        "missing_call",
+        "stale_call",
+        "nested_decoy",
+        "disconnected_rows",
+        "late_rows",
+        "other_workspace",
+        "duplicate_rows",
+    ],
+)
+def test_source_readiness_binds_generator_family_inventory_and_rows(
+    monkeypatch, mutation
+):
+    import ast
+
+    module = _tool()
+    blobs = _ready_source_blobs(module)
+    source = blobs[TOOL]
+    family_line = source.splitlines()[0]
+    if mutation == "missing_families":
+        source = source.replace(family_line + "\n", "", 1)
+    elif mutation == "empty_families":
+        source = source.replace(family_line, "SECTION_11_FAMILIES = ()", 1)
+    elif mutation == "substituted_families":
+        source = source.replace("mmode_point_stokes_i", "other_family", 1)
+    elif mutation == "rebound_families":
+        source += "SECTION_11_FAMILIES = ()\n"
+    elif mutation == "missing_call":
+        source = source.replace(
+            "        fingerprint_rows = _fingerprint_rows(results, bundles)\n", ""
+        )
+    elif mutation == "stale_call":
+        source = source.replace(
+            "fingerprint_rows = _fingerprint_rows(results, bundles)",
+            "fingerprint_rows = _fingerprint_rows(results)",
+        )
+    elif mutation == "nested_decoy":
+        source = source.replace(
+            "        fingerprint_rows =",
+            "        if False:\n            fingerprint_rows =",
+        )
+    elif mutation == "disconnected_rows":
+        source = source.replace(
+            "'fingerprint_rows': fingerprint_rows", "'fingerprint_rows': []"
+        )
+    elif mutation == "late_rows":
+        source = source.replace(
+            "        fingerprint_rows = _fingerprint_rows(results, "
+            "bundles)\n        groups = {}",
+            "        groups = {}\n        fingerprint_rows = "
+            "_fingerprint_rows(results, bundles)",
+        )
+    elif mutation == "other_workspace":
+        source = source.replace("tempfile.TemporaryDirectory()", "other_workspace()")
+    else:
+        source = source.replace(
+            "    return document", "    fingerprint_rows = []\n    return document"
+        )
+    assert source != blobs[TOOL]
+    blobs[TOOL] = source
+    monkeypatch.setattr(
+        module, "_source_tree", lambda _head, path: ast.parse(blobs[path])
+    )
+    with pytest.raises(module.EvidenceError, match="source contract"):
+        module._require_source_schema_contract(FORTY)
