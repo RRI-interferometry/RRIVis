@@ -1480,6 +1480,23 @@ def test_raw_oracle_worktree_native_conversion_and_cache_controls(
                     )
                     with pytest.raises(RedRecordSchemaError):
                         _ = _post_source_oracle_diff()
+                if case in {
+                    "filter",
+                    "stat-cache",
+                    "assume-unchanged",
+                    "skip-worktree",
+                    "mode-cache",
+                }:
+                    assert (
+                        _native_red_git(
+                            worktree, "status", "--porcelain", "--untracked-files=no"
+                        )
+                        == b""
+                    )
+                    with pytest.raises(AssertionError, match="historical tracked"):
+                        _assert_immutable_replay_checkout(worktree, child)
+                with pytest.raises(AssertionError, match="historical tracked"):
+                    _assert_raw_tracked_checkout(worktree, child)
             finally:
                 _ = (root / "config").write_bytes(config)
                 (root / "info/attributes").unlink(missing_ok=True)
@@ -2300,16 +2317,100 @@ def _preflight_fingerprint_replay_import(
     return _validate_fingerprint_replay_import(completed.stdout, worktree)
 
 
+def _assert_raw_tracked_checkout(worktree: Path, anchor: str) -> None:
+    """Compare actual tracked bytes/types/modes with the original anchor tree.
+
+    Git status applies clean filters and stat-cache shortcuts. Preserve its
+    index/gitlink checks separately, but never use it as proof of file bytes.
+    Symlinks authenticate the stored link target, without following the link.
+    Uninitialized gitlinks retain the existing status-based checkout semantics.
+    """
+    assert stat.S_ISDIR(worktree.lstat().st_mode), (
+        "historical checkout root type changed"
+    )
+    tree = _red_git_process(("ls-tree", "-r", "-z", anchor), cwd=worktree)
+    assert tree.returncode == 0, tree.stderr.decode("utf-8", "replace")
+    entries = tree.stdout.split(b"\0")
+    assert entries[-1] == b"", "historical tree framing"
+    root = worktree.resolve(strict=True)
+    seen: set[bytes] = set()
+    for entry in entries[:-1]:
+        metadata, separator, relative = entry.partition(b"\t")
+        fields = metadata.split()
+        assert separator and len(fields) == 3 and relative not in seen, (
+            "historical tree entry"
+        )
+        seen.add(relative)
+        mode, kind, oid = fields
+        path = root / relative.decode("utf-8", "surrogateescape")
+        try:
+            parent = root
+            for component in relative.split(b"/")[:-1]:
+                assert component not in {b"", b".", b".."}, "historical tracked path"
+                parent /= os.fsdecode(component)
+                assert stat.S_ISDIR(parent.lstat().st_mode), (
+                    "historical tracked parent directory type changed"
+                )
+            if mode == b"160000":
+                assert kind == b"commit", "historical gitlink type"
+                continue
+            assert mode in {b"100644", b"100755", b"120000"} and kind == b"blob", (
+                "historical tracked type"
+            )
+            actual_mode = path.lstat().st_mode
+            if mode == b"120000":
+                assert stat.S_ISLNK(actual_mode), (
+                    "historical tracked symlink type changed"
+                )
+                actual = os.fsencode(os.readlink(path))
+            else:
+                assert stat.S_ISREG(actual_mode), (
+                    "historical tracked regular type changed"
+                )
+                assert bool(actual_mode & stat.S_IXUSR) == (mode == b"100755"), (
+                    "historical tracked executable mode changed"
+                )
+                actual = path.read_bytes()
+        except OSError as exc:
+            raise AssertionError("historical tracked path cannot be read") from exc
+        original = _red_git_process(
+            ("cat-file", "blob", oid.decode("ascii")), cwd=worktree
+        )
+        assert original.returncode == 0, original.stderr.decode("utf-8", "replace")
+        matches = actual == original.stdout
+        if not matches and mode != b"120000":
+            # Canonical LFS pointers authenticate either the pointer itself or
+            # its materialized content, without invoking a clean/smudge filter.
+            pointer = re.fullmatch(
+                rb"version https://git-lfs.github.com/spec/v1\n"
+                rb"oid sha256:([0-9a-f]{64})\nsize (0|[1-9][0-9]*)\n",
+                original.stdout,
+            )
+            matches = pointer is not None and (
+                pointer[2] == str(len(actual)).encode("ascii")
+                and pointer[1] == hashlib.sha256(actual).hexdigest().encode("ascii")
+            )
+        assert matches, "historical tracked raw bytes changed"
+
+
 def _assert_immutable_replay_checkout(worktree: Path, anchor: str) -> None:
     for arguments, expected in (
         (["rev-parse", "HEAD"], anchor.encode() + b"\n"),
         (["status", "--porcelain", "--untracked-files=no"], b""),
     ):
-        checked = subprocess.run(
-            ["git", *arguments], cwd=worktree, capture_output=True, check=False
+        checked = _red_git_process(
+            (
+                "--git-dir=" + str(worktree / ".git"),
+                "--work-tree=" + str(worktree),
+                "-c",
+                "core.bare=false",
+                *arguments,
+            ),
+            cwd=worktree,
         )
         assert checked.returncode == 0, checked.stderr.decode("utf-8", "replace")
         assert checked.stdout == expected, "historical replay checkout changed"
+    _assert_raw_tracked_checkout(worktree, anchor)
 
 
 @contextmanager
@@ -2321,12 +2422,7 @@ def _detached_fingerprint_replay_worktree(
     worktree = temporary / "replay"
     registered = False
     try:
-        added = subprocess.run(
-            ["git", "worktree", "add", "--detach", str(worktree), anchor],
-            cwd=REPOSITORY_ROOT,
-            capture_output=True,
-            check=False,
-        )
+        added = _red_git_process(("worktree", "add", "--detach", str(worktree), anchor))
         assert added.returncode == 0, added.stderr.decode("utf-8", "replace")
         registered = True
         _assert_immutable_replay_checkout(worktree, anchor)
@@ -2338,12 +2434,7 @@ def _detached_fingerprint_replay_worktree(
                 _assert_immutable_replay_checkout(worktree, anchor)
             except AssertionError as exc:
                 cleanup_errors.append(str(exc))
-            removed = subprocess.run(
-                ["git", "worktree", "remove", "--force", str(worktree)],
-                cwd=REPOSITORY_ROOT,
-                capture_output=True,
-                check=False,
-            )
+            removed = _red_git_process(("worktree", "remove", "--force", str(worktree)))
             if removed.returncode != 0:
                 cleanup_errors.append(
                     "git worktree remove failed: "
@@ -2360,6 +2451,252 @@ def _detached_fingerprint_replay_worktree(
             cleanup_errors.append(f"owned replay directory still exists: {temporary}")
         if cleanup_errors:
             raise AssertionError("; ".join(cleanup_errors))
+
+
+@pytest.mark.parametrize("owner_kind", ["bare", "linked"])
+def test_raw_red_git_detached_lifecycle_preserves_owner_configuration(
+    raw_red_git_repository: tuple[Path, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    owner_kind: str,
+) -> None:
+    root, _, child = raw_red_git_repository
+    owner = root
+    _ = _native_red_git(root, "config", "extensions.worktreeConfig", "true")
+    if owner_kind == "linked":
+        owner = tmp_path / "owner"
+        _ = _native_red_git(root, "worktree", "add", "--detach", str(owner), child)
+        _ = _native_red_git(owner, "config", "--worktree", "core.bare", "false")
+        _ = _native_red_git(owner, "config", "--worktree", "core.worktree", str(owner))
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", owner)
+    before = _native_red_git(root, "worktree", "list", "--porcelain")
+    protected = [root / "config"]
+    if owner_kind == "linked":
+        gitdir = Path(
+            _native_red_git(owner, "rev-parse", "--absolute-git-dir").decode().strip()
+        )
+        protected.extend(
+            (gitdir / "config.worktree", gitdir / "index", gitdir / "HEAD")
+        )
+    saved = {path: path.read_bytes() for path in protected}
+    monkeypatch.setenv("GIT_DIR", str(root / "missing-routing-target"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(tmp_path / "wrong-worktree"))
+    with _detached_fingerprint_replay_worktree(child) as (worktree, temporary):
+        assert (worktree / "oracle.py").read_bytes() == b"after\n"
+        native = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=worktree, capture_output=True, check=False
+        )
+        assert native.returncode != 0
+        _assert_immutable_replay_checkout(worktree, child)
+    assert not worktree.exists() and not temporary.exists()
+    with pytest.raises(RuntimeError, match="synthetic body failure"):
+        with _detached_fingerprint_replay_worktree(child) as (worktree, temporary):
+            raise RuntimeError("synthetic body failure")
+    assert not worktree.exists() and not temporary.exists()
+    with pytest.raises(AssertionError, match="historical replay checkout changed"):
+        with _detached_fingerprint_replay_worktree(child) as (worktree, temporary):
+            _ = (worktree / "oracle.py").write_bytes(b"changed\n")
+    assert not worktree.exists() and not temporary.exists()
+    assert _native_red_git(root, "worktree", "list", "--porcelain") == before
+    assert {path: path.read_bytes() for path in protected} == saved
+
+
+@pytest.mark.parametrize("kind", ["inside", "outside", "file", "dangling", "fifo"])
+def test_raw_red_git_rejects_redirected_tracked_parent_directories(
+    raw_red_git_repository: tuple[Path, str, str], tmp_path: Path, kind: str
+) -> None:
+    root, _, child = raw_red_git_repository
+    subtree = _native_red_git(root, "rev-parse", f"{child}^{{tree}}").decode().strip()
+    tree = (
+        _native_red_git(
+            root, "mktree", data=f"040000 tree {subtree}\tdirectory\n".encode()
+        )
+        .decode()
+        .strip()
+    )
+    anchor = (
+        _native_red_git(
+            root, "commit-tree", tree, "-p", child, data=b"nested tracked parent\n"
+        )
+        .decode()
+        .strip()
+    )
+    with _detached_fingerprint_replay_worktree(anchor) as (worktree, _):
+        directory = worktree / "directory"
+        alias = tmp_path / "outside-alias" if kind == "outside" else worktree / "alias"
+        _ = directory.rename(alias)
+        try:
+            if kind in {"inside", "outside"}:
+                directory.symlink_to(alias, target_is_directory=True)
+                assert (directory / "oracle.py").read_bytes() == b"after\n"
+            elif kind == "file":
+                _ = directory.write_bytes(b"not a directory\n")
+            elif kind == "dangling":
+                directory.symlink_to("missing-alias", target_is_directory=True)
+            else:
+                os.mkfifo(directory)
+            _ = _native_red_git(
+                worktree, "update-index", "--skip-worktree", "--", "directory/oracle.py"
+            )
+            assert (
+                _native_red_git(
+                    worktree, "status", "--porcelain", "--untracked-files=no"
+                )
+                == b""
+            )
+            for check in (
+                _assert_raw_tracked_checkout,
+                _assert_immutable_replay_checkout,
+            ):
+                with pytest.raises(
+                    AssertionError, match="parent directory type changed"
+                ):
+                    check(worktree, anchor)
+        finally:
+            directory.unlink(missing_ok=True)
+            _ = alias.rename(directory)
+            _ = _native_red_git(
+                worktree,
+                "update-index",
+                "--no-skip-worktree",
+                "--",
+                "directory/oracle.py",
+            )
+
+
+def test_raw_red_git_authenticates_executable_symlink_and_gitlink_types(
+    raw_red_git_repository: tuple[Path, str, str],
+) -> None:
+    root, _, child = raw_red_git_repository
+    blob = _native_red_git(root, "rev-parse", f"{child}:oracle.py").decode().strip()
+    link = (
+        _native_red_git(root, "hash-object", "-w", "--stdin", data=b"oracle.py")
+        .decode()
+        .strip()
+    )
+    tree = (
+        _native_red_git(
+            root,
+            "mktree",
+            data=(
+                f"100644 blob {blob}\toracle.py\n100755 blob {blob}\texecutable\n120000 blob {link}\tlink\n160000 commit {child}\tmodule\n"
+            ).encode(),
+        )
+        .decode()
+        .strip()
+    )
+    anchor = (
+        _native_red_git(root, "commit-tree", tree, "-p", child, data=b"tracked types\n")
+        .decode()
+        .strip()
+    )
+    with _detached_fingerprint_replay_worktree(anchor) as (worktree, _):
+        _assert_raw_tracked_checkout(worktree, anchor)
+        executable = worktree / "executable"
+        original_mode = executable.stat().st_mode
+        try:
+            _ = _native_red_git(root, "config", "core.fileMode", "false")
+            executable.chmod(original_mode & ~stat.S_IXUSR)
+            assert (
+                _native_red_git(
+                    worktree, "status", "--porcelain", "--untracked-files=no"
+                )
+                == b""
+            )
+            with pytest.raises(AssertionError, match="executable mode changed"):
+                _assert_raw_tracked_checkout(worktree, anchor)
+        finally:
+            executable.chmod(original_mode)
+            _ = _native_red_git(root, "config", "--unset", "core.fileMode")
+        symlink = worktree / "link"
+        symlink.unlink()
+        symlink.symlink_to("executable")
+        try:
+            with pytest.raises(AssertionError, match="raw bytes changed"):
+                _assert_raw_tracked_checkout(worktree, anchor)
+        finally:
+            symlink.unlink()
+            symlink.symlink_to("oracle.py")
+        # LFS/other conversion directives elsewhere must not invalidate raw,
+        # unchanged files or require materializing the reference gitlink.
+        _ = (root / "info/attributes").write_text(
+            "oracle.py filter=lfs diff=lfs -text\n"
+        )
+        _assert_immutable_replay_checkout(worktree, anchor)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "pointer",
+        "materialized",
+        "wrong-size",
+        "wrong-digest",
+        "noncanonical",
+        "symlink",
+        "executable",
+    ],
+)
+def test_raw_red_git_lfs_content_is_bound_to_original_pointer(
+    raw_red_git_repository: tuple[Path, str, str], case: str
+) -> None:
+    root, parent, _ = raw_red_git_repository
+    payload = b"materialized sample\n"
+    digest = hashlib.sha256(payload).hexdigest()
+    size = str(len(payload))
+    if case == "noncanonical":
+        size = "0" + size
+    pointer = (
+        f"version https://git-lfs.github.com/spec/v1\noid sha256:{digest}\nsize {size}\n"
+    ).encode("ascii")
+    anchor = _raw_red_commit(root, parent, pointer)
+    saved_config = (root / "config").read_bytes()
+    with _detached_fingerprint_replay_worktree(anchor) as (worktree, _):
+        source = worktree / "oracle.py"
+        original_mode = source.stat().st_mode
+        try:
+            _ = (root / "info/attributes").write_text("oracle.py filter=lfs -text\n")
+            # Native Git's clean filter deliberately masks every replacement.
+            # The independent proof must use the original pointer's identity.
+            command = "printf '" + pointer.decode("ascii").replace("\n", "\\n") + "'"
+            _ = _native_red_git(root, "config", "filter.lfs.clean", command)
+            actual = pointer if case == "pointer" else payload
+            if case == "wrong-size":
+                actual += b"extra"
+            elif case == "wrong-digest":
+                actual = b"X" + payload[1:]
+            _ = source.write_bytes(actual)
+            if case == "symlink":
+                source.unlink()
+                source.symlink_to("missing-target")
+            elif case == "executable":
+                source.chmod(original_mode | stat.S_IXUSR)
+            else:
+                # Materialized LFS checkouts cache the content's actual stat
+                # size while retaining the original pointer as the index blob.
+                _ = _native_red_git(worktree, "add", "--", "oracle.py")
+                assert _native_red_git(worktree, "rev-parse", ":oracle.py") == (
+                    _native_red_git(root, "rev-parse", f"{anchor}:oracle.py")
+                )
+                assert (
+                    _native_red_git(
+                        worktree, "status", "--porcelain", "--untracked-files=no"
+                    )
+                    == b""
+                )
+            if case in {"pointer", "materialized"}:
+                _assert_immutable_replay_checkout(worktree, anchor)
+            else:
+                with pytest.raises(AssertionError, match="historical tracked"):
+                    _assert_raw_tracked_checkout(worktree, anchor)
+        finally:
+            if source.is_symlink():
+                source.unlink()
+            _ = source.write_bytes(pointer)
+            source.chmod(original_mode)
+            _ = (root / "config").write_bytes(saved_config)
+            (root / "info/attributes").unlink(missing_ok=True)
+            _ = _native_red_git(worktree, "add", "--", "oracle.py")
 
 
 def test_the_fingerprint_replay_environment_replaces_inherited_import_paths(
