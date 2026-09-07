@@ -34,6 +34,9 @@ fixtures. No implementation is authored in another worktree.
 - GitHub run `33701403760` failed at the remote tip; newer runs `33726794068`,
   `33847827991`, `33951179081`, and `34018313735` are cancelled, not successful.
   Per-job diagnosis and final exact-SHA CI remain outstanding.
+- Intermediate source `cf1a976` run `34088524159` completed with lint, metadata,
+  types, docs and NumPy/JAX-CPU parity successful; all six compatibility jobs
+  were cancelled. This is not complete CI acceptance.
 
 ## Finite work and dependencies
 
@@ -72,13 +75,14 @@ The external `provenance-audit/original-hunk-disposition-v2.json` now accounts
 for every stopped-candidate hunk through exact `87b16ba`: 21 retained, 38
 corrected and 21 superseded, each with commit/blob/locator and reason. Its
 SHA-256 is `b2d6a7969469a9b42fecba09335434484f8421dd1e8a39f1a1edfaa29fc9310b`.
-Primary accounting through `bafa924` is
-`provenance-audit/original-hunk-disposition-v6.json`,
-SHA-256 `9a60c84bbd6a41a9a9bae45c7e0b363804370ed1bdb50241f4846d597ae58f22`.
-It retains all 63 original identities: nineteen hunks landed (ten retained,
-nine corrected), and 44 remain pending. The 80 stopped-candidate dispositions
+Primary accounting through `bbd5f3f` is
+`provenance-audit/original-hunk-disposition-v8.json`,
+SHA-256 `0cbeb0c2fdf6b90880c06526b030bd4ec66d05bcd542e94c7513362bc5820a0e`.
+It retains all 63 original identities: twenty hunks landed (ten retained,
+ten corrected), and 43 remain pending. The 80 stopped-candidate dispositions
 are unchanged from v2. Production-v2 commit `a39ceff` lands donors 001–006,
-058 and 059; b17f63a lands corrected donor 015. Donor 057 remains pending as a
+058 and 059; b17f63a lands corrected donor 015 and ec94dc8 lands corrected donor
+034. Donor 057 remains pending as a
 whole: its caller wiring landed,
 but its fingerprint-row schema did not. New tests receive separate accounting.
 
@@ -121,6 +125,15 @@ but its fingerprint-row schema did not. New tests receive separate accounting.
 | Dependency Git and Python isolation | `bafa924563559488469708e8c67a73d4b37454a4`, pushed and remote verified | Both reviewers ACCEPT round 2; 125 tests pass including original Stage2 replay; native startup controls reject inherited Python hooks without changing historical verifier arguments or pins; strict 108 unchanged |
 | Acceptance checkout binding | `a7a8fa33f9ff4b7da73058b2cea937b1fbd9ed81`, pushed and remote verified | Both reviewers ACCEPT round 2; 127 tests pass and six future-A skips; five independent Git controls include local core.worktree redirection in primary and registered checkouts; strict 60 unchanged |
 | Current-E topology and literal transitions | `ec94dc8337ee3a71671e8fbd61bab4985f452fd9`, pushed and remote verified | Both reviewers ACCEPT; 535 tests pass and seven future-E skips; 37 real-Git cases independently pass, plus 13 independent hostile probes; exact first S-child, sole-parent chain, four core paths and optional factual ledger; complete text preserves everything except four RHS None literals; strict 298 unchanged |
+| D33 certificate transport | `50cbf3086b40b0810b9d3c7331be5ef00b5d1b39`, pushed and remote verified | Both reviewers ACCEPT repaired Unicode/number canonicalization; full evidence module 602 pass and seven future-E skips, scoped strict 410 unchanged; eight retained certificates roundtrip and all four expanded transition bytes/digests remain exact; transport only, full scientific validation and publication wiring pending |
+| Exact D32/D33 design authentication | `cf1a976640a437cec5181d7697a0ef56e5f49559`, pushed and remote verified | Both reviewers ACCEPT round 2; full history 158 pass; corrected inherited-review fixture rejects and fails under the isolated weakened-check mutation; strict 300 unchanged; D31 behavior preserved; source-range role integration subsequently landed at `732865a` |
+| Original-object red reader | `28cd74ec2718535bdb951368a296d5b15f6e0d7f`, pushed and live remote verified | Both independent reviews ACCEPT; eleven native Git controls and two original oracle pins pass; strict 54 unchanged. Filter/cache repair subsequently landed at `7eca44b`; detached checkout repair remains pending |
+| D32/D33 source range enforcement | `732865ad1b0da50e96e439b41694e88e9d34bc26`, pushed and live remote verified | Both independent reviews and new-parent confirmations ACCEPT; 183 history tests and 611 combined evidence tests pass, seven future-E skips; scoped strict 598 to 545 with zero added diagnostics. Exact range-only three-path patch excludes the separate evidence size guard subsequently landed at `913d45c` |
+| Complete evidence size bound | `913d45cbcf0311fb76ae24a4dc1e3f9cde0adea5`, pushed and live remote verified | Both independent reviews ACCEPT; strict less-than-104857600-byte guard precedes either output, reader bounds bytes before parsing; independent boundary and CLI tests pass. Scoped strict 376 existing diagnostics, zero added; full combined evidence 611 passed and seven future-E skips |
+| Shared Section 14 JSON and strict readers | `bbd5f3fbe540628c8f8d5e29b39696fe7d002dcd`, pushed and live remote verified | Both independent reviews ACCEPT corrected round2; full 635 passed and seven future-E skips; 376 to 367 existing scoped type diagnostics, zero added. Six historical canonical artifacts remain byte-identical; production scientific serialization unchanged. Initial malformed-RSS wording and test typing failures retained and repaired |
+| Raw oracle patch identity | `7eca44bac74e3033c761d5019e22b8268908e889`, pushed and live remote verified | Both independent reviews ACCEPT; twelve native conversion/cache controls and two original oracle pins pass; strict 54 unchanged. Raw whole-checkout and Python child isolation remain subsequent slices |
+| Distinct source design bindings | `d90081bb6382dbf8c233b91fa0f2aac6923d5f11`, pushed and live remote verified | Both independent reviews ACCEPT; 145 serial dependency tests passed, strict 108 unchanged; original historical R nodes remain exact. D32/D33 callable authentication landed; evidence wiring remains pending |
+| Scientific segment primitives | `401d834831144e463e786fc11269cf2e723232b5`, pushed and live remote verified | Both independent reviews ACCEPT; 44 focused tests plus independent production-encoding and binary controls pass; strict 367 unchanged. Exact segment bytes, scientific JSON and fixed arrays only; stream, solver, owner and admission joins remain pending |
 | Frame regression | `1909829d828078fd36a905aa68cde50fcb4bfa16`, pushed and live remote verified | Two controlled expected-red assertions under each Python version: mismatch count 1, not 0; no collection/import failure |
 | Frame repair | `cfad247831629241842ffecd5f7aaa5b2084493c`, pushed and live remote verified | Both independent reviewers ACCEPT frozen full test/source patch `231f48c6d0d4bae419bb0cba0091813c928be40e3100713754c3a7c5904e00cb`; 13 frame tests pass in each environment; 7 public Python-3.12 integration tests pass in 741.40s; solver strict diagnostics remain 78 with no added diagnostic |
 | Ledger docs fix | `c245593df808e0a757925d5a02416b4608cd8661`, pushed and live remote verified | Fresh Sphinx build fetched all inventories; explicit ledger orphan declaration restored warnings-as-errors success |
@@ -179,8 +192,12 @@ and admission reviews. D33 therefore defines bounded, lossless inline storage
 for only the eight certificate values, while preserving the expanded transition
 digest domain. The measured canonical encoded array is 38,929,073 bytes before
 ordinary evidence and reviews; the complete final artifact must still pass the
-specified size guard. The codec and portable admission verifier remain to be
-implemented. No observation has been appended and generation remains closed.
+specified size guard. Transport primitives landed at `50cbf30`; full certificate,
+cascade and portable admission validation remain pending. No observation has
+been appended and generation remains closed. The separate committed-blob
+transport verification of all eight certificates and four expanded digests is
+`d33-certificate-codec/independent-actual-transport/verification.json`, SHA-256
+`1d386df11026d5f5f3a06776531c292db839ed15593c9882bf4d7c1b0516b38e`.
 
 The reproduced replacement-ref history bypass is repaired at `34fa01c`.
 Its retained original exploit is `d32-history-auth-audit/probe-result.json`,
