@@ -2906,19 +2906,83 @@ def validate_evidence_document(document: Any) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _git(*arguments: str) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
+def _git_process(*arguments: str) -> subprocess.CompletedProcess[bytes]:
+    """Query original objects in the explicitly bound evidence checkout."""
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_ATTR_NOSYSTEM="1",
     )
+    root = REPOSITORY_ROOT.resolve()
+    command = [
+        "git",
+        "--no-pager",
+        "--no-replace-objects",
+        "--literal-pathspecs",
+        f"--work-tree={root}",
+    ]
+    for setting in (
+        "core.bare=false",
+        "core.commitGraph=false",
+        "core.fsmonitor=false",
+        "core.untrackedCache=false",
+        "color.ui=false",
+        "core.attributesFile=" + os.devnull,
+    ):
+        command.extend(("-c", setting))
+
+    def run(query: Sequence[str]) -> subprocess.CompletedProcess[bytes]:
+        try:
+            return subprocess.run(
+                [*command, *query],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                check=False,
+            )
+        except OSError as error:
+            raise EvidenceError(PREFLIGHT, "cannot start evidence Git query") from error
+
+    discovery = run(("rev-parse", "--absolute-git-dir"))
+    _require(
+        discovery.returncode == 0, PREFLIGHT, "cannot locate evidence Git directory"
+    )
+    git_directory = os.fsdecode(discovery.stdout.removesuffix(b"\n"))
+    if arguments[0] == "status":
+        arguments = ("status", "--ignore-submodules=none", *arguments[1:])
+    elif arguments[0] == "show":
+        arguments = ("show", "--no-ext-diff", "--no-textconv", *arguments[1:])
+    elif arguments[0] == "diff-tree":
+        arguments = (
+            "diff-tree",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--ignore-submodules=none",
+            *arguments[1:],
+        )
+    return run((f"--git-dir={git_directory}", *arguments))
+
+
+def _git_bytes(*arguments: str) -> bytes:
+    completed = _git_process(*arguments)
     if completed.returncode != 0:
         raise EvidenceError(
-            PREFLIGHT, f"git {' '.join(arguments)} failed: {completed.stderr.strip()}"
+            PREFLIGHT,
+            f"git {' '.join(arguments)} failed: "
+            f"{completed.stderr.decode('utf-8', 'replace').strip()}",
         )
     return completed.stdout
+
+
+def _git(*arguments: str) -> str:
+    return _git_bytes(*arguments).decode("utf-8")
 
 
 def raw_sha256(path: Path) -> str:
@@ -3036,12 +3100,7 @@ def _changed_paths(commit: str) -> frozenset[str]:
 
 
 def _is_ancestor(ancestor: str, descendant: str) -> bool:
-    completed = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
-    )
+    completed = _git_process("merge-base", "--is-ancestor", ancestor, descendant)
     if completed.returncode not in (0, 1):
         raise EvidenceError(
             PREFLIGHT, f"cannot authenticate ancestry {ancestor}..{descendant}"
@@ -3143,12 +3202,7 @@ def _red_commit_sha() -> str:
 
 def _git_blob(commit: str, path: str) -> bytes:
     """Return one exact tree blob or refuse before evidence generation."""
-    completed = subprocess.run(
-        ["git", "show", f"{commit}:{path}"],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
-    )
+    completed = _git_process("show", f"{commit}:{path}")
     if completed.returncode != 0:
         raise EvidenceError(
             PREFLIGHT,
@@ -3380,12 +3434,7 @@ def preflight(
         "pixi_lock_sha256": raw_sha256(REPOSITORY_ROOT / "pixi.lock"),
         "git_tree_sha256": domain_digest(
             "radiosim.sci004.git-tree.v1",
-            subprocess.run(
-                ["git", "ls-tree", "-r", "-z", "--full-tree", head],
-                cwd=REPOSITORY_ROOT,
-                capture_output=True,
-                check=True,
-            ).stdout,
+            _git_bytes("ls-tree", "-r", "-z", "--full-tree", head),
         ),
     }
 
@@ -3459,12 +3508,7 @@ _SOURCE_SENTINELS: dict[str, tuple[str, ...]] = {
 
 
 def _source_tree(head: str, relative: str) -> ast.Module:
-    completed = subprocess.run(
-        ["git", "show", f"{head}:{relative}"],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
-    )
+    completed = _git_process("show", f"{head}:{relative}")
     _require(
         completed.returncode == 0, PREFLIGHT, f"missing committed source: {relative}"
     )

@@ -6449,3 +6449,177 @@ def test_source_design_authentication_uses_hardened_dependency_path(
         isinstance(node, ast.Name) and node.id in {"_git", "subprocess"}
         for node in ast.walk(tree)
     )
+
+
+@pytest.fixture
+def raw_evidence_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, str, str]:
+    module = _tool()
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path)
+    _ = _git("init", "-q")
+    for key, value in {
+        "user.name": "Synthetic evidence",
+        "user.email": "evidence@example.invalid",
+        "commit.gpgsign": "false",
+        "core.autocrlf": "false",
+        "core.hooksPath": os.devnull,
+    }.items():
+        _ = _git("config", key, value)
+    parent = _e_topology_commit(
+        {"source.py": b"VALUE = 1\n", "pixi.toml": b"manifest", "pixi.lock": b"lock"}
+    )
+    child = _e_topology_commit({"source.py": b"VALUE = 2\n", "raw.bin": b"\xff\0\r\n"})
+    return tmp_path, parent, child
+
+
+def _native_evidence_git(root: Path, *arguments: str) -> bytes:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        capture_output=True,
+        check=True,
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("GIT_")
+        },
+    ).stdout
+
+
+@pytest.mark.parametrize("overlay", ["commit", "blob", "graft", "graft-env"])
+def test_evidence_git_authenticates_original_objects(
+    raw_evidence_repository: tuple[Path, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    overlay: str,
+) -> None:
+    root, parent, child = raw_evidence_repository
+    module = _tool()
+    if overlay in {"commit", "blob"}:
+        left, right = child, parent
+        if overlay == "blob":
+            left = _git("rev-parse", f"{child}:source.py").strip()
+            right = _git("rev-parse", f"{parent}:source.py").strip()
+        _ = _native_evidence_git(root, "replace", left, right)
+        assert (
+            _native_evidence_git(root, "show", f"{child}:source.py") == b"VALUE = 1\n"
+        )
+        _ = (root / "source.py").write_bytes(b"VALUE = 1\n")
+        with pytest.raises(module.EvidenceError, match="differs from committed"):
+            module._source_tree(child, "source.py")
+    else:
+        path = root / ".git/info/grafts"
+        if overlay == "graft-env":
+            path = root / ".git/alternate-grafts"
+            monkeypatch.setenv("GIT_GRAFT_FILE", str(path))
+        _ = path.write_text(f"{child}\n")
+    assert module._git_blob(child, "source.py") == b"VALUE = 2\n"
+    assert module._git_blob(child, "raw.bin") == b"\xff\0\r\n"
+    assert module._commit_parents(child) == (parent,)
+    assert module._is_ancestor(parent, child)
+    assert not module._is_ancestor(child, parent)
+    with pytest.raises(module.EvidenceError, match="ancestry"):
+        module._is_ancestor("0" * 40, child)
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "GIT_DIR",
+        "GIT_COMMON_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG_COUNT",
+    ],
+)
+def test_evidence_git_ignores_caller_routing(
+    raw_evidence_repository: tuple[Path, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+) -> None:
+    root, parent, child = raw_evidence_repository
+    monkeypatch.setenv(variable, str(root / "missing-context"))
+    module = _tool()
+    assert module._git_blob(child, "source.py") == b"VALUE = 2\n"
+    assert module._is_ancestor(parent, child)
+    assert module._git("status", "--porcelain") == ""
+    assert os.environ[variable] == str(root / "missing-context")
+
+
+@pytest.mark.parametrize("registered", [False, True])
+def test_evidence_preflight_binds_the_actual_worktree(
+    raw_evidence_repository: tuple[Path, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    registered: bool,
+) -> None:
+    root, _parent, child = raw_evidence_repository
+    module = _tool()
+    actual = root
+    if registered:
+        actual = root.parent / (root.name + "-registered")
+        _ = _git("worktree", "add", "--detach", str(actual), child)
+    copy = root.parent / (root.name + "-clean")
+    copy.mkdir()
+    for name in ("source.py", "raw.bin", "pixi.toml", "pixi.lock"):
+        _ = (copy / name).write_bytes((actual / name).read_bytes())
+    try:
+        if registered:
+            _ = _git("config", "extensions.worktreeConfig", "true")
+            _ = _native_evidence_git(
+                actual, "config", "--worktree", "core.worktree", str(copy)
+            )
+        else:
+            _ = _git("config", "core.worktree", str(copy))
+        _ = (actual / "source.py").write_bytes(b"VALUE = 999\n")
+        assert _native_evidence_git(actual, "status", "--porcelain") == b""
+        monkeypatch.setattr(module, "REPOSITORY_ROOT", actual)
+        with pytest.raises(module.EvidenceError, match="not globally clean"):
+            module.preflight()
+    finally:
+        if registered:
+            _ = _native_evidence_git(
+                actual, "config", "--worktree", "--unset", "core.worktree"
+            )
+            _ = _git("config", "--unset", "extensions.worktreeConfig")
+            _ = _git("worktree", "remove", "--force", str(actual))
+        else:
+            _ = _git("config", "--unset", "core.worktree")
+
+
+def test_evidence_git_preserves_tree_bytes_and_visible_gitlinks(
+    raw_evidence_repository: tuple[Path, str, str],
+) -> None:
+    root, _parent, child = raw_evidence_repository
+    module = _tool()
+    tree = _native_evidence_git(root, "ls-tree", "-r", "-z", "--full-tree", child)
+    assert module.preflight()["git_tree_sha256"] == _domain_digest(
+        "radiosim.sci004.git-tree.v1", tree
+    )
+    _ = _git("update-index", "--add", "--cacheinfo", "160000", child, "reference")
+    _ = _git("commit", "-qm", "synthetic gitlink")
+    tip = _git("rev-parse", "HEAD").strip()
+    _ = _git("config", "diff.ignoreSubmodules", "all")
+    assert _native_evidence_git(root, "diff", "--name-only", child, tip) == b""
+    assert module._changed_paths(tip) == frozenset({"reference"})
+    with pytest.raises(module.EvidenceError):
+        module._git_bytes("ls-tree", "missing-tree")
+
+
+def test_evidence_git_query_failures_keep_typed_preflight_refusal(
+    raw_evidence_repository: tuple[Path, str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _parent, _child = raw_evidence_repository
+    module = _tool()
+
+    def missing_head(*arguments: str) -> str:
+        return "missing-tree" if arguments[0] == "rev-parse" else ""
+
+    monkeypatch.setattr(module, "_git", missing_head)
+    with pytest.raises(module.EvidenceError, match="ls-tree"):
+        module.preflight()
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", root / "absent-directory")
+    with pytest.raises(module.EvidenceError, match="cannot start"):
+        module._git_bytes("rev-parse", "HEAD")
