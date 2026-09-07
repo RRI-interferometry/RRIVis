@@ -472,7 +472,7 @@ def test_the_generator_produces_at_a_clean_evidence_commit() -> None:
     """Section 14.3/14.4: ``generate`` is bound to a venue, not prohibited."""
     source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
     body = source[source.index('if arguments.command == "generate":') :]
-    body = body[: body.index("document = json.loads(")]
+    body = body[: body.index("document = _read_json_object(")]
     assert "load_review_record(" in body
     assert "build_acceptance_document(state, review)" in body
     assert "validate_acceptance_document(document)" in body
@@ -1551,3 +1551,155 @@ def test_the_a3_validator_asserts_no_elapsed_time_threshold() -> None:
     }
     assert "time" not in imported
     assert "timeit" not in imported
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (10**21, b"1e+21"),
+        (2**53, b"9007199254740992"),
+        (10**20, b"100000000000000000000"),
+        (-0.0, b"0"),
+        ({"a": True, "b": False}, b'{"a":true,"b":false}'),
+        ("\U0001f600", b'"\\ud83d\\ude00"'),
+    ],
+)
+def test_acceptance_json_section14_number_and_unicode_spelling(
+    value: Any, expected: bytes
+) -> None:
+    assert _tool().canonical_json(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        2**53 + 1,
+        -(2**53 + 1),
+        10**400,
+        float("nan"),
+        float("inf"),
+        "\ud800",
+        {"\udfff": "value"},
+        {1: "value"},
+        {1: 1, "1": 2},
+    ],
+)
+def test_acceptance_json_refuses_lossy_or_non_json_values(value: Any) -> None:
+    module = _tool()
+    with pytest.raises(module.AcceptanceError):
+        module.canonical_json(value)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"a":1,"a":2}',
+        b'{"a":{"b":1,"b":2}}',
+        b'{"a":NaN}',
+        b'{"a":Infinity}',
+        b'{"a":1e999}',
+        b'{"a":9007199254740993}',
+        b'{"a":"\\ud800"}',
+        b'{"\\udfff":1}',
+        b"[]",
+        b"{} trailing",
+        b"{",
+        b'{"a":"\xff"}',
+    ],
+)
+@pytest.mark.parametrize("canonical", [False, True])
+def test_acceptance_json_reader_rejects_ambiguous_or_invalid_objects(
+    payload: bytes, canonical: bool
+) -> None:
+    module = _tool()
+    with pytest.raises(module.AcceptanceError):
+        module._json_object(payload, "fixture", canonical=canonical)
+
+
+@pytest.mark.parametrize(
+    "payload", [b'{"a":1.0}', b'{"a":1e0}', b'{"a":-0}', b'{"a":1}\n', b'{ "a": 1 }']
+)
+def test_acceptance_json_record_requires_canonical_bytes_but_review_allows_format(
+    payload: bytes,
+) -> None:
+    module = _tool()
+    assert module._json_object(payload, "review", canonical=False) == {
+        "a": 1 if b"-0" not in payload else 0
+    }
+    with pytest.raises(module.AcceptanceError, match="noncanonical"):
+        module._json_object(payload, "artifact", canonical=True)
+
+
+def test_acceptance_review_loader_rejects_duplicate_verdict_and_preserves_format(
+    tmp_path: Path,
+) -> None:
+    module = _tool()
+    value: dict[str, Any] = {
+        "reviewer_identity": "independent reviewer",
+        "reviewer_independent": True,
+        "verdict": "ACCEPT",
+        "rederived_oracles": [],
+        "blockers": [],
+        "accepted_limitations": [],
+        "claims_not_licensed": [],
+    }
+    path = tmp_path / "review.json"
+    _ = path.write_text(json.dumps(value, indent=2) + "\n")
+    assert module.load_review_record(path) == value
+    duplicate = '{"verdict":"REJECT",' + json.dumps(value)[1:]
+    assert json.loads(duplicate)["verdict"] == "ACCEPT"
+    _ = path.write_text(duplicate)
+    with pytest.raises(module.AcceptanceError, match="duplicate JSON key"):
+        module.load_review_record(path)
+
+
+@pytest.mark.parametrize(
+    "payload", [b'{"verdict":"REJECT","verdict":"ACCEPT"}', b"{}\n"]
+)
+def test_acceptance_check_rejects_raw_json_before_schema_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    payload: bytes,
+) -> None:
+    module = _tool()
+    path = tmp_path / "record.json"
+    _ = path.write_bytes(payload)
+
+    def forbidden(_document: Any) -> Any:
+        pytest.fail("ambiguous/noncanonical bytes reached artifact validation")
+
+    monkeypatch.setattr(module, "validate_acceptance_document", forbidden)
+    assert module.main(["check", "--artifact", str(path)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err.startswith(module.SCHEMA + ": ")
+
+
+def test_acceptance_evidence_input_rejects_duplicate_before_ancestry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _tool()
+    path = tmp_path / module.EVIDENCE_ARTIFACT
+    path.parent.mkdir(parents=True)
+    _ = path.write_bytes(b'{"source_sha":"a","source_sha":"b"}')
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path)
+    with pytest.raises(module.AcceptanceError, match="duplicate JSON key"):
+        module.build_acceptance_document({"evidence_commit_sha": "0" * 40}, {})
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"n":1000000000000000100}',
+        b'{"n":1152921504606847000}',
+        b'{"n":1e+21}',
+        b'{"n":9007199254740992}',
+    ],
+)
+@pytest.mark.parametrize("canonical", [False, True])
+def test_acceptance_json_reader_preserves_canonical_large_binary64_tokens(
+    payload: bytes, canonical: bool
+) -> None:
+    module = _tool()
+    value = module._json_object(payload, "fixture", canonical=canonical)
+    assert module.canonical_json(value) == payload

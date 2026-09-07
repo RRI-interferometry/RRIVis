@@ -120,7 +120,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 
@@ -306,20 +306,26 @@ def _render(value: Any) -> str:
         return "true"
     if value is False:
         return "false"
-    if isinstance(value, int):
-        return str(int(value))
-    if isinstance(value, float):
-        return ecmascript_number(value)
+    if isinstance(value, (int, float)):
+        number = float(value)
+        if not math.isfinite(number):
+            raise AcceptanceError(SCHEMA, "canonical JSON requires finite numbers")
+        if isinstance(value, int) and int(number) != value:
+            raise AcceptanceError(
+                SCHEMA, "JSON integer cannot roundtrip through binary64"
+            )
+        return ecmascript_number(number)
     if isinstance(value, str):
+        _ = value.encode("utf-8")
         return json.dumps(value, ensure_ascii=True)
     if isinstance(value, dict):
-        entries = sorted((str(key), item) for key, item in value.items())
+        mapping = cast(dict[Any, Any], value)
+        if any(not isinstance(key, str) for key in mapping):
+            raise AcceptanceError(SCHEMA, "JSON object keys must be strings")
+        entries = sorted(cast(dict[str, Any], mapping).items())
         return (
             "{"
-            + ",".join(
-                json.dumps(key, ensure_ascii=True) + ":" + _render(item)
-                for key, item in entries
-            )
+            + ",".join(_render(key) + ":" + _render(item) for key, item in entries)
             + "}"
         )
     if isinstance(value, (list, tuple)):
@@ -329,7 +335,81 @@ def _render(value: Any) -> str:
 
 def canonical_json(value: Any) -> bytes:
     """Return Section 14's ``J(x)`` bytes for a JSON-primitive tree."""
-    return _render(value).encode("utf-8")
+    try:
+        return _render(value).encode("utf-8")
+    except (ValueError, UnicodeError, OverflowError, RecursionError) as error:
+        raise AcceptanceError(
+            SCHEMA, "value cannot be encoded as Section 14 J"
+        ) from error
+
+
+def _json_object(
+    raw: bytes, label: str, *, canonical: bool, prefix: str = SCHEMA
+) -> dict[str, Any]:
+    """Decode an unambiguous finite object, optionally requiring exact J bytes."""
+
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            if key in result:
+                raise AcceptanceError(prefix, f"{label}: duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    def constant(value: str) -> Any:
+        raise AcceptanceError(prefix, f"{label}: non-finite JSON constant {value}")
+
+    def finite_float(token: str) -> float:
+        value = float(token)
+        if not math.isfinite(value):
+            raise AcceptanceError(prefix, f"{label}: non-finite JSON number")
+        return value
+
+    def integer(token: str) -> int | float:
+        value = int(token)
+        if abs(value) <= 2**53 - 1:
+            return value
+        number = finite_float(token)
+        # A canonical binary64 decimal can look like a large integer without
+        # denoting an exactly representable mathematical integer (e.g. the
+        # shortest spelling 1000000000000000100). Preserve that valid J token,
+        # but never silently round a different reviewer-supplied integer.
+        if int(number) != value and ecmascript_number(number) != token:
+            raise AcceptanceError(prefix, f"{label}: integer would lose precision")
+        return number
+
+    try:
+        document = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=pairs,
+            parse_constant=constant,
+            parse_float=finite_float,
+            parse_int=integer,
+        )
+        if not isinstance(document, dict):
+            raise AcceptanceError(prefix, f"{label}: expected JSON object")
+        # Validate every number/key/string even for a formatted reviewer input.
+        encoded = canonical_json(document)
+        if canonical and encoded != raw:
+            raise AcceptanceError(prefix, f"{label}: noncanonical Section 14 J bytes")
+        return cast(dict[str, Any], document)
+    except AcceptanceError as error:
+        if error.prefix == prefix:
+            raise
+        raise AcceptanceError(prefix, f"{label}: {error.detail}") from error
+    except (ValueError, UnicodeError, OverflowError, RecursionError) as error:
+        raise AcceptanceError(prefix, f"{label} is not UTF-8 JSON: {error}") from error
+
+
+def _read_json_object(
+    path: Path, label: str, *, canonical: bool, prefix: str = SCHEMA
+) -> dict[str, Any]:
+    """Read one object while retaining the caller's typed input-error channel."""
+    try:
+        raw = path.read_bytes()
+    except OSError as error:
+        raise AcceptanceError(prefix, f"{label} could not be read: {error}") from error
+    return _json_object(raw, label, canonical=canonical, prefix=prefix)
 
 
 def _require(condition: bool, prefix: str, detail: str) -> None:
@@ -600,19 +680,9 @@ def load_review_record(path: Path) -> dict[str, Any]:
     record that names one is refused instead of being allowed to overwrite the
     derivation.
     """
-    try:
-        raw = path.read_bytes()
-    except OSError as error:
-        raise AcceptanceError(
-            ARGUMENT, f"the review record {path} could not be read: {error}"
-        ) from error
-    try:
-        document = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise AcceptanceError(
-            ARGUMENT,
-            f"the review record {path} is not UTF-8 JSON: {error}",
-        ) from error
+    document = _read_json_object(
+        path, "review record", canonical=False, prefix=ARGUMENT
+    )
     record = _require_keys(document, REVIEW_RECORD_KEYS, "review record")
     for field in DERIVED_FIELDS:
         _require(
@@ -815,8 +885,8 @@ def build_acceptance_document(
     against them; see the module docstring.
     """
     evidence_commit_sha = state["evidence_commit_sha"]
-    evidence = json.loads(
-        (REPOSITORY_ROOT / EVIDENCE_ARTIFACT).read_bytes().decode("utf-8")
+    evidence = _read_json_object(
+        REPOSITORY_ROOT / EVIDENCE_ARTIFACT, "evidence artifact", canonical=True
     )
     source_sha = _evidence_source_sha(evidence)
     _require_exact_ancestry(source_sha, evidence_commit_sha)
@@ -997,7 +1067,9 @@ def main(argv: list[str] | None = None) -> int:
                 + "\n"
             )
             return 0
-        document = json.loads(Path(arguments.artifact).read_bytes().decode("utf-8"))
+        document = _read_json_object(
+            Path(arguments.artifact), "acceptance artifact", canonical=True
+        )
         validate_acceptance_document(document)
         return 0
     except AcceptanceError as error:
