@@ -537,3 +537,210 @@ def test_outside_slab_signs_use_the_scans_iers_table(
     assert (conf.auto_download, conf.iers_degraded_accuracy) == original_config
     assert mismatches == 0
     assert rows == baseline_rows
+
+
+@pytest.mark.parametrize("containers", ["lists", "tuples", "mixed", "permuted"])
+def test_scan_initial_partition_includes_owned_frozen_bounds(
+    monkeypatch: pytest.MonkeyPatch, containers: str
+) -> None:
+    """Observe the real initial loop without running refinement or a solve."""
+    from contextlib import nullcontext
+    from fractions import Fraction
+
+    import numpy as np
+
+    from radiosim.core.mmode import frame as frame_module
+    from radiosim.core.mmode import time as time_module
+
+    lower, upper = Fraction(-1, 8192), Fraction(7, 8192)
+    a, b, c = Fraction(1, 10000), Fraction(1, 9000), Fraction(1, 8000)
+
+    class Grid:
+        horizon_domain = (lower, upper)
+        sidereal_samples = 2
+
+        def center_turn(self, index: int) -> Fraction:
+            return (Fraction(0), Fraction(2, 8192))[index]
+
+        def exposure_turns(self, index: int) -> tuple[Fraction, Fraction]:
+            return (
+                (Fraction(-1, 16384), Fraction(1, 16384)),
+                (Fraction(3, 16384), Fraction(5, 16384)),
+            )[index]
+
+    class InitialPartitionCaptured(Exception):
+        pass
+
+    observed: list[Fraction] = []
+    allocation_shapes: list[tuple[int, int]] = []
+
+    class AllocationObserver:
+        def empty(self, shape: tuple[int, int], **keywords: Any) -> Any:
+            allocation_shapes.append(shape)
+            return np.empty(shape, **keywords)
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(np, name)
+
+    class RecordingTrajectory:
+        direction_count = 3
+
+        def __init__(self, *_arguments: Any) -> None:
+            pass
+
+        def at_common_turn(self, turn: Fraction) -> Any:
+            assert type(turn) is Fraction
+            observed.append(turn)
+            values = np.ones(3, dtype=np.float64)
+            if turn == upper:
+                raise InitialPartitionCaptured
+            return values
+
+    owned: Any = [
+        [a, b, lower, upper],
+        [],
+        [
+            c,
+            Fraction(1, 8192),
+            a,
+            lower - Fraction(1, 16384),
+            upper + Fraction(1, 16384),
+        ],
+    ]
+    direction_ids = ["first", "root-free", "third"]
+    ra, dec = [0.1, 0.2, 0.3], [-0.1, -0.2, -0.3]
+    if containers == "tuples":
+        owned = tuple(tuple(row) for row in owned)
+    elif containers == "mixed":
+        owned = (tuple(owned[0]), owned[1], tuple(owned[2]))
+    elif containers == "permuted":
+        owned = [list(reversed(row)) for row in reversed(owned)]
+        direction_ids.reverse()
+        ra.reverse()
+        dec.reverse()
+    original = [(id(row), [(id(bound), bound) for bound in row]) for row in owned]
+    # Literal grid inventory is independent of production spacing/helpers.
+    expected = sorted(
+        [Fraction(n, 16384) for n in (-2, -1, 0, 1, 2, 3, 4, 5, 6, 10, 14)] + [a, b, c]
+    )
+    monkeypatch.setattr(frame_module, "_OperationalTrajectory", RecordingTrajectory)
+    monkeypatch.setattr(frame_module, "np", AllocationObserver())
+    monkeypatch.setattr(time_module, "installed_iers_context", nullcontext)
+    fake_frame: Any = object()
+    with pytest.raises(InitialPartitionCaptured):
+        _ = frame_module.scan_operational_horizon(
+            frame=fake_frame,
+            grid=Grid(),
+            ra_rad=np.asarray(ra),
+            dec_rad=np.asarray(dec),
+            frozen_root_bounds=owned,
+            direction_ids=direction_ids,
+        )
+    # The final callback is recorded before stopping; no terminal scan is claimed.
+    assert observed == expected, "initial partition omitted frozen bounds"
+    # No unvisited upper-exterior boundary may hide behind the final sentinel.
+    assert allocation_shapes == [(14, 3)]
+    assert len(observed) == len(set(observed)) == 14
+    assert [
+        (id(row), [(id(bound), bound) for bound in row]) for row in owned
+    ] == original
+
+
+def test_frame_certificate_passes_original_owned_root_endpoints(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The caller preserves root ownership and ordering before scan filtering."""
+    from fractions import Fraction
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from radiosim.core.mmode import solver
+    from radiosim.core.mmode.frame import FrozenHorizonTrajectory, HorizonRootEnclosure
+
+    lower, upper = Fraction(-1, 8192), Fraction(7, 8192)
+    first = HorizonRootEnclosure(Fraction(1, 10000), Fraction(1, 9000), "rising", 0.0)
+    second = HorizonRootEnclosure(Fraction(1, 10000), Fraction(1, 8000), "setting", 0.0)
+    exterior = HorizonRootEnclosure(
+        lower - Fraction(1, 16384), upper + Fraction(1, 16384), "rising", 0.0
+    )
+    assert first.turn_lo == second.turn_lo and first.turn_lo is not second.turn_lo
+    trajectories = (
+        FrozenHorizonTrajectory(1.0, 0.0, 0.0, "synthetic", (first,)),
+        FrozenHorizonTrajectory(0.0, 0.0, 1.0, "synthetic", ()),
+        FrozenHorizonTrajectory(1.0, 0.0, 0.0, "synthetic", (second, exterior)),
+    )
+    directions: Any = [
+        SimpleNamespace(
+            direction_id=identifier,
+            cirs_direction=object(),
+            icrs_ra_rad=ra,
+            icrs_dec_rad=dec,
+        )
+        for identifier, ra, dec in (
+            ("first", 0.1, -0.1),
+            ("empty", 0.2, -0.2),
+            ("last", 0.3, -0.3),
+        )
+    ]
+    frame: Any = object()
+    grid: Any = SimpleNamespace(horizon_domain=(lower, upper))
+    context: Any = object()
+    frozen_calls: list[Any] = []
+    scan_calls: list[dict[str, Any]] = []
+    original_roots = tuple(trajectory.roots for trajectory in trajectories)
+    original_endpoints = tuple(
+        tuple((root, root.turn_lo, root.turn_hi) for root in trajectory.roots)
+        for trajectory in trajectories
+    )
+
+    class CallerCaptured(Exception):
+        pass
+
+    def frozen(
+        received_frame: Any, direction: Any, **domain: Any
+    ) -> FrozenHorizonTrajectory:
+        assert received_frame is frame
+        assert domain == {"horizon_lo": lower, "horizon_hi": upper}
+        frozen_calls.append(direction)
+        return trajectories[len(frozen_calls) - 1]
+
+    def scan(**arguments: Any) -> Any:
+        scan_calls.append(arguments)
+        raise CallerCaptured
+
+    monkeypatch.setattr(solver, "frozen_horizon_trajectory", frozen)
+    monkeypatch.setattr(solver, "scan_operational_horizon", scan)
+    with pytest.raises(CallerCaptured):
+        _ = solver.build_frame_certificate(
+            grid=grid,
+            frame=frame,
+            context=context,
+            directions=directions,
+            beam_peak_ceiling=1.0,
+            input_identity_sha256="1" * 64,
+        )
+    assert len(frozen_calls) == 3 and len(scan_calls) == 1
+    assert all(
+        actual is row.cirs_direction
+        for actual, row in zip(frozen_calls, directions, strict=True)
+    )
+    captured = scan_calls[0]
+    assert captured["frame"] is frame and captured["grid"] is grid
+    assert captured["direction_ids"] == ["first", "empty", "last"]
+    assert np.array_equal(captured["ra_rad"], np.asarray([0.1, 0.2, 0.3]))
+    assert np.array_equal(captured["dec_rad"], np.asarray([-0.1, -0.2, -0.3]))
+    assert len(captured["frozen_root_bounds"]) == 3
+    for trajectory, roots, endpoints, passed in zip(
+        trajectories,
+        original_roots,
+        original_endpoints,
+        captured["frozen_root_bounds"],
+        strict=True,
+    ):
+        assert trajectory.roots is roots
+        assert len(passed) == 2 * len(endpoints)
+        for index, (root, lo, hi) in enumerate(endpoints):
+            assert trajectory.roots[index] is root
+            assert root.turn_lo is lo and root.turn_hi is hi
+            assert passed[2 * index] is lo and passed[2 * index + 1] is hi
