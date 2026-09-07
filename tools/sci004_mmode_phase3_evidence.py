@@ -4704,6 +4704,84 @@ def _kernel_stage_block(bundle: Any, backend_name: str) -> dict[str, Any]:
     }
 
 
+def validate_scientific_solver(
+    value: Any, family_id: Any, expected_iers_sha256: str, *, label: str
+) -> dict[str, Any]:
+    """Validate a D32 family's exact Section 10 solver snapshot.
+
+    The caller authenticates the expected IERS identity and joins the returned
+    frame-certificate identity to its complete certificate. This check alone
+    does not authenticate that certificate or admit a scientific transition.
+    """
+    families = {
+        "mmode_single_scalar_mode": ("scalar", 1),
+        "mmode_point_stokes_i": ("scalar", 3),
+        "mmode_point_full_stokes": ("polarized", 3),
+        "mmode_circular_receptor": ("polarized", 3),
+    }
+    _require(
+        isinstance(family_id, str) and family_id in families,
+        SCHEMA,
+        f"{label} has an unknown characterization family",
+    )
+    execution, count = families[family_id]
+    expected: dict[str, Any] = {
+        "solver": "mmode",
+        "sky_representation": "point_sources",
+        "convention": "radiosim.mmode-forward.v1",
+        "execution_path": execution,
+        "components": ["point"],
+        "component_element_counts": [count],
+        "time_grid_convention": "radiosim.mmode-era-turn-grid.v1",
+        "frame_model": "radiosim.frozen-cirs-rigid-era.v1",
+        "harmonic_convention": "radiosim.shaw-polarized-harmonics.v1",
+        "sidereal_samples": 49,
+        "lmax": 16,
+        "mmax": 16,
+        "quadrature_nside": 8,
+        "quadrature_policy": "iso-gauss-ring-production-plus-qcheck.v1",
+        "truncation_policy": "complete-frozen-direct-plus-local-shells.v1",
+        "tangent_polarization_frame": (
+            "not_applicable_scalar_m1"
+            if execution == "scalar"
+            else {
+                "schema_version": "radiosim.sky-tangent-polarization.v1",
+                "coordinate_frame": "icrs",
+                "axes": "north_east",
+                "position_angle": "north_through_east",
+                "linear_complex": "q_plus_i_u",
+                "stokes_v": "iau_incoming_r_minus_l",
+            }
+        ),
+        "stokes_v_basis_bridge": "radiosim.stokes-ne-theta-phi.v1",
+        "iers_table_sha256": _require_hex(expected_iers_sha256, 64, label + " IERS"),
+        "frame_certificate_sha256": None,
+        "transform_execution_policy": "host_harmonics_backend_native_dense_v1",
+    }
+    row = _require_keys(value, tuple(expected), label)
+    expected["frame_certificate_sha256"] = _require_hex(
+        row["frame_certificate_sha256"], 64, label + " frame certificate"
+    )
+    # JSON equality alone equates bools/integers/floats. Check the exact retained
+    # integer/list forms before comparing the complete closed scientific value.
+    for key in ("sidereal_samples", "lmax", "mmax", "quadrature_nside"):
+        _require(type(row[key]) is int, SCHEMA, f"{label}.{key} must be an integer")
+    _require(
+        isinstance(row["component_element_counts"], list),
+        SCHEMA,
+        f"{label} component count form",
+    )
+    counts = cast(list[Any], row["component_element_counts"])
+    _require(
+        len(counts) == 1 and type(counts[0]) is int,
+        SCHEMA,
+        f"{label} component count form",
+    )
+    _require(isinstance(row["components"], list), SCHEMA, f"{label} components form")
+    _require(row == expected, DIGEST, f"{label} differs from the frozen family solver")
+    return row
+
+
 def _snapshot_identity(snapshot: Mapping[str, Any]) -> str:
     """Return one solver snapshot's Section 14.0 object identity."""
     return object_digest("radiosim.mmode-solver-snapshot.v1", dict(snapshot))

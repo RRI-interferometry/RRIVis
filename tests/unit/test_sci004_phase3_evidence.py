@@ -6890,3 +6890,141 @@ def test_scientific_stream_rejects_authenticated_wrong_roots_and_joins(
     }
     with pytest.raises(module.EvidenceError):
         module.decode_scientific_stream(segments[:24], segments[24], label="test")
+
+
+def _scientific_solver_fixture(family: str) -> dict[str, Any]:
+    polarized = family in {"mmode_point_full_stokes", "mmode_circular_receptor"}
+    return {
+        "solver": "mmode",
+        "sky_representation": "point_sources",
+        "convention": "radiosim.mmode-forward.v1",
+        "execution_path": "polarized" if polarized else "scalar",
+        "components": ["point"],
+        "component_element_counts": [1 if family == "mmode_single_scalar_mode" else 3],
+        "time_grid_convention": "radiosim.mmode-era-turn-grid.v1",
+        "frame_model": "radiosim.frozen-cirs-rigid-era.v1",
+        "harmonic_convention": "radiosim.shaw-polarized-harmonics.v1",
+        "sidereal_samples": 49,
+        "lmax": 16,
+        "mmax": 16,
+        "quadrature_nside": 8,
+        "quadrature_policy": "iso-gauss-ring-production-plus-qcheck.v1",
+        "truncation_policy": "complete-frozen-direct-plus-local-shells.v1",
+        "tangent_polarization_frame": {
+            "schema_version": "radiosim.sky-tangent-polarization.v1",
+            "coordinate_frame": "icrs",
+            "axes": "north_east",
+            "position_angle": "north_through_east",
+            "linear_complex": "q_plus_i_u",
+            "stokes_v": "iau_incoming_r_minus_l",
+        }
+        if polarized
+        else "not_applicable_scalar_m1",
+        "stokes_v_basis_bridge": "radiosim.stokes-ne-theta-phi.v1",
+        "iers_table_sha256": "a" * 64,
+        "frame_certificate_sha256": "b" * 64,
+        "transform_execution_policy": "host_harmonics_backend_native_dense_v1",
+    }
+
+
+@pytest.mark.parametrize(
+    "family",
+    [
+        "mmode_single_scalar_mode",
+        "mmode_point_stokes_i",
+        "mmode_point_full_stokes",
+        "mmode_circular_receptor",
+    ],
+)
+def test_scientific_solver_accepts_exact_family_and_source_hash_endpoint(
+    family: str,
+) -> None:
+    module = _tool()
+    row = _scientific_solver_fixture(family)
+    assert (
+        module.validate_scientific_solver(row, family, "a" * 64, label="solver") == row
+    )
+    row["frame_certificate_sha256"] = "c" * 64
+    assert (
+        module.validate_scientific_solver(row, family, "a" * 64, label="solver") == row
+    )
+
+
+@pytest.mark.parametrize(
+    "key", tuple(_scientific_solver_fixture("mmode_point_full_stokes"))
+)
+def test_scientific_solver_refuses_missing_fields_and_wrong_values(key: str) -> None:
+    module = _tool()
+    row = _scientific_solver_fixture("mmode_point_full_stokes")
+    del row[key]
+    with pytest.raises(module.EvidenceError):
+        module.validate_scientific_solver(
+            row, "mmode_point_full_stokes", "a" * 64, label="solver"
+        )
+    row[key] = None
+    with pytest.raises(module.EvidenceError):
+        module.validate_scientific_solver(
+            row, "mmode_point_full_stokes", "a" * 64, label="solver"
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "extra",
+        "unknown-family",
+        "wrong-family",
+        "iers",
+        "bad-iers",
+        "certificate",
+        "bool-count",
+        "float-count",
+        "tuple-count",
+        "tuple-components",
+        "tangent-extra",
+        "tangent-axis",
+        "tangent-null",
+        "float-dimension",
+    ],
+)
+def test_scientific_solver_refuses_closed_schema_and_typed_mutations(
+    mutation: str,
+) -> None:
+    module = _tool()
+    family = (
+        "mmode_single_scalar_mode"
+        if mutation == "bool-count"
+        else "mmode_point_full_stokes"
+    )
+    row = _scientific_solver_fixture(family)
+    iers = "a" * 64
+    if mutation == "extra":
+        row["backend"] = "numpy"
+    elif mutation == "unknown-family":
+        family = "other"
+    elif mutation == "wrong-family":
+        family = "mmode_point_stokes_i"
+    elif mutation == "iers":
+        iers = "d" * 64
+    elif mutation == "bad-iers":
+        iers = "G" * 64
+    elif mutation == "certificate":
+        row["frame_certificate_sha256"] = "B" * 64
+    elif mutation == "bool-count":
+        row["component_element_counts"] = [True]
+    elif mutation == "float-count":
+        row["component_element_counts"] = [3.0]
+    elif mutation == "tuple-count":
+        row["component_element_counts"] = (3,)
+    elif mutation == "tuple-components":
+        row["components"] = ("point",)
+    elif mutation == "tangent-extra":
+        row["tangent_polarization_frame"]["extra"] = 0
+    elif mutation == "tangent-axis":
+        row["tangent_polarization_frame"]["axes"] = "east_north"
+    elif mutation == "tangent-null":
+        row["tangent_polarization_frame"] = None
+    elif mutation == "float-dimension":
+        row["lmax"] = 16.0
+    with pytest.raises(module.EvidenceError):
+        module.validate_scientific_solver(row, family, iers, label="solver")
