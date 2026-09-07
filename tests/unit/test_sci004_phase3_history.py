@@ -6,7 +6,10 @@ import copy
 import os
 import subprocess
 from collections.abc import Callable
+from dataclasses import replace
+from hashlib import sha256
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -201,8 +204,64 @@ FIXTURE_AFTER = FIXTURE_BEFORE.replace(
 )
 
 
+def source_design_object(
+    root: Path,
+    commit: Callable[..., str],
+    parent: str,
+    edge: history.SourceDesignEdge,
+) -> history.SourceDesignEdge:
+    """Create a minimal ordinary source-design edge using actual Git objects."""
+    memo = (
+        f"**Bounded correction #{edge.correction} candidate\n"
+        "**Review verification\n"
+        "`/root/d30_physics_review` and `/root/d30_provenance_review` "
+        "each returned exact\n`ACCEPT`\n"
+        f"complete round-{edge.round_number} candidate bytes\n{parent}\n"
+        + "\n".join(edge.review_pins)
+        + "\n"
+    ).encode()
+    companion = (
+        f"**Current continuation #{edge.correction} candidate\n"
+        "physics/governance and computational/provenance each returned ACCEPT\n"
+        f"complete round-{edge.round_number} final D{edge.correction} header\n"
+    ).encode()
+    retained: list[bytes] = []
+    for path, label in zip(
+        history.DESIGN_PATHS,
+        ("Current continuation", "Bounded correction"),
+        strict=True,
+    ):
+        tail = history_git(root, "show", f"{parent}:{path}")
+        # Preserve the old review lines so Git identifies the new header as added.
+        # Reversed-order hostile fixtures may already contain this heading.
+        tail = tail.replace(
+            f"**{label} #{edge.correction} candidate".encode(), b"**Retained candidate"
+        )
+        end = f"**{label} #{edge.correction - 1} candidate".encode()
+        if f"**{label} #{edge.correction + 1} candidate".encode() in tail:
+            # A deliberately reversed edge must still have one bounded own review.
+            tail = end + b"\n" + tail.replace(end, b"**Retained prior boundary")
+        if end not in tail:
+            tail = end + b"\n" + tail
+        retained.append(tail)
+    companion += retained[0]
+    memo += retained[1]
+    sha = commit(
+        parent, dict(zip(history.DESIGN_PATHS, (companion, memo), strict=True))
+    )
+    return replace(
+        edge,
+        sha=sha,
+        parent=parent,
+        blobs=(sha256(companion).hexdigest(), sha256(memo).hexdigest()),
+        patch=sha256(
+            history_git(root, "diff", "--binary", "--full-index", parent, sha, "--")
+        ).hexdigest(),
+    )
+
+
 @pytest.fixture
-def phase_objects(tmp_path, monkeypatch):
+def phase_objects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PhaseObjects:
     """Synthetic Git objects only: no checkout, refs or implementation worktree."""
     import subprocess
 
@@ -283,6 +342,7 @@ def phase_objects(tmp_path, monkeypatch):
         red, dict(zip(history.DESIGN_PATHS, (b"new plan\n", memo), strict=True))
     )
     monkeypatch.setattr(history, "OPERATIVE_DESIGN_SHA", design)
+    monkeypatch.setattr(history, "RED_DESIGN_SHA", design)
     monkeypatch.setattr(history, "DESIGN_SUCCESSOR_PARENT", red)
     monkeypatch.setattr(
         history,
@@ -304,9 +364,29 @@ def phase_objects(tmp_path, monkeypatch):
             history.SNAPSHOT_FIXTURE_PATH: FIXTURE_AFTER,
         }
     )
-    source = commit(status, edits)
+    source_designs: list[history.SourceDesignEdge] = []
+    parent = status
+    for edge in history.SOURCE_DESIGN_EDGES:
+        created = source_design_object(
+            root, cast(Callable[..., str], commit), parent, edge
+        )
+        source_designs.append(created)
+        parent = created.sha
+    monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", tuple(source_designs))
+    monkeypatch.setattr(history, "HISTORICAL_SOURCE_DESIGN_SHA", source_designs[0].sha)
+    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[1].sha)
+    source = commit(parent, edits)
     terminal = commit(source, dict.fromkeys(history.DISPOSAL_PINS))
-    return root, commit, base, prerequisite, red, status, source, terminal
+    return (
+        root,
+        cast(Callable[..., str], commit),
+        base,
+        prerequisite,
+        red,
+        status,
+        source,
+        terminal,
+    )
 
 
 def _phase_document(objects):
@@ -325,7 +405,7 @@ def _validate_document(document, objects):
     root, _, _, _, _, red, _, source = objects
     history.validate_phase_ranges(
         document,
-        design_sha=history.OPERATIVE_DESIGN_SHA,
+        design_sha=history.SOURCE_DESIGN_SHA,
         red_sha=red,
         source_sha=source,
         root=root,
@@ -341,6 +421,8 @@ def test_complete_ranges_join_git_objects_and_keep_status_and_disposal(phase_obj
         "status",
     ]
     assert [row["role"] for row in document["source"]["commits"]] == [
+        "source-design-successor",
+        "source-design-successor",
         "source",
         "disposal",
     ]
@@ -943,9 +1025,6 @@ def test_source_design_real_objects_require_own_review(
     edge: history.SourceDesignEdge,
     mutation: str | None,
 ) -> None:
-    from dataclasses import replace
-    from hashlib import sha256
-
     root, commit, base, _, red, _, _, _ = phase_objects
     edits = {
         path: history_git(
@@ -967,7 +1046,11 @@ def test_source_design_real_objects_require_own_review(
     elif mutation == "missing_verdict":
         memo = memo.replace(b"each returned exact\n`ACCEPT`", b"review pending", 1)
     elif mutation == "crossed_review_pins":
-        other = next(item for item in history.SOURCE_DESIGN_EDGES if item != edge)
+        other = next(
+            item
+            for item in history.SOURCE_DESIGN_EDGES
+            if item.correction != edge.correction
+        )
         for pin, other_pin in zip(edge.review_pins, other.review_pins, strict=True):
             memo = memo.replace(pin.encode(), other_pin.encode(), 1)
     elif mutation == "missing_companion_verdict":
@@ -1029,3 +1112,160 @@ def test_source_design_real_objects_require_own_review(
     else:
         with pytest.raises(history.HistoryError):
             history.authenticate_source_design_successor(forged, root)
+
+
+@pytest.mark.parametrize("order", [(), (32,), (33,), (33, 32), (32, 33)])
+def test_complete_source_requires_both_designs_in_order(
+    phase_objects: PhaseObjects,
+    monkeypatch: pytest.MonkeyPatch,
+    order: tuple[int, ...],
+) -> None:
+    root, commit, _, _, _, red, source, _ = phase_objects
+    prototypes = {edge.correction: edge for edge in history.SOURCE_DESIGN_EDGES}
+    edges: dict[int, history.SourceDesignEdge] = {}
+    parent = red
+    for correction in order:
+        edge = source_design_object(root, commit, parent, prototypes[correction])
+        edges[correction] = edge
+        parent = edge.sha
+    # Keep absent identities pinned too; their objects cannot be invented in S.
+    expected = tuple(edges.get(number, prototypes[number]) for number in (32, 33))
+    monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", expected)
+    monkeypatch.setattr(history, "HISTORICAL_SOURCE_DESIGN_SHA", expected[0].sha)
+    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", expected[1].sha)
+    edits = {
+        path: history_git(root, "show", f"{source}:{path}")
+        for path in history.SOURCE_PATHS
+    }
+    tip = commit(commit(parent, edits), dict.fromkeys(history.DISPOSAL_PINS))
+    partial = history.describe_phase_range(
+        red, tip, "source", root=root, require_complete=False
+    )
+    assert [
+        row["sha"]
+        for row in partial["commits"]
+        if row["role"] == "source-design-successor"
+    ] == [edges[number].sha for number in order]
+    if order == (32, 33):
+        assert history.describe_phase_range(red, tip, "source", root=root) == partial
+    else:
+        with pytest.raises(history.HistoryError, match="exact D32 then D33 once"):
+            _ = history.describe_phase_range(red, tip, "source", root=root)
+
+
+def test_complete_source_inventory_is_exactly_eleven_modifications_and_four_disposals(
+    phase_objects: PhaseObjects,
+) -> None:
+    expected = {
+        history.SOLVER_PATH,
+        history.SNAPSHOT_FIXTURE_PATH,
+        "src/radiosim/core/result.py",
+        "tools/sci004_mmode_phase3_evidence.py",
+        "tests/unit/test_sci004_phase3_evidence.py",
+        "tools/sci004_mmode_phase3_acceptance.py",
+        "tests/unit/test_sci004_phase3_acceptance.py",
+        "tools/sci004_phase3_history.py",
+        "tests/unit/test_sci004_phase3_history.py",
+        "tests/unit/test_sci004_phase3_dependency.py",
+        "tests/unit/test_sci004_phase3_red_failures.py",
+    }
+    assert history.SOURCE_PATHS == expected
+    assert len(expected) == 11 and len(history.DISPOSAL_PINS) == 4
+    document = _phase_document(phase_objects)
+    _validate_document(document, phase_objects)
+    aggregate = {
+        path
+        for row in document["source"]["commits"]
+        if row["role"] in {"source", "disposal"}
+        for path in row["paths"]
+    }
+    assert aggregate == expected | history.DISPOSAL_PINS.keys()
+    assert not aggregate.intersection(history.DESIGN_PATHS)
+
+
+@pytest.mark.parametrize("missing", sorted(history.SOURCE_PATHS))
+def test_complete_source_refuses_each_missing_modified_path(
+    phase_objects: PhaseObjects,
+    missing: str,
+) -> None:
+    root, commit, _, _, _, red, source, _ = phase_objects
+    last_design = history.SOURCE_DESIGN_SHA
+    edits = {
+        path: history_git(root, "show", f"{source}:{path}")
+        for path in history.SOURCE_PATHS
+        if path != missing
+    }
+    tip = commit(commit(last_design, edits), dict.fromkeys(history.DISPOSAL_PINS))
+    with pytest.raises(history.HistoryError):
+        _ = history.describe_phase_range(red, tip, "source", root=root)
+
+
+@pytest.mark.parametrize("mutation", ["unknown_edge", "bad_pin", "wrong_phase"])
+def test_source_design_role_authenticates_before_excluding_paths(
+    phase_objects: PhaseObjects,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    root, commit, _, prerequisite, _, red, _, terminal = phase_objects
+    if mutation == "unknown_edge":
+        tip = commit(
+            terminal, dict.fromkeys(history.DESIGN_PATHS, b"unreviewed successor\n")
+        )
+        with pytest.raises(history.HistoryError, match="source role"):
+            _ = history.describe_phase_range(red, tip, "source", root=root)
+    elif mutation == "bad_pin":
+        first, second = history.SOURCE_DESIGN_EDGES
+        monkeypatch.setattr(
+            history, "SOURCE_DESIGN_EDGES", (replace(first, patch="0" * 64), second)
+        )
+        with pytest.raises(history.HistoryError, match="source design complete diff"):
+            _ = history.describe_phase_range(red, terminal, "source", root=root)
+    else:
+        with pytest.raises(history.HistoryError, match="red role"):
+            _ = history.describe_phase_range(
+                prerequisite, history.HISTORICAL_SOURCE_DESIGN_SHA, "red", root=root
+            )
+
+
+@pytest.mark.parametrize("mutation", ["duplicate", "reverse", "disguise", "historical"])
+def test_source_document_cannot_rebind_or_disguise_design_entries(
+    phase_objects: PhaseObjects,
+    mutation: str,
+) -> None:
+    document = _phase_document(phase_objects)
+    entries = document["source"]["commits"]
+    if mutation == "duplicate":
+        entries.insert(1, copy.deepcopy(entries[0]))
+    elif mutation == "reverse":
+        entries[0], entries[1] = entries[1], entries[0]
+    elif mutation == "disguise":
+        entries[0]["role"] = "status"
+    else:
+        for design in (
+            history.OPERATIVE_DESIGN_SHA,
+            history.HISTORICAL_SOURCE_DESIGN_SHA,
+        ):
+            with pytest.raises(history.HistoryError, match="current D33"):
+                history.validate_phase_ranges(
+                    document,
+                    design_sha=design,
+                    red_sha=phase_objects[5],
+                    source_sha=phase_objects[7],
+                    root=phase_objects[0],
+                )
+        return
+    with pytest.raises(history.HistoryError):
+        _validate_document(document, phase_objects)
+
+
+def test_live_partial_source_preserves_early_s_and_authenticates_current_designs() -> (
+    None
+):
+    red = "567f9ac68730044fc8e887930d3531d794534412"
+    first = "72a0a5c5ebd203b63e091342f3655ebf808bac4b"
+    early = history.describe_phase_range(red, first, "source", require_complete=False)
+    assert [row["role"] for row in early["commits"]] == ["source"]
+    head = history_git(history.REPOSITORY_ROOT, "rev-parse", "HEAD").decode().strip()
+    current = history.describe_phase_range(red, head, "source", require_complete=False)
+    history.require_source_design_successors(current["commits"])
+    assert history.OPERATIVE_DESIGN_SHA == history.RED_DESIGN_SHA

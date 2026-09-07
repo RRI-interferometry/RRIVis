@@ -4592,12 +4592,20 @@ def test_source_readiness_requires_unique_ast_null_sentinels(source):
 
 
 @pytest.fixture
-def ready_source_objects(tmp_path, monkeypatch):
+def ready_source_objects(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, ...]:
+    from typing import cast
+
     from tests.unit import test_sci004_phase3_dependency as dependency
-    from tests.unit.test_sci004_phase3_history import phase_objects
+    from tests.unit.test_sci004_phase3_history import (
+        PhaseObjects,
+        phase_objects,
+        source_design_object,
+    )
     from tools import sci004_phase3_history as history
 
-    objects = phase_objects.__wrapped__(tmp_path, monkeypatch)
+    objects = cast(PhaseObjects, phase_objects.__wrapped__(tmp_path, monkeypatch))
     root, commit, _, _, _, red, prior_source, _ = objects
     module = _tool()
     blobs = _ready_source_blobs(module)
@@ -4607,30 +4615,42 @@ def ready_source_objects(tmp_path, monkeypatch):
         for path in history.SOURCE_PATHS
     }
     edits.update({path: raw.encode() for path, raw in blobs.items()})
-    # Acceptance sentinels are one of the seven source paths, not extra scope.
+    # First S retains its exact R parent before the two reviewed design edges.
     first = commit(red, edits)
-    head = commit(first, dict.fromkeys(history.DISPOSAL_PINS))
+    source_designs: list[history.SourceDesignEdge] = []
+    parent = first
+    for edge in history.SOURCE_DESIGN_EDGES:
+        created = source_design_object(root, commit, parent, edge)
+        source_designs.append(created)
+        parent = created.sha
+    monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", tuple(source_designs))
+    monkeypatch.setattr(history, "HISTORICAL_SOURCE_DESIGN_SHA", source_designs[0].sha)
+    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[1].sha)
+    head = commit(parent, dict.fromkeys(history.DISPOSAL_PINS))
     for path, content in edits.items():
         raw = content.decode()
         destination = root / path
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(raw)
+        _ = destination.write_text(raw)
     monkeypatch.setattr(module, "REPOSITORY_ROOT", root)
     monkeypatch.setattr(dependency, "REPOSITORY_ROOT", root)
     monkeypatch.setattr(
         dependency, "APPROVED_SCI004_D_SHA", history.OPERATIVE_DESIGN_SHA
     )
     original_peel = dependency._peel_to_commit
-    monkeypatch.setattr(
-        dependency,
-        "_peel_to_commit",
-        lambda ref: head if ref == "HEAD" else original_peel(ref),
-    )
-    monkeypatch.setattr(module, "preflight", lambda *_args: {"source_sha": head})
+
+    def fixture_peel(ref: str) -> str:
+        return head if ref == "HEAD" else original_peel(ref)
+
+    def fixture_preflight(*_args: Any) -> dict[str, str]:
+        return {"source_sha": head}
+
+    monkeypatch.setattr(dependency, "_peel_to_commit", fixture_peel)
+    monkeypatch.setattr(module, "preflight", fixture_preflight)
     monkeypatch.setattr(
         module, "_red_commit_sha", lambda: dependency.resolve_r3_replay_anchor().commit
     )
-    monkeypatch.setattr(module, "_design_sha", lambda: history.OPERATIVE_DESIGN_SHA)
+    monkeypatch.setattr(module, "_design_sha", lambda: history.SOURCE_DESIGN_SHA)
     return module, history, dependency, root, red, first, head
 
 
@@ -4647,6 +4667,7 @@ def test_source_readiness_accepts_complete_synthetic_source_history(
     assert set(history.SOURCE_PATHS) | set(history.DISPOSAL_PINS) == {
         path
         for entry in state["phase_ranges"]["source"]["commits"]
+        if entry["role"] != "source-design-successor"
         for path in entry["paths"]
     }
 

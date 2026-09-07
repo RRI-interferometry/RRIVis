@@ -351,6 +351,10 @@ SOURCE_PATHS = frozenset(
         "tests/unit/test_sci004_phase3_evidence.py",
         "tools/sci004_mmode_phase3_acceptance.py",
         "tests/unit/test_sci004_phase3_acceptance.py",
+        "tools/sci004_phase3_history.py",
+        "tests/unit/test_sci004_phase3_history.py",
+        "tests/unit/test_sci004_phase3_dependency.py",
+        "tests/unit/test_sci004_phase3_red_failures.py",
     }
 )
 DISPOSAL_PINS = {
@@ -594,6 +598,21 @@ def require_design_successor(records: list[dict[str, Any]]) -> None:
     )
 
 
+def require_source_design_successors(records: list[dict[str, Any]]) -> None:
+    """Require both authenticated S design edges, once each in D32/D33 order."""
+    expected = [HISTORICAL_SOURCE_DESIGN_SHA, SOURCE_DESIGN_SHA]
+    _require(
+        len(set(expected)) == 2
+        and [edge.sha for edge in SOURCE_DESIGN_EDGES] == expected,
+        "source design authority bindings",
+    )
+    _require(
+        [row["sha"] for row in records if row["role"] == "source-design-successor"]
+        == expected,
+        "complete source requires exact D32 then D33 once",
+    )
+
+
 def _bridge_ast(raw: bytes, path: str, required: bool | None) -> str:
     """Remove only D31's exact required runtime field and same-run keyword."""
     try:
@@ -695,6 +714,9 @@ def _phase_role(
         )
         return "red"
     _require(phase == "source", "unknown phase role")
+    if commit in {HISTORICAL_SOURCE_DESIGN_SHA, SOURCE_DESIGN_SHA}:
+        authenticate_source_design_successor(commit, root)
+        return "source-design-successor"
     if paths <= DISPOSAL_PINS.keys():
         _require(set(delta.values()) == {"D"}, "disposal must only delete artifacts")
         for path in paths:
@@ -782,7 +804,7 @@ def describe_phase_range(
                 ),
             }
         )
-        if role not in {"status", "design-successor"}:
+        if role not in {"status", "design-successor", "source-design-successor"}:
             aggregate.update(delta)
         previous = commit
     if require_complete:
@@ -795,6 +817,7 @@ def describe_phase_range(
             )
         else:
             if phase == "source":
+                require_source_design_successors(records)
                 for path in (SOLVER_PATH, SNAPSHOT_FIXTURE_PATH):
                     _validate_bridge_delta(root, base, terminal, path, cumulative=True)
             expected = (
@@ -820,7 +843,10 @@ def validate_phase_ranges(
         type(document) is dict and set(document) == {"prerequisite", "red", "source"},
         "phase_ranges keys",
     )
-    _require(design_sha == OPERATIVE_DESIGN_SHA, "phase_ranges operative design")
+    _require(
+        design_sha == SOURCE_DESIGN_SHA,
+        "phase_ranges operative design must be current D33",
+    )
     endpoints = (
         (DESIGN_SHA, PREREQUISITE_TIP_SHA),
         (PREREQUISITE_TIP_SHA, red_sha),
