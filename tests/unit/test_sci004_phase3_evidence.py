@@ -119,6 +119,8 @@ FINGERPRINT_RED_RECORD_SHA256 = (
 FINGERPRINT_DESIGN_SHA = "ca3c37171aaaeec175b5ad72d324957762303853"
 ORIGINAL_FINGERPRINT_R3_SHA = "a65c53a46e84f63c163c5ad15fba8645df33d1d2"
 CURRENT_D31_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
+HISTORICAL_SOURCE_D32_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
+CURRENT_SOURCE_D33_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
 RANGE_ORIGIN_D30_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
 HISTORICAL_RED_RECORD_SHA256 = (
     "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
@@ -1656,9 +1658,9 @@ def test_the_design_sha_is_the_frozen_binding_not_a_memo_tip_search() -> None:
     the forbidden search and refuse to run here.
     """
     module = _tool()
-    frozen = module._frozen_binding("APPROVED_SCI004_D_SHA")
+    frozen = module._frozen_binding("SOURCE_DESIGN_SHA")
     assert GIT_SHA.fullmatch(frozen)
-    assert frozen == CURRENT_D31_SHA
+    assert frozen == CURRENT_SOURCE_D33_SHA
     assert module._design_sha() == frozen
     source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
     assert '"--", "docs/development/sci004_mmode_design.md"' not in source, (
@@ -1669,11 +1671,11 @@ def test_the_design_sha_is_the_frozen_binding_not_a_memo_tip_search() -> None:
 def test_the_frozen_design_binding_is_read_from_the_dependency_validator() -> None:
     """Section 14.0: the binding has exactly one site, read by AST."""
     module = _tool()
-    frozen = module._frozen_binding("APPROVED_SCI004_D_SHA")
+    frozen = module._frozen_binding("SOURCE_DESIGN_SHA")
     text = (REPOSITORY_ROOT / "tests/unit/test_sci004_phase3_dependency.py").read_text(
         encoding="utf-8"
     )
-    assert f'APPROVED_SCI004_D_SHA = "{frozen}"' in text
+    assert f'SOURCE_DESIGN_SHA = "{frozen}"' in text
     tool_source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
     assert frozen not in tool_source, (
         "the generator must read the frozen binding, never restate it"
@@ -1681,11 +1683,11 @@ def test_the_frozen_design_binding_is_read_from_the_dependency_validator() -> No
 
 
 def test_current_and_historical_design_roles_are_exact_and_distinct() -> None:
-    """Correction #31 separates operative D31, range-origin D30 and red history."""
+    """Corrections #31–33 separate the range origin, R, and source authorities."""
     module = _tool()
     post_source = json.loads((REPOSITORY_ROOT / POST_SOURCE_RED_RECORD).read_bytes())
     fingerprint = json.loads((REPOSITORY_ROOT / FINGERPRINT_RED_RECORD).read_bytes())
-    assert module._design_sha() == CURRENT_D31_SHA
+    assert module._design_sha() == CURRENT_SOURCE_D33_SHA
     assert post_source["design_sha"] == POST_SOURCE_DESIGN_SHA
     assert fingerprint["design_sha"] == FINGERPRINT_DESIGN_SHA
     assert (
@@ -1782,7 +1784,7 @@ def test_terminal_r3_preserves_distinct_range_origin_and_operative_design(
         == CURRENT_D31_SHA
     )
     assert module._frozen_binding("D30_SHA") == RANGE_ORIGIN_D30_SHA
-    assert module._design_sha() == CURRENT_D31_SHA
+    assert module._design_sha() == CURRENT_SOURCE_D33_SHA
     terminal = "f" * 40
     monkeypatch.setattr(
         dependency,
@@ -1869,9 +1871,16 @@ def test_historical_design_mutation_or_current_d31_substitution_is_rejected(
 
 
 @pytest.mark.parametrize(
-    "historical_design", [POST_SOURCE_DESIGN_SHA, FINGERPRINT_DESIGN_SHA]
+    "historical_design",
+    [
+        POST_SOURCE_DESIGN_SHA,
+        FINGERPRINT_DESIGN_SHA,
+        RANGE_ORIGIN_D30_SHA,
+        CURRENT_D31_SHA,
+        HISTORICAL_SOURCE_D32_SHA,
+    ],
 )
-def test_a_historical_design_cannot_replace_the_current_d31_envelope_binding(
+def test_a_historical_design_cannot_replace_the_current_d33_envelope_binding(
     historical_design: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1883,7 +1892,7 @@ def test_a_historical_design_cannot_replace_the_current_d31_envelope_binding(
     document["red_failure_record"] = module._red_failure_record_reference(
         document["red_commit_sha"]
     )
-    with pytest.raises(module.EvidenceError, match="current frozen operative D31"):
+    with pytest.raises(module.EvidenceError, match="current frozen operative D33"):
         module.validate_evidence_artifact(document)
 
 
@@ -1893,7 +1902,7 @@ def test_a_design_sha_cannot_stand_in_for_red_commit_sha(
     module = _tool()
     _mock_red_binding_for_historical_checks(module, monkeypatch)
     document = _synthetic_document(module)
-    document["design_sha"] = CURRENT_D31_SHA
+    document["design_sha"] = CURRENT_SOURCE_D33_SHA
     document["red_commit_sha"] = CURRENT_D31_SHA
     document["red_failure_record"] = module._red_failure_record_reference(
         module._red_commit_sha()
@@ -2499,7 +2508,7 @@ def test_the_artifact_validator_authenticates_the_fresh_r3_and_both_inputs(
     _mock_red_binding_for_historical_checks(module, monkeypatch)
     document = _synthetic_document(module)
     red_commit = module._red_commit_sha()
-    document["design_sha"] = CURRENT_D31_SHA
+    document["design_sha"] = CURRENT_SOURCE_D33_SHA
     document["red_commit_sha"] = red_commit
     document["red_failure_record"] = module._red_failure_record_reference(red_commit)
     module.validate_evidence_artifact(document)
@@ -6301,3 +6310,142 @@ def test_scientific_array_requires_exact_independent_layout(
         module.validate_scientific_array(role, raw, payload[: -len(bad)] + bad)
     with pytest.raises(module.EvidenceError):
         module.validate_scientific_array("unknown", raw, payload)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "",
+        'SOURCE_DESIGN_SHA = "x"\nSOURCE_DESIGN_SHA = "y"\n',
+        'SOURCE_DESIGN_SHA = "x"\nSOURCE_DESIGN_SHA = str(1)\n',
+        "SOURCE_DESIGN_SHA = str(1)\n",
+        'SOURCE_DESIGN_SHA: str = "x"\n',
+        'if True:\n    SOURCE_DESIGN_SHA = "x"\n',
+        'SOURCE_DESIGN_SHA = other = "x"\n',
+        'SOURCE_DESIGN_SHA = "x"\ndef f():\n    SOURCE_DESIGN_SHA = "y"\n',
+        "SOURCE_DESIGN_SHA =\n",
+    ],
+)
+def test_source_design_disk_binding_requires_one_plain_literal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    module = _tool()
+    path = tmp_path / module.DEPENDENCY_VALIDATOR_PATH
+    path.parent.mkdir(parents=True)
+    _ = path.write_text(source)
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path)
+    with pytest.raises(module.EvidenceError):
+        _ = module._frozen_binding("SOURCE_DESIGN_SHA")
+
+
+@pytest.mark.parametrize("field", ["__file__", "REPOSITORY_ROOT", "missing_file"])
+def test_source_design_rejects_foreign_loaded_dependency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, field: str
+) -> None:
+    from tests.unit import test_sci004_phase3_dependency as dependency
+
+    module = _tool()
+    if field == "missing_file":
+        monkeypatch.delattr(dependency, "__file__")
+    else:
+        monkeypatch.setattr(
+            dependency,
+            field,
+            str(tmp_path / "absent.py") if field == "__file__" else tmp_path,
+        )
+    with pytest.raises(module.EvidenceError, match="another checkout"):
+        _ = module._design_sha()
+
+
+@pytest.mark.parametrize(
+    "field,replacement",
+    [
+        ("SOURCE_DESIGN_SHA", CURRENT_D31_SHA),
+        ("SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D32_SHA),
+        ("HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D33_SHA),
+        ("D30_SHA", CURRENT_D31_SHA),
+        ("APPROVED_SCI004_D_SHA", CURRENT_SOURCE_D33_SHA),
+        ("joint_source_roles", HISTORICAL_SOURCE_D32_SHA),
+    ],
+)
+def test_source_design_rejects_loaded_roles_different_from_disk(
+    monkeypatch: pytest.MonkeyPatch, field: str, replacement: str
+) -> None:
+    from tests.unit import test_sci004_phase3_dependency as dependency
+
+    module = _tool()
+    if field == "joint_source_roles":
+        from tools import sci004_phase3_history as history
+
+        for peer in (dependency, history):
+            monkeypatch.setattr(peer, "SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D32_SHA)
+            monkeypatch.setattr(
+                peer, "HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D33_SHA
+            )
+    else:
+        monkeypatch.setattr(dependency, field, replacement)
+    with pytest.raises(module.EvidenceError, match="loaded design differs"):
+        _ = module._design_sha()
+
+
+@pytest.mark.parametrize("result", [CURRENT_D31_SHA, HISTORICAL_SOURCE_D32_SHA, None])
+def test_source_design_requires_exact_authenticator_return(
+    monkeypatch: pytest.MonkeyPatch, result: str | None
+) -> None:
+    from tests.unit import test_sci004_phase3_dependency as dependency
+
+    module = _tool()
+
+    def authenticate() -> str:
+        if result is None:
+            raise dependency.DependencyCertificateError("hostile edge")
+        return result
+
+    monkeypatch.setattr(dependency, "authenticate_source_design_bindings", authenticate)
+    with pytest.raises(module.EvidenceError, match="source (authentication|design)"):
+        _ = module._design_sha()
+
+
+def test_source_design_authentication_uses_hardened_dependency_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ast
+    import inspect
+
+    from tests.unit import test_sci004_phase3_dependency as dependency
+    from tools import sci004_phase3_history as history
+
+    module = _tool()
+
+    def refuse_ambient(*_arguments: object) -> str:
+        raise AssertionError("current design must not use the evidence Git reader")
+
+    monkeypatch.setattr(module, "_git", refuse_ambient)
+    assert module._design_sha() == CURRENT_SOURCE_D33_SHA
+    assert (
+        history.DESIGN_SHA,
+        history.RED_DESIGN_SHA,
+        history.HISTORICAL_SOURCE_DESIGN_SHA,
+        history.SOURCE_DESIGN_SHA,
+    ) == (
+        RANGE_ORIGIN_D30_SHA,
+        CURRENT_D31_SHA,
+        HISTORICAL_SOURCE_D32_SHA,
+        CURRENT_SOURCE_D33_SHA,
+    )
+    assert (
+        len(
+            {
+                dependency.D30_SHA,
+                dependency.APPROVED_SCI004_D_SHA,
+                dependency.HISTORICAL_SOURCE_DESIGN_SHA,
+                dependency.SOURCE_DESIGN_SHA,
+            }
+        )
+        == 4
+    )
+    tree = ast.parse(inspect.getsource(module._design_sha))
+    assert not any(
+        isinstance(node, ast.Name) and node.id in {"_git", "subprocess"}
+        for node in ast.walk(tree)
+    )

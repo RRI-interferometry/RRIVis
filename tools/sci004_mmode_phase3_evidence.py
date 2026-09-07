@@ -2927,108 +2927,95 @@ def raw_sha256(path: Path) -> str:
 
 
 def _frozen_binding(name: str) -> str:
-    """Return one frozen constant from the immutable R3 dependency validator.
-
-    Section 14.0 names that module as this phase's single site for the frozen
-    bindings, so they are read from its source rather than restated here where
-    they could silently diverge.
-    """
-    source = (REPOSITORY_ROOT / DEPENDENCY_VALIDATOR_PATH).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    values = [
-        node.value.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Name) and target.id == name
-            for target in node.targets
+    """Read one ordinary literal binding from this checkout's dependency validator."""
+    try:
+        source = (REPOSITORY_ROOT / DEPENDENCY_VALIDATOR_PATH).read_text(
+            encoding="utf-8"
         )
-        and isinstance(node.value, ast.Constant)
+        tree = ast.parse(source)
+    except (OSError, UnicodeError, SyntaxError) as error:
+        raise EvidenceError(
+            PREFLIGHT, "cannot read frozen dependency bindings"
+        ) from error
+    stores = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Name)
+        and isinstance(node.ctx, ast.Store)
+        and node.id == name
     ]
-    if len(values) != 1 or not isinstance(values[0], str):
+    declarations = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id == name
+    ]
+    if (
+        len(stores) != 1
+        or len(declarations) != 1
+        or not isinstance(declarations[0].value, ast.Constant)
+        or not isinstance(declarations[0].value.value, str)
+    ):
         raise EvidenceError(
             PREFLIGHT, f"{DEPENDENCY_VALIDATOR_PATH} must freeze exactly one {name}"
         )
-    return str(values[0])
-
-
-#: Section 13.1's three design-authority paths.  ``D0`` introduced the memo with
-#: exactly these; every recorded correction's parent-relative diff stays inside
-#: them.
-DESIGN_AUTHORITY_PATHS: frozenset[str] = frozenset(
-    {
-        "docs/development/sci004_mmode_design.md",
-        "docs/index.rst",
-        "PostTier8RemediationPlan.md",
-    }
-)
+    return declarations[0].value.value
 
 
 def _design_sha() -> str:
-    """Return the phase's frozen ``design_sha``, authenticated as a Git object.
+    """Authenticate the disk-bound D33 source authority through its exact edges."""
+    if str(REPOSITORY_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPOSITORY_ROOT))
+    from tests.unit import test_sci004_phase3_dependency as dependency
 
-    Section 13.1 is explicit that a phase's ``design_sha`` is "exactly the
-    operative ``D`` frozen for its phase under Section 14.0, never a phase-local
-    memo tip or a search result", and Section 14.0 says every generator "reads
-    the phase-appropriate frozen binding".  Deriving it as the newest
-    memo-touching commit is therefore not a cross-check but the forbidden search;
-    at ``S3`` it would also be wrong, because Section 14.4 stars the
-    ``R3 ->* S3`` edge, so accepted corrections stand between the frozen ``D``
-    and this checkout by construction.
-
-    What is checked here is what Section 14.0 actually demands of the value
-    before it is trusted: it peels to a commit, is a single-parent non-merge
-    ancestor of the checkout, and its parent-relative diff stays inside Section
-    13.1's three design-authority paths.  The header-enumerated correction chain
-    between that binding and the checkout is authenticated by the R3 dependency
-    validator, which ``_dependency_certificate`` runs in this same generation.
-    """
-    frozen = _frozen_binding("APPROVED_SCI004_D_SHA")
-    if re.fullmatch(r"[0-9a-f]{40}", frozen) is None:
+    try:
+        root = REPOSITORY_ROOT.resolve(strict=True)
+        module_file: object = vars(dependency).get("__file__")
+        if (
+            not isinstance(module_file, str)
+            or Path(module_file).resolve(strict=True)
+            != root / DEPENDENCY_VALIDATOR_PATH
+            or dependency.REPOSITORY_ROOT.resolve(strict=True) != root
+        ):
+            raise EvidenceError(
+                PREFLIGHT, "source validator import belongs to another checkout"
+            )
+    except OSError as error:
         raise EvidenceError(
-            PREFLIGHT,
-            f"the frozen design binding {frozen} is not a "
-            "lower-case 40-hex Git identity",
+            PREFLIGHT, "source validator import belongs to another checkout"
+        ) from error
+    frozen = tuple(
+        _frozen_binding(name)
+        for name in (
+            "D30_SHA",
+            "APPROVED_SCI004_D_SHA",
+            "HISTORICAL_SOURCE_DESIGN_SHA",
+            "SOURCE_DESIGN_SHA",
         )
-    peeled = _git("rev-parse", f"{frozen}^{{commit}}").strip()
-    if peeled != frozen:
-        raise EvidenceError(
-            PREFLIGHT, f"the frozen design binding {frozen} is not a commit object"
-        )
-    parents = _git("rev-list", "--parents", "-n", "1", frozen).split()
-    if len(parents) != 2:
-        raise EvidenceError(
-            PREFLIGHT, f"the operative D {frozen} must be a single-parent non-merge"
-        )
-    head = _git("rev-parse", "HEAD").strip()
-    ancestry = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", frozen, head],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
     )
-    if ancestry.returncode != 0:
-        raise EvidenceError(
-            PREFLIGHT, f"the operative D {frozen} is not an ancestor of {head}"
+    if (
+        any(re.fullmatch(r"[0-9a-f]{40}", value) is None for value in frozen)
+        or len(set(frozen)) != 4
+        or frozen
+        != (
+            dependency.D30_SHA,
+            dependency.APPROVED_SCI004_D_SHA,
+            dependency.HISTORICAL_SOURCE_DESIGN_SHA,
+            dependency.SOURCE_DESIGN_SHA,
         )
-    touched = {
-        line.strip()
-        for line in _git(
-            "diff-tree", "--no-commit-id", "--name-only", "-r", frozen
-        ).splitlines()
-        if line.strip()
-    }
-    if not touched or not touched <= DESIGN_AUTHORITY_PATHS:
+    ):
+        raise EvidenceError(PREFLIGHT, "loaded design differs from frozen binding")
+    try:
+        authenticated = dependency.authenticate_source_design_bindings()
+    except dependency.DependencyCertificateError as error:
         raise EvidenceError(
-            PREFLIGHT,
-            f"the operative D {frozen} touches {sorted(touched)}, which leaves "
-            "Section 13.1's design-authority paths",
-        )
-    if "docs/development/sci004_mmode_design.md" not in touched:
-        raise EvidenceError(
-            PREFLIGHT, f"the operative D {frozen} does not touch the design memo"
-        )
-    return frozen
+            PREFLIGHT, f"source design does not authenticate: {error}"
+        ) from error
+    if authenticated != frozen[3]:
+        raise EvidenceError(PREFLIGHT, "source authentication returned another design")
+    return frozen[3]
 
 
 def _commit_parents(commit: str) -> tuple[str, ...]:
@@ -3129,7 +3116,8 @@ def _red_commit_sha() -> str:
                 PREFLIGHT, "terminal R3 validator import belongs to another checkout"
             )
     if (
-        dependency.APPROVED_SCI004_D_SHA != _design_sha()
+        dependency.APPROVED_SCI004_D_SHA != _frozen_binding("APPROVED_SCI004_D_SHA")
+        or history.RED_DESIGN_SHA != dependency.APPROVED_SCI004_D_SHA
         or history.OPERATIVE_DESIGN_SHA != dependency.APPROVED_SCI004_D_SHA
         or dependency.D30_SHA != _frozen_binding("D30_SHA")
         or history.DESIGN_SHA != dependency.D30_SHA
@@ -3138,6 +3126,7 @@ def _red_commit_sha() -> str:
             PREFLIGHT, "terminal R3 loaded design differs from frozen binding"
         )
 
+    _ = _design_sha()
     try:
         anchor = dependency.resolve_r3_replay_anchor()
     except (dependency.DependencyCertificateError, history.HistoryError) as error:
@@ -3337,7 +3326,7 @@ def validate_evidence_artifact(document: Any) -> dict[str, Any]:
     _require(
         envelope["design_sha"] == _design_sha(),
         DIGEST,
-        "design_sha must name the current frozen operative D31 binding",
+        "design_sha must name the current frozen operative D33 binding",
     )
     red_commit = _red_commit_sha()
     _require(
