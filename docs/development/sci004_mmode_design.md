@@ -32,6 +32,364 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #32 candidate — 2026-09-07 (authenticated scientific
+identity transitions caused by source provenance).** Source verification found
+that the unchanged twenty-key solver serialization includes a frame-certificate
+digest whose preimage authenticates the complete `solver.py` blob. The frozen
+prerequisite change and D31's permitted runtime field therefore change this
+certificate and the containing solver/scientific identities even when the cube,
+phase input, time arrays and scientific computation are identical. Section 14.2's
+unchanged-identity reason cannot truthfully describe that transition; its explicit
+new-correction requirement applies. This correction grants only the finite
+source-provenance transition and validator repairs below. It changes no numerical
+algorithm, tolerance, serialized key set, historical observation or M3 family.
+
+A retained offline scalar diagnosis reconstructs the current and historical
+scientific hashes from all twenty-five tagged segments, with only the solver
+segment's `frame_certificate_sha256` leaf differing. Replacing the authenticated
+implementation-file digest reproduces the old enclosure, direct-error, split-ledger
+and certificate hashes. This is an offline reconstruction, not a captured old
+result or a new public solve. It motivates this amendment but accepts no family.
+The other three families' public diagnostic runs have now completed, each with
+an exact source-hash-only explanation and a novel, unadmitted scientific identity.
+Their independent transition reviews remain pending. These diagnostics and the
+scalar diagnosis do not waive any per-family admission gate below.
+
+**One exact design edge inside S.** D32 is one real single-parent, non-merge,
+design-only commit whose sole parent is
+`babc0fc7cfd541d54250e087371fe5177511c826` and whose paths are exactly
+`docs/development/sci004_mmode_design.md` and `PostTier8RemediationPlan.md`.
+Section 13.7's ordinary fresh dual independent review, identical complete
+pre-landing pins, final own-header verification and landed raw-blob/full-diff
+checks apply. No new historical review exception is created. Only after that
+finalization does its exact landing SHA become the current S/E/A design authority.
+
+D30 `d3ddb10ae01ab450f5337d06c9588ce8144cf1e5` remains the range origin;
+D31 `f2e5edbcc97450262482672bb322cf926622b208` remains the sole historical
+`design-successor` inside R. The accepted terminal R remains exact
+`567f9ac68730044fc8e887930d3531d794534412`, and the first S literal
+`SCI004_R3_TERMINAL_SHA` remains that SHA. The existing S ancestry, including
+first S `72a0a5c5ebd203b63e091342f3655ebf808bac4b`, is preserved. The route is:
+
+```text
+D30 -> exact P4 -> historical R including exact D31 -> terminal R567
+    -> existing S through babc0fc -> exact D32 -> remaining S -> E -> A
+```
+
+D32 is recorded exactly once inside S with role `source-design-successor`.
+That role accepts only its finalized full SHA, sole parent, exact two paths,
+ordinary review/header/blob/diff pins and actual position in the complete range.
+No other design entry may use it. Historical D31 and D32 cannot substitute for
+one another. Keep the dependency validator's `APPROVED_SCI004_D_SHA` fixed at
+D31 wherever it authenticates R; add an explicit `SOURCE_DESIGN_SHA` for D32.
+Range validators must expose separate historical R and current S design roles;
+an old name such as `OPERATIVE_DESIGN_SHA` cannot silently mean both. Historical
+R descriptions and exact frozen replay metadata keep their existing meaning.
+Complete current S/E/A validation requires both exact design entries in their
+respective ranges and authenticates the whole intervening actual ancestry.
+
+`phase_ranges` retains its three-key and closed entry schemas. P stays the exact
+four commits ending `cfad247831629241842ffecd5f7aaa5b2084493c`; source base
+stays R567. E's `design_sha` is D32. The R aggregate remains its exact seven
+paths. Only already permitted factual status entries, exact D31 in R, and exact
+D32 in S are excluded from their respective scientific path aggregates. Unknown
+roles, arbitrary design commits and unenumerated paths fail closed.
+
+**Finite additional S grant.** D31's seven modified source/test paths and four
+exact rejected-output disposals remain. The only additional modified paths are:
+
+- `tools/sci004_phase3_history.py`: authenticate actual raw Git objects and
+  child-process Git environment, the exact D32 edge, distinct D30/D31/D32 roles,
+  and the amended finite S aggregate. Preserve every historical pin and D31's
+  per-commit and cumulative exact solver/fixture AST restrictions.
+- `tests/unit/test_sci004_phase3_history.py`: decisive hostile raw-Git and
+  exact-design/range tests for those repairs.
+- `tests/unit/test_sci004_phase3_dependency.py`: repair its actual-object and
+  child-environment readers and authenticate the explicit frozen-D31 R/current-D32
+  S bindings and ordinary D32 design pins. Original dependency replay inputs,
+  accepted R metadata, historical pins and recovered exceptions remain fixed.
+- `tests/unit/test_sci004_phase3_red_failures.py`: necessary binding imports,
+  comparisons, role names and explanatory docstrings distinguishing frozen D31
+  from current D32; raw-Git invocation/environment hardening in `_git`,
+  `_is_ancestor`, `_tree_blob`, `_post_source_oracle_diff`,
+  `_fingerprint_oracle_diff`, `_assert_immutable_replay_checkout`, and
+  `_detached_fingerprint_replay_worktree`; controlled child environments in
+  `_closed_fingerprint_replay_environment` and the subprocess
+  invocation/environment subtrees of generation-refusal and replay-launch tests.
+  Supporting helpers and corresponding hostile tests are permitted. These are
+  bounded exceptions for actual-object reads, existing detached-worktree
+  add/check/remove operations and child-process isolation. Outside those Git
+  invocation/environment subtrees, preserve every replay command argument and
+  test node, oracle/numerical assertion, expected result partition, parser,
+  inventory and original pin. No replay semantics or scientific computation
+  change is permitted.
+
+Thus the terminal S aggregate is exactly eleven modified implementation/test
+paths plus four authenticated disposals, fifteen paths in total. The two D32
+paths occur only in the authenticated design role. No characterization-test,
+red-generator, general CI-001 policy or numerical source expansion is granted.
+The existing numerical comparison predicates remain unchanged; new strict
+provenance comparison/validation inside the already allowed evidence and
+acceptance tools is permitted for this proof. Within already permitted `result.py`, observation tuples may be
+appended only under the per-family admission procedure below. Old tuple members,
+environment classes and historical artifacts remain immutable.
+
+All Git authenticity readers must inspect original commit/tree/blob objects and
+actual sole parents, not replacement refs, grafts, mailmap or presentation output.
+Inherited repository/object/index/alternate-object/config redirection and external
+diff/textconv/attribute transformation cannot select another checkout or bytes.
+Child processes receive a bounded environment and explicit repository/object
+context. The complete parent-relative raw binary/full-index diff remains the
+existing pinned format; repairing readers does not repin history. Hostile tests
+must demonstrate replacement/graft, environment/config redirection and diff-driver
+attempts cannot change authenticated bytes or ancestry. Normal failure remains
+fail-closed; no worktree, rewritten branch or disabled authenticity check is an
+acceptable repair.
+
+**Portable closed transition inventory.** Preserve the production nine-key
+characterization record, fourteen-key input manifest and twelve-key evidence
+fingerprint row. Add exactly one required eighth member to `results`, named
+`scientific_identity_transitions`; the outer evidence envelope is unchanged.
+Its value is exactly four rows, one per Section 11 family in the existing order.
+Missing, duplicate, unknown, reordered or extra families fail. Each row has exactly:
+
+```text
+family_id, historical_reference, implementation_transition,
+common_scientific_segments, historical_solver_segment, current_solver_segment,
+historical_scientific_sha256, current_scientific_sha256, cube_sha256,
+historical_frame_certificate, current_frame_certificate,
+historical_direct_error_preimages, current_direct_error_preimages,
+admission_review_record
+```
+
+All mappings are closed; strings, integers and booleans retain their exact types.
+SHA-1 and SHA-256 fields are lowercase full-length hexadecimal. No path, digest,
+pass flag, external report or opaque supplied hash substitutes for retained values.
+The only repository paths in this inventory are the fixed authenticated Git
+references and implementation-file paths specified below. The independent E/A
+checker must reconstruct the proof from this inventory, other joined E values
+and original Git objects alone; it must not need a recovery directory or import
+production hashing as its sole oracle.
+
+`historical_reference` has exactly `commit_sha`, `path`, `blob_sha256`,
+`family_id`. It names the immutable historical E record at exact
+`886e62fd9f8328826b388b8960ed7413da26b6d1`, path
+`docs/development/sci004_mmode_phase3_evidence.json`, raw SHA-256
+`600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae`.
+The reference's family equals its row and selects the unique same-family entry
+in that record's `results.fingerprint_rows`. Authenticate its original source
+`b07925ab14b56b3ca0fa863f806290748a31df6b` and design/history joins under
+the standing historical rules. Old scientific, cube and solver-snapshot hashes
+must equal that entry's actual retained values. This E remains rejected: these
+are numeric historical references, not retroactive acceptance. Its referenced
+performance artifact's original raw hash
+`07e59d3176866a78c17244849d6493365e9d410547e884cf56b254e60babe193`
+also authenticates the three existing families' workload certificate joins.
+The circular family joins its own fingerprint solver-snapshot identity; no
+performance workload is invented for circular. Original a65 remains a separate
+red/control replay artifact and is not a scientific endpoint.
+
+`implementation_transition` is exactly three ordered mappings, each with
+`commit_sha`, `implementation_files`. The commits are respectively old source
+`b07925ab14b56b3ca0fa863f806290748a31df6b`, post-P
+`cfad247831629241842ffecd5f7aaa5b2084493c`, and runtime bridge
+`efd9e9289d7b1a98c44710d5242446407d8c7055`. Each file list is the existing
+closed enclosure-manifest `implementation_files` inventory, with exact
+`{path, sha256}` rows ordered as `src/radiosim/core/mmode/frame.py`,
+`src/radiosim/core/mmode/solver.py`, `src/radiosim/core/mmode/transfer.py`.
+Hash raw Git blobs independently. The frame/transfer blobs must be equal at all
+three stages; only solver's blob changes. Current S's three implementation
+blobs must equal the final stage exactly. This is no standing permission for
+later arbitrary source-hash changes. Reconstruct and check the middle-stage
+cascade as well as both endpoints, without treating it as a new observation.
+
+Each scientific segment has exactly `tag`, `payload_hex`, `byte_count`, `sha256`.
+Payloads are exact bytes encoded as lowercase even-length hex; byte count is an
+exact nonnegative integer and SHA-256 authenticates those bytes. The common list
+contains exactly the first twenty-four segments in this order:
+
+```text
+schema,
+visibilities.metadata, visibilities.data, flags.metadata, flags.data,
+weights.metadata, weights.data, time.utc_jd1.metadata, time.utc_jd1.data,
+time.utc_jd2.metadata, time.utc_jd2.data,
+time.integration_time_seconds.metadata, time.integration_time_seconds.data,
+frequency_hz.metadata, frequency_hz.data,
+channel_width_hz.metadata, channel_width_hz.data,
+correlations, polarization_basis, receptor, instrument, selection, beam,
+phase_center
+```
+
+Both remaining segment objects have tag `solver`. Append the historical solver
+segment to the common list for the old twenty-five-segment stream, and the
+current solver segment for the new stream. Sharing is an explicit identical-byte
+alias for all twenty-four common segments, including the visibility cube; it
+cannot select other bytes. Recompute SHA-256 over the existing framing for each
+segment: little-endian unsigned eight-byte UTF-8 tag length, tag bytes,
+little-endian unsigned eight-byte payload length, payload bytes.
+
+JSON segments use the exact existing `_hash_json` encoding semantics: finite
+JSON, sorted keys, compact separators, `ensure_ascii=False`, `allow_nan=False`.
+Decode without duplicate keys or non-finite constants, validate the fixed typed
+projection, and require exact re-encoding to the retained bytes. This serializer
+is distinct from Section 14's `J`; applying `J` to floating scientific payloads
+is wrong. `schema` is exactly `radiosim.result.v1`. Array metadata has exactly
+`dtype` and `shape`. Visibility is `<c16`, flags `|b1`, and every other
+array `<f8`; all buffers are C-order. Visibility/flags/weights have shape
+`[49, 3, 1, 4]`, the three time arrays `[49]`, and frequency/width arrays `[1]`,
+matching these exact retained Section 11 fixtures. Shape members are exact
+positive integers; lengths equal item size times shape product, complex real
+and imaginary parts and all floats are finite. Boolean bytes are only zero/one.
+No dtype coercion, precision conversion or alternative shape is admitted. Joins to the same family's
+retained dimensions, correlations, frequency, UTC-center, integration-width,
+instrument/receptor, selection, beam and phase-center values are mandatory.
+The current M3 empty Jones inventory contributes no segment; neither endpoint
+may inject a Jones placeholder or omit a required segment.
+
+Independently derive `cube_sha256` from the retained visibility bytes using
+Section 14's existing `radiosim.mmode-visibility-cube.v1` domain, role
+`visibility_cube`, axes `[time, baseline, frequency, correlation]`, units `Jy`
+and `complex128-be` dtype (converting the retained little-endian science
+buffer to the existing big-endian cube identity encoding). It must equal
+both the authenticated historical cube pin and every current same-family cube
+join. Both solver JSON projections have the exact twenty serialized keys.
+Independently compute their snapshot digests and join the old historical
+snapshot and current full retained fingerprint snapshot, including circular.
+The sole unequal leaf is `frame_certificate_sha256`; all other solver and
+scientific preimage values are exactly equal. The two reconstructed science
+hashes must equal the row's historical/current fields and respectively the
+original observation and current fingerprint/CI/performance identities. No
+numerical comparison tolerance can excuse another preimage difference.
+
+Both frame certificates retain the complete existing closed frame-certificate
+preimage/schema, including all value-bearing rows and nested manifests; ordinary
+certificate validation remains mandatory. Each error inventory has exactly one
+`{digest, preimage}` mapping for each direct split row/model, ordered by the
+certificate's split-row order and `frozen`, then `operational`. The preimage is
+exactly the existing closed `radiosim.mmode-direct-piece-error.v1` object with
+its typed indices, direction, model, interval, rectangle, error, activity,
+piece-class and input/ERA/enclosure joins. No duplicate, missing or orphan
+preimage is allowed; the count equals twice the split-row count.
+
+Starting from the current certificate and error preimages, substitute only the
+three-stage authenticated implementation-file digests. Recompute the enclosure
+manifest/digest, each error preimage's enclosure join and domain digest, each
+split row's two error-preimage references, the split ledger, and the complete
+certificate digest using their existing Section 14 domains and schemas. The
+old endpoint must exactly equal the entire retained historical certificate and
+error inventory, and the current endpoint must equal the actual current E
+certificate. Every other field remains identical, including all numerical
+bounds, quadrature contributions, direction/horizon inventories, source input,
+frame/site/IERS and counts. The respective certificate digest must equal the
+only changed solver leaf. Fresh independent review checks the complete cascade,
+not merely that a supplied endpoint digest has the right syntax.
+
+**Per-family admission and bounded reason.** D32 does not append any pin.
+Before a family observation is appended in an S commit, retain and independently
+review its complete actual public-run diagnostic, same-run phase/result joins,
+old/new cube identity, full scientific preimages and exact source-only cascade.
+Both reviewers must explicitly accept that family's transition against pinned
+complete candidate bytes. A scalar proof cannot admit the other three; a
+recomputed hash, successful generation or green unrelated gate cannot admit any.
+Append the exact new science identity only to that family's existing environment
+cell, preserving old members; no new cell is admitted by this amendment. E
+retains all four complete proofs and joins their current hashes to the resulting
+observation entries. A independently authenticates those append-only S diffs
+and per-family reviews as well as reconstructing every proof. No unreviewed
+observation or intermediate source candidate becomes accepted by this design.
+
+`admission_review_record` has exactly `family_id`, `environment_cell`,
+`historical_scientific_sha256`, `current_scientific_sha256`,
+`transition_preimage_sha256`, `source_parent_sha`, `candidate_patch_sha256`,
+`candidate_files`, `append_commit_sha`, `reviews`. Family and science fields
+must equal the containing transition; environment is exactly the existing
+`osx-arm64-py311` cell. The transition-preimage digest is Section 14's
+`D("radiosim.sci004.scientific-identity-transition.v1", projection)`, where
+projection is exactly the other thirteen fields of that transition row, omitting
+only `admission_review_record`. Thus reviewers bind all retained proof values
+without a self-reference to their own review text.
+
+`candidate_files` is the sorted complete changed-file inventory of the reviewed
+append candidate, with exact `{path, sha256}` rows authenticating complete file
+bytes. `source_parent_sha` is the actual sole parent of `append_commit_sha`,
+which is an authenticated source-role entry in S. `candidate_patch_sha256` is
+the existing full raw binary/full-index parent-relative complete patch digest,
+not a result-only or observation-only excerpt. Both complete candidate file
+bytes and patch must equal that landed append commit, with no post-review edits.
+The append commit may admit multiple families only if each has its own complete
+record satisfying these same joins. Derive its result.py observation mapping
+before and after from raw Git blobs: old members/cells are unchanged, and every
+new member is exactly a corresponding reviewed family/current hash. No other
+observation change is permitted. All additional paths in that candidate must
+independently satisfy the applicable S grants and ordinary source review.
+
+`reviews` is exactly two mappings, in physics/governance then computational/
+provenance order. Each has exactly `role`, `reviewer_id`, `verdict`, `review_text`,
+`review_text_sha256`; roles are respectively `physics/governance` and
+`computational/provenance`, reviewer identities are distinct authenticated
+independent review identities under Section 13.7, and verdict is exactly
+`ACCEPT`. Retain each complete original review's raw UTF-8 text in the JSON
+string and verify its raw byte SHA-256 without normalization. Each actual review
+must explicitly bind the family/environment, both science identities, complete
+transition-preimage digest, source parent, full candidate patch and candidate
+file pins and accept the proposed append before it lands. The original review
+records must establish this pre-append order under the standing review discipline;
+Git commit timestamps or a self-reported boolean are insufficient. A verifies
+the retained actual review texts and authenticated identities, their exact
+candidate/proof joins and the append chronology independently. An external path,
+uninterpreted comment digest, invented reviewer identity or A's later successful
+reconstruction cannot replace this prior review. E's reproduction record also
+identifies the authentic review record locators for inspection; the complete
+value-bearing proof and review bytes remain inside E itself.
+
+For this exact verified transition inventory only, Section 14.2's
+`expected_change_reason` is replaced by the following exact one-line literal:
+
+```text
+characterization-input v2 retains the complete path-independent same-run phase preimage; cube and phase/time inputs are unchanged; the authenticated D32 source-hash cascade alone changes frame-certificate, solver-snapshot and scientific identities, with per-family reviewed append-only observations
+```
+
+The former literal and historical records are retained unchanged as history.
+This narrowly supersedes their prospective unchanged science/snapshot/observation
+assertions; it does not relax input ownership, certificate correctness, raw cube
+equality or per-family admission. Any additional difference fails closed and
+requires its own correction. The field addition itself remains nonserialized;
+D31's exact AST restriction and twenty-key serializer are unchanged.
+
+Source readiness must derive the complete new inventory/schema and separate
+design bindings from committed actual source before measurement. All four
+rejected-artifact disposals, six literal-None approved constants, exact-source
+imports, clean terminal source, complete governed source gates, fresh independent
+reviews and delayed final disposal remain mandatory. E/A keep their restricted
+sole-parent boundaries. Hostile tests must recompute supplied hashes while
+changing a shared segment, source stage/blob, non-certificate solver leaf,
+certificate numerical field, error-preimage join/count, historical Git reference,
+family/circular snapshot join or observation admission, and require rejection.
+They must also reject omitted/extra/reordered segments, noncanonical payloads,
+wrong array types/shapes, incomplete transitions and counterfeit design roles.
+
+M1/M2 and accepted R567 are unchanged. All original D24/D25/a65 artifacts, red
+inventories and D30's two recovered-review exceptions remain immutable. M3 is
+rejected/not accepted, SCI-004 and PERF-001 remain ROADMAP, and closure C remains
+locked. Public component/beam/Jones/backend/precision/memory/worker integration
+still requires its separate successor. This design accepts no phase or family.
+**Review status: fresh independent physics/governance and computational/
+provenance reviews pending against identical complete candidate pins.**
+
+**Review verification — 2026-09-07.** Fresh independent reviewers
+`/root/d30_physics_review` and `/root/d30_provenance_review` each returned exact
+`ACCEPT` against identical complete round-3 candidate bytes: memo
+`sha256:e6bacfbb2d9bc8f73d86c863c1a17f06002e1f1b1d933502eb1158c985cd8baa`,
+companion plan
+`sha256:4df50a35949abcc1cd9d7580f250b30c7bc92e9ace09eb8959fd61590bbce172`,
+and complete parent-relative binary/full-index diff
+`sha256:8e7b01f4a8839bc6b759ce1e32956cc3bd7f2ad96f97fc6cb0bb6db46fdf5bd7`.
+Both independently reconstructed the complete frozen candidate against exact
+sole parent `babc0fc7cfd541d54250e087371fe5177511c826`. Only this verification
+record and the companion verdict completion postdate the reviewed bytes under
+Section 13.7. This landing becomes the current S/E/A design authority D32;
+it accepts the correction only, not an observation append or a production phase.
+
 **Bounded correction #31 candidate — 2026-09-07 (same-run characterization
 input ownership).** Preparatory review of the preserved replacement-S3 draft
 found an actual input-provenance gap: `_mmode_pipeline` constructs and retains

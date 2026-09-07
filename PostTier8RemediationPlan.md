@@ -15,6 +15,41 @@ re-verified at execution time, not trusted from here.
 
 ---
 
+**Current continuation #32 candidate — 2026-09-07.** SCI-004 correction #32
+addresses an authenticated source-provenance cascade: the complete solver blob
+is hashed inside the frame certificate, so the ruled prerequisite/runtime-bridge
+changes alter solver and scientific identities despite identical scientific
+values and cubes. The new correction permits only a per-family independently
+proved transition, retained in a closed value-bearing evidence inventory, with
+reviewed append-only observations. It admits no family automatically. The scalar
+offline reconstruction motivates the amendment; all per-family admission gates
+remain. The other three public diagnostic runs have completed with novel,
+unadmitted scientific identities and exact source-hash-only explanations;
+their independent transition reviews remain pending.
+
+D32 has exact sole parent `babc0fc7cfd541d54250e087371fe5177511c826` and only
+the two design paths. It adds one authenticated design edge inside existing S,
+retaining D30 as range origin, exact D31 as historical R design, and accepted
+terminal R `567f9ac68730044fc8e887930d3531d794534412`. D32 becomes current
+S/E/A authority only after ordinary dual review and final header verification.
+The finite additional history/dependency/binding test grant yields eleven
+modified source/test paths and four disposals; solver algorithms and the twenty
+serialized keys remain fixed. The full closed transition proof and original pre-append dual review texts,
+complete candidate pins and append-commit joins live in the existing evidence
+JSON, independently checkable from E plus original Git objects and the standing
+review-identity authority.
+The production nine-key record, fourteen-key input and twelve-key fingerprint
+schemas remain unchanged. Original artifacts, observations and review history
+are preserved. The design memo's D32 header controls this narrow exception;
+this companion creates no independent grant. M3 remains rejected/not accepted,
+SCI-004 and PERF-001 remain ROADMAP, and closure C is locked. Fresh independent
+physics/governance and computational/provenance reviews each returned ACCEPT
+against the identical complete round-3 candidate pins recorded in the final
+D32 header. This landing accepts the correction only, not an observation append
+or a production phase.
+
+The following correction-#31 continuation record is retained historically.
+
 **Current continuation #31 candidate — 2026-09-07.** The preserved S3
 characterization draft cannot authenticate its complete supplied input against
 the actual run because the public m-mode snapshot discards the pipeline's
