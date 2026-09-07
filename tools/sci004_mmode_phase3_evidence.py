@@ -3808,6 +3808,9 @@ def _require_raw_tracked_checkout(head: str) -> None:
     """Authenticate tracked bytes and types without index or filter shortcuts."""
     try:
         _require(
+            _git("rev-parse", "HEAD").strip() == head, PREFLIGHT, "source HEAD changed"
+        )
+        _require(
             stat.S_ISDIR(REPOSITORY_ROOT.lstat().st_mode),
             PREFLIGHT,
             "tracked checkout root type changed",
@@ -3884,6 +3887,9 @@ def _require_raw_tracked_checkout(head: str) -> None:
                 PREFLIGHT,
                 f"tracked raw bytes changed: {os.fsdecode(relative)}",
             )
+        _require(
+            _git("rev-parse", "HEAD").strip() == head, PREFLIGHT, "source HEAD changed"
+        )
     except OSError as error:
         raise EvidenceError(
             PREFLIGHT, "tracked checkout path cannot be read"
@@ -4576,18 +4582,18 @@ def _require_generation_source_imports() -> None:
     )
 
 
-def require_declared_outputs_only(declared: Sequence[str]) -> None:
+def require_declared_outputs_only(declared: Sequence[str], source_sha: str) -> None:
     """Require the repository's only new paths to equal the declared set."""
     status = _git("status", "--porcelain=v1", "--untracked-files=all")
     observed = sorted(line[3:].strip() for line in status.splitlines() if line.strip())
     expected = sorted(declared)
-    _require_raw_tracked_checkout(_git("rev-parse", "HEAD").strip())
     _require(
         observed == expected,
         DIGEST,
         f"after publication the repository's new paths must be exactly "
         f"{expected}, not {observed}",
     )
+    _require_raw_tracked_checkout(source_sha)
 
 
 EVIDENCE_BYTE_LIMIT = 104_857_600
@@ -6078,8 +6084,9 @@ def build_phase3_evidence(source_sha: str | None) -> int:
     payload = canonical_json(document)
 
     # D33 checks complete E size before either Section 14.2 publication.
+    _require_raw_tracked_checkout(state["source_sha"])
     _publish_evidence_payload(payload, performance_path, performance_payload)
-    require_declared_outputs_only(declared)
+    require_declared_outputs_only(declared, state["source_sha"])
     sys.stdout.write(
         canonical_json(
             {

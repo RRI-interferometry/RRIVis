@@ -47,6 +47,7 @@ import io
 import json
 import os
 import re
+import shlex
 import struct
 import subprocess
 import sys
@@ -1633,7 +1634,13 @@ def test_the_generator_publishes_the_performance_record_before_the_envelope() ->
     publication = build.index("_publish_evidence_payload(payload,")
     assert build.index("validate_evidence_document(document)") < publication
     assert build.index("payload = canonical_json(document)") < publication
-    assert build.index("require_declared_outputs_only(declared)") > publication
+    assert (
+        build.index('_require_raw_tracked_checkout(state["source_sha"])') < publication
+    )
+    assert (
+        build.index('require_declared_outputs_only(declared, state["source_sha"])')
+        > publication
+    )
     helper = source[source.index("def _publish_evidence_payload(") :]
     helper = helper[: helper.index("def _read_evidence_payload(")]
     first = helper.index("write_atomic_no_overwrite(REPOSITORY_ROOT / performance_path")
@@ -6635,7 +6642,7 @@ def test_evidence_raw_checkout_refuses_hidden_scientific_changes(
     root, _, _ = raw_evidence_repository
     module = _tool()
     relative = "src/radiosim/core/mmode/frame.py"
-    _ = _e_topology_commit({relative: b"VALUE = 1\n"})
+    head = _e_topology_commit({relative: b"VALUE = 1\n"})
     path = root / relative
     _ = _native_evidence_git(root, "status", "--porcelain")
     os.utime(path, (1_600_000_000, 1_600_000_000))
@@ -6655,7 +6662,7 @@ def test_evidence_raw_checkout_refuses_hidden_scientific_changes(
     with pytest.raises(module.EvidenceError, match="tracked raw bytes changed"):
         if after_publication:
             _ = (root / "evidence.json").write_bytes(b"{}")
-            module.require_declared_outputs_only(("evidence.json",))
+            module.require_declared_outputs_only(("evidence.json",), head)
         else:
             module.preflight()
     assert (root / ".git/index").read_bytes() == before_index
@@ -7512,3 +7519,91 @@ def test_characterization_time_resource_failures_preserve_context(
     ) == previous
     assert iers.IERS_A.iers_table is cached_table
     assert iers.IERS_A.open() is cached_table
+
+
+@pytest.mark.parametrize("after_publication", [False, True])
+@pytest.mark.parametrize("move_head", [False, True])
+def test_evidence_source_head_stays_bound_across_native_status_filter(
+    raw_evidence_repository: tuple[Path, str, str],
+    after_publication: bool,
+    move_head: bool,
+) -> None:
+    root, _, original = raw_evidence_repository
+    module = _tool()
+    _ = _native_evidence_git(root, "commit", "--allow-empty", "-qm", "same tree")
+    replacement = _git("rev-parse", "HEAD").strip()
+    _ = _native_evidence_git(root, "update-ref", "HEAD", original)
+    assert module.preflight(original)["source_sha"] == original
+    path = root / "source.py"
+    before = path.stat()
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns - 20_000_000_000))
+    _ = _native_evidence_git(root, "update-index", "--refresh", "--", "source.py")
+    _ = (root / ".git/info/attributes").write_text("source.py filter=movehead\n")
+    helper = root / ".git/movehead.py"
+    _ = helper.write_text(
+        "import subprocess,sys\n"
+        + (
+            f"subprocess.run(['git','update-ref','HEAD',{replacement!r}],check=True)\n"
+            if move_head
+            else ""
+        )
+        + "sys.stdout.buffer.write(b'VALUE = 2\\n')\n"
+    )
+    _ = _native_evidence_git(
+        root,
+        "config",
+        "filter.movehead.clean",
+        f"{shlex.quote(sys.executable)} {shlex.quote(str(helper))}",
+    )
+    os.utime(path, None)
+    entries = _native_evidence_git(root, "ls-files", "--stage", "-v", "-z")
+    if after_publication:
+        _ = (root / "evidence.json").write_bytes(b"{}")
+
+    def check() -> None:
+        if after_publication:
+            module.require_declared_outputs_only(("evidence.json",), original)
+        else:
+            _ = module.preflight(original)
+
+    if move_head:
+        with pytest.raises(module.EvidenceError, match="source HEAD changed"):
+            check()
+    else:
+        check()
+    assert _git("rev-parse", "HEAD").strip() == (replacement if move_head else original)
+    assert path.read_bytes() == b"VALUE = 2\n"
+    assert _native_evidence_git(root, "ls-files", "--stage", "-v", "-z") == entries
+
+
+def test_evidence_raw_checkout_rejects_stale_source_head_with_identical_tree(
+    raw_evidence_repository: tuple[Path, str, str],
+) -> None:
+    root, _, original = raw_evidence_repository
+    module = _tool()
+    module._require_raw_tracked_checkout(original)
+    _ = _native_evidence_git(root, "commit", "--allow-empty", "-qm", "same tree")
+    with pytest.raises(module.EvidenceError, match="source HEAD changed"):
+        module._require_raw_tracked_checkout(original)
+
+
+def test_evidence_raw_checkout_rechecks_source_head_after_reading_blobs(
+    raw_evidence_repository: tuple[Path, str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _, original = raw_evidence_repository
+    module = _tool()
+    _ = _native_evidence_git(root, "commit", "--allow-empty", "-qm", "same tree")
+    replacement = _git("rev-parse", "HEAD").strip()
+    _ = _native_evidence_git(root, "update-ref", "HEAD", original)
+    read = module._git_bytes
+
+    def move_after_blob(*arguments: str) -> bytes:
+        payload: bytes = read(*arguments)
+        if arguments[0] == "cat-file":
+            _ = _native_evidence_git(root, "update-ref", "HEAD", replacement)
+        return payload
+
+    monkeypatch.setattr(module, "_git_bytes", move_after_blob)
+    with pytest.raises(module.EvidenceError, match="source HEAD changed"):
+        module._require_raw_tracked_checkout(original)
+    assert _git("rev-parse", "HEAD").strip() == replacement
