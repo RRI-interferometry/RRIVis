@@ -48,7 +48,7 @@ fixtures. No implementation is authored in another worktree.
 | B2 | Failed CI reports SciPy intersphinx inventory ConnectTimeout | Inspect failed logs and current retrieval; bounded reliability fix if reproduced/justified | Clean warnings-as-errors Sphinx build; retain documentation validation | Fresh retrieval succeeded for all inventories; original CI ConnectTimeout remains an observed transient retrieval failure |
 | B3 | Section 12.1 requires frozen root bounds in the initial scan partition; the scanner at `786413f` omitted them and only checked the supplied list length | Reviewed finite successor grant, decisive boundary regression, exact-bound inclusion repair, fresh four-family measurements | Independent partition/evaluation checks with unchanged numerical budgets; distinguish measured cube changes from certificate changes; new admission relation requires review | Confirmed at `786413f`; D34 is reviewed and pushed at `90ef12e`, with exact edge authentication at `3563fa7`; guarded activation is pushed at `505ef3d` and the optional workflow entry at `a18aa60`; separate regression is pushed at `b032580` and the bounded numerical repair at `aa933c2`; 35 frame cases pass on both Python versions and all seven public integration tests pass; clean four-family measurements completed at `e7623fb`, with independent exact initial-union and centre-projection checks; all four terminal structures and historical scan reconstructions are verified, with scalar separately postvalidated after its preserved driver failure; B4 source correction is pushed; corrected measurements, certificate conformity and observation admission remain pending |
 | B4 | Independent D34 comparison found that `_pair_roots` returns radians which the certificate labels as turns and converts again; 1,280 root-pair rows per family also violate frozen-bound order | Prospective reviewed solver/history grant; exact direction-owned slab unions, one outward radian conversion, canonical owned indices and independent semantic checks | Nonzero causal unit, overlap, seam and order regressions; unchanged budgets; fresh clean-source captures and numerical admission | Source defect and four-family arithmetic independently confirmed; corrected statistic is 0.004604447903486282 rad versus recorded 0.028930599414858853, under the unchanged 0.1024-rad limit; D35 reviewed and pushed at `dd26e04`; causal regression pushed at `5790241` retains five intended failures and one passing control; historical D34/pending D35 preparation pushed at `368821d` passes 161 affected history cases; strict guard pushed at `083fa84`, atomic D35 activation at `af8d595` and the reviewed numerical repair at `cf67c0b`; 109 frame cases pass on each supported Python version; public numerical gates, fresh captures, conformity and admission remain pending; historical captures remain unchanged |
-| B5 | Sections 4.2/12.1 require independent operational direct integrands/classifications and outward ambiguous-error arithmetic; source at `bd70960` substitutes frozen kernels/classes and uses ordinary radius multiplication/accumulation | One prospective reviewed successor scope for the four confirmed direct-owner defects; separate causal controls, exact source/guard activation, corrected model and error semantics | Independent model-owner and displaced-root controls; exact-rational radius/accumulation witnesses; unchanged budgets; both runtimes, fresh captures and complete conformity before admission | Four source conformance defects independently confirmed; actual four-family numerical impact remains unmeasured; successor scope is being reviewed, with no production repair yet |
+| B5 | Sections 4.2/12.1 require independent operational direct kernels/classes, outward error arithmetic and all root/guard partition boundaries; five source defects are confirmed | Reviewed D36 scope; separate causal controls, exact source/guard activation, corrected model, partition and error semantics | Independent model-owner and displaced-root controls; exact-rational radius/accumulation and guarded-partition witnesses; unchanged budgets; both runtimes, fresh captures and complete conformity before admission | D36 design pushed at `7752f04`; causal regression pushed at `216afb1` retains six intended semantic failures and three passing controls on each Python version with same-process import/source proof; production repair and executable activation remain pending; actual four-family impact remains unmeasured |
 | C1 | D25 production v2 contract, D31 runtime input anchor, D32 identity transitions and D33 lossless certificate storage; preserved draft has strict-schema and same-run-join defects | Account for every original hunk; corrected input manifests, runtime identity bridge, result records, evidence/schema, acceptance and hostile tests in coherent source commits | Path-independent reconstruction/relocation, semantic mutation and malformed-input rejection; exact nine-key production family and retained manifests; D34 authorizes thirteen modified paths plus four authenticated disposals, and one optional exact workflow path; guarded activation and the workflow entry are implemented | First S, runtime bridge, validated result accessor and current-A topology pushed and independently reviewed; production-v2 factory pushed at a39ceff passes 450 evidence tests and produces the required records for all four actual public families; D32 and D33 designs are pushed; D35 at `dd26e04` is executable current authority through `af8d595`; D34 remains explicit historical frame/workflow authority and D33 retains its historical role; input14/phase26 outer projections and source/time/scientific-buffer joins pushed at `96e6b40`; receptor native-float, angle, family and ordered antenna joins pushed at `4b93e7a`; remaining nested physical semantics, portable transition validation and observation admission remain pending; generation stays closed |
 | C2 | SCI-004 M3 Sections 10–14; four rejected-artifact deletions and six null sentinels | Complete replacement source range; authenticate disposal; generate new evidence from clean exact terminal source tip; separate E and A commits | HDF5/bounded reads, summary, UVFITS/MS read-back, full correlations/time/solver/provenance; all families; retained non-gating performance; fresh independent manual/numerical/schema acceptance | All six approval sentinels are committed literal None; four rejected artifacts remain unchanged; disposal follows completed source logic |
 | D1 | SCI-004 Sections 7/9/15; public solver currently rejects HEALPix/hybrid and non-scalar beams; accepted SCI-005 beam contracts remain authoritative | Reviewed successor public support contract; integrate point/HEALPix/hybrid full Stokes; stationary squint and applicable full-efield support through canonical BeamSystem/Jones | Public API and CLI tests; dense/sparse pixel measure, frequencies, tangent/receptor frames, component provenance; common direct oracle and two-tier predicates | Inventory underway; successor contract before implementation |
@@ -189,25 +189,39 @@ gate stops acceptance of its affected phase; diagnosis and authorized repair
 continue within this programme. Cancelled CI jobs and selected passing subsets
 cannot establish final closure.
 
-## Current follow-ups after receptor verification
+## Current follow-ups after direct conformance regressions
 
-The separately reviewed test-only IERS correction is next. The production time
-validator retains its fixed table identity; default and Python 3.12 intentionally
-lock different IERS packages. The synthetic time/projection fixture currently
-uses each installed table, so Python 3.12 stops before later checks. The accepted
-plan qualifies the two exact test resource identities in an explicitly requested
-function-scoped fixture and separately tests unpatched production acceptance or
-rejection. Implementation and both-runtime composition verification are pending;
-receptor-only passing tests do not repair this limitation.
+The test-only IERS correction is pushed at `272b56d`. Its explicit function-scoped
+fixture authenticates the two exact locked test resources and restores the same
+cached module owner on success and interruption. Production acceptance remains
+unchanged and is tested separately: the default table passes and the newer table
+is rejected. Both-runtime focused gates pass 145 cases; full serial default E
+passes 1,255 cases with seven unchanged future-E skips. Strict diagnostics remain
+367. Original harness failures and the initial Python 3.12 limitation remain
+preserved under external `c1-time-runtime-correction-candidate/round1/`.
 
-Independent source diagnoses under external `direct-model-conformance-diagnosis/`
-and `direct-error-rounding-diagnosis/` establish B5. Small exact controls disprove
-the claimed equality of frozen/operational integrands from matching horizon signs
-and demonstrate downward radius and accumulation results. They do not measure
-actual family impact or prove a retained physical integral escapes its disk.
-One prospective successor must scope all four repairs before implementation,
-preserving D35's historical geometry identity and the current numerical limits.
-New captures remain held until those source conformance defects are corrected.
+D36 is reviewed and pushed at `7752f04`, with independent own-header and actual
+parent checks. The original exported patch and actual Git patch differ only in
+hunk context placement; both reconstruct identical reviewed documents. The
+failed equality check and uncredited build are preserved; the subsequent strict
+documentation build passed. D35 remains executable authority until the separate
+atomic D36 activation. Original D35 geometry and scientific limits are preserved.
+
+The separate causal commit `216afb1` adds six real-owner assertion controls for
+five defects: operational fringe ownership, two model-classification cases,
+least-upper radius, directed accumulation and omitted inner operational root
+bounds. Each Python version retains six intended failures and three passing
+controls. Supplementary isolated runs bind package/solver paths and source hashes
+before and after each test in the same process. These establish causal defects,
+not repaired production or a measured failure of any actual-family bound.
+Evidence is under external `d36-causal-candidate/round1/`, including its original
+classifier stop and separately authenticated `origin-supplement/`.
+
+New captures remain held until the reviewed source repair and activation gates
+pass. The structural full-row terminal traversal has independent dual acceptance
+and bounded synthetic tests; independent numerical predicates and admission
+remain incomplete. Instrument/selection semantics have a reviewed finite plan,
+with implementation pending and beam semantics still separate.
 
 ## Current source verification stop
 
