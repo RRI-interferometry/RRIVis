@@ -1166,6 +1166,107 @@ def validate_scientific_array(
         )
 
 
+SCIENTIFIC_COMMON_TAGS = (
+    "schema",
+    "visibilities.metadata",
+    "visibilities.data",
+    "flags.metadata",
+    "flags.data",
+    "weights.metadata",
+    "weights.data",
+    "time.utc_jd1.metadata",
+    "time.utc_jd1.data",
+    "time.utc_jd2.metadata",
+    "time.utc_jd2.data",
+    "time.integration_time_seconds.metadata",
+    "time.integration_time_seconds.data",
+    "frequency_hz.metadata",
+    "frequency_hz.data",
+    "channel_width_hz.metadata",
+    "channel_width_hz.data",
+    "correlations",
+    "polarization_basis",
+    "receptor",
+    "instrument",
+    "selection",
+    "beam",
+    "phase_center",
+)
+
+
+def decode_scientific_stream(
+    common_segments: Any, solver_segment: Any, *, label: str
+) -> dict[str, Any]:
+    """Decode D32's ordered buffers and framed hash, without admitting a proof.
+
+    JSON projection contents, solver identity and certificate joins require
+    separate validation. Returned buffers preserve the authenticated raw bytes.
+    """
+    _require(
+        isinstance(common_segments, list)
+        and len(cast(list[Any], common_segments)) == 24,
+        SCHEMA,
+        f"{label}: expected exactly 24 common scientific segments",
+    )
+    segments = [*cast(list[Any], common_segments), solver_segment]
+    payloads: dict[str, bytes] = {}
+    json_segments: dict[str, Any] = {}
+    digest = hashlib.sha256()
+    for tag, segment in zip((*SCIENTIFIC_COMMON_TAGS, "solver"), segments, strict=True):
+        payload = decode_scientific_segment(segment, tag, f"{label}.{tag}")
+        payloads[tag] = payload
+        if not tag.endswith(".data"):
+            json_segments[tag] = _scientific_json(payload, f"{label}.{tag}")
+        tag_bytes = tag.encode("utf-8")
+        digest.update(len(tag_bytes).to_bytes(8, "little"))
+        digest.update(tag_bytes)
+        digest.update(len(payload).to_bytes(8, "little"))
+        digest.update(payload)
+    _require(
+        json_segments["schema"] == "radiosim.result.v1",
+        SCHEMA,
+        f"{label}: incorrect scientific schema",
+    )
+    for role in SCIENTIFIC_ARRAY_LAYOUTS:
+        validate_scientific_array(
+            role, payloads[f"{role}.metadata"], payloads[f"{role}.data"]
+        )
+    basis = json_segments["polarization_basis"]
+    correlations = json_segments["correlations"]
+    _require(
+        type(basis) is str and basis in ("linear_xy", "circular_rl"),
+        SCHEMA,
+        f"{label}: incorrect polarization basis",
+    )
+    expected = (
+        ["XX", "XY", "YX", "YY"] if basis == "linear_xy" else ["RR", "RL", "LR", "LL"]
+    )
+    _require(
+        correlations == expected
+        and len(expected) == json_segments["visibilities.metadata"]["shape"][3],
+        SCHEMA,
+        f"{label}: correlations do not match the basis and cube axis",
+    )
+    for tag in (
+        "receptor",
+        "instrument",
+        "selection",
+        "beam",
+        "phase_center",
+        "solver",
+    ):
+        _require(
+            isinstance(json_segments[tag], dict),
+            SCHEMA,
+            f"{label}.{tag}: expected a scientific JSON object",
+        )
+    return {
+        "scientific_sha256": digest.hexdigest(),
+        "payloads": payloads,
+        "json_segments": json_segments,
+    }
+
+
 def _require_sorted_unique_strings(value: Any, label: str) -> list[str]:
     _require(isinstance(value, list), SCHEMA, f"{label} must be an array")
     items = list(value)

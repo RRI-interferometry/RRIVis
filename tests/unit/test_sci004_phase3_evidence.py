@@ -6739,3 +6739,154 @@ def test_evidence_raw_checkout_preserves_symlinks_flags_and_uninitialized_gitlin
     before_index = (root / ".git/index").read_bytes()
     module.preflight()
     assert (root / ".git/index").read_bytes() == before_index
+
+
+def _synthetic_scientific_stream(circular: bool = False) -> tuple[list[Any], str]:
+    """Build all 25 segments and a stdlib oracle without production helpers."""
+    payloads: list[tuple[str, bytes]] = []
+
+    def add_json(tag: str, value: Any) -> None:
+        payloads.append(
+            (
+                tag,
+                json.dumps(
+                    value,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                ).encode("utf-8"),
+            )
+        )
+
+    add_json("schema", "radiosim.result.v1")
+    for role, dtype, shape, data in (
+        ("visibilities", "<c16", [49, 3, 1, 4], struct.pack("<dd", 1.25, -0.5) * 588),
+        ("flags", "|b1", [49, 3, 1, 4], b"\0\1" * 294),
+        ("weights", "<f8", [49, 3, 1, 4], struct.pack("<d", 2.0) * 588),
+        ("time.utc_jd1", "<f8", [49], struct.pack("<d", 2451545.0) * 49),
+        ("time.utc_jd2", "<f8", [49], struct.pack("<d", -0.0) * 49),
+        ("time.integration_time_seconds", "<f8", [49], struct.pack("<d", 1.0) * 49),
+        ("frequency_hz", "<f8", [1], struct.pack("<d", 1e8)),
+        ("channel_width_hz", "<f8", [1], struct.pack("<d", 1e6)),
+    ):
+        add_json(role + ".metadata", {"dtype": dtype, "shape": shape})
+        payloads.append((role + ".data", data))
+    add_json(
+        "correlations",
+        ["RR", "RL", "LR", "LL"] if circular else ["XX", "XY", "YX", "YY"],
+    )
+    add_json("polarization_basis", "circular_rl" if circular else "linear_xy")
+    for tag in (
+        "receptor",
+        "instrument",
+        "selection",
+        "beam",
+        "phase_center",
+        "solver",
+    ):
+        add_json(tag, {"synthetic": "λ", "value": -0.0, "integer": 9007199254740993})
+    framed = bytearray()
+    segments: list[Any] = []
+    for tag, payload in payloads:
+        encoded_tag = tag.encode("utf-8")
+        framed.extend(struct.pack("<Q", len(encoded_tag)))
+        framed.extend(encoded_tag)
+        framed.extend(struct.pack("<Q", len(payload)))
+        framed.extend(payload)
+        segments.append(
+            {
+                "tag": tag,
+                "payload_hex": payload.hex(),
+                "byte_count": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            }
+        )
+    return segments, hashlib.sha256(framed).hexdigest()
+
+
+@pytest.mark.parametrize("circular", [False, True])
+def test_scientific_stream_matches_independent_framing(circular: bool) -> None:
+    module = _tool()
+    segments, expected = _synthetic_scientific_stream(circular)
+    decoded = module.decode_scientific_stream(segments[:24], segments[24], label="test")
+    assert decoded["scientific_sha256"] == expected
+    assert len(decoded["payloads"]) == 25
+    assert len(decoded["json_segments"]) == 17
+    for segment in segments:
+        assert decoded["payloads"][segment["tag"]] == bytes.fromhex(
+            segment["payload_hex"]
+        )
+    assert decoded["json_segments"]["solver"]["integer"] == 9007199254740993
+    assert decoded["payloads"]["time.utc_jd2.data"] == struct.pack("<d", -0.0) * 49
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["missing", "extra", "reorder", "duplicate", "solver-tag", "tuple", "jones"],
+)
+def test_scientific_stream_requires_exact_order_and_inventory(mutation: str) -> None:
+    module = _tool()
+    segments, _ = _synthetic_scientific_stream()
+    common: Any = segments[:24]
+    solver = segments[24]
+    if mutation == "missing":
+        common.pop()
+    elif mutation == "extra":
+        common.append(solver)
+    elif mutation == "reorder":
+        common[1], common[2] = common[2], common[1]
+    elif mutation == "duplicate":
+        common[2] = common[1]
+    elif mutation == "solver-tag":
+        solver["tag"] = "phase_center"
+    elif mutation == "tuple":
+        common = tuple(common)
+    else:
+        common[-1]["tag"] = "jones"
+    with pytest.raises(module.EvidenceError):
+        module.decode_scientific_stream(common, solver, label="test")
+
+
+@pytest.mark.parametrize(
+    ("tag", "value"),
+    [
+        ("schema", "radiosim.result.v2"),
+        ("polarization_basis", "unknown"),
+        ("polarization_basis", {}),
+        ("correlations", ["YY", "YX", "XY", "XX"]),
+        ("correlations", ["RR", "RL", "LR", "LL"]),
+        ("correlations", ["XX", "XY", "YX"]),
+        ("visibilities.metadata", {"dtype": "<c16", "shape": [49, 3, 1, 3]}),
+        ("flags.metadata", {"dtype": "|b1", "shape": [49, 1, 3, 4]}),
+        ("receptor", []),
+        ("instrument", None),
+        ("selection", True),
+        ("beam", "beam"),
+        ("phase_center", 0),
+        ("solver", []),
+    ],
+)
+def test_scientific_stream_rejects_authenticated_wrong_roots_and_joins(
+    tag: str, value: Any
+) -> None:
+    module = _tool()
+    segments, _ = _synthetic_scientific_stream()
+    payload = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
+    index = next(
+        index for index, segment in enumerate(segments) if segment["tag"] == tag
+    )
+    segments[index] = {
+        "tag": tag,
+        "payload_hex": payload.hex(),
+        "byte_count": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+    with pytest.raises(module.EvidenceError):
+        module.decode_scientific_stream(segments[:24], segments[24], label="test")
