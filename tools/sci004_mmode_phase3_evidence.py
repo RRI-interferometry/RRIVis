@@ -4457,6 +4457,63 @@ def validate_evidence_artifact(document: Any) -> dict[str, Any]:
     return envelope
 
 
+def validate_characterization_source_inventory(
+    value: Any, *, family_id: str, label: str = "source_identities"
+) -> dict[str, Any]:
+    """Validate source4 content joins and select one exact three-key source row.
+
+    This checks JSON object types, the sorted four-family inventory and D/J
+    identities. Git bytes and nested phase26 science remain caller obligations;
+    a content-consistent row does not admit an observation or authenticate its
+    provenance. The returned row retains the original phase object unchanged.
+    """
+    expected = sorted(SECTION_11_FAMILIES)
+    _require(
+        type(family_id) is str and family_id in expected,
+        SCHEMA,
+        f"{label} family_id must name an exact Section11 family",
+    )
+    _require(type(value) is dict, SCHEMA, f"{label} must be a JSON object")
+    source = _require_keys(value, SOURCE_IDENTITY_KEYS, label)
+    for key in SOURCE_IDENTITY_KEYS:
+        if key != "fixture_input_rows":
+            _ = _require_hex(source[key], 64, f"{label}.{key}")
+    rows = source["fixture_input_rows"]
+    _require(
+        type(rows) is list and len(cast(list[Any], rows)) == len(expected),
+        SCHEMA,
+        f"{label} requires exactly four source rows in a JSON array",
+    )
+    parsed_rows: list[dict[str, Any]] = []
+    for index, value_row in enumerate(cast(list[Any], rows)):
+        row_label = f"{label}.fixture_input_rows[{index}]"
+        _require(type(value_row) is dict, SCHEMA, f"{row_label} must be a JSON object")
+        row = _require_keys(value_row, FIXTURE_INPUT_ROW_KEYS, row_label)
+        _require(
+            type(row["fixture_id"]) is str and row["fixture_id"] == expected[index],
+            SCHEMA,
+            f"{row_label} must match the exact sorted four-family inventory",
+        )
+        phase = row["input_identity_manifest"]
+        _require(
+            type(phase) is dict, SCHEMA, f"{row_label} phase must be a JSON object"
+        )
+        digest = _require_hex(row["input_identity_sha256"], 64, row_label)
+        _require(
+            digest == object_digest("radiosim.mmode-input-identity.v1", phase),
+            DIGEST,
+            f"{row_label} phase digest must rebuild from its original domain",
+        )
+        parsed_rows.append(row)
+    _require(
+        source["input_identity_set_sha256"]
+        == object_digest("radiosim.sci004-phase-input-set.v1", rows),
+        DIGEST,
+        f"{label} set digest must rebuild from its four source rows",
+    )
+    return parsed_rows[expected.index(family_id)]
+
+
 def _host_tag() -> str:
     """Return Section 11's ``[a-z0-9][a-z0-9-]{0,62}`` host tag."""
     raw = platform.node().split(".")[0].lower()

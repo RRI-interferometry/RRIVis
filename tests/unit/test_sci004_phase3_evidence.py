@@ -7823,6 +7823,203 @@ def prepared_characterization_time(
     return module, manifest, phase
 
 
+def _rehash_characterization_source(source: dict[str, Any]) -> None:
+    """Independent test-side D/J; no producer identity factory participates."""
+    for row in source["fixture_input_rows"]:
+        row["input_identity_sha256"] = _object_digest(
+            "radiosim.mmode-input-identity.v1", row["input_identity_manifest"]
+        )
+    source["input_identity_set_sha256"] = _object_digest(
+        "radiosim.sci004-phase-input-set.v1", source["fixture_input_rows"]
+    )
+
+
+@pytest.fixture(scope="module")
+def characterization_source_inventory(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+) -> dict[str, Any]:
+    """Genuine selected Point-I phase, synthetic other-family/source bindings.
+
+    Reusing this phase for the other three IDs is only an inventory fixture,
+    never a claim that their distinct scientific preparation was performed.
+    """
+    _, _, phase = prepared_characterization_time
+    source: dict[str, Any] = {
+        "git_tree_sha256": SIXTY_FOUR,
+        "pixi_manifest_sha256": SIXTY_FOUR,
+        "pixi_lock_sha256": SIXTY_FOUR,
+        "convention_identity_sha256": phase["convention_identity_sha256"],
+        "fixture_input_rows": [
+            {
+                "fixture_id": family,
+                "input_identity_manifest": copy.deepcopy(phase),
+                "input_identity_sha256": "",
+            }
+            for family in sorted(SECTION_11_FAMILIES)
+        ],
+        "input_identity_set_sha256": "",
+    }
+    _rehash_characterization_source(source)
+    return source
+
+
+def test_characterization_source_inventory_selection_and_boundary(
+    characterization_source_inventory: dict[str, Any],
+) -> None:
+    module = _tool()
+    source = copy.deepcopy(characterization_source_inventory)
+    before = copy.deepcopy(source)
+    row = module.validate_characterization_source_inventory(
+        source, family_id="mmode_point_stokes_i"
+    )
+    assert set(row) == {
+        "fixture_id",
+        "input_identity_manifest",
+        "input_identity_sha256",
+    }
+    assert row == source["fixture_input_rows"][2]
+    assert source == before
+    assert (
+        row["input_identity_manifest"]
+        is source["fixture_input_rows"][2]["input_identity_manifest"]
+    )
+    # Object insertion order is not scientific identity; all four exact IDs select.
+    reordered = dict(reversed(list(source.items())))
+    for family in SECTION_11_FAMILIES:
+        assert (
+            module.validate_characterization_source_inventory(
+                reordered, family_id=family
+            )["fixture_id"]
+            == family
+        )
+    # Content consistency does not close nested science or admit old observations.
+    source["fixture_input_rows"][2]["input_identity_manifest"] = {
+        "deferred_science": "semantic/a"
+    }
+    _rehash_characterization_source(source)
+    assert module.validate_characterization_source_inventory(
+        source, family_id="mmode_point_stokes_i"
+    )["input_identity_manifest"] == {"deferred_science": "semantic/a"}
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "source-extra",
+        "row-wrong-key",
+        "row-extra",
+        "rows-tuple",
+        "row-list",
+        "missing-row",
+        "duplicate-row",
+        "reorder",
+        "id-int",
+        "id-bool",
+        "id-unknown",
+        "phase-list",
+        "phase-null",
+        "phase-content-stale",
+        "phase-wrong-domain",
+        "set-stale",
+    ],
+)
+def test_characterization_source_inventory_rejects_rehashed_mutations(
+    characterization_source_inventory: dict[str, Any],
+    mutation: str,
+) -> None:
+    module = _tool()
+    source = copy.deepcopy(characterization_source_inventory)
+    rows = source["fixture_input_rows"]
+    if mutation == "source-extra":
+        source["extra"] = True
+    elif mutation == "row-wrong-key":
+        rows[0]["phase_input_identity_manifest"] = rows[0].pop(
+            "input_identity_manifest"
+        )
+    elif mutation == "row-extra":
+        rows[0]["extra"] = True
+    elif mutation == "rows-tuple":
+        source["fixture_input_rows"] = tuple(rows)
+    elif mutation == "row-list":
+        rows[0] = list(rows[0].items())
+    elif mutation == "missing-row":
+        rows.pop()
+    elif mutation == "duplicate-row":
+        rows[1] = copy.deepcopy(rows[0])
+    elif mutation == "reorder":
+        rows.reverse()
+    elif mutation == "id-int":
+        rows[0]["fixture_id"] = 1
+    elif mutation == "id-bool":
+        rows[0]["fixture_id"] = True
+    elif mutation == "id-unknown":
+        rows[0]["fixture_id"] = "mmode_unknown"
+    elif mutation == "phase-list":
+        rows[0]["input_identity_manifest"] = []
+    elif mutation == "phase-null":
+        rows[0]["input_identity_manifest"] = None
+    elif mutation == "phase-content-stale":
+        rows[0]["input_identity_manifest"]["precision"] = "changed"
+    elif mutation == "phase-wrong-domain":
+        rows[0]["input_identity_sha256"] = _object_digest(
+            "wrong.domain", rows[0]["input_identity_manifest"]
+        )
+    if mutation not in {
+        "row-wrong-key",
+        "row-list",
+        "phase-content-stale",
+        "phase-wrong-domain",
+    }:
+        _rehash_characterization_source(source)
+    else:
+        source["input_identity_set_sha256"] = _object_digest(
+            "radiosim.sci004-phase-input-set.v1", rows
+        )
+    if mutation == "set-stale":
+        source["input_identity_set_sha256"] = SIXTY_FOUR
+    with pytest.raises(module.EvidenceError):
+        module.validate_characterization_source_inventory(
+            source, family_id="mmode_point_stokes_i"
+        )
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "git_tree_sha256",
+        "pixi_manifest_sha256",
+        "pixi_lock_sha256",
+        "convention_identity_sha256",
+        "input_identity_set_sha256",
+    ],
+)
+@pytest.mark.parametrize("replacement", [True, "A" * 64, "0" * 63])
+def test_characterization_source_inventory_digest_types(
+    characterization_source_inventory: dict[str, Any],
+    field: str,
+    replacement: Any,
+) -> None:
+    source = copy.deepcopy(characterization_source_inventory)
+    source[field] = replacement
+    module = _tool()
+    with pytest.raises(module.EvidenceError):
+        module.validate_characterization_source_inventory(
+            source, family_id="mmode_point_stokes_i"
+        )
+
+
+@pytest.mark.parametrize("family_id", [False, 1, None, "mmode_unknown"])
+def test_characterization_source_inventory_requires_explicit_family(
+    characterization_source_inventory: dict[str, Any],
+    family_id: Any,
+) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError):
+        module.validate_characterization_source_inventory(
+            characterization_source_inventory, family_id=family_id
+        )
+
+
 def test_characterization_time_prepared_grid_and_context(
     prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
 ) -> None:
