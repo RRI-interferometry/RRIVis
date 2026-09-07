@@ -4352,3 +4352,526 @@ def test_result_runtime_identity_rejects_malformed_owned_values(
     assert malformed.as_mapping() == snapshot.as_mapping()
     with pytest.raises(InvalidResultError, match="not a SHA-256"):
         _ = MModeSolverResultProvenance(snapshot=malformed).input_identity_sha256
+
+
+@pytest.mark.parametrize("consumer", ["fingerprints", "ci"])
+def test_characterization_consumers_use_each_familys_phase_preimage(
+    monkeypatch: pytest.MonkeyPatch, consumer: str
+) -> None:
+    """Require same-family argument wiring without running a scientific solve."""
+    from radiosim.core import result as production
+
+    module = _tool()
+    results = {family: object() for family in module.SECTION_11_FAMILIES}
+    bundles = {
+        family: {"input_identity_manifest": {"synthetic_family": family}}
+        for family in results
+    }
+    calls: list[str] = []
+
+    def record(
+        actual: object, *, family_id: str, phase_input_identity_manifest: Any
+    ) -> dict[str, Any]:
+        assert actual is results[family_id]
+        assert (
+            phase_input_identity_manifest
+            is bundles[family_id]["input_identity_manifest"]
+        )
+        calls.append(family_id)
+        return {
+            "input_identity_sha256": SIXTY_FOUR,
+            "era_utc_grid_sha256": SIXTY_FOUR,
+            "solver_snapshot": {},
+            "raw_cube_sha256": SIXTY_FOUR,
+            "scientific_sha256": SIXTY_FOUR,
+        }
+
+    monkeypatch.setattr(production, "mmode_characterization_record", record)
+
+    def observation_set(family_id: str) -> dict[str, tuple[str, ...]]:
+        assert family_id in results
+        return {"synthetic-cell": (SIXTY_FOUR,)}
+
+    monkeypatch.setattr(
+        production, "mmode_characterization_observation_set", observation_set
+    )
+    rows = (
+        module._fingerprint_rows(results, bundles)
+        if consumer == "fingerprints"
+        else module._ci_artifacts(results, FORTY, bundles)
+    )
+    assert calls == list(module.SECTION_11_FAMILIES)
+    assert [row["family_id"] for row in rows] == calls
+
+
+@pytest.fixture(scope="module")
+def genuine_phase_synthetic_result(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[Any, dict[str, Any]]:
+    """Pair genuine input preparation with an explicitly synthetic output cube.
+
+    This fixture stops before certificates or harmonic work. It tests schemas
+    and visible-result joins; real public family runs remain separate gates.
+    """
+    from dataclasses import replace
+    from importlib import import_module
+    from unittest.mock import patch
+
+    import numpy as np
+
+    from radiosim.api.simulator import Simulator
+    from radiosim.core.mmode.time import CanonicalEraGrid
+    from radiosim.core.mmode.types import derive_mmode_dimensions
+    from radiosim.core.result import (
+        MModeSolverResultProvenance,
+        build_simulation_result,
+    )
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    # This synthetic fixture instruments private preparation seams explicitly;
+    # production callers still reach them only through the public solve path.
+    solver: Any = import_module("radiosim.core.mmode.solver")
+    captured: list[Simulator] = []
+    original = Simulator.from_mapping
+
+    def resolve(*args: Any, **kwargs: Any) -> Simulator:
+        simulator = original(*args, **kwargs)
+        captured.append(simulator)
+        return simulator
+
+    with patch.object(Simulator, "from_mapping", side_effect=resolve):
+        seed = build_mmode_result(tmp_path_factory.mktemp("phase-schema").resolve())
+    (simulator,) = captured
+    request = simulator.build_solve_request()
+    grid, block = request.era_grid, request.mmode
+    assert isinstance(grid, CanonicalEraGrid) and block is not None
+    dimensions = derive_mmode_dimensions(
+        lmax=int(block.lmax),
+        mmax=int(block.mmax),
+        quadrature_nside=int(block.quadrature_nside),
+    )
+    longitude, latitude, height = solver._site_geodetic(request.location)
+    frame = solver.build_frozen_frame(
+        start_time=grid.start_time_iso,
+        longitude_deg=longitude,
+        latitude_deg=latitude,
+        height_m=height,
+    )
+    context = solver._kernel_context(request, frame, grid)
+    point_cirs, point_stokes, point_icrs = solver._resolve_point_component(
+        request, frame, context
+    )
+    ledger = solver.build_direction_ledger(
+        frame=frame,
+        dimensions=dimensions,
+        point_cirs=point_cirs,
+        point_stokes=point_stokes,
+        point_icrs=point_icrs,
+        native_cirs=np.zeros((0, 3), dtype=np.float64),
+        native_stokes=np.zeros((0, context.n_frequencies, 4), dtype=np.float64),
+        native_icrs=np.zeros((0, 2), dtype=np.float64),
+        native_solid_angle=0.0,
+    )
+    tangent_frame = solver._resolved_tangent_frame(request, point_stokes)
+    phase, digest = solver.build_input_identity(
+        request=request,
+        grid=grid,
+        frame=frame,
+        context=context,
+        dimensions=dimensions,
+        directions=ledger,
+        tangent_frame=tangent_frame,
+    )
+    assert isinstance(seed.solver, MModeSolverResultProvenance)
+    assert isinstance(seed.solver.snapshot, solver.MModeSolverSnapshot)
+    snapshot = replace(
+        seed.solver.snapshot,
+        input_identity_sha256=digest,
+        component_element_counts=(len(point_cirs),),
+        execution_path="polarized"
+        if solver._payload_is_polarized(point_stokes)
+        else "scalar",
+        iers_table_sha256=frame.iers_table_sha256,
+        tangent_polarization_frame=tangent_frame,
+    )
+    result = build_simulation_result(
+        receptor_visibilities=seed.visibilities.reshape(
+            *seed.visibilities.shape[:3], 2, 2
+        ),
+        backend=request.backend,
+        time_grid=seed.time_grid,
+        frequencies_hz=seed.frequencies_hz.tolist(),
+        channel_widths_hz=seed.channel_widths_hz.tolist(),
+        instrument=seed.instrument,
+        selection=seed.selection,
+        beam_state=seed.beam_state,
+        receptors=seed.receptors,
+        jones_terms=request.jones,
+        phase_center=seed.phase_center,
+        backend_provenance=seed.backend,
+        solver_provenance=MModeSolverResultProvenance(snapshot=snapshot),
+        resolved_config=seed.resolved_config,
+        configuration_provenance=None,
+        performance=seed.performance,
+        history=("synthetic schema fixture; no scientific solve or acceptance",),
+    )
+    return result, phase
+
+
+def _rehash_phase_schema_fixture(phase: dict[str, Any]) -> str:
+    """Rehash adversarial preimages so stale digests cannot explain rejection."""
+    for field, digest in (
+        ("site_manifest", "site_sha256"),
+        ("canonical_era_turn_grid", "canonical_era_turn_grid_sha256"),
+        ("utc_manifest", "utc_sha256"),
+        ("ut1_manifest", "ut1_sha256"),
+    ):
+        phase[digest] = _object_digest(phase[field]["schema_version"], phase[field])
+    era = phase["canonical_era_grid"]
+    era["canonical_era_turn_grid_sha256"] = phase["canonical_era_turn_grid_sha256"]
+    phase["canonical_era_grid_sha256"] = _object_digest(era["schema_version"], era)
+    for row in phase["beam_rows"] + phase["jones_term_rows"]:
+        manifest = row["parameter_identity_manifest"]
+        row["parameter_identity_sha256"] = _object_digest(
+            manifest["schema_version"], manifest
+        )
+    changed: dict[str, str] = {}
+    for row in phase["direction_input_rows"]:
+        manifest = row["direction_input_manifest"]
+        digest = _object_digest(manifest["schema_version"], manifest)
+        changed[row["direction_input_sha256"]] = digest
+        row["direction_input_sha256"] = digest
+    for row in phase["sky_component_rows"]:
+        manifest = row["morphology_identity_manifest"]
+        row["morphology_identity_sha256"] = _object_digest(
+            manifest["schema_version"], manifest
+        )
+        row["polarization_frame_sha256"] = _object_digest(
+            "radiosim.sky-tangent-polarization.v1", row["polarization_frame"]
+        )
+        row["direction_input_sha256s"] = [
+            changed.get(digest, digest) for digest in row["direction_input_sha256s"]
+        ]
+    for group in phase["transfer_grid_catalog"]:
+        ids = [
+            row["direction_input_manifest"]["direction_id"]
+            for row in phase["direction_input_rows"]
+            if row["direction_input_manifest"].get("source_kind")
+            == "transfer_quadrature"
+            and row["direction_input_manifest"].get("transfer_role")
+            == group["transfer_role"]
+            and row["direction_input_manifest"].get("transfer_nside")
+            == group["transfer_nside"]
+        ]
+        group["direction_id_ledger_sha256"] = _object_digest(
+            "radiosim.mmode-transfer-grid-direction-ids.v1", ids
+        )
+    return _object_digest("radiosim.mmode-input-identity.v1", phase)
+
+
+def test_production_v2_retains_the_complete_owned_input_preimage(
+    genuine_phase_synthetic_result: tuple[Any, dict[str, Any]],
+) -> None:
+    from radiosim.core.result import (
+        MMODE_CHARACTERIZATION_RECORD_KEYS,
+        mmode_characterization_record,
+    )
+
+    result, phase = genuine_phase_synthetic_result
+    before = _canonical(phase)
+    record = mmode_characterization_record(
+        result,
+        family_id="mmode_single_scalar_mode",
+        phase_input_identity_manifest=phase,
+    )
+    assert tuple(record) == MMODE_CHARACTERIZATION_RECORD_KEYS
+    assert len(record) == 9
+    manifest = record["characterization_input_manifest"]
+    assert manifest["schema_version"] == "radiosim.sci004.characterization-input.v2"
+    assert len(manifest) == 14
+    assert _canonical(manifest["phase_input_identity_manifest"]) == before
+    assert (
+        manifest["phase_input_identity_sha256"] == result.solver.input_identity_sha256
+    )
+    assert record["input_identity_sha256"] == _object_digest(
+        "radiosim.sci004.characterization-input.v2", manifest
+    )
+    assert record["era_utc_grid_sha256"] == _object_digest(
+        "radiosim.sci004.characterization-time.v1",
+        record["characterization_time_manifest"],
+    )
+    manifest["phase_input_identity_manifest"]["frequency_rows"][0][
+        "frequency_index"
+    ] = 9
+    assert _canonical(phase) == before
+
+
+@pytest.mark.parametrize("ownership", ["foreign", "missing", "malformed"])
+def test_production_v2_requires_the_same_live_runtime_identity(
+    genuine_phase_synthetic_result: tuple[Any, dict[str, Any]], ownership: str
+) -> None:
+    from dataclasses import replace
+
+    from radiosim.core.result import (
+        InvalidResultError,
+        LoadedMModeSolverSnapshot,
+        MModeSolverResultProvenance,
+        mmode_characterization_record,
+    )
+
+    result, phase = genuine_phase_synthetic_result
+    snapshot = (
+        LoadedMModeSolverSnapshot(stored=result.solver.as_mapping())
+        if ownership == "missing"
+        else replace(
+            result.solver.snapshot,
+            input_identity_sha256=_digest("foreign-phase")
+            if ownership == "foreign"
+            else "invalid",
+        )
+    )
+    # Deliberately forge only the owner on a separate result; the public result
+    # constructor correctly forbids dataclasses.replace.
+    changed = copy.copy(result)
+    object.__setattr__(
+        changed, "solver", MModeSolverResultProvenance(snapshot=snapshot)
+    )
+    with pytest.raises(InvalidResultError):
+        _ = mmode_characterization_record(
+            changed,
+            family_id="mmode_single_scalar_mode",
+            phase_input_identity_manifest=phase,
+        )
+
+
+def test_production_v2_rejects_a_rehashed_foreign_phase_against_unchanged_result(
+    genuine_phase_synthetic_result: tuple[Any, dict[str, Any]],
+) -> None:
+    from radiosim.core.result import InvalidResultError, mmode_characterization_record
+
+    result, original = genuine_phase_synthetic_result
+    phase = copy.deepcopy(original)
+    direction = phase["direction_input_rows"][0]["direction_input_manifest"]
+    direction["resolved_stokes_iau_f64be"][0] = _f64be(123.0)
+    digest = _rehash_phase_schema_fixture(phase)
+    assert digest != result.solver.input_identity_sha256
+    with pytest.raises(InvalidResultError, match="identity|same.run"):
+        _ = mmode_characterization_record(
+            result,
+            family_id="mmode_single_scalar_mode",
+            phase_input_identity_manifest=phase,
+        )
+
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("schema_version",), "radiosim.mmode-input-identity.v99"),
+        (("site_manifest", "schema_version"), "radiosim.mmode-site.v99"),
+        (("site_manifest", "height_m_f64be"), "7ff8000000000000"),
+        (("site_manifest", "itrs_xyz_m_f64be"), []),
+        (("canonical_era_turn_grid", "sidereal_samples"), True),
+        (("canonical_era_turn_grid", "integration_fraction_ratio"), "2/2"),
+        (("canonical_era_turn_grid", "exposure_width_turn"), "1/24"),
+        (("canonical_era_grid", "tau_f64be"), _f64be(6.0)),
+        (("utc_manifest", "shape"), [True]),
+        (("ut1_manifest", "axis_order"), ["foreign"]),
+        (("mmode_dimensions", "lmax"), True),
+        (("mmode_dimensions", "qcheck"), 16),
+        (("antenna_rows", 0, "antenna_index"), False),
+        (("baseline_rows", 0, "antenna1_index"), False),
+        (("frequency_rows", 0, "frequency_index"), False),
+        (("frequency_rows", 0, "center_hz_f64be"), "7ff0000000000000"),
+        (("frequency_rows", 0, "width_hz_f64be"), _f64be(-1.0)),
+        (("receptor_rows", 0, "antenna_index"), False),
+        (("correlation_rows", 0, "correlation_index"), False),
+        (("beam_rows", 0, "assigned_antenna_indices"), [False]),
+        (("beam_rows", 0, "assigned_antenna_indices"), [999]),
+        (("beam_rows", 0, "normalization"), "foreign"),
+        (
+            ("beam_rows", 0, "parameter_identity_manifest", "scalar_rows", 0, "name"),
+            "layout_path",
+        ),
+        (("sky_component_rows", 0, "component_index"), False),
+        (("sky_component_rows", 0, "representation"), "foreign"),
+        (("sky_component_rows", 0, "direction_input_sha256s"), [SIXTY_FOUR]),
+        (
+            ("direction_input_rows", 0, "direction_input_manifest", "source_index"),
+            False,
+        ),
+        (
+            ("direction_input_rows", 0, "direction_input_manifest", "source_kind"),
+            "foreign",
+        ),
+        (
+            (
+                "direction_input_rows",
+                0,
+                "direction_input_manifest",
+                "active_frequency_mask",
+            ),
+            [False, False],
+        ),
+        (
+            (
+                "direction_input_rows",
+                0,
+                "direction_input_manifest",
+                "run_frequency_hz_f64be",
+            ),
+            [],
+        ),
+        (
+            (
+                "direction_input_rows",
+                0,
+                "direction_input_manifest",
+                "resolved_stokes_iau_f64be",
+            ),
+            [],
+        ),
+        (
+            (
+                "direction_input_rows",
+                0,
+                "direction_input_manifest",
+                "integration_weight_f64be",
+            ),
+            _f64be(2.0),
+        ),
+        (("transfer_grid_catalog", 0, "expected_direction_count"), 47),
+        (("transfer_grid_catalog", 0, "transfer_role"), "foreign"),
+        (("precision",), "ultra"),
+        (("layout_path",), "/foreign/input.csv"),
+        (("direction_input_rows", 0, "direction_input_manifest", "unknown"), 0),
+        (
+            ("direction_input_rows", 0, "direction_input_manifest", "schema_version"),
+            "radiosim.mmode-direction-input.v99",
+        ),
+        (
+            (
+                "direction_input_rows",
+                0,
+                "direction_input_manifest",
+                "cirs_direction_f64be",
+            ),
+            [_f64be(2.0), _f64be(0.0), _f64be(0.0)],
+        ),
+        (
+            ("beam_rows", 0, "parameter_identity_manifest", "array_rows"),
+            [dict[str, Any]()],
+        ),
+        (
+            (
+                "sky_component_rows",
+                0,
+                "morphology_identity_manifest",
+                "scalar_rows",
+                0,
+                "value",
+            ),
+            "01",
+        ),
+        (
+            (
+                "direction_input_rows",
+                1,
+                "direction_input_manifest",
+                "resolved_stokes_iau_f64be",
+            ),
+            [_f64be(1.0)] * 8,
+        ),
+        (("ut1_manifest", "center_jd1_f64be", 0), _f64be(1e308)),
+        (("ut1_manifest", "center_jd1_f64be", 0), _f64be(-1e308)),
+    ],
+)
+def test_production_v2_rejects_rehashed_semantic_mutations(
+    genuine_phase_synthetic_result: tuple[Any, dict[str, Any]],
+    path: tuple[str | int, ...],
+    value: Any,
+) -> None:
+    from dataclasses import replace
+
+    from radiosim.core.result import (
+        InvalidResultError,
+        MModeSolverResultProvenance,
+        mmode_characterization_record,
+    )
+
+    result, original = genuine_phase_synthetic_result
+    phase = copy.deepcopy(original)
+    target: Any = phase
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    digest = _rehash_phase_schema_fixture(phase)
+    owner = replace(result.solver.snapshot, input_identity_sha256=digest)
+    changed = copy.copy(result)
+    object.__setattr__(changed, "solver", MModeSolverResultProvenance(snapshot=owner))
+    with pytest.raises(InvalidResultError):
+        _ = mmode_characterization_record(
+            changed,
+            family_id="mmode_single_scalar_mode",
+            phase_input_identity_manifest=phase,
+        )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "phase_key",
+        "owner",
+        "lmax_text",
+        "lmax_bool",
+        "lmax_negative",
+        "snapshot_none",
+        "snapshot_foreign",
+    ],
+)
+def test_production_v2_rejects_before_derived_record_work(
+    genuine_phase_synthetic_result: tuple[Any, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+    invalid: str,
+) -> None:
+    """Malformed input must fail before harmonic-table or time-record work."""
+    from dataclasses import replace
+
+    from radiosim.core import result as production
+    from radiosim.core.mmode import harmonics
+
+    result, original = genuine_phase_synthetic_result
+    phase = copy.deepcopy(original)
+    changed = copy.copy(result)
+    if invalid == "phase_key":
+        phase["unknown"] = 0
+    elif invalid in {"snapshot_none", "snapshot_foreign"}:
+        snapshot = None if invalid == "snapshot_none" else object()
+        object.__setattr__(
+            changed, "solver", production.MModeSolverResultProvenance(snapshot=snapshot)
+        )
+    else:
+        values: dict[str, Any] = {
+            "owner": {"input_identity_sha256": _digest("foreign-owner")},
+            "lmax_text": {"lmax": "bad"},
+            "lmax_bool": {"lmax": True},
+            "lmax_negative": {"lmax": -1},
+        }
+        snapshot = replace(result.solver.snapshot, **values[invalid])
+        object.__setattr__(
+            changed, "solver", production.MModeSolverResultProvenance(snapshot=snapshot)
+        )
+    calls: list[str] = []
+
+    def forbidden(*args: Any, **kwargs: Any) -> None:
+        calls.append("derived-record work")
+        raise AssertionError("invalid input reached derived-record construction")
+
+    monkeypatch.setattr(harmonics, "scalar_packed_block_table", forbidden)
+    monkeypatch.setattr(production, "_characterization_time_manifest", forbidden)
+    with pytest.raises(production.InvalidResultError):
+        _ = production.mmode_characterization_record(
+            changed,
+            family_id="mmode_single_scalar_mode",
+            phase_input_identity_manifest=phase,
+        )
+    assert calls == []

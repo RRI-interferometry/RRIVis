@@ -6,9 +6,12 @@ import hashlib
 import json
 import math
 import re
+import struct
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
+from fractions import Fraction
+from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final, Literal, cast
@@ -475,18 +478,11 @@ MMODE_CHARACTERIZATION_FAMILIES: Final[tuple[str, ...]] = (
     "mmode_circular_receptor",
 )
 
-#: Section 11's two namespaced characterization domains.  "The family record's
-#: grid and input-identity digests use the namespaced domains
-#: ``radiosim.sci004.characterization-time.v1`` and
-#: ``radiosim.sci004.characterization-input.v1``, computed from the retained
-#: ``SimulationResult`` exactly as the strict validator re-derives them; Section
-#: 14.0's solver-internal domains do not apply to a result-derived record."
-#: The distinction is not cosmetic: Section 14.0's ``radiosim.mmode-utc-grid.v1``
-#: preimage is the exact-turn manifest with its exposure edges, which a
-#: published result does not carry, and reusing that domain over a different
-#: preimage would be a collision rather than a shortcut.
+#: Section 11 retains the result-derived time identity; D25/D31's v2 input
+#: identity retains the complete phase preimage and joins it to the live solve.
+#: Runtime ownership is additional to every closed-schema and result join.
 MMODE_CHARACTERIZATION_TIME_DOMAIN: Final = "radiosim.sci004.characterization-time.v1"
-MMODE_CHARACTERIZATION_INPUT_DOMAIN: Final = "radiosim.sci004.characterization-input.v1"
+MMODE_CHARACTERIZATION_INPUT_DOMAIN: Final = "radiosim.sci004.characterization-input.v2"
 
 #: Section 11's family record key set, in the order the record is built.
 MMODE_CHARACTERIZATION_RECORD_KEYS: Final[tuple[str, ...]] = (
@@ -494,10 +490,179 @@ MMODE_CHARACTERIZATION_RECORD_KEYS: Final[tuple[str, ...]] = (
     "raw_cube_sha256",
     "scientific_sha256",
     "solver_snapshot",
+    "characterization_time_manifest",
     "era_utc_grid_sha256",
     "harmonic_index_table_sha256",
+    "characterization_input_manifest",
     "input_identity_sha256",
 )
+
+_MMODE_PHASE_INPUT_DOMAIN: Final = "radiosim.mmode-input-identity.v1"
+_CHARACTERIZATION_INSTRUMENT_DOMAIN: Final = (
+    "radiosim.sci004.characterization-instrument.v1"
+)
+_CHARACTERIZATION_RECEPTOR_DOMAIN: Final = (
+    "radiosim.sci004.characterization-receptors.v1"
+)
+_CHARACTERIZATION_BEAM_DOMAIN: Final = "radiosim.sci004.characterization-loaded-beam.v1"
+_MMODE_PHASE_INPUT_KEYS: Final[tuple[str, ...]] = (
+    "schema_version",
+    "site_manifest",
+    "site_sha256",
+    "iers_table_sha256",
+    "canonical_era_turn_grid",
+    "canonical_era_turn_grid_sha256",
+    "canonical_era_grid",
+    "canonical_era_grid_sha256",
+    "utc_manifest",
+    "utc_sha256",
+    "ut1_manifest",
+    "ut1_sha256",
+    "mmode_dimensions",
+    "antenna_rows",
+    "baseline_rows",
+    "frequency_rows",
+    "receptor_rows",
+    "correlation_rows",
+    "beam_rows",
+    "sky_component_rows",
+    "direction_input_rows",
+    "jones_term_rows",
+    "transfer_grid_catalog",
+    "precision",
+    "result_dtype",
+    "convention_identity_sha256",
+)
+_CHARACTERIZATION_INPUT_KEYS: Final[tuple[str, ...]] = (
+    "schema_version",
+    "family_id",
+    "fixture_id",
+    "phase_input_identity_manifest",
+    "phase_input_identity_sha256",
+    "instrument_manifest",
+    "instrument_sha256",
+    "receptor_manifest",
+    "receptor_sha256",
+    "loaded_beam_manifest",
+    "beam_loaded_fingerprint",
+    "correlations",
+    "polarization_basis",
+    "frequencies_hz_f64be",
+)
+
+
+def _characterization_json(value: object, *, field_name: str) -> object:
+    """Detach JSON input without coercing keys, arrays or scalar types."""
+    if value is None or type(value) in (str, bool, int):
+        return value
+    if type(value) is float and math.isfinite(value):
+        return value
+    if isinstance(value, Mapping):
+        mapping = cast(Mapping[object, object], value)
+        if any(type(key) is not str for key in mapping):
+            raise InvalidResultError(f"{field_name} contains a non-string key")
+        return {
+            cast(str, key): _characterization_json(child, field_name=field_name)
+            for key, child in mapping.items()
+        }
+    if type(value) is list:
+        return [
+            _characterization_json(child, field_name=field_name)
+            for child in cast(list[object], value)
+        ]
+    raise InvalidResultError(f"{field_name} contains a non-JSON value")
+
+
+def _characterization_mapping(
+    value: object, keys: tuple[str, ...], *, field_name: str
+) -> dict[str, object]:
+    """Return a detached closed mapping in the prescribed field order."""
+    try:
+        shaped = _characterization_json(value, field_name=field_name)
+    except RecursionError as error:
+        raise InvalidResultError(f"{field_name} is not a finite JSON tree") from error
+    if type(shaped) is not dict:
+        raise InvalidResultError(f"{field_name} has unexpected fields")
+    mapping = cast(dict[str, object], shaped)
+    if set(mapping) != set(keys):
+        raise InvalidResultError(f"{field_name} has unexpected fields")
+    return {key: mapping[key] for key in keys}
+
+
+def _characterization_array(
+    value: object, *, field_name: str, length: int | None = None
+) -> list[object]:
+    """Require an actual JSON array and its declared cardinality."""
+    if type(value) is not list:
+        raise InvalidResultError(f"{field_name} must be a JSON array")
+    rows = cast(list[object], value)
+    if length is not None and len(rows) != length:
+        raise InvalidResultError(f"{field_name} has an invalid length")
+    return rows
+
+
+def _characterization_rows(
+    value: object, keys: tuple[str, ...], *, field_name: str
+) -> list[dict[str, object]]:
+    """Detach a closed row array without accepting tuples or string stand-ins."""
+    return [
+        _characterization_mapping(row, keys, field_name=f"{field_name}[{index}]")
+        for index, row in enumerate(
+            _characterization_array(value, field_name=field_name)
+        )
+    ]
+
+
+def _characterization_integer(
+    value: object, *, field_name: str, minimum: int = 0
+) -> int:
+    """Require a topology integer, excluding booleans and numeric coercion."""
+    if type(value) is not int or value < minimum:
+        raise InvalidResultError(f"{field_name} must be an integer >= {minimum}")
+    return value
+
+
+def _characterization_f64(value: object, *, field_name: str) -> float:
+    """Decode one canonical finite binary64 string, preserving signed zero."""
+    if type(value) is not str or re.fullmatch(r"[0-9a-f]{16}", value) is None:
+        raise InvalidResultError(f"{field_name} must be a lowercase F64 string")
+    decoded = float(struct.unpack(">d", bytes.fromhex(value))[0])
+    if not math.isfinite(decoded):
+        raise InvalidResultError(f"{field_name} must encode a finite binary64")
+    return decoded
+
+
+def _characterization_ratio(value: object, *, field_name: str) -> Fraction:
+    """Require the unique reduced p/q spelling with positive denominator."""
+    if type(value) is not str or re.fullmatch(r"-?[0-9]+/[0-9]+", value) is None:
+        raise InvalidResultError(f"{field_name} must be a normalized p/q string")
+    numerator, denominator = value.split("/")
+    try:
+        ratio = Fraction(int(numerator), int(denominator))
+    except (ValueError, ZeroDivisionError) as error:
+        raise InvalidResultError(f"{field_name} has an invalid rational") from error
+    if value != f"{ratio.numerator}/{ratio.denominator}":
+        raise InvalidResultError(f"{field_name} is not a normalized rational")
+    return ratio
+
+
+def _require_characterization_digest(
+    manifest: Mapping[str, object],
+    digest: object,
+    *,
+    domain: str,
+    field_name: str,
+) -> None:
+    """Rebuild an adjacent hash under the caller's fixed schema domain."""
+    from radiosim.core.mmode.types import object_digest
+
+    if manifest.get("schema_version") != domain:
+        raise InvalidResultError(f"{field_name} has an unexpected schema_version")
+    if type(digest) is not str or _SHA256.fullmatch(digest) is None:
+        raise InvalidResultError(f"{field_name} digest is not a lowercase SHA-256")
+    if object_digest(domain, dict(manifest)) != digest:
+        raise InvalidResultError(f"{field_name} digest does not rebuild")
+
 
 #: Section 11's initial harvest: "The initial harvest binds exactly the
 #: platform/Python cells this phase's acceptance actually runs on; every other
@@ -597,41 +762,930 @@ def _characterization_time_manifest(grid: Any) -> dict[str, Any]:
     }
 
 
+def _characterization_require(condition: bool, field_name: str) -> None:
+    if not condition:
+        raise InvalidResultError(f"invalid characterization {field_name}")
+
+
+def _characterization_equal(actual: object, expected: object, field_name: str) -> None:
+    """Compare JSON values without Python's bool/int or int/float equality."""
+    left = _characterization_json(actual, field_name=field_name)
+    right = _characterization_json(expected, field_name=field_name)
+    _characterization_require(
+        json.dumps(left, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        == json.dumps(right, sort_keys=True, separators=(",", ":"), allow_nan=False),
+        field_name,
+    )
+
+
+def _characterization_f64_array(
+    value: object, *, field_name: str, length: int
+) -> list[float]:
+    return [
+        _characterization_f64(item, field_name=field_name)
+        for item in _characterization_array(value, field_name=field_name, length=length)
+    ]
+
+
+def _characterization_solver(result: SimulationResult) -> MModeSolverResultProvenance:
+    if (
+        type(result) is not SimulationResult
+        or type(result.solver) is not MModeSolverResultProvenance
+    ):
+        raise InvalidResultError("characterization requires a live m-mode result")
+    return result.solver
+
+
+def _characterization_temporal(
+    phase: Mapping[str, object], result: SimulationResult
+) -> None:
+    """Rebuild exact turns and their locked-IERS time mapping from center zero."""
+    from radiosim.core.mmode.time import installed_iers_context, utc_times_are_covered
+    from radiosim.core.mmode.types import array_digest, f64be, object_digest
+
+    # Astropy exposes dynamically generated quantities without complete stubs.
+    time_type: Any = import_module("astropy.time").Time
+    n = len(result.time_grid.utc_jd1)
+    _characterization_require(n > 0, "time grid cardinality")
+    turn_keys = tuple(
+        "schema_version sidereal_samples integration_fraction_f64be "
+        "integration_fraction_ratio exposure_width_turn horizon_lo_turn "
+        "horizon_hi_turn center_turns lower_edge_turns upper_edge_turns".split()
+    )
+    turn = _characterization_mapping(
+        phase["canonical_era_turn_grid"], turn_keys, field_name="turn grid"
+    )
+    _require_characterization_digest(
+        turn,
+        phase["canonical_era_turn_grid_sha256"],
+        domain="radiosim.mmode-era-turn-grid.v1",
+        field_name="turn grid",
+    )
+    _characterization_equal(turn["sidereal_samples"], n, "turn grid sample count")
+    fraction = _characterization_f64(
+        turn["integration_fraction_f64be"], field_name="integration fraction"
+    )
+    _characterization_require(0.0 < fraction <= 1.0, "integration fraction range")
+    exact_fraction = Fraction(fraction)
+    _characterization_require(
+        _characterization_ratio(
+            turn["integration_fraction_ratio"], field_name="integration fraction ratio"
+        )
+        == exact_fraction,
+        "integration fraction ratio",
+    )
+    centers = [Fraction(k, n) for k in range(n)]
+    lower = [(Fraction(2 * k) - exact_fraction) / (2 * n) for k in range(n)]
+    upper = [(Fraction(2 * k) + exact_fraction) / (2 * n) for k in range(n)]
+    horizon = [Fraction(-1, 2 * n), Fraction(2 * n - 1, 2 * n)]
+    sequences = {"center": centers, "lower_edge": lower, "upper_edge": upper}
+    for name, exact in sequences.items():
+        expected = [f"{item.numerator}/{item.denominator}" for item in exact]
+        _characterization_equal(turn[f"{name}_turns"], expected, f"{name} turns")
+    for name, ratio in (
+        ("exposure_width_turn", exact_fraction / n),
+        ("horizon_lo_turn", horizon[0]),
+        ("horizon_hi_turn", horizon[1]),
+    ):
+        _characterization_require(
+            _characterization_ratio(turn[name], field_name=name) == ratio, name
+        )
+    radian_keys = tuple(
+        "schema_version canonical_era_turn_grid_sha256 "
+        "era_center_turn_sha256 era_lower_edge_turn_sha256 "
+        "era_upper_edge_turn_sha256 tau_f64be delta_alpha_rad_f64be "
+        "horizon_lo_rad_f64be horizon_hi_rad_f64be era_center_rad_sha256 "
+        "era_lower_edge_rad_sha256 era_upper_edge_rad_sha256".split()
+    )
+    radian = _characterization_mapping(
+        phase["canonical_era_grid"], radian_keys, field_name="radian grid"
+    )
+    tau = float.fromhex("0x1.921fb54442d18p+2")
+    expected_radian: dict[str, object] = {
+        "schema_version": "radiosim.mmode-era-grid.v2",
+        "canonical_era_turn_grid_sha256": phase["canonical_era_turn_grid_sha256"],
+        "tau_f64be": f64be(tau),
+        "delta_alpha_rad_f64be": f64be(float(Fraction(tau) * exact_fraction / n)),
+        "horizon_lo_rad_f64be": f64be(float(Fraction(tau) * horizon[0])),
+        "horizon_hi_rad_f64be": f64be(float(Fraction(tau) * horizon[1])),
+    }
+    for name, exact in sequences.items():
+        expected_radian[f"era_{name}_turn_sha256"] = object_digest(
+            f"radiosim.mmode-era-{name.replace('_', '-')}-turns.v1",
+            turn[f"{name}_turns"],
+        )
+        expected_radian[f"era_{name}_rad_sha256"] = array_digest(
+            "radiosim.mmode-era-radian-array.v1",
+            name,
+            ["sample"],
+            "rad",
+            np.asarray(
+                [float(Fraction(tau) * item) for item in exact], dtype=np.float64
+            ),
+            dtype="float64-be",
+        )
+    _characterization_equal(radian, expected_radian, "radian grid")
+    _require_characterization_digest(
+        radian,
+        phase["canonical_era_grid_sha256"],
+        domain="radiosim.mmode-era-grid.v2",
+        field_name="radian grid",
+    )
+
+    time_keys = tuple(
+        "schema_version scale axis_order shape center_jd1_f64be "
+        "center_jd2_f64be lower_jd1_f64be lower_jd2_f64be upper_jd1_f64be "
+        "upper_jd2_f64be".split()
+    )
+    times = {
+        scale: _characterization_mapping(
+            phase[f"{scale}_manifest"], time_keys, field_name=scale
+        )
+        for scale in ("utc", "ut1")
+    }
+    decoded: dict[str, dict[str, list[float]]] = {}
+    for scale, manifest in times.items():
+        _require_characterization_digest(
+            manifest,
+            phase[f"{scale}_sha256"],
+            domain=f"radiosim.mmode-{scale}-grid.v1",
+            field_name=scale,
+        )
+        _characterization_equal(manifest["scale"], scale, f"{scale} scale")
+        _characterization_equal(manifest["axis_order"], ["sample"], f"{scale} axis")
+        _characterization_equal(manifest["shape"], [n], f"{scale} shape")
+        decoded[scale] = {
+            f"{position}_jd{part}": _characterization_f64_array(
+                manifest[f"{position}_jd{part}_f64be"],
+                field_name=f"{scale} {position} jd{part}",
+                length=n,
+            )
+            for position in ("center", "lower", "upper")
+            for part in (1, 2)
+        }
+    anchor1 = decoded["ut1"]["center_jd1"][0]
+    anchor2 = decoded["ut1"]["center_jd2"][0]
+    rate = Fraction("1.00273781191135448")
+    ut1_pairs: dict[str, tuple[Any, Any]] = {}
+    for name, exact in {
+        "center": centers,
+        "lower": lower,
+        "upper": upper,
+        "horizon": horizon,
+    }.items():
+        ut1_pairs[name] = (
+            np.full(len(exact), anchor1, dtype=np.float64),
+            np.asarray(
+                [float(Fraction(anchor2) + item / rate) for item in exact],
+                dtype=np.float64,
+            ),
+        )
+    with installed_iers_context() as installed:
+        _characterization_equal(
+            phase["iers_table_sha256"],
+            installed.table_sha256,
+            "installed IERS identity",
+        )
+        utc_values: dict[str, Any] = {}
+        for name, pair in ut1_pairs.items():
+            utc_values[name] = time_type(pair[0], pair[1], format="jd", scale="ut1").utc
+            _characterization_require(
+                utc_times_are_covered(utc_values[name]), f"{name} IERS coverage"
+            )
+        anchor_utc = time_type(anchor1, anchor2, format="jd", scale="ut1").utc
+        _characterization_equal(
+            str(anchor_utc.isot), str(result.time_grid.start_time_iso), "anchor ISO"
+        )
+        for scale in ("utc", "ut1"):
+            for name in ("center", "lower", "upper"):
+                # UT1-v1 intentionally retains UTC exposure edges.
+                pair = (
+                    ut1_pairs[name]
+                    if scale == "ut1" and name == "center"
+                    else (utc_values[name].jd1, utc_values[name].jd2)
+                )
+                for part in (1, 2):
+                    _characterization_equal(
+                        times[scale][f"{name}_jd{part}_f64be"],
+                        [f64be(float(item)) for item in pair[part - 1]],
+                        f"{scale} {name} jd{part}",
+                    )
+        _characterization_equal(
+            times["utc"]["center_jd1_f64be"],
+            [f64be(float(item)) for item in result.time_grid.utc_jd1],
+            "result UTC jd1",
+        )
+        _characterization_equal(
+            times["utc"]["center_jd2_f64be"],
+            [f64be(float(item)) for item in result.time_grid.utc_jd2],
+            "result UTC jd2",
+        )
+        widths = np.asarray(
+            (utc_values["upper"] - utc_values["lower"]).to_value("s"), dtype=np.float64
+        )
+        _characterization_equal(
+            [f64be(float(item)) for item in widths],
+            [f64be(float(item)) for item in result.time_grid.integration_time_seconds],
+            "result exposure widths",
+        )
+
+
+def _characterization_geometry(
+    phase: Mapping[str, object], result: SimulationResult
+) -> tuple[
+    dict[str, object],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+    list[dict[str, object]],
+]:
+    """Join retained geometry and receptor rows to the immutable result."""
+    from radiosim.core.mmode.types import f64be
+
+    units: Any = import_module("astropy.units")
+    earth_location: Any = import_module("astropy.coordinates").EarthLocation
+    site = _characterization_mapping(
+        phase["site_manifest"],
+        (
+            "schema_version",
+            "longitude_deg_f64be",
+            "latitude_deg_f64be",
+            "height_m_f64be",
+            "itrs_xyz_m_f64be",
+        ),
+        field_name="site",
+    )
+    location = result.instrument.location
+    earth = earth_location.from_geodetic(
+        location.longitude_deg * units.deg,
+        location.latitude_deg * units.deg,
+        location.height_m * units.m,
+    )
+    longitude = float(earth.lon.to_value(units.deg))
+    latitude = float(earth.lat.to_value(units.deg))
+    height = float(earth.height.to_value(units.m))
+    rebuilt = earth_location.from_geodetic(
+        longitude * units.deg, latitude * units.deg, height * units.m
+    )
+    expected_site = {
+        "schema_version": "radiosim.mmode-site.v1",
+        "longitude_deg_f64be": f64be(longitude),
+        "latitude_deg_f64be": f64be(latitude),
+        "height_m_f64be": f64be(height),
+        "itrs_xyz_m_f64be": [
+            f64be(float(item.to_value(units.m)))
+            for item in (rebuilt.x, rebuilt.y, rebuilt.z)
+        ],
+    }
+    _characterization_equal(site, expected_site, "result site")
+    _require_characterization_digest(
+        site, phase["site_sha256"], domain="radiosim.mmode-site.v1", field_name="site"
+    )
+    lon, lat = math.radians(longitude), math.radians(latitude)
+    triad = np.asarray(
+        (
+            (-math.sin(lon), math.cos(lon), 0.0),
+            (
+                -math.sin(lat) * math.cos(lon),
+                -math.sin(lat) * math.sin(lon),
+                math.cos(lat),
+            ),
+            (
+                math.cos(lat) * math.cos(lon),
+                math.cos(lat) * math.sin(lon),
+                math.sin(lat),
+            ),
+        ),
+        dtype=np.float64,
+    )
+    antennas = _characterization_rows(
+        phase["antenna_rows"],
+        ("antenna_index", "name", "itrs_xyz_m_f64be"),
+        field_name="antennas",
+    )
+    expected_antennas = [
+        {
+            "antenna_index": index,
+            "name": antenna.id.name,
+            "itrs_xyz_m_f64be": [
+                f64be(float(value))
+                for value in np.asarray(antenna.position_enu_m, dtype=np.float64)
+                @ triad
+            ],
+        }
+        for index, antenna in enumerate(result.instrument.antennas)
+    ]
+    _characterization_equal(antennas, expected_antennas, "result antennas")
+    baselines = _characterization_rows(
+        phase["baseline_rows"],
+        ("baseline_index", "antenna1_index", "antenna2_index", "itrs_vector_m_f64be"),
+        field_name="baselines",
+    )
+    by_number = {
+        antenna.id.number: index
+        for index, antenna in enumerate(result.instrument.antennas)
+    }
+    expected_baselines = [
+        {
+            "baseline_index": index,
+            "antenna1_index": by_number[row.ant1.number],
+            "antenna2_index": by_number[row.ant2.number],
+            "itrs_vector_m_f64be": [
+                f64be(float(value))
+                for value in np.asarray(row.vector_enu_m, dtype=np.float64) @ triad
+            ],
+        }
+        for index, row in enumerate(result.selection.baselines)
+    ]
+    _characterization_equal(baselines, expected_baselines, "result baselines")
+    frequencies = _characterization_rows(
+        phase["frequency_rows"],
+        ("frequency_index", "center_hz_f64be", "width_hz_f64be"),
+        field_name="frequencies",
+    )
+    _characterization_require(
+        len(frequencies) == len(result.frequencies_hz), "frequency count"
+    )
+    for index, row in enumerate(frequencies):
+        _characterization_equal(row["frequency_index"], index, "frequency index")
+        _characterization_equal(
+            row["center_hz_f64be"],
+            f64be(float(result.frequencies_hz[index])),
+            "frequency center",
+        )
+        _characterization_require(
+            _characterization_f64(row["width_hz_f64be"], field_name="frequency width")
+            >= 0.0,
+            "frequency width",
+        )
+    receptors = _characterization_rows(
+        phase["receptor_rows"],
+        (
+            "antenna_index",
+            "basis",
+            "labels",
+            "feed_rotation_rad_f64be",
+            "feed_angle_rad_f64be",
+        ),
+        field_name="receptors",
+    )
+    expected_receptors: list[dict[str, object]] = []
+    for index, antenna in enumerate(result.instrument.antennas):
+        resolved = result.receptors.receptor_by_antenna[antenna.id]
+        expected_receptors.append(
+            {
+                "antenna_index": index,
+                "basis": resolved.basis,
+                "labels": list(resolved.feed_array),
+                "feed_rotation_rad_f64be": f64be(resolved.feed_rotation_rad),
+                "feed_angle_rad_f64be": [
+                    f64be(value) for value in resolved.feed_angle_rad
+                ],
+            }
+        )
+    _characterization_equal(receptors, expected_receptors, "result receptors")
+    expected_correlations = [
+        {"correlation_index": index, "p_label": name[0], "q_label": name[1]}
+        for index, name in enumerate(result.correlations)
+    ]
+    _characterization_equal(
+        phase["correlation_rows"], expected_correlations, "result correlations"
+    )
+    return site, antennas, baselines, frequencies, receptors
+
+
+def _characterization_identity(
+    value: object,
+    digest: object,
+    *,
+    domain: str,
+    kind: str,
+    scalars: list[tuple[str, str, object]],
+    field_name: str,
+) -> None:
+    """Authenticate the complete typed projection emitted by this producer."""
+    manifest = _characterization_mapping(
+        value,
+        ("schema_version", "identity_kind", "scalar_rows", "array_rows"),
+        field_name=field_name,
+    )
+    expected = {
+        "schema_version": domain,
+        "identity_kind": kind,
+        "scalar_rows": [
+            {"name": name, "type": scalar_type, "value": scalar}
+            for name, scalar_type, scalar in sorted(scalars)
+        ],
+        "array_rows": [],
+    }
+    _characterization_equal(manifest, expected, field_name)
+    _require_characterization_digest(
+        manifest, digest, domain=domain, field_name=field_name
+    )
+
+
+def _characterization_beams(
+    phase: Mapping[str, object], result: SimulationResult
+) -> list[dict[str, object]]:
+    """Rebuild scalar response groups from retained loaded beam assignments."""
+    rows = _characterization_rows(
+        phase["beam_rows"],
+        (
+            "beam_index",
+            "assigned_antenna_indices",
+            "class_qualname",
+            "electric_field_basis",
+            "normalization",
+            "parameter_identity_manifest",
+            "parameter_identity_sha256",
+        ),
+        field_name="beams",
+    )
+    handlers = {handler.handler_id: handler for handler in result.beam_state.handlers}
+    assignments = {
+        assignment.antenna_id: assignment
+        for assignment in result.beam_state.resolved.assignments
+    }
+    assigned_handlers = dict(result.beam_state.assignment_handler_ids)
+    groups: dict[str, list[int]] = {}
+    handler_ids: dict[str, str] = {}
+    for index, antenna in enumerate(result.instrument.antennas):
+        assignment = assignments[antenna.id]
+        _characterization_require(
+            assignment.squint is None
+            and getattr(assignment.definition, "accepted_subset_version", None)
+            != "sci005-stage3-full-efield-v1",
+            "public scalar beam scope",
+        )
+        handler_id = assigned_handlers[antenna.id]
+        key = handler_id
+        if assignment.pointing is not None or assignment.surface_error is not None:
+            pointing = assignment.pointing
+            surface_error = assignment.surface_error
+            payload = {
+                "kind": "beam_response_key",
+                "handler_id": handler_id,
+                "pointing": None
+                if pointing is None
+                else {
+                    "azimuth_offset_rad": pointing.azimuth_offset_rad.hex().lower(),
+                    "elevation_offset_rad": pointing.elevation_offset_rad.hex().lower(),
+                },
+                "surface_error": None
+                if surface_error is None
+                else {"rms_surface_error_m": surface_error.rms_surface_error_m.hex()},
+            }
+            digest = hashlib.sha256(
+                json.dumps(
+                    payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                ).encode("utf-8")
+            ).hexdigest()
+            key = f"{handler_id}+{digest[:16]}"
+        groups.setdefault(key, []).append(index)
+        handler_ids[key] = handler_id
+    _characterization_require(len(rows) == len(groups), "beam group count")
+    for index, ((response_key, indices), row) in enumerate(
+        zip(groups.items(), rows, strict=True)
+    ):
+        handler = handlers[handler_ids[response_key]]
+        _characterization_equal(row["beam_index"], index, "beam index")
+        _characterization_equal(
+            row["assigned_antenna_indices"], indices, "beam assignments"
+        )
+        _characterization_equal(row["class_qualname"], "BeamSystem", "beam owner")
+        _characterization_equal(
+            row["electric_field_basis"], "native_feed", "beam basis"
+        )
+        _characterization_equal(
+            row["normalization"],
+            "uvbeam_peak_common_v1"
+            if handler.kind == "fits"
+            else "unmodified_ideal_aperture_v1",
+            "beam normalization",
+        )
+        _characterization_identity(
+            row["parameter_identity_manifest"],
+            row["parameter_identity_sha256"],
+            domain="radiosim.mmode-parameter-identity.v1",
+            kind=handler.kind,
+            scalars=[
+                ("definition_fingerprint", "literal", handler.definition_fingerprint),
+                ("handler_kind", "literal", handler.kind),
+                ("response_key", "literal", response_key),
+                ("scientific_fingerprint", "literal", handler.scientific_fingerprint),
+            ],
+            field_name="beam parameter identity",
+        )
+    # Accepted M3 families have no configured Jones chain. Do not license the
+    # producer's unrelated terms/chain_terms mismatch through characterization.
+    _characterization_equal(phase["jones_term_rows"], [], "M3 Jones rows")
+    _characterization_equal(
+        list(result.jones.get("enabled_terms", ())), [], "M3 Jones inventory"
+    )
+    return rows
+
+
+def _characterization_dimensions(
+    phase: Mapping[str, object], result: SimulationResult
+) -> dict[str, int]:
+    from radiosim.core.mmode.types import (
+        CONVENTION_IDENTITY,
+        derive_mmode_dimensions,
+        object_digest,
+    )
+
+    keys = (
+        "sidereal_samples",
+        "lmax",
+        "mmax",
+        "quadrature_nside",
+        "lcheck",
+        "mcheck",
+        "qcheck",
+    )
+    raw = _characterization_mapping(
+        phase["mmode_dimensions"], keys, field_name="dimensions"
+    )
+    dimensions = {
+        key: _characterization_integer(value, field_name=key)
+        for key, value in raw.items()
+    }
+    _characterization_require(
+        0 <= dimensions["mmax"] <= dimensions["lmax"] <= 4096, "harmonic bounds"
+    )
+    q = dimensions["quadrature_nside"]
+    _characterization_require(q > 0 and q & (q - 1) == 0, "quadrature power of two")
+    expected = derive_mmode_dimensions(
+        lmax=dimensions["lmax"], mmax=dimensions["mmax"], quadrature_nside=q
+    )
+    for name in ("lcheck", "mcheck", "qcheck"):
+        _characterization_equal(dimensions[name], getattr(expected, name), name)
+    snapshot = _characterization_solver(result).as_mapping()
+    _characterization_equal(
+        dimensions["sidereal_samples"],
+        len(result.time_grid.utc_jd1),
+        "solver sample count",
+    )
+    for name in ("sidereal_samples", "lmax", "mmax", "quadrature_nside"):
+        value = _characterization_integer(snapshot[name], field_name=f"solver {name}")
+        _characterization_equal(dimensions[name], value, f"solver {name}")
+    _characterization_equal(
+        phase["convention_identity_sha256"],
+        object_digest("radiosim.mmode-conventions.v1", dict(CONVENTION_IDENTITY)),
+        "convention identity",
+    )
+    for name, convention in (
+        ("convention", "execution"),
+        ("time_grid_convention", "era_turn_grid"),
+        ("frame_model", "frozen_frame"),
+        ("harmonic_convention", "harmonics"),
+        ("transform_execution_policy", "execution_policy"),
+    ):
+        _characterization_equal(
+            snapshot[name], CONVENTION_IDENTITY[convention], f"solver {name}"
+        )
+    _characterization_equal(
+        snapshot["iers_table_sha256"],
+        phase["iers_table_sha256"],
+        "solver IERS identity",
+    )
+    _characterization_equal(
+        snapshot["stokes_v_basis_bridge"],
+        "radiosim.stokes-ne-theta-phi.v1",
+        "Stokes convention",
+    )
+    _characterization_equal(
+        snapshot["quadrature_policy"],
+        "iso-gauss-ring-production-plus-qcheck.v1",
+        "quadrature policy",
+    )
+    _characterization_equal(
+        snapshot["truncation_policy"],
+        "complete-frozen-direct-plus-local-shells.v1",
+        "truncation policy",
+    )
+    _characterization_equal(phase["precision"], "standard", "phase precision")
+    _characterization_equal(phase["result_dtype"], "complex128", "phase result dtype")
+    _characterization_equal(
+        str(result.visibilities.dtype), "complex128", "result dtype"
+    )
+    return dimensions
+
+
+def _characterization_sky(
+    phase: Mapping[str, object],
+    result: SimulationResult,
+    dimensions: Mapping[str, int],
+    frequencies: list[dict[str, object]],
+) -> None:
+    """Validate every source and transfer direction, including all joins."""
+    from radiosim.core.mmode.transfer import quadrature_grid
+    from radiosim.core.mmode.types import f64be, object_digest
+    from radiosim.core.sky.containers import TangentPolarizationFrame
+
+    snapshot = _characterization_solver(result).as_mapping()
+    _characterization_equal(snapshot["components"], ["point"], "public M3 components")
+    _characterization_equal(
+        snapshot["sky_representation"], "point_sources", "public M3 representation"
+    )
+    component_keys = tuple(
+        "component_index representation coordinate_frame polarization_frame "
+        "polarization_frame_sha256 morphology_identity_manifest "
+        "morphology_identity_sha256 direction_input_sha256s".split()
+    )
+    components = _characterization_rows(
+        phase["sky_component_rows"], component_keys, field_name="sky components"
+    )
+    _characterization_require(len(components) == 1, "point component count")
+    component = components[0]
+    _characterization_equal(component["component_index"], 0, "point component index")
+    _characterization_equal(
+        component["representation"], "point_sources", "point representation"
+    )
+    _characterization_equal(
+        component["coordinate_frame"], "icrs", "point coordinate frame"
+    )
+    counts = _characterization_array(
+        snapshot["component_element_counts"],
+        field_name="component element counts",
+        length=1,
+    )
+    count = _characterization_integer(counts[0], field_name="point count", minimum=1)
+    _characterization_identity(
+        component["morphology_identity_manifest"],
+        component["morphology_identity_sha256"],
+        domain="radiosim.mmode-morphology-identity.v1",
+        kind="point",
+        scalars=[
+            ("element_count", "integer", str(count)),
+            ("representation", "literal", "point"),
+        ],
+        field_name="point morphology",
+    )
+    rows = _characterization_rows(
+        phase["direction_input_rows"],
+        ("direction_input_manifest", "direction_input_sha256"),
+        field_name="direction rows",
+    )
+    catalog = _characterization_rows(
+        phase["transfer_grid_catalog"],
+        (
+            "transfer_grid_id",
+            "transfer_role",
+            "transfer_nside",
+            "expected_direction_count",
+            "evaluated_direction_count",
+            "direction_id_ledger_sha256",
+        ),
+        field_name="transfer catalog",
+    )
+    grids = (
+        ("production", dimensions["quadrature_nside"]),
+        ("diagnostic", dimensions["qcheck"]),
+    )
+    _characterization_require(
+        len(rows) == count + sum(12 * nside**2 for _, nside in grids), "direction count"
+    )
+    _characterization_require(len(catalog) == len(grids), "transfer grid count")
+    n_frequencies = len(frequencies)
+    frequency_values = [row["center_hz_f64be"] for row in frequencies]
+    direction_keys = tuple(
+        "schema_version direction_id source_kind component_index "
+        "source_index transfer_role transfer_nside cirs_direction_f64be "
+        "run_frequency_hz_f64be active_frequency_mask "
+        "resolved_stokes_iau_f64be integration_weight_f64be".split()
+    )
+    point_digests: list[object] = []
+    has_linear = False
+    has_polarization = False
+    position = 0
+    groups = [
+        ("point", "none", 0, count),
+        *[("transfer_quadrature", role, nside, 12 * nside**2) for role, nside in grids],
+    ]
+    for kind, role, nside, cardinality in groups:
+        grid_nodes: Any = None
+        grid_weights: Any = None
+        if kind == "transfer_quadrature":
+            grid_nodes, grid_weights = quadrature_grid(nside)
+        identifiers: list[str] = []
+        for source_index in range(cardinality):
+            row = rows[position]
+            position += 1
+            manifest = _characterization_mapping(
+                row["direction_input_manifest"],
+                direction_keys,
+                field_name="direction input",
+            )
+            _require_characterization_digest(
+                manifest,
+                row["direction_input_sha256"],
+                domain="radiosim.mmode-direction-input.v1",
+                field_name="direction input",
+            )
+            identifier = (
+                f"point:0:{source_index}"
+                if kind == "point"
+                else f"transfer_quadrature:{role}:{nside}:{source_index}"
+            )
+            identifiers.append(identifier)
+            for name, expected_value in (
+                ("direction_id", identifier),
+                ("source_kind", kind),
+                ("component_index", 0),
+                ("source_index", source_index),
+                ("transfer_role", role),
+                ("transfer_nside", nside),
+                ("run_frequency_hz_f64be", frequency_values),
+            ):
+                _characterization_equal(
+                    manifest[name], expected_value, f"direction {name}"
+                )
+            vector = _characterization_f64_array(
+                manifest["cirs_direction_f64be"], field_name="CIRS vector", length=3
+            )
+            _characterization_require(
+                abs(sum(value * value for value in vector) - 1.0) <= 1e-12,
+                "CIRS unit vector",
+            )
+            mask = _characterization_array(
+                manifest["active_frequency_mask"],
+                field_name="active frequency mask",
+                length=n_frequencies,
+            )
+            _characterization_require(
+                all(type(value) is bool for value in mask), "boolean frequency mask"
+            )
+            weight = _characterization_f64(
+                manifest["integration_weight_f64be"], field_name="direction weight"
+            )
+            if kind == "point":
+                point_digests.append(row["direction_input_sha256"])
+                stokes = _characterization_f64_array(
+                    manifest["resolved_stokes_iau_f64be"],
+                    field_name="point Stokes",
+                    length=4 * n_frequencies,
+                )
+                expected_mask = [
+                    any(value != 0.0 for value in stokes[4 * index : 4 * index + 4])
+                    for index in range(n_frequencies)
+                ]
+                # The producer retains zero-valued source rows. Validate the
+                # exact mask; do not introduce a new source-row count rule.
+                _characterization_equal(mask, expected_mask, "point frequency mask")
+                _characterization_equal(
+                    manifest["integration_weight_f64be"],
+                    f64be(1.0),
+                    "point integration weight",
+                )
+                has_linear |= any(
+                    stokes[index] != 0.0
+                    for index in range(len(stokes))
+                    if index % 4 in (1, 2)
+                )
+                has_polarization |= any(
+                    stokes[index] != 0.0
+                    for index in range(len(stokes))
+                    if index % 4 != 0
+                )
+            else:
+                _characterization_equal(
+                    mask, [True] * n_frequencies, "transfer frequency mask"
+                )
+                _characterization_equal(
+                    manifest["resolved_stokes_iau_f64be"], [], "transfer Stokes"
+                )
+                _characterization_require(weight > 0.0, "transfer weight positivity")
+                _characterization_equal(
+                    manifest["cirs_direction_f64be"],
+                    [f64be(float(item)) for item in grid_nodes[source_index]],
+                    "transfer grid node",
+                )
+                _characterization_equal(
+                    manifest["integration_weight_f64be"],
+                    f64be(float(grid_weights[source_index])),
+                    "transfer grid weight",
+                )
+        if kind == "transfer_quadrature":
+            expected_catalog = {
+                "transfer_grid_id": f"{role}:{nside}",
+                "transfer_role": role,
+                "transfer_nside": nside,
+                "expected_direction_count": cardinality,
+                "evaluated_direction_count": cardinality,
+                "direction_id_ledger_sha256": object_digest(
+                    "radiosim.mmode-transfer-grid-direction-ids.v1", identifiers
+                ),
+            }
+            _characterization_equal(
+                catalog[0 if role == "production" else 1],
+                expected_catalog,
+                "transfer catalog entry",
+            )
+    _characterization_equal(
+        component["direction_input_sha256s"],
+        point_digests,
+        "component direction references",
+    )
+    frame: object = (
+        TangentPolarizationFrame.canonical("icrs").as_mapping()
+        if has_linear
+        else "not_applicable_no_linear_polarization"
+    )
+    _characterization_equal(
+        component["polarization_frame"], frame, "component polarization frame"
+    )
+    _characterization_equal(
+        component["polarization_frame_sha256"],
+        object_digest("radiosim.sky-tangent-polarization.v1", frame),
+        "component polarization digest",
+    )
+    _characterization_equal(
+        snapshot["tangent_polarization_frame"],
+        frame if has_linear else "not_applicable_scalar_m1",
+        "solver tangent frame",
+    )
+    _characterization_equal(
+        snapshot["execution_path"],
+        "polarized" if has_polarization else "scalar",
+        "solver Stokes execution path",
+    )
+
+
 def _characterization_input_manifest(
     result: SimulationResult,
     family_id: str,
+    phase_input_identity_manifest: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Return the result-derived input manifest the input domain covers.
+    """Validate and retain the complete path-independent v2 input preimage."""
+    from radiosim.core.mmode.types import object_digest
 
-    Two families differ exactly in their inputs, so the manifest joins the
-    resolved configuration with the instrument, receptor and beam identities the
-    result already carries.  ``mmode_circular_receptor`` and
-    ``mmode_point_full_stokes`` share a sky and differ only in the receptor
-    basis, which is why the receptor fingerprint is part of the preimage rather
-    than an afterthought.
-    """
-    from radiosim.core.mmode.types import f64be
-
-    return {
+    phase = _characterization_mapping(
+        phase_input_identity_manifest,
+        _MMODE_PHASE_INPUT_KEYS,
+        field_name="phase_input_identity_manifest",
+    )
+    if phase["schema_version"] != _MMODE_PHASE_INPUT_DOMAIN:
+        raise InvalidResultError("phase input has an unexpected schema_version")
+    solver = _characterization_solver(result)
+    _ = solver.input_identity_sha256
+    dimensions = _characterization_dimensions(phase, result)
+    try:
+        _characterization_temporal(phase, result)
+    except (ValueError, TypeError, OverflowError, IndexError) as error:
+        raise InvalidResultError("phase time mapping is not valid") from error
+    site, antenna_rows, baseline_rows, frequency_rows, receptor_rows = (
+        _characterization_geometry(phase, result)
+    )
+    beam_rows = _characterization_beams(phase, result)
+    _characterization_sky(phase, result, dimensions, frequency_rows)
+    phase_digest = object_digest(_MMODE_PHASE_INPUT_DOMAIN, phase)
+    if phase_digest != solver.input_identity_sha256:
+        raise InvalidResultError("phase input identity does not match the live solve")
+    instrument = {
+        "schema_version": _CHARACTERIZATION_INSTRUMENT_DOMAIN,
+        "site_manifest": site,
+        "antenna_rows": antenna_rows,
+        "baseline_rows": baseline_rows,
+    }
+    receptors = {
+        "schema_version": _CHARACTERIZATION_RECEPTOR_DOMAIN,
+        "receptor_rows": receptor_rows,
+    }
+    loaded_beam = {
+        "schema_version": _CHARACTERIZATION_BEAM_DOMAIN,
+        "beam_rows": beam_rows,
+    }
+    manifest = {
         "schema_version": MMODE_CHARACTERIZATION_INPUT_DOMAIN,
         "family_id": family_id,
-        "resolved_config": _json_shaped(dict(result.resolved_config)),
-        "instrument_sha256": result.instrument.provenance.instrument_sha256,
-        "receptor_sha256": result.receptors.provenance.receptor_sha256,
-        "beam_loaded_fingerprint": result.beam_state.loaded_fingerprint,
+        "fixture_id": family_id,
+        "phase_input_identity_manifest": phase,
+        "phase_input_identity_sha256": phase_digest,
+        "instrument_manifest": instrument,
+        "instrument_sha256": object_digest(
+            _CHARACTERIZATION_INSTRUMENT_DOMAIN, instrument
+        ),
+        "receptor_manifest": receptors,
+        "receptor_sha256": object_digest(_CHARACTERIZATION_RECEPTOR_DOMAIN, receptors),
+        "loaded_beam_manifest": loaded_beam,
+        "beam_loaded_fingerprint": object_digest(
+            _CHARACTERIZATION_BEAM_DOMAIN, loaded_beam
+        ),
         "correlations": list(result.correlations),
         "polarization_basis": str(result.polarization_basis),
-        "frequencies_hz_f64be": [
-            f64be(value)
-            for value in np.asarray(result.frequencies_hz, dtype=np.float64).tolist()
-        ],
+        "frequencies_hz_f64be": [row["center_hz_f64be"] for row in frequency_rows],
     }
+    if tuple(manifest) != _CHARACTERIZATION_INPUT_KEYS:
+        raise InvalidResultError("characterization input manifest construction drifted")
+    return manifest
 
 
 def mmode_characterization_record(
     result: SimulationResult,
     *,
     family_id: str,
+    phase_input_identity_manifest: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Return Section 11's characterization record for one m-mode family.
 
@@ -650,19 +1704,28 @@ def mmode_characterization_record(
     from radiosim.core.mmode.harmonics import scalar_packed_block_table
     from radiosim.core.mmode.types import array_digest, object_digest
 
-    if family_id not in MMODE_CHARACTERIZATION_FAMILIES:
+    if type(family_id) is not str or family_id not in MMODE_CHARACTERIZATION_FAMILIES:
         raise InvalidResultError(f"unknown characterization family {family_id!r}")
-    if type(result.solver) is not MModeSolverResultProvenance:
+    if (
+        type(result) is not SimulationResult
+        or type(result.solver) is not MModeSolverResultProvenance
+    ):
         raise InvalidResultError(
             "a characterization family record requires an m-mode result"
         )
+    characterization_input = _characterization_input_manifest(
+        result,
+        family_id,
+        phase_input_identity_manifest,
+    )
     snapshot = result.solver.as_mapping()
     cube = np.asarray(result.visibilities)
     dtype = "complex64-be" if cube.dtype.itemsize == 8 else "complex128-be"
     table = scalar_packed_block_table(
         lmax=int(snapshot["lmax"]), mmax=int(snapshot["mmax"])
     )
-    return {
+    characterization_time = _characterization_time_manifest(result.time_grid)
+    record = {
         "family_id": family_id,
         "raw_cube_sha256": array_digest(
             "radiosim.mmode-visibility-cube.v1",
@@ -674,16 +1737,21 @@ def mmode_characterization_record(
         ),
         "scientific_sha256": result.scientific_sha256,
         "solver_snapshot": snapshot,
+        "characterization_time_manifest": characterization_time,
         "era_utc_grid_sha256": object_digest(
             MMODE_CHARACTERIZATION_TIME_DOMAIN,
-            _characterization_time_manifest(result.time_grid),
+            characterization_time,
         ),
         "harmonic_index_table_sha256": table.block_table_sha256,
+        "characterization_input_manifest": characterization_input,
         "input_identity_sha256": object_digest(
             MMODE_CHARACTERIZATION_INPUT_DOMAIN,
-            _characterization_input_manifest(result, family_id),
+            characterization_input,
         ),
     }
+    if tuple(record) != MMODE_CHARACTERIZATION_RECORD_KEYS:
+        raise InvalidResultError("characterization record construction drifted")
+    return record
 
 
 #: The Section 10 tagged solver union.  ``rime`` results keep the unchanged

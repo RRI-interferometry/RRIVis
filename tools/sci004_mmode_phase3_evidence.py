@@ -4293,14 +4293,20 @@ def _output_cases(
     return rows
 
 
-def _fingerprint_rows(results: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _fingerprint_rows(
+    results: Mapping[str, Any], bundles: Mapping[str, Any]
+) -> list[dict[str, Any]]:
     """Return Section 14.2's four fingerprint rows in the amended family order."""
     from radiosim.core.result import mmode_characterization_record
 
     rows = []
     for family_id in SECTION_11_FAMILIES:
         result = results[family_id]
-        record = mmode_characterization_record(result, family_id=family_id)
+        record = mmode_characterization_record(
+            result,
+            family_id=family_id,
+            phase_input_identity_manifest=bundles[family_id]["input_identity_manifest"],
+        )
         rows.append(
             {
                 "family_id": family_id,
@@ -4321,7 +4327,9 @@ def _fingerprint_rows(results: Mapping[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def _ci_artifacts(results: Mapping[str, Any], source_sha: str) -> list[dict[str, Any]]:
+def _ci_artifacts(
+    results: Mapping[str, Any], source_sha: str, bundles: Mapping[str, Any]
+) -> list[dict[str, Any]]:
     """Return the narrowed ``ci_artifacts`` rows, authenticated locally.
 
     Section 14.2, as the retained-evidence correction narrowed it: rows cover
@@ -4338,7 +4346,11 @@ def _ci_artifacts(results: Mapping[str, Any], source_sha: str) -> list[dict[str,
 
     rows: list[dict[str, Any]] = []
     for family_id in SECTION_11_FAMILIES:
-        record = mmode_characterization_record(results[family_id], family_id=family_id)
+        record = mmode_characterization_record(
+            results[family_id],
+            family_id=family_id,
+            phase_input_identity_manifest=bundles[family_id]["input_identity_manifest"],
+        )
         observations = mmode_characterization_observation_set(family_id)
         for cell in sorted(observations):
             digests = observations[cell]
@@ -4757,8 +4769,8 @@ def build_phase3_evidence(source_sha: str | None) -> int:
             PERFORMANCE_FIXTURES[-1],
             root / "outputs",
         )
-        fingerprint_rows = _fingerprint_rows(results)
-        ci_artifacts = _ci_artifacts(results, state["source_sha"])
+        fingerprint_rows = _fingerprint_rows(results, bundles)
+        ci_artifacts = _ci_artifacts(results, state["source_sha"], bundles)
         rejection_cases = _rejection_cases(root / "rejections")
 
         # --- the expensive measurement, last ---------------------------------
