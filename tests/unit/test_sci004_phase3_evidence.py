@@ -42,6 +42,7 @@ them.
 from __future__ import annotations
 
 import copy
+import functools
 import hashlib
 import io
 import json
@@ -1938,6 +1939,142 @@ def test_historical_record_bytes_and_cross_record_digests_are_authenticated(
         POST_SOURCE_RED_RECORD_SHA256
     )
     module._red_failure_record_reference(module._red_commit_sha())
+
+
+@pytest.fixture(scope="module")
+def authenticated_red_reads() -> dict[str, Any]:
+    """Cache real immutable reads once; every mutant still executes the consumer."""
+    module = _tool()
+    with pytest.MonkeyPatch.context() as patch:
+        _mock_red_binding_for_historical_checks(module, patch)
+        readers = {"_red_commit_sha": module._red_commit_sha}
+        for name in ("_git", "_git_blob", "_is_ancestor", "_canonical_artifact"):
+            reader = functools.lru_cache(maxsize=None)(getattr(module, name))
+            patch.setattr(module, name, reader)
+            readers[name] = reader
+        # Populate caches only through the real historical authentication path.
+        module._red_failure_record_reference(module._red_commit_sha())
+    return readers
+
+
+def test_retained_red_inventory_keeps_epoch_controls_and_six_key_reference(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _tool()
+    _mock_red_binding_for_historical_checks(module, monkeypatch)
+    records = [
+        json.loads((REPOSITORY_ROOT / path).read_bytes())
+        for path in (RED_RECORD, POST_SOURCE_RED_RECORD, FINGERPRINT_RED_RECORD)
+    ]
+    red_nodes: list[set[str]] = [
+        {row["test_nodeid"] for row in record["cases"]} for record in records
+    ]
+    assert [len(nodes) for nodes in red_nodes] == [29, 6, 2]
+    assert len(red_nodes[0].union(*red_nodes[1:])) == 37
+    # This legitimate control was red in the earlier epoch; do not forbid it.
+    assert records[2]["passing_controls"][0]["test_nodeid"] in red_nodes[0]
+    module.validate_retained_red_case_records(*records)
+    reference = module._red_failure_record_reference(module._red_commit_sha())
+    assert set(reference) == {
+        "path",
+        "sha256",
+        "schema_version",
+        "pre_fix_source_sha",
+        "validated",
+        "post_source_delta",
+    }
+    assert set(reference["post_source_delta"]) == {
+        "path",
+        "sha256",
+        "schema_version",
+        "pre_fix_source_sha",
+        "validated",
+    }
+
+
+@pytest.mark.parametrize(
+    "path", [RED_RECORD, POST_SOURCE_RED_RECORD, FINGERPRINT_RED_RECORD]
+)
+@pytest.mark.parametrize(
+    ("section", "field", "replacement"),
+    [
+        ("cases", "case_id", "invented.case"),
+        ("cases", "requirement_id", "invented.requirement"),
+        ("cases", "test_nodeid", "tests/unit/invented.py::test_invented"),
+        ("cases", "expected_failure_kind", "exception"),
+        ("cases", "observed_exception_type", "builtins.ValueError"),
+        ("cases", "expected_failure_pattern", ".*"),
+        ("cases", "fixture_defect_excluded_by", "invented independent control"),
+        ("cases", "command_index", False),
+        ("cases", "exit_code", True),
+        ("cases", "red_failure_confirmed", 1),
+        ("cases", "observed_outcome", "pass"),
+        ("cases", "observed_message", "unrelated failure"),
+        ("cases", "fixture_identity_sha256", "0" * 64),
+        ("cases", "invalid_config_raw_sha256", "0" * 64),
+        ("cases", "unexpected", True),
+    ],
+)
+def test_retained_red_inventory_semantics_reject_decoded_row_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    authenticated_red_reads: dict[str, Any],
+    path: str,
+    section: str,
+    field: str,
+    replacement: Any,
+) -> None:
+    """Keep original raw/Git authentication; corrupt only the decoder fixture."""
+    module = _tool()
+    for name, reader in authenticated_red_reads.items():
+        monkeypatch.setattr(module, name, reader)
+    original = module._canonical_artifact
+
+    def decoded_mutation(requested: str, *, label: str) -> tuple[bytes, dict[str, Any]]:
+        raw, document = original(requested, label=label)
+        if requested == path:
+            document = copy.deepcopy(document)
+            document[section][0][field] = replacement
+        return (raw, document)
+
+    monkeypatch.setattr(module, "_canonical_artifact", decoded_mutation)
+    with pytest.raises(module.EvidenceError):
+        module.validate_retained_red_case_records(
+            *(
+                module._canonical_artifact(path, label="case-only decoder fixture")[1]
+                for path in (RED_RECORD, POST_SOURCE_RED_RECORD, FINGERPRINT_RED_RECORD)
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "mutation", ["reorder", "duplicate", "missing", "extra", "tuple", "cross-epoch"]
+)
+def test_retained_red_case_inventory_rejects_partition_mutation(
+    authenticated_red_reads: dict[str, Any],
+    mutation: str,
+) -> None:
+    """A case-only caller supplies separately authenticated original records."""
+    module = _tool()
+    read = authenticated_red_reads["_canonical_artifact"]
+    records = [
+        copy.deepcopy(read(path, label="case-only partition fixture")[1])
+        for path in (RED_RECORD, POST_SOURCE_RED_RECORD, FINGERPRINT_RED_RECORD)
+    ]
+    rows = records[2]["cases"]
+    if mutation == "reorder":
+        rows.reverse()
+    elif mutation == "duplicate":
+        rows[1] = copy.deepcopy(rows[0])
+    elif mutation == "missing":
+        rows.pop()
+    elif mutation == "extra":
+        rows.append(copy.deepcopy(rows[0]))
+    elif mutation == "tuple":
+        records[2]["cases"] = tuple(rows)
+    else:
+        rows[0]["test_nodeid"] = records[0]["cases"][0]["test_nodeid"]
+    with pytest.raises(module.EvidenceError):
+        module.validate_retained_red_case_records(*records)
 
 
 @pytest.mark.parametrize(

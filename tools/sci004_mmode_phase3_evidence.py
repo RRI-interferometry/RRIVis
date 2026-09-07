@@ -3615,6 +3615,494 @@ def _canonical_artifact(path: str, *, label: str) -> tuple[bytes, dict[str, Any]
     return raw, value
 
 
+# Section 14.0 / corrections 24 and 25: literal inventories transcribed from
+# the three original artifacts authenticated by the existing raw digest pins.
+# Passing controls belong to their command epoch, not to the 37-red union.
+_RED_CASE_IDENTITY_KEYS = (
+    "case_id",
+    "requirement_id",
+    "test_nodeid",
+    "expected_failure_kind",
+    "observed_exception_type",
+    "expected_failure_pattern",
+    "command_index",
+    "fixture_defect_excluded_by",
+)
+_RED_CASE_INVENTORIES = (
+    (
+        (
+            "m3.standard.mmode-projects-to-four-correlations",
+            "sci004.section-10.mmode-projects-with-four-correlation-products",
+            "tests/unit/test_io/test_standard_visibility.py::test_an_mmode_result_projects_with_four_correlation_products",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            0,
+            "tests/unit/test_io/test_standard_visibility.py::test_shared_projection_has_canonical_blt_polarization_and_phase[uvfits]",
+        ),
+        (
+            "m3.standard.history-names-the-mmode-conventions",
+            "sci004.section-10.history-names-the-mmode-frame-and-harmonic-conventions",
+            "tests/unit/test_io/test_standard_visibility.py::test_the_projected_history_names_the_mmode_frame_and_harmonic_conventions",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            0,
+            "tests/unit/test_io/test_standard_visibility.py::test_shared_projection_has_canonical_blt_polarization_and_phase[uvfits]",
+        ),
+        (
+            "m3.standard.record-carries-the-tagged-mmode-snapshot",
+            "sci004.section-10.projection-record-carries-the-tagged-mmode-snapshot",
+            "tests/unit/test_io/test_standard_visibility.py::test_the_projection_record_carries_the_complete_tagged_mmode_snapshot",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            0,
+            "tests/unit/test_io/test_standard_visibility.py::test_shared_projection_has_canonical_blt_polarization_and_phase[uvfits]",
+        ),
+        (
+            "m3.standard.reader-never-relabels-mmode-as-rime",
+            "sci004.section-10.reader-never-relabels-mmode-as-rime",
+            "tests/unit/test_io/test_standard_visibility.py::test_the_projection_reader_never_relabels_an_mmode_run_as_rime",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            0,
+            "tests/unit/test_io/test_standard_visibility.py::test_shared_projection_has_canonical_blt_polarization_and_phase[uvfits]",
+        ),
+        (
+            "m3.standard.synthesized-utc-centres-and-widths",
+            "sci004.section-10.projection-writes-the-synthesized-utc-grid",
+            "tests/unit/test_io/test_standard_visibility.py::test_the_projection_writes_the_synthesized_utc_centres_and_widths",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            0,
+            "tests/unit/test_io/test_standard_visibility.py::test_shared_projection_has_canonical_blt_polarization_and_phase[uvfits]",
+        ),
+        (
+            "m3.hdf5.mmode-result-publishes",
+            "sci004.section-10.hdf5-publishes-an-mmode-result",
+            "tests/unit/test_io/test_hdf5_result.py::test_an_mmode_result_publishes_and_reloads_from_hdf5",
+            "exception",
+            "radiosim.io.result_errors.UnsafeResultInputError",
+            "HDF5 solver_json has unexpected fields",
+            1,
+            "tests/unit/test_io/test_hdf5_result.py::test_versioned_hdf5_round_trip_is_scientifically_exact[complex128]",
+        ),
+        (
+            "m3.hdf5.solver-json-keeps-section-10-key-order",
+            "sci004.section-10.hdf5-preserves-the-complete-tagged-snapshot",
+            "tests/unit/test_io/test_hdf5_result.py::test_the_stored_solver_json_keeps_the_section_10_key_order",
+            "exception",
+            "radiosim.io.result_errors.UnsafeResultInputError",
+            "HDF5 solver_json has unexpected fields",
+            1,
+            "tests/unit/test_io/test_hdf5_result.py::test_versioned_hdf5_round_trip_is_scientifically_exact[complex128]",
+        ),
+        (
+            "m3.hdf5.reader-reconstructs-the-mmode-arm",
+            "sci004.section-10.reader-reconstructs-and-authenticates-the-mmode-arm",
+            "tests/unit/test_io/test_hdf5_result.py::test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it",
+            "exception",
+            "radiosim.io.result_errors.UnsafeResultInputError",
+            "HDF5 solver_json has unexpected fields",
+            1,
+            "tests/unit/test_io/test_hdf5_result.py::test_versioned_hdf5_round_trip_is_scientifically_exact[complex128]",
+        ),
+        (
+            "m3.hdf5.fingerprints-survive-the-round-trip",
+            "sci004.section-10.mmode-fingerprints-survive-the-hdf5-round-trip",
+            "tests/unit/test_io/test_hdf5_result.py::test_the_mmode_scientific_and_provenance_fingerprints_survive_hdf5",
+            "exception",
+            "radiosim.io.result_errors.UnsafeResultInputError",
+            "HDF5 solver_json has unexpected fields",
+            1,
+            "tests/unit/test_io/test_hdf5_result.py::test_versioned_hdf5_round_trip_is_scientifically_exact[complex128]",
+        ),
+        (
+            "m3.summary.mmode-exposure-rule-is-not-the-direct-rule",
+            "sci004.section-10.summary-publishes-the-synthesized-integration-widths",
+            "tests/unit/test_io/test_result_summary.py::test_the_summary_publishes_the_synthesized_mmode_integration_widths",
+            "assertion",
+            "builtins.AssertionError",
+            "minimum of cadence_seconds and remaining observation duration' !=",
+            2,
+            "tests/unit/test_io/test_result_summary.py::test_summary_json_is_exact_bounded_metadata_contract",
+        ),
+        (
+            "m3.summary.utc-centres-agree-with-the-hdf5-path",
+            "sci004.section-10.every-path-writes-the-same-synthesized-utc-grid",
+            "tests/unit/test_io/test_result_summary.py::test_the_summary_and_hdf5_paths_publish_the_same_synthesized_utc_grid",
+            "exception",
+            "radiosim.io.result_errors.UnsafeResultInputError",
+            "HDF5 solver_json has unexpected fields",
+            2,
+            "tests/unit/test_io/test_result_summary.py::test_summary_json_is_exact_bounded_metadata_contract",
+        ),
+        (
+            "m3.uvfits.mmode-round-trip",
+            "sci004.section-10.uvfits-round-trips-an-mmode-result",
+            "tests/unit/test_io/test_uvfits.py::test_an_mmode_result_round_trips_through_uvfits",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            3,
+            "tests/unit/test_io/test_uvfits.py::test_uvfits_round_trip_preserves_supported_dtype_and_raw_contract[complex128]",
+        ),
+        (
+            "m3.uvfits.history-names-the-mmode-conventions",
+            "sci004.section-10.uvfits-history-names-the-mmode-conventions",
+            "tests/unit/test_io/test_uvfits.py::test_the_published_uvfits_history_names_the_mmode_conventions",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            3,
+            "tests/unit/test_io/test_uvfits.py::test_uvfits_round_trip_preserves_supported_dtype_and_raw_contract[complex128]",
+        ),
+        (
+            "m3.uvfits.synthesized-utc-grid",
+            "sci004.section-10.uvfits-carries-the-synthesized-utc-grid",
+            "tests/unit/test_io/test_uvfits.py::test_the_published_uvfits_carries_the_synthesized_utc_grid",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            3,
+            "tests/unit/test_io/test_uvfits.py::test_uvfits_round_trip_preserves_supported_dtype_and_raw_contract[complex128]",
+        ),
+        (
+            "m3.ms.mmode-round-trip",
+            "sci004.section-10.ms-round-trips-an-mmode-result",
+            "tests/unit/test_io/test_measurement_set.py::test_an_mmode_result_round_trips_through_a_measurement_set",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            4,
+            "tests/unit/test_io/test_measurement_set.py::test_measurement_set_round_trip_and_raw_storage[complex128]",
+        ),
+        (
+            "m3.ms.history-names-the-mmode-conventions",
+            "sci004.section-10.ms-history-names-the-mmode-conventions",
+            "tests/unit/test_io/test_measurement_set.py::test_the_published_measurement_set_history_names_the_mmode_conventions",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            4,
+            "tests/unit/test_io/test_measurement_set.py::test_measurement_set_round_trip_and_raw_storage[complex128]",
+        ),
+        (
+            "m3.ms.synthesized-utc-grid",
+            "sci004.section-10.ms-carries-the-synthesized-utc-grid",
+            "tests/unit/test_io/test_measurement_set.py::test_the_published_measurement_set_carries_the_synthesized_utc_grid",
+            "missing-symbol",
+            "builtins.AttributeError",
+            "has no attribute 'components'",
+            4,
+            "tests/unit/test_io/test_measurement_set.py::test_measurement_set_round_trip_and_raw_storage[complex128]",
+        ),
+        (
+            "m3.characterization.family-inventory",
+            "sci004.section-11.four-new-characterized-families",
+            "tests/characterization/test_sci004_mmode.py::test_production_declares_exactly_the_four_section_11_families",
+            "missing-symbol",
+            "builtins.ImportError",
+            "cannot import name "
+            "'(MMODE_CHARACTERIZATION_FAMILIES|mmode_characterization_record)' from "
+            "'radiosim\\.core\\.result'",
+            5,
+            "tests/characterization/test_sci004_mmode.py::test_one_point_family_runs_to_completion_through_the_public_path",
+        ),
+        (
+            "m3.characterization.family-record.mmode_single_scalar_mode",
+            "sci004.section-11.family-records-its-six-parts",
+            "tests/characterization/test_sci004_mmode.py::test_every_new_family_records_its_six_section_11_parts[mmode_single_scalar_mode]",
+            "missing-symbol",
+            "builtins.ImportError",
+            "cannot import name "
+            "'(MMODE_CHARACTERIZATION_FAMILIES|mmode_characterization_record)' from "
+            "'radiosim\\.core\\.result'",
+            5,
+            "tests/characterization/test_sci004_mmode.py::test_one_point_family_runs_to_completion_through_the_public_path",
+        ),
+        (
+            "m3.characterization.family-record.mmode_point_stokes_i",
+            "sci004.section-11.family-records-its-six-parts",
+            "tests/characterization/test_sci004_mmode.py::test_every_new_family_records_its_six_section_11_parts[mmode_point_stokes_i]",
+            "missing-symbol",
+            "builtins.ImportError",
+            "cannot import name "
+            "'(MMODE_CHARACTERIZATION_FAMILIES|mmode_characterization_record)' from "
+            "'radiosim\\.core\\.result'",
+            5,
+            "tests/characterization/test_sci004_mmode.py::test_one_point_family_runs_to_completion_through_the_public_path",
+        ),
+        (
+            "m3.characterization.family-record.mmode_point_full_stokes",
+            "sci004.section-11.family-records-its-six-parts",
+            "tests/characterization/test_sci004_mmode.py::test_every_new_family_records_its_six_section_11_parts[mmode_point_full_stokes]",
+            "missing-symbol",
+            "builtins.ImportError",
+            "cannot import name "
+            "'(MMODE_CHARACTERIZATION_FAMILIES|mmode_characterization_record)' from "
+            "'radiosim\\.core\\.result'",
+            5,
+            "tests/characterization/test_sci004_mmode.py::test_one_point_family_runs_to_completion_through_the_public_path",
+        ),
+        (
+            "m3.characterization.family-record.mmode_circular_receptor",
+            "sci004.section-11.family-records-its-six-parts",
+            "tests/characterization/test_sci004_mmode.py::test_every_new_family_records_its_six_section_11_parts[mmode_circular_receptor]",
+            "missing-symbol",
+            "builtins.ImportError",
+            "cannot import name "
+            "'(MMODE_CHARACTERIZATION_FAMILIES|mmode_characterization_record)' from "
+            "'radiosim\\.core\\.result'",
+            5,
+            "tests/characterization/test_sci004_mmode.py::test_one_point_family_runs_to_completion_through_the_public_path",
+        ),
+        (
+            "m3.characterization.dispatch-class-observation-set",
+            "sci004.section-11.ci001-observation-set-not-a-bare-digest",
+            "tests/characterization/test_sci004_mmode.py::test_a_family_pin_is_a_ci001_observation_set_not_a_bare_digest",
+            "missing-symbol",
+            "builtins.ImportError",
+            "cannot import name "
+            "'(MMODE_CHARACTERIZATION_FAMILIES|mmode_characterization_record)' from "
+            "'radiosim\\.core\\.result'",
+            5,
+            "tests/characterization/test_sci004_mmode.py::test_one_point_family_runs_to_completion_through_the_public_path",
+        ),
+        (
+            "m3.rejection.public-components",
+            "sci004.section-8.mmode-public-components-rejection",
+            "tests/characterization/test_sci004_mmode.py::test_a_healpix_bearing_sky_is_rejected_before_any_solver_work",
+            "assertion",
+            "_pytest.outcomes.Failed",
+            "DID NOT RAISE",
+            5,
+            "tests/characterization/test_sci004_mmode.py::test_one_point_family_runs_to_completion_through_the_public_path",
+        ),
+        (
+            "m3.rejection.public-beam",
+            "sci004.section-8.mmode-public-beam-rejection",
+            "tests/characterization/test_sci004_mmode.py::test_a_non_scalar_resolved_beam_system_is_rejected_before_any_solver_work",
+            "exception",
+            "radiosim.core.beam.errors.BeamEvaluationError",
+            "boresight_parallactic_rad",
+            5,
+            "tests/characterization/test_sci004_mmode.py::test_one_point_family_runs_to_completion_through_the_public_path",
+        ),
+        (
+            "m3.performance.workload-row-schema",
+            "sci004.section-11.workload-row-carries-dense-execution-and-kernel-block",
+            "tests/performance/test_sci004_mmode.py::test_every_workload_row_carries_its_exact_fields_and_claim_array",
+            "assertion",
+            "builtins.AssertionError",
+            "AssertionError: assert \\('workload_id.*\\) == \\('workload_id",
+            6,
+            "tests/performance/test_sci004_mmode.py::test_the_perf001_record_surface_and_non_gating_markers_hold_today",
+        ),
+        (
+            "m3.performance.point-family-product",
+            "sci004.section-11.performance-product-is-three-point-groups",
+            "tests/performance/test_sci004_mmode.py::test_the_official_v1_inventory_is_the_exact_nine_row_product",
+            "assertion",
+            "builtins.AssertionError",
+            "AssertionError: assert \\(\\('mmode_poin.*\\) == \\(\\('mmode_sing",
+            6,
+            "tests/performance/test_sci004_mmode.py::test_the_perf001_record_surface_and_non_gating_markers_hold_today",
+        ),
+        (
+            "m3.release.io-api-documents-the-mmode-output-surface",
+            "sci004.section-10.documented-io-api-covers-the-mmode-arm",
+            "tests/unit/test_tier8_release_acceptance.py::test_the_io_api_document_covers_the_mmode_arm_of_the_solver_union",
+            "assertion",
+            "builtins.AssertionError",
+            "docs/api/io\\.rst",
+            7,
+            "tests/unit/test_tier8_release_acceptance.py::test_the_release_scan_still_reports_sci004_as_roadmap",
+        ),
+        (
+            "m3.release.configuration-support-documents-the-output-boundary",
+            "sci004.section-10.documented-output-boundary-names-the-mmode-simulator",
+            "tests/unit/test_tier8_release_acceptance.py::test_the_configuration_support_output_boundary_names_the_mmode_simulator",
+            "assertion",
+            "builtins.AssertionError",
+            "configuration_support\\.rst",
+            7,
+            "tests/unit/test_tier8_release_acceptance.py::test_the_release_scan_still_reports_sci004_as_roadmap",
+        ),
+    ),
+    (
+        (
+            "m3.post-source.hdf5.tangent-frame.schema_version",
+            "sci004.section-5.1.hdf5-authenticates-schema_version",
+            "tests/unit/test_io/test_hdf5_result.py::test_a_hostile_tangent_frame_literal_is_rejected_before_science_payload[schema_version]",
+            "assertion",
+            "builtins.AssertionError",
+            "HDF5 result failed canonical model or fingerprint validation",
+            0,
+            "tests/unit/test_io/test_hdf5_result.py::test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it",
+        ),
+        (
+            "m3.post-source.hdf5.tangent-frame.coordinate_frame",
+            "sci004.section-5.1.hdf5-authenticates-coordinate_frame",
+            "tests/unit/test_io/test_hdf5_result.py::test_a_hostile_tangent_frame_literal_is_rejected_before_science_payload[coordinate_frame]",
+            "assertion",
+            "builtins.AssertionError",
+            "HDF5 result failed canonical model or fingerprint validation",
+            0,
+            "tests/unit/test_io/test_hdf5_result.py::test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it",
+        ),
+        (
+            "m3.post-source.hdf5.tangent-frame.axes",
+            "sci004.section-5.1.hdf5-authenticates-axes",
+            "tests/unit/test_io/test_hdf5_result.py::test_a_hostile_tangent_frame_literal_is_rejected_before_science_payload[axes]",
+            "assertion",
+            "builtins.AssertionError",
+            "HDF5 result failed canonical model or fingerprint validation",
+            0,
+            "tests/unit/test_io/test_hdf5_result.py::test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it",
+        ),
+        (
+            "m3.post-source.hdf5.tangent-frame.position_angle",
+            "sci004.section-5.1.hdf5-authenticates-position_angle",
+            "tests/unit/test_io/test_hdf5_result.py::test_a_hostile_tangent_frame_literal_is_rejected_before_science_payload[position_angle]",
+            "assertion",
+            "builtins.AssertionError",
+            "HDF5 result failed canonical model or fingerprint validation",
+            0,
+            "tests/unit/test_io/test_hdf5_result.py::test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it",
+        ),
+        (
+            "m3.post-source.hdf5.tangent-frame.linear_complex",
+            "sci004.section-5.1.hdf5-authenticates-linear_complex",
+            "tests/unit/test_io/test_hdf5_result.py::test_a_hostile_tangent_frame_literal_is_rejected_before_science_payload[linear_complex]",
+            "assertion",
+            "builtins.AssertionError",
+            "HDF5 result failed canonical model or fingerprint validation",
+            0,
+            "tests/unit/test_io/test_hdf5_result.py::test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it",
+        ),
+        (
+            "m3.post-source.hdf5.tangent-frame.stokes_v",
+            "sci004.section-5.1.hdf5-authenticates-stokes_v",
+            "tests/unit/test_io/test_hdf5_result.py::test_a_hostile_tangent_frame_literal_is_rejected_before_science_payload[stokes_v]",
+            "assertion",
+            "builtins.AssertionError",
+            "HDF5 result failed canonical model or fingerprint validation",
+            0,
+            "tests/unit/test_io/test_hdf5_result.py::test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it",
+        ),
+    ),
+    (
+        (
+            "m3.fingerprint.preimage-retained",
+            "SCI-004-14.2-M3-FINGERPRINT-PREIMAGE",
+            "tests/characterization/test_sci004_mmode.py::test_characterization_input_preimage_is_retained_and_reconstructible",
+            "assertion",
+            "builtins.AssertionError",
+            "characterization input manifest is absent from the family record",
+            0,
+            "the same-run phase input manifest and exact canonical v2 preimage are "
+            "independently reconstructed before the production assertion",
+        ),
+        (
+            "m3.fingerprint.path-independent",
+            "SCI-004-11-PATH-INDEPENDENT-CHARACTERIZATION",
+            "tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_is_equal_under_distinct_layout_roots",
+            "assertion",
+            "builtins.AssertionError",
+            "characterization input identity changed under filesystem relocation",
+            0,
+            "independent roots preserve locally derived science and raw-cube identities while "
+            "differing only in retained filesystem location",
+        ),
+    ),
+)
+
+
+def validate_retained_red_case_records(
+    historical: dict[str, Any], post_source: dict[str, Any], fingerprint: dict[str, Any]
+) -> None:
+    """Validate the ordered 29/6/2 case inventories and fixture projections.
+
+    Callers must first authenticate each original document's raw bytes, epoch,
+    phase and pre-fix source identity. This utility does not authenticate Git
+    history or those document bindings. Command/log joins and passing controls
+    are outside this case-only slice.
+    """
+    case_keys = _RED_CASE_IDENTITY_KEYS + (
+        "invalid_config_raw_sha256",
+        "fixture_identity_sha256",
+        "exit_code",
+        "observed_outcome",
+        "observed_message",
+        "stdout_sha256",
+        "stderr_sha256",
+        "red_failure_confirmed",
+    )
+    all_nodes: set[str] = set()
+    all_cases: set[str] = set()
+    for epoch, document in enumerate((historical, post_source, fingerprint)):
+        expected = _RED_CASE_INVENTORIES[epoch]
+        rows = document.get("cases")
+        label = f"retained red inventory {epoch}"
+        _require(
+            isinstance(rows, list) and len(cast(list[Any], rows)) == len(expected),
+            PREFLIGHT,
+            f"{label} has the wrong ordered case inventory",
+        )
+        rows = cast(list[Any], rows)
+        for row, identity in zip(rows, expected, strict=True):
+            row = _require_keys(row, case_keys, label)
+            _require(
+                tuple(row[key] for key in _RED_CASE_IDENTITY_KEYS) == identity
+                and type(row["command_index"]) is int,
+                PREFLIGHT,
+                f"{label} ordered case identity differs",
+            )
+            node, case_id = (row["test_nodeid"], row["case_id"])
+            _require(
+                node not in all_nodes and case_id not in all_cases,
+                PREFLIGHT,
+                "retained red inventories must be disjoint",
+            )
+            all_nodes.add(node)
+            all_cases.add(case_id)
+            _require(
+                type(row["exit_code"]) is int
+                and row["exit_code"] == 1
+                and (row["red_failure_confirmed"] is True)
+                and (row["observed_outcome"] == identity[3]),
+                PREFLIGHT,
+                f"{label} case must confirm its expected failure",
+            )
+            message = row["observed_message"]
+            _require(
+                isinstance(message, str)
+                and bool(message)
+                and (re.search(row["expected_failure_pattern"], message) is not None),
+                PREFLIGHT,
+                f"{label} case message does not match its expected failure",
+            )
+            _ = _require_hex(row["invalid_config_raw_sha256"], 64, label)
+            fixture = {
+                "phase": document["phase"],
+                "fixture_id": case_id,
+                "requirement_id": row["requirement_id"],
+                "test_nodeid": node,
+                "pre_fix_source_sha": document["pre_fix_source_sha"],
+                "invalid_config_raw_sha256": row["invalid_config_raw_sha256"],
+            }
+            _require(
+                row["fixture_identity_sha256"]
+                == object_digest("radiosim.sci004-red-fixture.v1", fixture),
+                PREFLIGHT,
+                f"{label} fixture identity does not join its six-field preimage",
+            )
+
+
 def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
     """Authenticate all three records while retaining the pre-S3 join shape."""
     if red_commit != _red_commit_sha():
