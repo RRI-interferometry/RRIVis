@@ -7208,3 +7208,307 @@ def test_frame_structure_refuses_untyped_scalars_and_roots(
     del row["site_manifest"]
     with pytest.raises(module.EvidenceError):
         module.validate_frame_certificate_structure(row, label="test")
+
+
+@pytest.fixture(scope="module")
+def prepared_characterization_time(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+    """Prepare the genuine Section11 input and UTC grid without a scientific solve."""
+    from importlib import import_module
+
+    import numpy as np
+
+    from radiosim.api.simulator import Simulator
+    from radiosim.core.mmode.time import CanonicalEraGrid
+    from radiosim.core.mmode.types import derive_mmode_dimensions
+
+    module = _tool()
+    root = tmp_path_factory.mktemp("characterization-time").resolve()
+    simulator = Simulator.from_mapping(
+        module._family_mapping(root, "mmode_point_stokes_i"), base_dir=root
+    )
+    request = simulator.build_solve_request()
+    grid, block = request.era_grid, request.mmode
+    assert isinstance(grid, CanonicalEraGrid) and block is not None
+    dimensions = derive_mmode_dimensions(
+        lmax=int(block.lmax),
+        mmax=int(block.mmax),
+        quadrature_nside=int(block.quadrature_nside),
+    )
+    solver: Any = import_module("radiosim.core.mmode.solver")
+    longitude, latitude, height = solver._site_geodetic(request.location)
+    frame = solver.build_frozen_frame(
+        start_time=grid.start_time_iso,
+        longitude_deg=longitude,
+        latitude_deg=latitude,
+        height_m=height,
+    )
+    context = solver._kernel_context(request, frame, grid)
+    point_cirs, point_stokes, point_icrs = solver._resolve_point_component(
+        request, frame, context
+    )
+    ledger = solver.build_direction_ledger(
+        frame=frame,
+        dimensions=dimensions,
+        point_cirs=point_cirs,
+        point_stokes=point_stokes,
+        point_icrs=point_icrs,
+        native_cirs=np.zeros((0, 3)),
+        native_stokes=np.zeros((0, context.n_frequencies, 4)),
+        native_icrs=np.zeros((0, 2)),
+        native_solid_angle=0.0,
+    )
+    phase, _digest_value = solver.build_input_identity(
+        request=request,
+        grid=grid,
+        frame=frame,
+        context=context,
+        dimensions=dimensions,
+        directions=ledger,
+        tangent_frame=solver._resolved_tangent_frame(request, point_stokes),
+    )
+    manifest: dict[str, Any] = {
+        "schema_version": "radiosim.sci004.characterization-time.v1",
+        "axis_order": ["sample"],
+        "shape": [len(grid)],
+        "interval_semantics": "half_open_sample_centers",
+        "start_time_iso": grid.start_time_iso,
+        "center_jd1_f64be": [module.f64be(float(x)) for x in grid.utc_two_part[0]],
+        "center_jd2_f64be": [module.f64be(float(x)) for x in grid.utc_two_part[1]],
+        "integration_time_seconds_f64be": [
+            module.f64be(float(x)) for x in grid.integration_time_seconds
+        ],
+    }
+    assert len(phase) == 26 and manifest["shape"] == [49]
+    assert _object_digest(manifest["schema_version"], manifest) == (
+        "558758efff6d46ea559705bf6b6ab2245bf948a6d6792ed722e048e1ef41d877"
+    )
+    assert phase["canonical_era_grid_sha256"] == (
+        "f865447ee34816c865e42d9202f26d388a6072c3f6be068973d9b9510ae357aa"
+    )
+    return module, manifest, phase
+
+
+def test_characterization_time_prepared_grid_and_context(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+) -> None:
+    from importlib import import_module
+
+    time_type: Any = import_module("astropy.time").Time
+    iers: Any = import_module("astropy.utils.iers")
+    module, manifest, phase = prepared_characterization_time
+    cached_table = iers.IERS_A.iers_table
+    previous = (
+        iers.conf.auto_download,
+        iers.conf.iers_degraded_accuracy,
+        iers.earth_orientation_table.get(),
+    )
+    digest = _object_digest(manifest["schema_version"], manifest)
+    assert (
+        module.validate_characterization_time_manifest(manifest, digest, phase)
+        == manifest
+    )
+    # A normalized millisecond ISO cannot recover the exact retained UTC JD pair.
+    assert (
+        module.f64be(float(time_type(manifest["start_time_iso"], scale="utc").jd2))
+        != manifest["center_jd2_f64be"][0]
+    )
+    assert (
+        iers.conf.auto_download,
+        iers.conf.iers_degraded_accuracy,
+        iers.earth_orientation_table.get(),
+    ) == previous
+    assert iers.IERS_A.iers_table is cached_table
+    assert iers.IERS_A.open() is cached_table
+
+
+@pytest.mark.parametrize(
+    "mutation,expected",
+    [
+        ("float_shape", "time shape"),
+        ("phase_float_shape", "phase time shape"),
+        ("float_turn_count", "exact turn grid"),
+        ("sample_bool", "exact JSON integer"),
+        ("unreduced_turn", "exact turn grid"),
+        ("unknown", "must have exactly"),
+        ("missing", "must have exactly"),
+        ("bool_shape", "time shape"),
+        ("uppercase_hex", "lower-case hex"),
+        ("nonfinite", "nonfinite binary64"),
+        ("negative_width", "must be positive"),
+        ("centers", "utc center jd2"),
+        ("width", "exposure widths"),
+        ("iso", "normalized UTC anchor"),
+        ("ut1_center", "ut1 center jd2"),
+        ("utc_edge", "utc lower jd2"),
+        ("turn", "exact turn grid"),
+        ("radian", "radian grid"),
+        ("iers", "phase IERS"),
+        ("outside_coverage", "(mapping|coverage)"),
+    ],
+)
+def test_characterization_time_rehashed_semantic_mutations(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+    mutation: str,
+    expected: str,
+) -> None:
+    from importlib import import_module
+
+    iers: Any = import_module("astropy.utils.iers")
+    module, original, input_phase = prepared_characterization_time
+    manifest, phase = copy.deepcopy((original, input_phase))
+    if mutation == "float_shape":
+        manifest["shape"] = [49.0]
+    elif mutation == "phase_float_shape":
+        phase["utc_manifest"]["shape"] = [49.0]
+    elif mutation == "float_turn_count":
+        phase["canonical_era_turn_grid"]["sidereal_samples"] = 49.0
+    elif mutation == "sample_bool":
+        phase["mmode_dimensions"]["sidereal_samples"] = True
+    elif mutation == "unreduced_turn":
+        phase["canonical_era_turn_grid"]["center_turns"][0] = "0/2"
+    elif mutation == "unknown":
+        manifest["extra"] = 1
+    elif mutation == "missing":
+        del manifest["axis_order"]
+    elif mutation == "bool_shape":
+        manifest["shape"] = [True]
+    elif mutation == "uppercase_hex":
+        manifest["center_jd1_f64be"][0] = "4142C60280000000"
+    elif mutation == "nonfinite":
+        manifest["center_jd2_f64be"][0] = "7ff0000000000000"
+    elif mutation == "negative_width":
+        manifest["integration_time_seconds_f64be"][0] = module.f64be(-1)
+    elif mutation == "centers":
+        manifest["center_jd2_f64be"][0] = module.f64be(0.125)
+        phase["utc_manifest"]["center_jd2_f64be"][0] = module.f64be(0.125)
+    elif mutation == "width":
+        manifest["integration_time_seconds_f64be"][0] = module.f64be(1)
+    elif mutation == "iso":
+        manifest["start_time_iso"] = "2025-01-01T00:00:00"
+    elif mutation == "ut1_center":
+        phase["ut1_manifest"]["center_jd2_f64be"][1] = module.f64be(0.125)
+    elif mutation == "utc_edge":
+        phase["utc_manifest"]["lower_jd2_f64be"][0] = module.f64be(0.125)
+    elif mutation == "turn":
+        phase["canonical_era_turn_grid"]["center_turns"][1] = "1/48"
+    elif mutation == "radian":
+        phase["canonical_era_grid"]["delta_alpha_rad_f64be"] = module.f64be(0.125)
+    elif mutation == "iers":
+        phase["iers_table_sha256"] = "0" * 64
+    elif mutation == "outside_coverage":
+        for scale in ("utc", "ut1"):
+            for position in ("center", "lower", "upper"):
+                phase[f"{scale}_manifest"][f"{position}_jd1_f64be"][:] = [
+                    module.f64be(3000000)
+                ] * 49
+        manifest["center_jd1_f64be"][:] = [module.f64be(3000000)] * 49
+    _ = _rehash_phase_schema_fixture(phase)
+    digest = _object_digest(manifest["schema_version"], manifest)
+    cached_table = iers.IERS_A.iers_table
+    previous = (
+        iers.conf.auto_download,
+        iers.conf.iers_degraded_accuracy,
+        iers.earth_orientation_table.get(),
+    )
+    with pytest.raises(module.EvidenceError, match=expected):
+        module.validate_characterization_time_manifest(manifest, digest, phase)
+    assert (
+        iers.conf.auto_download,
+        iers.conf.iers_degraded_accuracy,
+        iers.earth_orientation_table.get(),
+    ) == previous
+    assert iers.IERS_A.iers_table is cached_table
+    assert iers.IERS_A.open() is cached_table
+
+
+def test_characterization_time_authenticates_installed_table_bytes(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from importlib import resources
+
+    module, manifest, phase = prepared_characterization_time
+    destination = tmp_path / "data/finals2000A.all"
+    destination.parent.mkdir()
+    _ = destination.write_bytes(b"substituted installed resource")
+
+    def substituted_resource(_package: object) -> Path:
+        return tmp_path
+
+    monkeypatch.setattr(resources, "files", substituted_resource)
+    with pytest.raises(module.EvidenceError, match="locked IERS bytes"):
+        module.validate_characterization_time_manifest(
+            manifest, _object_digest(manifest["schema_version"], manifest), phase
+        )
+
+
+@pytest.mark.parametrize(
+    "failure", ["missing", "unreadable", "package", "parser", "read"]
+)
+def test_characterization_time_resource_failures_preserve_context(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    from importlib import import_module, resources
+
+    iers: Any = import_module("astropy.utils.iers")
+    module, manifest, phase = prepared_characterization_time
+    cached_table = iers.IERS_A.iers_table
+    previous = (
+        iers.conf.auto_download,
+        iers.conf.iers_degraded_accuracy,
+        iers.earth_orientation_table.get(),
+    )
+    cause: Exception = {
+        "missing": FileNotFoundError("missing resource"),
+        "unreadable": PermissionError("unreadable resource"),
+        "package": ModuleNotFoundError("missing IERS package"),
+        "parser": ValueError("invalid IERS table"),
+        "read": OSError("failed IERS parser read"),
+    }[failure]
+    if failure == "missing":
+
+        def missing_resource(_package: object) -> Path:
+            return tmp_path
+
+        monkeypatch.setattr(resources, "files", missing_resource)
+    elif failure == "unreadable":
+
+        def unreadable_resource(_path: Path) -> bytes:
+            raise cause
+
+        monkeypatch.setattr(Path, "read_bytes", unreadable_resource)
+    elif failure == "package":
+
+        def missing_package(_package: object) -> Path:
+            raise cause
+
+        monkeypatch.setattr(resources, "files", missing_package)
+    else:
+
+        def failed_parser(*_args: object, **_kwargs: object) -> object:
+            raise cause
+
+        monkeypatch.setattr(iers.IERS_A, "read", failed_parser)
+    with pytest.raises(
+        module.EvidenceError, match="cannot (load|parse) locked IERS resource"
+    ) as caught:
+        module.validate_characterization_time_manifest(
+            manifest, _object_digest(manifest["schema_version"], manifest), phase
+        )
+    if failure == "missing":
+        assert isinstance(caught.value.__cause__, FileNotFoundError)
+    else:
+        assert caught.value.__cause__ is cause
+    assert (
+        iers.conf.auto_download,
+        iers.conf.iers_degraded_accuracy,
+        iers.earth_orientation_table.get(),
+    ) == previous
+    assert iers.IERS_A.iers_table is cached_table
+    assert iers.IERS_A.open() is cached_table

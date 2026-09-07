@@ -21,12 +21,12 @@ describing a run the observed tree cannot perform.  A replayer must therefore
 run ``pixi install`` inside the checkout being observed.  The reproduction
 record states this requirement; it is not optional advice.
 
-**Why the module imports only the standard library.** It follows
-``tools/wp7_perf001_cpu_evidence.py`` and the phase-2 sibling: an
-evidence-critical verifier must not carry an import-time dependency on a package
-that is merely transitively present, so ``check`` -- the sub-command a reviewer
-runs -- needs nothing but Python.  The scientific packages are imported inside
-the generation functions alone.
+**Import and validation dependencies.** The module imports only the standard
+library. Generation and independent validation of retained time and frame
+projections use this checkout's locked scientific environment, including NumPy,
+Astropy/ERFA and the exact offline IERS data. Validation imports these packages
+only when needed, disables IERS downloads, authenticates the installed table
+identity and restores the caller's table and configuration after each check.
 
 **How the timing stages are measured.** Section 11 requires ``frame``,
 ``sky_transform``, ``beam_transfer``, ``dense_contraction_and_synthesis`` and
@@ -844,6 +844,297 @@ def _require_int(value: Any, label: str, *, minimum: int | None = None) -> int:
     if minimum is not None:
         _require(number >= minimum, SCHEMA, f"{label} must be at least {minimum}")
     return number
+
+
+_CHARACTERIZATION_TIME_DOMAIN = "radiosim.sci004.characterization-time.v1"
+_CHARACTERIZATION_TIME_KEYS = tuple(
+    "schema_version axis_order shape interval_semantics start_time_iso "
+    "center_jd1_f64be center_jd2_f64be integration_time_seconds_f64be".split()
+)
+_CHARACTERIZATION_TIME_SHA256 = (
+    "558758efff6d46ea559705bf6b6ab2245bf948a6d6792ed722e048e1ef41d877"
+)
+_CHARACTERIZATION_ERA_SHA256 = (
+    "f865447ee34816c865e42d9202f26d388a6072c3f6be068973d9b9510ae357aa"
+)
+_CHARACTERIZATION_IERS_SHA256 = (
+    "ff2d22108e982bd86e326e01d797fa8bd545d51483359dd98e6c08fa5737f667"
+)
+
+
+def _characterization_time_equal(actual: Any, expected: Any, label: str) -> None:
+    _require(
+        canonical_json(actual) == canonical_json(expected)
+        and json.dumps(actual, sort_keys=True) == json.dumps(expected, sort_keys=True),
+        SCHEMA,
+        label,
+    )
+
+
+def _characterization_time_f64(value: Any, label: str) -> float:
+    text = _require_hex(value, 16, label)
+    number = struct.unpack(">d", bytes.fromhex(text))[0]
+    _require(math.isfinite(number), SCHEMA, f"{label}: nonfinite binary64")
+    return number
+
+
+def _characterization_time_radian_digest(role: str, values: list[float]) -> str:
+    header = canonical_json(
+        {
+            "axis_order": ["sample"],
+            "dtype": "float64-be",
+            "role": role,
+            "shape": [len(values)],
+            "units": "rad",
+        }
+    )
+    data = b"".join(struct.pack(">d", value) for value in values)
+    payload = (
+        len(header).to_bytes(8, "big") + header + len(data).to_bytes(8, "big") + data
+    )
+    return domain_digest("radiosim.mmode-era-radian-array.v1", payload)
+
+
+def validate_characterization_time_manifest(
+    value: Any, digest: Any, phase: dict[str, Any]
+) -> dict[str, Any]:
+    """Validate eight time fields and the complete temporal projection of phase.
+
+    The caller separately authenticates the closed phase26 and input14 objects;
+    this helper does not license non-temporal phase fields or a fingerprint row.
+    """
+    from fractions import Fraction
+    from importlib import import_module, resources
+
+    np: Any = import_module("numpy")
+    time_type: Any = import_module("astropy.time").Time
+    iers: Any = import_module("astropy.utils.iers")
+    equal = _characterization_time_equal
+    manifest = _require_keys(
+        value, _CHARACTERIZATION_TIME_KEYS, "characterization time"
+    )
+    dimensions = _require_keys(
+        phase.get("mmode_dimensions"),
+        tuple(
+            "lcheck lmax mcheck mmax qcheck quadrature_nside sidereal_samples".split()
+        ),
+        "time dimensions",
+    )
+    n = _require_int(dimensions["sidereal_samples"], "sample count", minimum=1)
+    equal(manifest["schema_version"], _CHARACTERIZATION_TIME_DOMAIN, "time schema")
+    equal(manifest["axis_order"], ["sample"], "time axis")
+    equal(manifest["shape"], [n], "time shape")
+    equal(manifest["interval_semantics"], "half_open_sample_centers", "time intervals")
+    for key in (
+        "center_jd1_f64be",
+        "center_jd2_f64be",
+        "integration_time_seconds_f64be",
+    ):
+        rows = manifest[key]
+        _require(
+            isinstance(rows, list) and len(cast(list[Any], rows)) == n,
+            SCHEMA,
+            f"{key}: length",
+        )
+        for item in cast(list[Any], rows):
+            number = _characterization_time_f64(item, key)
+            if key == "integration_time_seconds_f64be":
+                _require(number > 0.0, SCHEMA, "exposure width must be positive")
+
+    turn = _require_keys(
+        phase.get("canonical_era_turn_grid"),
+        tuple(
+            "schema_version sidereal_samples integration_fraction_f64be "
+            "integration_fraction_ratio exposure_width_turn horizon_lo_turn "
+            "horizon_hi_turn center_turns lower_edge_turns upper_edge_turns".split()
+        ),
+        "turn grid",
+    )
+    fraction = _characterization_time_f64(
+        turn["integration_fraction_f64be"], "fraction"
+    )
+    _require(0.0 < fraction <= 1.0, SCHEMA, "integration fraction range")
+    exact_fraction = Fraction(fraction)
+    turns = {
+        "center": [Fraction(k, n) for k in range(n)],
+        "lower_edge": [(2 * k - exact_fraction) / (2 * n) for k in range(n)],
+        "upper_edge": [(2 * k + exact_fraction) / (2 * n) for k in range(n)],
+    }
+    horizon = [Fraction(-1, 2 * n), Fraction(2 * n - 1, 2 * n)]
+    expected_turn: dict[str, Any] = {
+        "schema_version": "radiosim.mmode-era-turn-grid.v1",
+        "sidereal_samples": n,
+        "integration_fraction_f64be": f64be(fraction),
+        "integration_fraction_ratio": str(exact_fraction.numerator)
+        + "/"
+        + str(exact_fraction.denominator),
+        "exposure_width_turn": str((exact_fraction / n).numerator)
+        + "/"
+        + str((exact_fraction / n).denominator),
+        "horizon_lo_turn": f"{horizon[0].numerator}/{horizon[0].denominator}",
+        "horizon_hi_turn": f"{horizon[1].numerator}/{horizon[1].denominator}",
+    }
+    for name, sequence in turns.items():
+        expected_turn[f"{name}_turns"] = [
+            f"{x.numerator}/{x.denominator}" for x in sequence
+        ]
+    equal(turn, expected_turn, "exact turn grid")
+    equal(
+        phase.get("canonical_era_turn_grid_sha256"),
+        object_digest("radiosim.mmode-era-turn-grid.v1", turn),
+        "turn digest",
+    )
+    tau = float.fromhex("0x1.921fb54442d18p+2")
+    radian: dict[str, Any] = {
+        "schema_version": "radiosim.mmode-era-grid.v2",
+        "canonical_era_turn_grid_sha256": phase["canonical_era_turn_grid_sha256"],
+        "tau_f64be": f64be(tau),
+        "delta_alpha_rad_f64be": f64be(float(Fraction(tau) * exact_fraction / n)),
+        "horizon_lo_rad_f64be": f64be(float(Fraction(tau) * horizon[0])),
+        "horizon_hi_rad_f64be": f64be(float(Fraction(tau) * horizon[1])),
+    }
+    for name, sequence in turns.items():
+        radian[f"era_{name}_turn_sha256"] = object_digest(
+            f"radiosim.mmode-era-{name.replace('_', '-')}-turns.v1",
+            turn[f"{name}_turns"],
+        )
+        radian[f"era_{name}_rad_sha256"] = _characterization_time_radian_digest(
+            name, [float(Fraction(tau) * x) for x in sequence]
+        )
+    equal(phase.get("canonical_era_grid"), radian, "radian grid")
+    equal(
+        phase.get("canonical_era_grid_sha256"),
+        object_digest("radiosim.mmode-era-grid.v2", radian),
+        "radian digest",
+    )
+    equal(
+        phase["canonical_era_grid_sha256"],
+        _CHARACTERIZATION_ERA_SHA256,
+        "family ERA grid",
+    )
+
+    grids: dict[str, dict[str, Any]] = {}
+    decoded: dict[str, dict[str, list[float]]] = {}
+    for scale in ("utc", "ut1"):
+        grid = _require_keys(
+            phase.get(f"{scale}_manifest"),
+            tuple(
+                "schema_version scale axis_order shape center_jd1_f64be center_jd2_f64be "
+                "lower_jd1_f64be lower_jd2_f64be upper_jd1_f64be upper_jd2_f64be".split()
+            ),
+            scale,
+        )
+        equal(
+            grid["schema_version"], f"radiosim.mmode-{scale}-grid.v1", f"{scale} schema"
+        )
+        equal(grid["scale"], scale, "time scale")
+        equal(grid["axis_order"], ["sample"], "phase time axis")
+        equal(grid["shape"], [n], "phase time shape")
+        decoded[scale] = {}
+        for position in ("center", "lower", "upper"):
+            for part in (1, 2):
+                key = f"{position}_jd{part}_f64be"
+                rows = grid[key]
+                _require(
+                    isinstance(rows, list) and len(cast(list[Any], rows)) == n,
+                    SCHEMA,
+                    f"{scale} {key}: length",
+                )
+                decoded[scale][key] = [
+                    _characterization_time_f64(item, key)
+                    for item in cast(list[Any], rows)
+                ]
+        equal(
+            phase.get(f"{scale}_sha256"),
+            object_digest(f"radiosim.mmode-{scale}-grid.v1", grid),
+            f"{scale} digest",
+        )
+        grids[scale] = grid
+    for part in (1, 2):
+        key = f"center_jd{part}_f64be"
+        equal(manifest[key], grids["utc"][key], f"result UTC jd{part}")
+
+    try:
+        resource = resources.files("astropy_iers_data") / "data/finals2000A.all"
+        payload = resource.read_bytes()
+    except (OSError, ModuleNotFoundError) as error:
+        raise EvidenceError(SCHEMA, "cannot load locked IERS resource") from error
+    equal(
+        hashlib.sha256(payload).hexdigest(),
+        _CHARACTERIZATION_IERS_SHA256,
+        "locked IERS bytes",
+    )
+    equal(phase.get("iers_table_sha256"), _CHARACTERIZATION_IERS_SHA256, "phase IERS")
+    try:
+        table = iers.IERS_A.read(file=str(resource))
+    except (OSError, ValueError) as error:
+        raise EvidenceError(SCHEMA, "cannot parse locked IERS resource") from error
+    anchor1 = decoded["ut1"]["center_jd1_f64be"][0]
+    anchor2 = decoded["ut1"]["center_jd2_f64be"][0]
+    rate = Fraction("1.00273781191135448")
+    previous_download, previous_degraded = (
+        iers.conf.auto_download,
+        iers.conf.iers_degraded_accuracy,
+    )
+    iers.conf.auto_download, iers.conf.iers_degraded_accuracy = False, "error"
+    try:
+        with iers.earth_orientation_table.set(table):
+            utc: dict[str, Any] = {}
+            pairs: dict[str, tuple[list[float], list[float]]] = {}
+            for name, sequence in {
+                "center": turns["center"],
+                "lower": turns["lower_edge"],
+                "upper": turns["upper_edge"],
+                "horizon": horizon,
+            }.items():
+                pair = (
+                    [anchor1] * len(sequence),
+                    [float(Fraction(anchor2) + x / rate) for x in sequence],
+                )
+                pairs[name] = pair
+                utc[name] = time_type(*pair, format="jd", scale="ut1").utc
+                _, status = table.ut1_utc(utc[name], return_status=True)
+                _require(bool(np.all(np.asarray(status) >= 0)), SCHEMA, "IERS coverage")
+            anchor = time_type(
+                anchor1, anchor2, format="jd", scale="ut1", precision=3
+            ).utc
+            equal(manifest["start_time_iso"], str(anchor.isot), "normalized UTC anchor")
+            for scale in ("utc", "ut1"):
+                for name in ("center", "lower", "upper"):
+                    # The existing UT1-v1 schema intentionally stores UTC exposure edges.
+                    pair = (
+                        pairs[name]
+                        if scale == "ut1" and name == "center"
+                        else (utc[name].jd1, utc[name].jd2)
+                    )
+                    for part in (1, 2):
+                        equal(
+                            grids[scale][f"{name}_jd{part}_f64be"],
+                            [f64be(float(x)) for x in pair[part - 1]],
+                            f"{scale} {name} jd{part}",
+                        )
+            widths = (utc["upper"] - utc["lower"]).to_value("s")
+            equal(
+                manifest["integration_time_seconds_f64be"],
+                [f64be(float(x)) for x in widths],
+                "exposure widths",
+            )
+    except (ValueError, TypeError, IndexError, OverflowError) as error:
+        raise EvidenceError(SCHEMA, "invalid locked-IERS time mapping") from error
+    finally:
+        iers.conf.auto_download, iers.conf.iers_degraded_accuracy = (
+            previous_download,
+            previous_degraded,
+        )
+    equal(
+        _require_hex(digest, 64, "characterization time digest"),
+        object_digest(_CHARACTERIZATION_TIME_DOMAIN, manifest),
+        "characterization time digest",
+    )
+    equal(
+        digest, _CHARACTERIZATION_TIME_SHA256, "unchanged family characterization time"
+    )
+    return manifest
 
 
 FRAME_CERTIFICATE_STORAGE_SCHEMA = "radiosim.sci004.frame-certificate-storage.v1"
