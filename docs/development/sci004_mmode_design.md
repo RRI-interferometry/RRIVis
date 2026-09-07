@@ -32,6 +32,137 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #33 candidate — 2026-09-07 (lossless inline certificate
+storage).** Assembling D32's complete four-family transition projections produced
+143,135,033 bytes of compact JSON before admission reviews or ordinary evidence
+content. Eight complete certificate objects contribute 123,821,300 bytes. A
+single resulting evidence blob therefore exceeds GitHub's 100 MiB file limit.
+The measured lossless alternative replaces only those eight stored certificate
+values, retaining every decoded value and the existing transition proof.
+The external measurement record hashes to
+`2ce761e9a1ed166ef71fd55ac0c1b4fb4298bdd4b580a27f577127d18695c38e`;
+it motivates this storage amendment and is not acceptance evidence.
+
+**Exact design succession.** D33 is one ordinary independently reviewed,
+single-parent design-only commit with sole parent
+`3b317218fa8239a230e208600f3bcb4bfc2af4b8` and exactly this memo and
+`PostTier8RemediationPlan.md` changed. Section 13.7's identical complete
+pre-landing file/diff pins, dual independent ACCEPTs, final own-header
+verification and landed raw-blob/full-diff authentication remain mandatory.
+Its finalized landing SHA becomes current S/E/A design authority only then.
+D30 remains the exact range origin; D31 remains the exact historical R design;
+D32 `bcd79b1d6268859368d77c3f94cef334b001cb37` remains an authenticated
+historical design edge inside S with its original parent and review pins.
+
+Complete S now contains exactly two `source-design-successor` entries: exact
+D32 followed by exact finalized D33, in their actual sole-parent ancestry.
+Each entry must independently match its own two paths, parent, ordinary review,
+header, blob and full-diff pins. No arbitrary design entry is allowed and
+neither identity may substitute for the other. `phase_ranges` retains its
+existing three-key and entry schemas. The R aggregate, terminal R567, first S,
+all existing source ancestry, and eleven-modification/four-disposal S aggregate
+remain unchanged. Exclude only factual status entries and these two exact
+design entries from the S scientific path aggregate. Keep the dependency
+validator's historical `APPROVED_SCI004_D_SHA` fixed at D31; retain an explicit
+historical D32 source-design binding and make `SOURCE_DESIGN_SHA` the finalized
+D33 identity. Current source/evidence/acceptance joins use D33, while every
+historical record retains its own original design identity.
+
+**Stored and expanded proof representations.** Only
+`historical_frame_certificate` and `current_frame_certificate` in each D32
+transition row change their stored representation. Each stored value is a
+closed mapping with exactly these fields:
+
+```text
+schema, codec, uncompressed_byte_count, uncompressed_sha256, data_base64
+```
+
+`schema` is exactly `radiosim.sci004.frame-certificate-storage.v1`; `codec` is
+exactly `zlib+base64`. The uncompressed payload is exactly Section 14's canonical
+UTF-8 `J(complete_certificate)` bytes, with no newline, BOM or trailing data.
+`uncompressed_byte_count` is a strict integer, not a Boolean, in
+`1..33,554,432` inclusive. `uncompressed_sha256` is the lowercase 64-hex SHA-256
+of those exact bytes. `data_base64` is canonical RFC 4648 standard-alphabet
+base64 with required padding and no whitespace, containing exactly one complete
+RFC 1950 zlib stream, without a preset dictionary. The compressed stream is at
+most 33,554,432 bytes. Unknown keys/codecs, malformed or noncanonical base64,
+truncation, dictionaries, concatenated streams and trailing compressed bytes
+fail closed. Encoding uses zlib level 9; validation accepts an otherwise valid
+lossless stream without depending on identical compressor-version output.
+
+Enforce encoded/compressed size limits before allocating decoded buffers and
+enforce the declared output limit during decompression, including finalization;
+an unbounded decompress-then-count or unbounded flush is invalid. Reject output
+longer or shorter than declared, incomplete streams, unused input and any hash
+mismatch. Parse exactly one finite JSON object, rejecting duplicate keys and
+non-JSON/non-finite numbers, then require its re-encoded `J` bytes to equal the
+authenticated payload exactly. The decoded object must satisfy the full
+existing closed certificate schema, numerical budgets, all D32 joins and every
+source-hash cascade check. The envelope itself supplies no certificate verdict.
+These bounds restrict evidence storage only; they do not alter a physical
+budget or permit omission of any certificate row.
+
+For every D32 transition digest and admission-review join, first replace the
+two storage envelopes by their fully authenticated decoded certificate objects.
+Then omit only `admission_review_record` and apply the unchanged
+`D("radiosim.sci004.scientific-identity-transition.v1", J(projection))` rule.
+This expanded thirteen-field projection is exactly D32's original projection.
+All four pre-admission transition digests, scientific tagged segments, cube
+identities, solver snapshots, endpoint certificates, middle-stage reconstruction
+and direct-error preimages remain unchanged. All other twelve stored row fields
+and the outer eighteen-field evidence/eight-member results schemas retain their
+existing meaning. This grants no new observation, environment cell or numerical
+transition. Reviewers still authenticate every expanded proof and the actual
+complete append candidate before an observation can be appended.
+
+E remains the sole child of clean exact terminal S, with its four core paths
+and the already authorized optional factual completion-ledger companion under
+D30's unchanged content restrictions. Its canonical JSON contains all eight
+envelopes inline, with no external recovery references,
+Git LFS pointers or omitted data. The evidence generator must build and validate
+the complete serialized output, including all admission reviews and ordinary E
+content, and require fewer than 104,857,600 bytes before publication. Failure
+must leave declared final outputs absent. The final raw evidence SHA-256 binds
+the stored representation; the unchanged transition digests bind the expanded
+proofs. A authenticates both independently. Neither a compression roundtrip nor
+the measured size estimate is evidence or phase acceptance.
+
+**Bounded implementation and verification.** Use only the already authorized
+source/test paths: evidence and acceptance tools/validators for storage encode,
+bounded decode and expanded-proof joins; history/dependency/red readers for the
+two exact source-design entries and distinct historical/current bindings.
+All historical pin, replay, solver/fixture AST and path restrictions remain.
+No numerical source, characterization oracle or general CI-001 policy change
+is granted. Add hostile tests for every codec/length/hash/JSON boundary,
+compressed bombs/trailing streams, a validly rehashed altered certificate that
+must still fail its scientific/provenance joins, and complete final-file size
+refusal with no final outputs published. Independently decode the actual eight
+certificates and reproduce the four unchanged expanded transition digests.
+Full source gates, exact null sentinels and delayed last disposal, per-family
+pre-append dual reviews, and clean exact S -> sole E -> sole A remain mandatory.
+M3 remains rejected/not accepted; SCI-004 and PERF-001 remain ROADMAP and
+closure C remains locked. Fresh independent reviews of this candidate are pending.
+
+**Review verification — 2026-09-07.** Fresh independent reviewers
+`/root/d30_physics_review` and `/root/d30_provenance_review` each returned exact
+`ACCEPT` against identical complete round-2 candidate bytes: memo
+`sha256:a13465df28713a941589b4108cfa307bee5f2c244b03279d478961a32dcf096f`,
+companion plan
+`sha256:ca8dc4fd99f1ee2a65e615c3127c2b0be2c1a62553ffb7c3723d3ddf41d22cc8`,
+and complete parent-relative binary/full-index diff
+`sha256:bd6c21d0c54f5ccb92d57f35562874f397ed2e689f17992040359cb44611583f`.
+Both independently reconstructed the complete candidate against exact sole
+parent `3b317218fa8239a230e208600f3bcb4bfc2af4b8`. Their original review-text
+SHA-256 values are respectively
+`e379643d8350c0883d32b9dba41f3133feee2f0e60b3cb7b1693fd2ca3b3179d` and
+`95d76558e1428884cbfd6d44457d9f9a6c992fd0c071d8d349b6a2107163c097`.
+Only this verification record and the companion verdict completion postdate
+the reviewed bytes under Section 13.7. This landing becomes current S/E/A
+design authority D33; it accepts only the storage correction, not an observation,
+implementation or production phase.
+
+The following correction-#32 record is retained historically.
+
 **Bounded correction #32 candidate — 2026-09-07 (authenticated scientific
 identity transitions caused by source provenance).** Source verification found
 that the unchanged twenty-key solver serialization includes a frame-certificate

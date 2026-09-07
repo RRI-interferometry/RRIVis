@@ -15,6 +15,31 @@ re-verified at execution time, not trusted from here.
 
 ---
 
+**Current continuation #33 candidate — 2026-09-07.** The complete D32
+transition projections measure 143,135,033 bytes before ordinary evidence and
+reviews, exceeding GitHub's 100 MiB individual-file limit. Correction #33
+prospectively changes only the stored representation of the eight complete
+frame certificates to closed inline lossless zlib/base64 envelopes. Bounded
+decoding, exact canonical uncompressed bytes, full existing certificate checks,
+and unchanged expanded transition digests remain required. The complete final
+E file must be below 104,857,600 bytes before any declared final publication.
+
+D33's sole parent is `3b317218fa8239a230e208600f3bcb4bfc2af4b8`; it changes
+only the two design paths. Ordinary dual review and own-header finalization
+must precede its becoming current S/E/A authority. D30 and D31 retain their
+historical roles; exact D32 remains a separately authenticated source-design
+entry before exact D33. The eleven modified source/test paths, four disposals,
+historical pins and replay restrictions remain unchanged. All eight complete
+certificates remain independently recoverable inside E; no external recovery
+path, LFS pointer or omitted scientific row substitutes for evidence. The memo's
+correction #33 header alone defines the grant. Fresh independent physics/governance
+and computational/provenance reviewers both returned ACCEPT against the identical
+complete round-2 pins recorded in the final D33 header. This landing accepts only
+the storage correction; no phase or observation is accepted. M3 remains rejected/not accepted,
+SCI-004 and PERF-001 remain ROADMAP, and closure C is locked.
+
+The following correction-#32 continuation record is retained historically.
+
 **Current continuation #32 candidate — 2026-09-07.** SCI-004 correction #32
 addresses an authenticated source-provenance cascade: the complete solver blob
 is hashed inside the frame certificate, so the ruled prerequisite/runtime-bridge
