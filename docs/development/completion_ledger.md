@@ -39,12 +39,12 @@ fixtures. No implementation is authored in another worktree.
 
 | ID | Authority and current observation | Required result / small slices | Verification and acceptance | State |
 |---|---|---|---|---|
-| A1 | SCI-004 design Sections 13.7/14; D30 review recovery and D31 runtime-input ownership correction | Authenticate original records; reviewed historical exceptions and main-only phase ranges; strict validator repair | Two fresh reviews of identical design bytes; full ancestry/path/blob checks and hostile mutations; preserve historical red inventories 29 + 6 + 2 | Complete terminal R at `567f9ac` independently accepted by both reviewers; D31 operative and D30 range origin remain distinct |
+| A1 | SCI-004 design Sections 13.7/14; D30 review recovery and D31 runtime-input ownership correction | Authenticate original records; reviewed historical exceptions and main-only phase ranges; strict validator repair | Two fresh reviews of identical design bytes; full ancestry/path/blob checks and hostile mutations; preserve historical red inventories 29 + 6 + 2 | Complete terminal R at `567f9ac` independently accepted by both reviewers; D31 remains historical R authority; D30 remains range origin |
 | A2 | D29 five-path candidate and original fingerprint R3 `a65c53a46e84f63c163c5ad15fba8645df33d1d2`; replacement-S3 overlaps two evidence paths | Integrate historical/current binding and oracle deltas by hunk; isolate exact historical imports; freeze terminal R | Exactly two expected failures and three controls at historical source; explicit source path, PYTHONNOUSERSITE=1 and verified radiosim.__file__; complete governed serial suite | Exact `567f9ac` replay and disjoint characterization partition pass; complete serial unit suite 7,618 passed, two existing platform skips; original 80 stopped-candidate hunks accounted for; primary source-hunk accounting advances with landed slices |
 | B1 | Failed CI at `cfc9b10`; frame certificate reports outside-slab horizon sign mismatches | Reproduce operational/frozen root/guard/slab issue with environment provenance; reviewed correction if contract changes; focused fix | Independent physics and numerical diagnosis; decisive regression with unchanged scientific budgets; serial and compatibility jobs | Repair pushed; 13 frame tests pass on both Python versions and all seven public integration tests pass on Python 3.12; final exact-SHA CI remains pending |
 | B2 | Failed CI reports SciPy intersphinx inventory ConnectTimeout | Inspect failed logs and current retrieval; bounded reliability fix if reproduced/justified | Clean warnings-as-errors Sphinx build; retain documentation validation | Fresh retrieval succeeded for all inventories; original CI ConnectTimeout remains an observed transient retrieval failure |
-| C1 | D25 production v2 contract and D31 same-run runtime input anchor; preserved draft has strict-schema and same-run-join defects | Account for every original hunk; corrected input manifests, runtime identity bridge, result records, evidence/schema, acceptance and hostile tests in coherent source commits | Path-independent reconstruction/relocation, semantic mutation and malformed-input rejection; exact nine-key production family and retained manifests; seven modified paths plus four authenticated disposals | First S, runtime bridge and validated result accessor pushed and independently reviewed; factory consumption and complete v2 integration remain pending; generation stays closed |
-| C2 | SCI-004 M3 Sections 10–14; four rejected-artifact deletions and six null sentinels | Complete replacement source range; authenticate disposal; generate new evidence from clean exact terminal source tip; separate E and A commits | HDF5/bounded reads, summary, UVFITS/MS read-back, full correlations/time/solver/provenance; all families; retained non-gating performance; fresh independent manual/numerical/schema acceptance | Pending C1/B1 |
+| C1 | D25 production v2 contract, D31 runtime input anchor, D32 identity transitions and D33 lossless certificate storage; preserved draft has strict-schema and same-run-join defects | Account for every original hunk; corrected input manifests, runtime identity bridge, result records, evidence/schema, acceptance and hostile tests in coherent source commits | Path-independent reconstruction/relocation, semantic mutation and malformed-input rejection; exact nine-key production family and retained manifests; eleven modified paths plus four authenticated disposals under D32/D33 | First S, runtime bridge, validated result accessor and current-A topology pushed and independently reviewed; production-v2 factory pushed at a39ceff passes 450 evidence tests and produces the required records for all four actual public families; D32 and D33 designs are pushed; current authority wiring, portable transition/storage validation and observation admission remain pending; generation stays closed |
+| C2 | SCI-004 M3 Sections 10–14; four rejected-artifact deletions and six null sentinels | Complete replacement source range; authenticate disposal; generate new evidence from clean exact terminal source tip; separate E and A commits | HDF5/bounded reads, summary, UVFITS/MS read-back, full correlations/time/solver/provenance; all families; retained non-gating performance; fresh independent manual/numerical/schema acceptance | All six approval sentinels are committed literal None; four rejected artifacts remain unchanged; disposal follows completed source logic |
 | D1 | SCI-004 Sections 7/9/15; public solver currently rejects HEALPix/hybrid and non-scalar beams; accepted SCI-005 beam contracts remain authoritative | Reviewed successor public support contract; integrate point/HEALPix/hybrid full Stokes; stationary squint and applicable full-efield support through canonical BeamSystem/Jones | Public API and CLI tests; dense/sparse pixel measure, frequencies, tangent/receptor frames, component provenance; common direct oracle and two-tier predicates | Inventory underway; successor contract before implementation |
 | D2 | SCI-004 Section 9 defers public backend routing; current dense public path is NumPy | Route dense contraction/synthesis through requested backend; enforce real precision/x64; stream budgeted transfer blocks; implement canonical worker scheduling | Public NumPy/JAX/Dask parity, precision rejection, allocation-before-budget rejection, scheduling instrumentation and worker invariance; independent computational review | Pending D1 contract |
 | E | PERF-001 accepted CPU mitigations/readiness; accelerator measurements require an authorized compatible host | Inspect available resources; strict preflight; complete workload matrix and authentic device-memory/timing record if hardware is available | Exact clean source/locked environment, real device and synchronized complex128; independent accelerator acceptance; timing is non-gating | Resource availability unresolved; PERF-001 remains ROADMAP, no accepted accelerator-performance record exists |
@@ -72,10 +72,15 @@ The external `provenance-audit/original-hunk-disposition-v2.json` now accounts
 for every stopped-candidate hunk through exact `87b16ba`: 21 retained, 38
 corrected and 21 superseded, each with commit/blob/locator and reason. Its
 SHA-256 is `b2d6a7969469a9b42fecba09335434484f8421dd1e8a39f1a1edfaa29fc9310b`.
-The 63 primary replacement-S3 hunks remain preserved and pending; this is not
-source integration or acceptance. Preparatory independent review found that
-the original donor must be corrected, including strict nested schemas, actual
-input ownership and output-to-fixture identity joins.
+Primary accounting through `bafa924` is
+`provenance-audit/original-hunk-disposition-v6.json`,
+SHA-256 `9a60c84bbd6a41a9a9bae45c7e0b363804370ed1bdb50241f4846d597ae58f22`.
+It retains all 63 original identities: nineteen hunks landed (ten retained,
+nine corrected), and 44 remain pending. The 80 stopped-candidate dispositions
+are unchanged from v2. Production-v2 commit `a39ceff` lands donors 001–006,
+058 and 059; b17f63a lands corrected donor 015. Donor 057 remains pending as a
+whole: its caller wiring landed,
+but its fingerprint-row schema did not. New tests receive separate accounting.
 
 ## Commit and verification journal
 
@@ -106,6 +111,16 @@ input ownership and output-to-fixture identity joins.
 | Runtime input bridge | `efd9e9289d7b1a98c44710d5242446407d8c7055`, pushed and remote verified | Both reviewers ACCEPT patch `5eee72a37db275baac79a922a3292810eaa0fab0a6b199133062aa2437f22208`; evidence 383 pass, existing m-mode IO seven pass; four adapter cases independently pass for each reviewer; permitted AST subtraction recovers prior solver and fixture exactly; preserved synthetic cube/scientific/snapshot identities unchanged; actual public-run regression remains terminal-S work |
 | Result runtime identity accessor | `07662b20e6cf41b1e67f8badce75f62e37727350`, pushed and remote verified | Both reviewers ACCEPT patch `4be7e04926ed08f146de4919f2192e7e6162b1e44babbf8e4533ca94f09a3fd2`; exact live snapshot ownership and lowercase digest required, loaded/foreign/malformed values reject; 13 focused and 39 existing result tests pass; focused 314-diagnostic multiset unchanged, including 16 in result.py; serialization AST unchanged |
 | Acceptance sentinel lifecycle | `9f50a4cbf38b72057a097ecc3b85f1126fc9ce67`, pushed and remote verified | Both reviewers ACCEPT patch `56dab7ab677f61c3bfe7c9be087cb217b5523da30ed7e3d0e0c3c02932833759`; mandated serial module 89 pass and six future approved-A skips; two literal-null sentinels, tenth fingerprint oracle and exact historical-REJECT allowance; no disposal, topology repair or independent full numerical/history acceptance; 60 existing diagnostics unchanged; original agent run without plugin-disable flags retained only as development evidence |
+| Current-A topology | `babc0fc7cfd541d54250e087371fe5177511c826`, ordinary push and live remote verified | Both reviewers ACCEPT round-2 patch `5528ca8c512b9897b83933d92f1d65a75a9dca54a9bd73ec2990ec50628d6d7a`; committed serial module 120 pass and six future-A skips; 31 real-Git cases include replacement/graft/environment attacks; exact E sole-parent edge and literal-only binding changes; both approval sentinels remain None |
+| Reviewed D32 | `bcd79b1d6268859368d77c3f94cef334b001cb37`, pushed and live remote verified | Both independent reviewers ACCEPT frozen contract and finalization; exact two-file design successor authenticated independently; warnings-as-errors Sphinx passes; eleven modified source/test paths plus four disposals, distinct D31 R and D32 S roles, portable per-family identity proofs and independently reviewed observation admission required; no phase or observation acceptance |
+| Production characterization-input v2 | `a39ceff157d37e1a60aa19e9dd02afaabd3908a7`, pushed and live remote verified | Both reviewers ACCEPT complete patch `a52459bb45541ade89c92abc3d76d6c15fcc5612ee655acbef9749eb822d0b54`; full evidence module 450 pass, post-D32 focused 58 pass; changed-file strict diagnostics 431 to 426 with none added; all four actual public family records validated, scientific identities remain novel and unadmitted; isolated indivisible factory/schema/test slice |
+| Acceptance historical raw bytes | `3b317218fa8239a230e208600f3bcb4bfc2af4b8`, pushed and remote verified | Both reviewers ACCEPT; full module 122 pass and six future-A skips; actual blob replacement/routing regressions independently fail the parent implementation |
+| Reviewed D33 storage contract | `343ea0467420d452e9d728f0475167e74721e22f`, pushed and remote verified | Both reviewers ACCEPT final contract and finalization; strict Sphinx passes; fixed bounded inline certificate encoding preserves expanded transition digests; implementation and phase acceptance remain pending |
+| History original-object reader | `34fa01c8ab16bbaef3d829eda7afc82e7df94df1`, pushed and remote verified | Both reviewers ACCEPT round 2; 117 tests pass; scoped strict diagnostics 302 to 300 with none added; replacement/graft/routing and effective diff-driver transformations reject; original historical roles remain unchanged |
+| Evidence rejected-attempt lifecycle | `b17f63a39ee5489f0bab254191a899ae45c85e9c`, pushed and remote verified | Both reviewers ACCEPT round 2; 498 tests pass and seven future-E skips; four literal None approvals separated from authenticated historical bytes; closed benchmark-directory inventory; scoped strict 298 unchanged |
+| Dependency Git and Python isolation | `bafa924563559488469708e8c67a73d4b37454a4`, pushed and remote verified | Both reviewers ACCEPT round 2; 125 tests pass including original Stage2 replay; native startup controls reject inherited Python hooks without changing historical verifier arguments or pins; strict 108 unchanged |
+| Acceptance checkout binding | `a7a8fa33f9ff4b7da73058b2cea937b1fbd9ed81`, pushed and remote verified | Both reviewers ACCEPT round 2; 127 tests pass and six future-A skips; five independent Git controls include local core.worktree redirection in primary and registered checkouts; strict 60 unchanged |
+| Current-E topology and literal transitions | `ec94dc8337ee3a71671e8fbd61bab4985f452fd9`, pushed and remote verified | Both reviewers ACCEPT; 535 tests pass and seven future-E skips; 37 real-Git cases independently pass, plus 13 independent hostile probes; exact first S-child, sole-parent chain, four core paths and optional factual ledger; complete text preserves everything except four RHS None literals; strict 298 unchanged |
 | Frame regression | `1909829d828078fd36a905aa68cde50fcb4bfa16`, pushed and live remote verified | Two controlled expected-red assertions under each Python version: mismatch count 1, not 0; no collection/import failure |
 | Frame repair | `cfad247831629241842ffecd5f7aaa5b2084493c`, pushed and live remote verified | Both independent reviewers ACCEPT frozen full test/source patch `231f48c6d0d4bae419bb0cba0091813c928be40e3100713754c3a7c5904e00cb`; 13 frame tests pass in each environment; 7 public Python-3.12 integration tests pass in 741.40s; solver strict diagnostics remain 78 with no added diagnostic |
 | Ledger docs fix | `c245593df808e0a757925d5a02416b4608cd8661`, pushed and live remote verified | Fresh Sphinx build fetched all inventories; explicit ledger orphan declaration restored warnings-as-errors success |
@@ -117,3 +132,62 @@ journal update, avoiding self-referential commit hashes. An unexpected failing
 gate stops acceptance of its affected phase; diagnosis and authorized repair
 continue within this programme. Cancelled CI jobs and selected passing subsets
 cannot establish final closure.
+
+## Current source verification stop
+
+The committed production-v2 implementation at `a39ceff` (external
+`s3-production-v2/round3/`, patch
+`a52459bb45541ade89c92abc3d76d6c15fcc5612ee655acbef9749eb822d0b54`) received
+both independent source reviews. Its complete evidence module passes 450 tests;
+strict changed-file diagnostics introduce no new errors. The first actual
+public scalar run produces the required nine-key family record, fourteen-key
+input preimage and twenty-six-key same-run phase preimage. Its historical
+snapshot/scientific comparison stopped; that original failure is retained.
+The three remaining public-family diagnostics subsequently completed with
+`novel_unadmitted` outcomes. Their exact cube, phase and time identities match
+history; the restricted certificate substitution reconstructs every historical
+snapshot and scientific hash. The complete run retained 279 authenticated
+artifacts, including actual HDF5 results and independently rehashable scientific
+preimages. All source, helper, driver and working-state checks passed. Aggregate
+`unadmitted-family-diagnostic/verification.json` under the round-3 bundle hashes
+to `b52742f9e9bf90c7a29d3c48e3a3214752dbea1aff0a352dd4d05ebf1ba77129`.
+Both reviewers independently accepted those three causal proofs; the required
+D32 append-candidate admission reviews remain separate and pending.
+
+Both reviewers independently accepted the scalar causal diagnosis in
+`frame-investigation/certificate-probe/` and `scientific-preimage-probe/`.
+The phase, cube and characterization-time identities remain exact. The whole
+solver-file hashes changed at `cfad247` and `efd9e92`, propagating through the
+certificate's enclosure/error/ledger hashes and the existing solver field.
+Substituting only authenticated historical implementation hashes reconstructs
+the exact historical certificate. The complete offline scientific preimages
+then reconstruct actual `03b7f62a1daaf091ea16b1caa78a0e16a481622bad8e5b78ba5af0dc2dbed45a`
+and historical `a8852fd181e8f1ddd08e24e01066bcede2e1e1541fba9a067d47f0febc51c344`;
+only the solver certificate field differs. The scientific-preimage artifact
+manifest hashes to `f781e42488352b71d0b974b6cd67c3de026af1d01f01a955b603939bf2f0a3e8`.
+These are explicitly reconstructed preimages, not another public result.
+
+D32 and D33 now supply the independently reviewed prospective contracts.
+All four expanded thirteen-field transition candidates are retained under
+`d32-transition-material/`; their independent portable verification SHA-256 is
+`ddaccddcfba27dc6c26e7f5979dd6cdcbc2f05779665c61cdb5f665c4bc5c7d5`.
+No retained primitive is missing. The exact owner-defined EarthLocation
+round trip reconciles result and frame coordinates without a tolerance change.
+
+The expanded four-row array measures 143,135,033 bytes before ordinary evidence
+and admission reviews. D33 therefore defines bounded, lossless inline storage
+for only the eight certificate values, while preserving the expanded transition
+digest domain. The measured canonical encoded array is 38,929,073 bytes before
+ordinary evidence and reviews; the complete final artifact must still pass the
+specified size guard. The codec and portable admission verifier remain to be
+implemented. No observation has been appended and generation remains closed.
+
+The reproduced replacement-ref history bypass is repaired at `34fa01c`.
+Its retained original exploit is `d32-history-auth-audit/probe-result.json`,
+SHA-256 `8e9e8a247cd1e035b5c7470cd75e7d2aa7ce4f945a76f64ddf9424cebce05819`.
+It does not establish that a retained historical record was forged.
+The current-E selector landed at `ec94dc8` after 535 passing tests, seven
+future-E skips and both independent ACCEPT reviews. Exact D32/D33 authority
+wiring, remaining
+schema/proof integration, reviewed observation admission and final disposal
+precede the complete terminal-source gates and separate E/A acceptance.
