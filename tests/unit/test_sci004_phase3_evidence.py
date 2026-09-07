@@ -12,7 +12,7 @@ annotation, key, surrounding token, or other literal in any of the four
 assignments may change, so this module's own token stream outside those four
 spans is comparable to its direct-parent ``S3`` bytes.
 
-``E3`` is the one phase whose write authority is four paths rather than three:
+``E3`` has four core paths plus D30's optional factual completion-ledger companion:
 Section 13.5 grants the evidence JSON, its reproduction record, this
 validator's constants, and exactly one
 ``output/benchmarks/reference/sci004/<UTC>-<host>.json`` record.  The fourth is
@@ -52,6 +52,7 @@ import subprocess
 import sys
 import time
 import tokenize
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -3747,17 +3748,28 @@ def _git(*arguments: str) -> str:
 
 
 def _locate_evidence_commit() -> str:
-    """Return the unique commit that introduced the phase evidence artifact."""
-    introductions = _git(
-        "log", "--diff-filter=A", "--format=%H", "HEAD", "--", ARTIFACT
-    ).split()
-    assert len(introductions) == 1, (
-        f"{ARTIFACT} must be introduced by exactly one commit on HEAD's "
-        f"ancestry; observed {introductions}"
+    """Select current E on HEAD's actual first-parent chain after terminal S."""
+    parent = APPROVED_SOURCE_SHA
+    assert parent is not None and GIT_SHA.fullmatch(parent)
+    assert parent in _git("rev-list", "--first-parent", "HEAD").split(), (
+        "approved S is not on HEAD's first-parent chain"
     )
-    located = introductions[0]
-    assert GIT_SHA.fullmatch(located)
-    return located
+    assert len(_git("rev-list", "--parents", "-n", "1", parent).split()) == 2, (
+        "approved S must have exactly one parent"
+    )
+    current = _git(
+        "rev-list", "--first-parent", "--ancestry-path", "--reverse", f"{parent}..HEAD"
+    ).split()
+    assert current, "HEAD has no first-parent descendant after approved S"
+    previous = parent
+    for commit in current:
+        assert GIT_SHA.fullmatch(commit)
+        assert _git("rev-list", "--parents", "-n", "1", commit).split() == [
+            commit,
+            previous,
+        ], "current evidence ancestry must be a sole-parent chain"
+        previous = commit
+    return current[0]
 
 
 def _e3_regular_blob(commit: str, path: str) -> bytes:
@@ -3838,25 +3850,47 @@ def _e3_authorized_paths() -> frozenset[str]:
     )
 
 
+def _e3_factual_ledger_suffix() -> bytes:
+    """Supported optional companion: append these pin-derived facts verbatim.
+
+    D30 permits factual status prose; this exact supported form is the validator's
+    implementation choice, not syntax prescribed by D30. Parent ledger bytes and
+    regular-file mode are preserved. No acceptance or contract claim is permitted.
+    """
+    return (
+        "\n\n## Current M3 evidence record\n\n"
+        f"- Source commit: `{APPROVED_SOURCE_SHA}`.\n"
+        f"- Evidence artifact: `{ARTIFACT}`; SHA-256 `{APPROVED_ARTIFACT_SHA256}`.\n"
+        f"- Performance record: `{APPROVED_PERFORMANCE_PATH}`; "
+        f"SHA-256 `{APPROVED_PERFORMANCE_SHA256}`.\n"
+        "- Independent M3 acceptance remains pending.\n"
+    ).encode()
+
+
 def test_the_artifact_introducing_commit_directly_parents_the_approved_source() -> None:
     """Section 14.2's ``E3`` ancestry clause, skipped until the constants flip."""
     if APPROVED_ARTIFACT_SHA256 is None or APPROVED_SOURCE_SHA is None:
         pytest.skip("the M3 evidence artifact is authorized at E3")
     located = _locate_evidence_commit()
-    lineage = _git("rev-list", "--parents", "-n", "1", located).split()
-    assert lineage[0] == located
-    assert len(lineage) == 2, (
-        f"the artifact-introducing commit {located} must be a non-merge commit "
-        f"with exactly one parent; observed {lineage[1:]}"
-    )
-    assert lineage[1] == APPROVED_SOURCE_SHA, (
-        f"the direct parent of {located} is {lineage[1]}, not the approved "
-        f"source {APPROVED_SOURCE_SHA}"
-    )
-    payload = _git("show", f"{located}:{ARTIFACT}")
-    assert (
-        hashlib.sha256(payload.encode("utf-8")).hexdigest() == APPROVED_ARTIFACT_SHA256
-    )
+    _authenticate_e_artifacts(located)
+
+
+def _authenticate_e_artifacts(located: str) -> None:
+    assert APPROVED_SOURCE_SHA is not None
+    for path, digest in (
+        (ARTIFACT, APPROVED_ARTIFACT_SHA256),
+        (APPROVED_PERFORMANCE_PATH, APPROVED_PERFORMANCE_SHA256),
+        (REPRODUCTION, None),
+    ):
+        assert path is not None
+        assert not _git_bytes("ls-tree", "-z", APPROVED_SOURCE_SHA, "--", path), (
+            f"{path} must be absent at terminal S"
+        )
+        payload = _e3_regular_blob(located, path)
+        if digest is not None:
+            assert hashlib.sha256(payload).hexdigest() == digest
+    artifact = json.loads(_e3_regular_blob(located, ARTIFACT))
+    assert artifact["source_sha"] == APPROVED_SOURCE_SHA
 
 
 def test_the_e3_diff_writes_only_the_section_13_5_authorized_paths() -> None:
@@ -3865,25 +3899,23 @@ def test_the_e3_diff_writes_only_the_section_13_5_authorized_paths() -> None:
         pytest.skip("the M3 evidence artifact is authorized at E3")
     located = _locate_evidence_commit()
     changed = set(
-        _git("diff-tree", "--no-commit-id", "--name-only", "-r", located).split()
+        _git_bytes("diff", "--name-only", "-z", f"{located}^", located, "--")
+        .removesuffix(b"\0")
+        .split(b"\0")
     )
-    assert ARTIFACT in changed
-    assert APPROVED_PERFORMANCE_PATH in changed, (
-        "the E3 commit must add the authenticated performance record beside the "
-        "envelope; a partial set is invalid"
+    core = {path.encode("utf-8") for path in _e3_authorized_paths()}
+    ledger = "docs/development/completion_ledger.md"
+    assert core <= changed <= core | {ledger.encode("utf-8")}, (
+        f"E3 must write its four core paths and only its optional ledger; {changed!r}"
     )
-    unauthorized = sorted(changed - _e3_authorized_paths())
-    assert not unauthorized, (
-        f"the E3 commit {located} writes {unauthorized}, which Section 13.5 "
-        f"does not authorize"
-    )
-    retained = sorted(
-        path for path in changed if path.startswith(PERFORMANCE_DIRECTORY + "/")
-    )
-    assert retained == [APPROVED_PERFORMANCE_PATH], (
-        "Section 13.5 authorizes exactly one new performance record"
-    )
-    record = _git("show", f"{located}:{REPRODUCTION}")
+    if ledger.encode("utf-8") in changed:
+        _authenticate_e_artifacts(located)
+        before = _e3_regular_blob(f"{located}^", ledger)
+        after = _e3_regular_blob(located, ledger)
+        assert after == before + _e3_factual_ledger_suffix(), (
+            "E3 ledger companion must preserve parent bytes and append only its facts"
+        )
+    record = _e3_regular_blob(located, REPRODUCTION).decode("utf-8")
     assert record.startswith(REPRODUCTION_FRONT_MATTER), (
         "the reproduction record must open with Section 14.2's exact MyST front matter"
     )
@@ -3895,8 +3927,8 @@ def test_the_e3_diff_changes_only_the_four_approved_constant_assignments() -> No
         pytest.skip("the M3 evidence artifact is authorized at E3")
     located = _locate_evidence_commit()
     parent = _git("rev-list", "--parents", "-n", "1", located).split()[1]
-    before = _git("show", f"{parent}:{VALIDATOR}")
-    after = _git("show", f"{located}:{VALIDATOR}")
+    before = _e3_regular_blob(parent, VALIDATOR).decode("utf-8")
+    after = _e3_regular_blob(located, VALIDATOR).decode("utf-8")
 
     assert _outside_spans(before) == _outside_spans(after), (
         f"the E3 commit {located} changed this module outside the four approved "
@@ -3911,6 +3943,8 @@ def test_the_e3_diff_changes_only_the_four_approved_constant_assignments() -> No
         APPROVED_PERFORMANCE_PATH,
         APPROVED_PERFORMANCE_SHA256,
     )
+    replacements: list[tuple[int, int, str]] = []
+    lines = before.splitlines(keepends=True)
     for name, body_before, body_after, value in zip(
         APPROVED_CONSTANT_NAMES, bodies_before, bodies_after, approved, strict=True
     ):
@@ -3920,6 +3954,355 @@ def test_the_e3_diff_changes_only_the_four_approved_constant_assignments() -> No
         assert _assigned_literal(body_after) == f'"{value}"', (
             f"{name} at {located} is not the approved literal"
         )
+        equal = next(i for i, token in enumerate(body_before) if token.string == "=")
+        expected = [(token.type, token.string) for token in body_before]
+        rhs_nulls = [
+            i
+            for i in range(equal + 1, len(expected))
+            if expected[i] == (tokenize.NAME, "None")
+        ]
+        assert len(rhs_nulls) == 1, "approved source must have exactly one RHS None"
+        index = rhs_nulls[0]
+        expected[index] = (tokenize.STRING, f'"{value}"')
+        token = body_before[index]
+        start = sum(map(len, lines[: int(token.start[0]) - 1])) + int(token.start[1])
+        stop = sum(map(len, lines[: int(token.end[0]) - 1])) + int(token.end[1])
+        replacements.append((start, stop, f'"{value}"'))
+        assert [(token.type, token.string) for token in body_after] == expected, (
+            f"{name} changed tokens other than its approved value"
+        )
+    expected_source = before
+    for start, stop, literal in reversed(replacements):
+        expected_source = expected_source[:start] + literal + expected_source[stop:]
+    assert after == expected_source, "E3 may replace only the four RHS None literals"
+
+
+def _e_topology_commit(files: Mapping[str, bytes | None]) -> str:
+    """Write synthetic bytes only inside the fixture's temporary repository."""
+    for name, raw in files.items():
+        path = REPOSITORY_ROOT / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if raw is None:
+            path.unlink()
+        else:
+            _ = path.write_bytes(raw)
+    _ = _git("add", "--all")
+    _ = _git("commit", "--allow-empty", "-qm", "synthetic E topology")
+    return _git("rev-parse", "HEAD").strip()
+
+
+def _e_topology_merge(*parents: str) -> str:
+    arguments = ["commit-tree", _git("write-tree").strip(), "-m", "synthetic merge"]
+    for parent in parents:
+        arguments.extend(("-p", parent))
+    commit = _git(*arguments).strip()
+    _ = _git("update-ref", "HEAD", commit)
+    return commit
+
+
+@pytest.fixture
+def evidence_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> tuple[str, str]:
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", tmp_path)
+    _ = _git("init", "-q")
+    for key, value in {
+        "user.name": "Synthetic Fixture",
+        "user.email": "fixture@example.invalid",
+        "commit.gpgsign": "false",
+        "core.autocrlf": "false",
+        "core.hooksPath": os.devnull,
+    }.items():
+        _ = _git("config", key, value)
+    _ = _e_topology_commit({ARTIFACT: b'{"verdict":"REJECT"}\n'})
+    nulls = "".join(f"{name}: str | None = None\n" for name in APPROVED_CONSTANT_NAMES)
+    parenthesized = getattr(request, "param", "plain") == "parenthesized"
+    if parenthesized:
+        nulls = nulls.replace("= None\n", "= (\n    None  # retained comment\n)\n")
+    source = _e_topology_commit(
+        {
+            ARTIFACT: None,
+            VALIDATOR: nulls.encode(),
+            "docs/development/completion_ledger.md": b"# Synthetic ledger\r\n",
+        }
+    )
+    raw = json.dumps({"source_sha": source, "label": "é"}, ensure_ascii=False).encode()
+    raw += b"\r\n"
+    performance_path = PERFORMANCE_DIRECTORY + "/synthetic.json"
+    performance = b'{"synthetic":true}\r\n'
+    values = (
+        source,
+        hashlib.sha256(raw).hexdigest(),
+        performance_path,
+        hashlib.sha256(performance).hexdigest(),
+    )
+    approved = nulls
+    for name, value in zip(APPROVED_CONSTANT_NAMES, values, strict=True):
+        monkeypatch.setattr(sys.modules[__name__], name, value)
+        if parenthesized:
+            approved = approved.replace("    None", f'    "{value}"', 1)
+        else:
+            approved = approved.replace("= None", f'= "{value}"', 1)
+    evidence = _e_topology_commit(
+        {
+            ARTIFACT: raw,
+            REPRODUCTION: (REPRODUCTION_FRONT_MATTER + "\nsynthetic\n").encode(),
+            VALIDATOR: approved.encode(),
+            performance_path: performance,
+        }
+    )
+    return source, evidence
+
+
+def _check_current_e() -> None:
+    test_the_artifact_introducing_commit_directly_parents_the_approved_source()
+    test_the_e3_diff_writes_only_the_section_13_5_authorized_paths()
+    test_the_e3_diff_changes_only_the_four_approved_constant_assignments()
+
+
+def test_evidence_topology_selects_current_add_with_raw_utf8(
+    evidence_git: tuple[str, str],
+) -> None:
+    _source, evidence = evidence_git
+    _ = _e_topology_commit({"later.txt": b"ordinary descendant"})
+    assert (
+        len(_git("log", "--diff-filter=A", "--format=%H", "--", ARTIFACT).split()) == 2
+    )
+    assert _locate_evidence_commit() == evidence
+    _check_current_e()
+
+
+@pytest.mark.parametrize(
+    "mutation", ["at-s", "side-s", "merge-s", "merge-e", "later-merge", "gap"]
+)
+def test_evidence_topology_rejects_ancestry(
+    evidence_git: tuple[str, str], monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    source, evidence = evidence_git
+    ancestor = _git("rev-parse", f"{source}^").strip()
+    if mutation == "at-s":
+        _ = _git("checkout", "--detach", "-q", source)
+    elif mutation == "side-s":
+        _ = _e_topology_merge(ancestor, source)
+    elif mutation == "merge-s":
+        _ = _git("checkout", "--detach", "-q", source)
+        merged = _e_topology_merge(source, ancestor)
+        monkeypatch.setattr(sys.modules[__name__], "APPROVED_SOURCE_SHA", merged)
+        _ = _e_topology_commit({})
+    elif mutation in {"merge-e", "later-merge"}:
+        _ = _e_topology_merge(source if mutation == "merge-e" else evidence, ancestor)
+    else:
+        _ = _git("checkout", "--detach", "-q", source)
+        _ = _e_topology_commit({"intermediate.txt": b"unruled gap"})
+        _ = _e_topology_commit({ARTIFACT: _git_bytes("show", f"{evidence}:{ARTIFACT}")})
+    with pytest.raises(AssertionError):
+        _check_current_e()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "artifact-bytes",
+        "performance-bytes",
+        "normalized-digest",
+        "source-binding",
+        "path-newline",
+        "path-tab",
+        "missing-record",
+        "preexisting",
+        "symlink",
+        "gitlink",
+        "validator-mode",
+        "annotation",
+        "expression",
+        "comment",
+        "logic",
+        "wrong-pin",
+        "spacing",
+    ],
+)
+def test_evidence_topology_rejects_content(
+    evidence_git: tuple[str, str], monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    source, evidence = evidence_git
+    files = {
+        path: _git_bytes("show", f"{evidence}:{path}")
+        for path in _e3_authorized_paths()
+    }
+    _ = _git("checkout", "--detach", "-q", source)
+    if mutation in {"artifact-bytes", "performance-bytes"}:
+        path = (
+            ARTIFACT if mutation == "artifact-bytes" else str(APPROVED_PERFORMANCE_PATH)
+        )
+        files[path] += b" "
+    elif mutation in {"normalized-digest", "source-binding"}:
+        raw = files[ARTIFACT].replace(b"\r\n", b"\n")
+        if mutation == "source-binding":
+            raw = files[ARTIFACT].replace(source.encode(), evidence.encode())
+            files[ARTIFACT] = raw
+        monkeypatch.setattr(
+            sys.modules[__name__],
+            "APPROVED_ARTIFACT_SHA256",
+            hashlib.sha256(raw).hexdigest(),
+        )
+    elif mutation.startswith("path-"):
+        files[
+            "forbidden\npath" if mutation == "path-newline" else "forbidden\tpath"
+        ] = b"extra"
+    elif mutation == "missing-record":
+        del files[REPRODUCTION]
+    elif mutation == "preexisting":
+        parent = _e_topology_commit({ARTIFACT: files[ARTIFACT]})
+        monkeypatch.setattr(sys.modules[__name__], "APPROVED_SOURCE_SHA", parent)
+    elif mutation in {"symlink", "gitlink"}:
+        del files[ARTIFACT]
+        if mutation == "symlink":
+            path = REPOSITORY_ROOT / ARTIFACT
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to("missing-target")
+    elif mutation == "annotation":
+        files[VALIDATOR] = files[VALIDATOR].replace(b"str | None", b"str", 1)
+    elif mutation == "expression":
+        files[VALIDATOR] = (
+            files[VALIDATOR].replace(b"= ", b"= str(", 1).replace(b"\n", b")\n", 1)
+        )
+    elif mutation == "comment":
+        files[VALIDATOR] = files[VALIDATOR].replace(b"\n", b" # unauthorized\n", 1)
+    elif mutation == "logic":
+        files[VALIDATOR] += b"changed = True\n"
+    elif mutation == "wrong-pin":
+        files[VALIDATOR] = files[VALIDATOR].replace(source.encode(), evidence.encode())
+    elif mutation == "spacing":
+        files[VALIDATOR] = files[VALIDATOR].replace(b" = ", b"  = ", 1)
+    _ = _e_topology_commit(files)
+    if mutation in {"gitlink", "validator-mode"}:
+        if mutation == "gitlink":
+            _ = _git(
+                "update-index", "--add", "--cacheinfo", f"160000,{evidence},{ARTIFACT}"
+            )
+        else:
+            _ = _git("update-index", "--chmod=+x", VALIDATOR)
+        _ = _git("commit", "--amend", "--no-edit", "-q")
+    with pytest.raises(AssertionError):
+        _check_current_e()
+
+
+@pytest.mark.parametrize(
+    "overlay", ["replace", "replace-blob", "graft-file", "graft-environment"]
+)
+def test_evidence_topology_rejects_history_overlays(
+    evidence_git: tuple[str, str], monkeypatch: pytest.MonkeyPatch, overlay: str
+) -> None:
+    source, good = evidence_git
+    files = {
+        path: _git_bytes("show", f"{good}:{path}") for path in _e3_authorized_paths()
+    }
+    raw = files[ARTIFACT]
+    _ = _git("checkout", "--detach", "-q", source)
+    if overlay == "replace":
+        files["forbidden.py"] = b"unauthorized"
+    elif overlay == "replace-blob":
+        files[ARTIFACT] += b" "
+    else:
+        _ = _e_topology_commit({})
+    bad = _e_topology_commit(files)
+    if overlay == "replace":
+        _ = _git("replace", bad, good)
+    elif overlay == "replace-blob":
+        _ = _git(
+            "replace",
+            _git("rev-parse", f"{bad}:{ARTIFACT}").strip(),
+            _git("rev-parse", f"{good}:{ARTIFACT}").strip(),
+        )
+    else:
+        graft = REPOSITORY_ROOT / (
+            ".git/info/grafts" if overlay == "graft-file" else "external-graft"
+        )
+        graft.parent.mkdir(parents=True, exist_ok=True)
+        _ = graft.write_text(f"{bad} {source}\n")
+        if overlay == "graft-environment":
+            monkeypatch.setenv("GIT_GRAFT_FILE", str(graft))
+    # Ordinary Git sees the forged parent/tree/blob, while authentication rejects it.
+    assert subprocess.check_output(
+        ["git", "rev-list", "--parents", "-n", "1", bad], cwd=REPOSITORY_ROOT
+    ).decode().split() == [bad, source]
+    assert (
+        subprocess.check_output(
+            ["git", "show", f"{bad}:{ARTIFACT}"], cwd=REPOSITORY_ROOT
+        )
+        == raw
+    )
+    with pytest.raises(AssertionError):
+        _check_current_e()
+
+
+def test_evidence_topology_ignores_environment_and_presentation_redirects(
+    evidence_git: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = evidence_git
+    for key in (
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ):
+        monkeypatch.setenv(key, str(REPOSITORY_ROOT / "missing"))
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "diff.external")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/usr/bin/false")
+    _ = _git("config", "diff.external", "/usr/bin/false")
+    _ = _git("config", "diff.relative", "true")
+    _check_current_e()
+    assert os.environ["GIT_CONFIG_COUNT"] == "1"
+
+
+@pytest.mark.parametrize("evidence_git", ["parenthesized"], indirect=True)
+def test_evidence_topology_preserves_parenthesized_rhs_comments(
+    evidence_git: tuple[str, str],
+) -> None:
+    _ = evidence_git
+    _check_current_e()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["facts", "prior-bytes", "forged-pin", "acceptance", "contract", "mode", "delete"],
+)
+def test_evidence_topology_restricts_optional_factual_ledger(
+    evidence_git: tuple[str, str], mutation: str
+) -> None:
+    source, evidence = evidence_git
+    ledger = "docs/development/completion_ledger.md"
+    before = _git_bytes("show", f"{source}:{ledger}")
+    files: dict[str, bytes | None] = {
+        path: _git_bytes("show", f"{evidence}:{path}")
+        for path in _e3_authorized_paths()
+    }
+    suffix = _e3_factual_ledger_suffix()
+    additions = {
+        "acceptance": b"M3 is accepted.\n",
+        "contract": b"Future tolerances may be relaxed.\n",
+    }
+    if mutation == "forged-pin":
+        suffix = suffix.replace(source.encode(), ("0" * 40).encode())
+    files[ledger] = (
+        None
+        if mutation == "delete"
+        else (b"rewritten prior ledger\n" if mutation == "prior-bytes" else before)
+        + suffix
+        + additions.get(mutation, b"")
+    )
+    _ = _git("checkout", "--detach", "-q", source)
+    _ = _e_topology_commit(files)
+    if mutation == "mode":
+        _ = _git("update-index", "--chmod=+x", ledger)
+        _ = _git("commit", "--amend", "--no-edit", "-q")
+    if mutation == "facts":
+        _check_current_e()
+    else:
+        with pytest.raises(AssertionError, match="ledger companion|regular-file"):
+            _check_current_e()
 
 
 def test_the_retained_artifact_authenticates_against_the_approved_constants() -> None:
