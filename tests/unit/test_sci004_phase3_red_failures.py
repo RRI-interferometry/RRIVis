@@ -519,19 +519,67 @@ def domain_digest(domain: str, payload: bytes) -> str:
 # --- Git object access --------------------------------------------------------
 
 
-def _git(*arguments: str) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=REPOSITORY_ROOT,
+def _red_git_environment() -> dict[str, str]:
+    """Keep caller Git routing and object overlays outside raw authentication."""
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_ATTR_NOSYSTEM="1",
+    )
+    return environment
+
+
+def _red_git_process(
+    arguments: Sequence[str], *, cwd: Path | None = None
+) -> subprocess.CompletedProcess[bytes]:
+    """Read original objects and path inventories from the explicit repository."""
+    if arguments[0] in {"diff", "diff-tree"}:
+        command, *rest = arguments
+        arguments = (
+            command,
+            "--no-ext-diff",
+            "--no-textconv",
+            "--ignore-submodules=none",
+            "--find-renames" if command == "diff" else "--no-renames",
+            *rest,
+        )
+    elif arguments[0] == "show":
+        arguments = ("show", "--no-ext-diff", "--no-textconv", *arguments[1:])
+    return subprocess.run(
+        [
+            "git",
+            "--no-pager",
+            "--no-replace-objects",
+            "--literal-pathspecs",
+            "-c",
+            "core.commitGraph=false",
+            "-c",
+            "core.attributesFile=" + os.devnull,
+            "-c",
+            "color.ui=false",
+            *arguments,
+        ],
+        cwd=(REPOSITORY_ROOT if cwd is None else cwd).resolve(),
+        env=_red_git_environment(),
         capture_output=True,
-        text=True,
         check=False,
     )
+
+
+def _git(*arguments: str) -> str:
+    completed = _red_git_process(arguments)
     if completed.returncode != 0:
         raise RedRecordSchemaError(
-            f"git {' '.join(arguments)} failed: {completed.stderr.strip()}"
+            f"git {' '.join(arguments)} failed: "
+            f"{completed.stderr.decode('utf-8', 'replace').strip()}"
         )
-    return completed.stdout
+    return completed.stdout.decode("utf-8")
 
 
 def _peel_to_commit(revision: str) -> str:
@@ -539,25 +587,175 @@ def _peel_to_commit(revision: str) -> str:
 
 
 def _is_ancestor(ancestor: str, descendant: str) -> bool:
-    completed = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
-    )
+    completed = _red_git_process(("merge-base", "--is-ancestor", ancestor, descendant))
+    if completed.returncode not in (0, 1):
+        raise RedRecordSchemaError("raw Git ancestry query failed")
     return completed.returncode == 0
 
 
 def _tree_blob(commit: str, relative: str) -> bytes:
-    listing = _git("ls-tree", commit, "--", relative).split()
-    if not listing:
-        raise RedRecordSchemaError(f"{relative} is absent from {commit}")
+    listing = _git("ls-tree", "-z", commit, "--", relative).split("\0")
+    if len(listing) != 2 or listing[-1] != "" or "\t" not in listing[0]:
+        raise RedRecordSchemaError(f"{relative} is absent or ambiguous at {commit}")
+    metadata, path = listing[0].split("\t", 1)
+    fields = metadata.split()
+    if (
+        len(fields) != 3
+        or fields[0] not in {"100644", "100755"}
+        or fields[1] != "blob"
+        or path != relative
+    ):
+        raise RedRecordSchemaError(f"{relative} is not a regular blob at {commit}")
+    completed = _red_git_process(("cat-file", "blob", fields[2]))
+    if completed.returncode != 0:
+        raise RedRecordSchemaError(f"cannot read raw blob {relative} at {commit}")
+    return completed.stdout
+
+
+def _native_red_git(root: Path, *arguments: str, data: bytes | None = None) -> bytes:
+    """Create/control hostile Git state only in the synthetic test repository."""
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_AUTHOR_NAME="Synthetic raw Git test",
+        GIT_AUTHOR_EMAIL="raw@example.invalid",
+        GIT_COMMITTER_NAME="Synthetic raw Git test",
+        GIT_COMMITTER_EMAIL="raw@example.invalid",
+    )
     return subprocess.run(
-        ["git", "cat-file", "blob", listing[2]],
-        cwd=REPOSITORY_ROOT,
+        ["git", *arguments],
+        cwd=root,
+        env=environment,
+        input=data,
         capture_output=True,
         check=True,
     ).stdout
+
+
+def _raw_red_commit(root: Path, parent: str | None, payload: bytes) -> str:
+    blob = (
+        _native_red_git(root, "hash-object", "-w", "--stdin", data=payload)
+        .decode()
+        .strip()
+    )
+    tree = (
+        _native_red_git(
+            root, "mktree", data=f"100644 blob {blob}\toracle.py\n".encode()
+        )
+        .decode()
+        .strip()
+    )
+    arguments = ["commit-tree", tree]
+    if parent is not None:
+        arguments.extend(("-p", parent))
+    return (
+        _native_red_git(root, *arguments, data=b"synthetic commit\n").decode().strip()
+    )
+
+
+@pytest.fixture
+def raw_red_git_repository(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, str, str]:
+    root = tmp_path / "objects.git"
+    root.mkdir()
+    _ = _native_red_git(root, "init", "--bare", ".")
+    parent = _raw_red_commit(root, None, b"before\n")
+    child = _raw_red_commit(root, parent, b"after\n")
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", root)
+    return root, parent, child
+
+
+@pytest.mark.parametrize("overlay", ["commit", "blob", "graft", "graft-env"])
+def test_raw_red_git_reads_original_objects_and_parents(
+    raw_red_git_repository: tuple[Path, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    overlay: str,
+) -> None:
+    root, parent, child = raw_red_git_repository
+    expected = _git("diff", "--binary", "--full-index", parent, child)
+    if overlay in {"commit", "blob"}:
+        left, right = child, parent
+        if overlay == "blob":
+            left = (
+                _native_red_git(root, "rev-parse", f"{child}:oracle.py")
+                .decode()
+                .strip()
+            )
+            right = (
+                _native_red_git(root, "rev-parse", f"{parent}:oracle.py")
+                .decode()
+                .strip()
+            )
+        _ = _native_red_git(root, "replace", left, right)
+        assert _native_red_git(root, "show", f"{child}:oracle.py") == b"before\n"
+    else:
+        graft = root / "info/grafts"
+        if overlay == "graft-env":
+            graft = root / "outside-graft"
+            monkeypatch.setenv("GIT_GRAFT_FILE", str(graft))
+        _ = graft.write_text(f"{child}\n")
+        native = subprocess.run(
+            ["git", "rev-list", "--parents", "-n", "1", child],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        )
+        assert native.stdout.split() == [child.encode()]
+    assert _tree_blob(child, "oracle.py") == b"after\n"
+    assert _git("rev-list", "--parents", "-n", "1", child).split() == [child, parent]
+    assert _git("diff", "--binary", "--full-index", parent, child) == expected
+    assert _is_ancestor(parent, child) and not _is_ancestor(child, parent)
+    with pytest.raises(RedRecordSchemaError, match="ancestry"):
+        _ = _is_ancestor("0" * 40, child)
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "GIT_DIR",
+        "GIT_COMMON_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ],
+)
+def test_raw_red_git_ignores_caller_repository_routing(
+    raw_red_git_repository: tuple[Path, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    variable: str,
+) -> None:
+    root, parent, child = raw_red_git_repository
+    monkeypatch.setenv(variable, str(root / "missing-routing-target"))
+    assert _tree_blob(child, "oracle.py") == b"after\n"
+    assert _is_ancestor(parent, child)
+    assert _git("diff", "--name-only", parent, child) == "oracle.py\n"
+    assert os.environ[variable] == str(root / "missing-routing-target")
+
+
+def test_raw_red_git_path_inventory_cannot_hide_gitlinks(
+    raw_red_git_repository: tuple[Path, str, str],
+) -> None:
+    root, _, child = raw_red_git_repository
+    entries = _native_red_git(root, "ls-tree", child)
+    entries += f"160000 commit {child}\tforbidden-module\n".encode()
+    tree = _native_red_git(root, "mktree", data=entries).decode().strip()
+    bad = (
+        _native_red_git(root, "commit-tree", tree, "-p", child, data=b"gitlink\n")
+        .decode()
+        .strip()
+    )
+    _ = _native_red_git(root, "config", "diff.ignoreSubmodules", "all")
+    assert _native_red_git(root, "diff", "--name-only", child, bad) == b""
+    assert _git("diff", "--name-only", child, bad) == "forbidden-module\n"
+    assert (
+        _git("diff-tree", "--no-commit-id", "--name-only", "-r", bad)
+        == "forbidden-module\n"
+    )
 
 
 # --- loading ------------------------------------------------------------------
