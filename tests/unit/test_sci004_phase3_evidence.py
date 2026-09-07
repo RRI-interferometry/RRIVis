@@ -7028,3 +7028,183 @@ def test_scientific_solver_refuses_closed_schema_and_typed_mutations(
         row["lmax"] = 16.0
     with pytest.raises(module.EvidenceError):
         module.validate_scientific_solver(row, family, iers, label="solver")
+
+
+def _synthetic_frame_structure() -> dict[str, Any]:
+    """Only a structural specimen; nested empty values cannot establish a certificate."""
+    row: dict[str, Any] = {}
+    for key in """
+        certificate_sha256 site_sha256 input_identity_sha256 iers_table_sha256
+        frame_matrix_sha256 canonical_era_turn_grid_sha256 canonical_era_grid_sha256
+        transfer_grid_catalog_sha256 direction_ledger_sha256 horizon_scan_sha256
+        horizon_scan_ledger_sha256 horizon_root_pair_ledger_sha256
+        horizon_slab_ledger_sha256 horizon_sign_interval_ledger_sha256
+        horizon_membership_ledger_sha256 direct_split_ledger_sha256
+        direct_integrand_enclosure_sha256 frozen_gauss64_cube_sha256
+        frozen_gauss128_cube_sha256 operational_gauss64_cube_sha256
+        operational_gauss128_cube_sha256 frozen_enclosure_error_cube_sha256
+        operational_enclosure_error_cube_sha256
+    """.split():
+        row[key] = "0" * 64
+    for key in """
+        sidereal_samples quadrature_nside n_baselines n_frequencies n_correlations
+        expected_point_direction_count evaluated_point_direction_count
+        expected_native_healpix_direction_count
+        evaluated_native_healpix_direction_count
+        expected_production_transfer_direction_count
+        evaluated_production_transfer_direction_count
+        expected_diagnostic_transfer_direction_count
+        evaluated_diagnostic_transfer_direction_count
+        expected_transfer_quadrature_direction_count
+        evaluated_transfer_quadrature_direction_count expected_direction_count
+        evaluated_direction_count expected_phase_comparison_count
+        evaluated_phase_comparison_count expected_horizon_trajectory_count
+        evaluated_horizon_trajectory_count expected_horizon_root_pair_row_count
+        evaluated_horizon_root_pair_row_count expected_horizon_membership_count
+        evaluated_horizon_membership_count expected_direct_exposure_split_count
+        evaluated_direct_exposure_split_count expected_direct_split_row_count
+        evaluated_direct_split_row_count expected_frozen_gauss64_node_count
+        evaluated_frozen_gauss64_node_count expected_frozen_gauss128_node_count
+        evaluated_frozen_gauss128_node_count expected_operational_gauss64_node_count
+        evaluated_operational_gauss64_node_count
+        expected_operational_gauss128_node_count
+        evaluated_operational_gauss128_node_count horizon_isolation_interval_count
+        horizon_unresolved_interval_count expected_horizon_slab_row_count
+        evaluated_horizon_slab_row_count expected_horizon_sign_interval_count
+        evaluated_horizon_sign_interval_count horizon_root_count_mismatches
+        horizon_root_orientation_mismatches horizon_membership_mismatches
+        horizon_outside_slab_sign_mismatches horizon_paired_root_count
+        horizon_mismatch_slab_count expected_cube_cell_count
+        evaluated_frozen_gauss64_cube_cell_count
+        evaluated_frozen_gauss128_cube_cell_count
+        evaluated_operational_gauss64_cube_cell_count
+        evaluated_operational_gauss128_cube_cell_count
+        compared_frozen_gauss_change_cell_count
+        compared_operational_gauss_change_cell_count
+        evaluated_frozen_enclosure_error_cell_count
+        evaluated_operational_enclosure_error_cell_count
+    """.split():
+        row[key] = 0
+    for key in """
+        xp0_arcsec yp0_arcsec das2r_rad_per_arcsec xp0_rad yp0_rad sp0_rad
+    """.split():
+        row[key] = "0000000000000000"
+    for key in """
+        horizon_mismatch_measure_rad horizon_mismatch_measure_limit_rad
+        horizon_root_max_rad horizon_root_limit_rad phase_max_rad phase_limit_rad
+        direct_gauss_scale_jy frozen_gauss_change_max_jy
+        operational_gauss_change_max_jy direct_gauss_change_max_jy
+        direct_gauss_change_limit_jy cube_scale_jy cube_max_jy cube_limit_jy cube_l2
+        cube_l2_limit direction_diagnostic_max_rad basis_diagnostic_max_rad
+    """.split():
+        row[key] = 0
+    for key in """
+        horizon_mismatch_measure_turn direction_diagnostic_argmax_phase
+        basis_diagnostic_argmax_phase
+    """.split():
+        row[key] = "0/1"
+    for key in """
+        pm_source_unit pom00_argument_unit
+    """.split():
+        row[key] = ""
+    for key in """
+        direction_diagnostic_argmax_id basis_diagnostic_argmax_id
+    """.split():
+        row[key] = ""
+    for key in """
+        transfer_grid_catalog direction_rows horizon_scan_crossing_rows
+        horizon_scan_summary_rows horizon_root_pair_rows horizon_slab_rows
+        horizon_sign_interval_rows horizon_membership_mask_rows direct_split_rows
+    """.split():
+        row[key] = []
+    for key in """
+        site_manifest frame_matrix_manifest horizon_scan_manifest
+        direct_integrand_enclosure_manifest
+    """.split():
+        row[key] = {}
+    for key in """
+        diagnostic_qcheck_nsides
+    """.split():
+        row[key] = [16]
+    row.update(pm_source_unit="arcsec", pom00_argument_unit="rad")
+    _seal_synthetic_frame_structure(row)
+    return row
+
+
+def _seal_synthetic_frame_structure(row: dict[str, Any]) -> None:
+    preimage = {key: value for key, value in row.items() if key != "certificate_sha256"}
+    payload = json.dumps(preimage, sort_keys=True, separators=(",", ":")).encode()
+    domain = b"radiosim.mmode-frame-certificate.v1\0"
+    row["certificate_sha256"] = hashlib.sha256(
+        domain + struct.pack(">Q", len(payload)) + payload
+    ).hexdigest()
+
+
+def test_frame_structure_authenticates_exact_125_field_preimage() -> None:
+    module = _tool()
+    row = _synthetic_frame_structure()
+    assert len(row) == 126
+    preimage = module.validate_frame_certificate_structure(row, label="test")
+    assert len(preimage) == 125 and "certificate_sha256" not in preimage
+    assert preimage["site_manifest"] == {}  # Explicitly pending nested validation.
+    row["direction_diagnostic_argmax_phase"] = "-1/98"
+    _seal_synthetic_frame_structure(row)
+    module.validate_frame_certificate_structure(row, label="test")
+    row["cube_max_jy"] = 0.0  # Section 14 J normalizes this to the already hashed zero.
+    module.validate_frame_certificate_structure(row, label="test")
+    row["site_manifest"] = {"tampered": True}
+    with pytest.raises(module.EvidenceError, match="digest mismatch"):
+        module.validate_frame_certificate_structure(row, label="test")
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("fixture_id", "fake"),
+        ("pass", True),
+        ("n_baselines", True),
+        ("n_baselines", 1.0),
+        ("n_baselines", "1"),
+        ("n_baselines", -1),
+        ("cube_max_jy", True),
+        ("cube_max_jy", "0"),
+        ("cube_max_jy", -1),
+        ("cube_max_jy", float("inf")),
+        ("cube_max_jy", float("nan")),
+        ("cube_max_jy", 10**400),
+        ("xp0_rad", "7ff0000000000000"),
+        ("xp0_rad", "7ff8000000000000"),
+        ("xp0_rad", 0),
+        ("site_sha256", "A" * 64),
+        ("pm_source_unit", "rad"),
+        ("direction_diagnostic_argmax_id", None),
+        ("horizon_mismatch_measure_turn", "-1/2"),
+        ("horizon_mismatch_measure_turn", "0/2"),
+        ("direction_diagnostic_argmax_phase", "2/4"),
+        ("direction_diagnostic_argmax_phase", "01/2"),
+        ("direction_diagnostic_argmax_phase", "1/-2"),
+        ("direction_diagnostic_argmax_phase", "-0/1"),
+        ("direction_diagnostic_argmax_phase", 0),
+        ("direction_rows", {}),
+        ("site_manifest", []),
+        ("diagnostic_qcheck_nsides", [0]),
+        ("diagnostic_qcheck_nsides", [True]),
+        ("diagnostic_qcheck_nsides", [16.0]),
+        ("diagnostic_qcheck_nsides", [16, 16]),
+        ("diagnostic_qcheck_nsides", [32, 16]),
+        ("diagnostic_qcheck_nsides", (16,)),
+    ],
+)
+def test_frame_structure_refuses_untyped_scalars_and_roots(
+    key: str, value: Any
+) -> None:
+    module = _tool()
+    row = _synthetic_frame_structure()
+    row[key] = value
+    with pytest.raises(module.EvidenceError) as error:
+        module.validate_frame_certificate_structure(row, label="test")
+    assert error.value.prefix == module.SCHEMA
+    row = _synthetic_frame_structure()
+    del row["site_manifest"]
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_certificate_structure(row, label="test")
