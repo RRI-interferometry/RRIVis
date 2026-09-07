@@ -34,10 +34,12 @@ import copy
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 import sys
 import tokenize
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +77,7 @@ A3_AUTHORIZED_PATHS: frozenset[str] = frozenset(
         "PostTier8RemediationPlan.md",
         "docs/changelog.rst",
         "docs/migration_guide.md",
+        "docs/development/completion_ledger.md",
     }
 )
 
@@ -796,32 +799,95 @@ def test_canonical_json_matches_the_evidence_tool_spelling() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _git(*arguments: str) -> str:
+def _git_bytes(*arguments: str) -> bytes:
+    # Read actual objects in this repository, not a caller's redirected store,
+    # replacement refs, grafted ancestry or configured diff presentation.
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_GLOBAL=os.devnull,
+    )
+    if arguments[0] == "diff":
+        arguments = (
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--no-relative",
+            "--ignore-submodules=none",
+            *arguments[1:],
+        )
+    elif arguments[0] == "show":
+        arguments = ("show", "--no-ext-diff", "--no-textconv", *arguments[1:])
     completed = subprocess.run(
-        ["git", *arguments],
+        [
+            "git",
+            "--no-pager",
+            "--no-replace-objects",
+            "--literal-pathspecs",
+            "-c",
+            "color.ui=false",
+            "-c",
+            "core.commitGraph=false",
+            *arguments,
+        ],
         cwd=REPOSITORY_ROOT,
+        env=environment,
         capture_output=True,
-        text=True,
         check=False,
     )
     assert completed.returncode == 0, (
-        f"git {' '.join(arguments)} failed: {completed.stderr.strip()}"
+        f"git {' '.join(arguments)} failed: {completed.stderr!r}"
     )
     return completed.stdout
 
 
+def _git(*arguments: str) -> str:
+    return _git_bytes(*arguments).decode("utf-8")
+
+
 def _locate_acceptance_commit() -> str:
-    """Return the unique commit that introduced the acceptance artifact."""
-    introductions = _git(
-        "log", "--diff-filter=A", "--format=%H", "HEAD", "--", ARTIFACT
-    ).split()
-    assert len(introductions) == 1, (
-        f"{ARTIFACT} must be introduced by exactly one commit on HEAD's "
-        f"ancestry; observed {introductions}"
+    """Select current A on HEAD's first-parent chain after approved E."""
+    parent = APPROVED_EVIDENCE_SHA
+    assert parent is not None and GIT_SHA.fullmatch(parent)
+    assert parent in _git("rev-list", "--first-parent", "HEAD").split(), (
+        "approved E is not on HEAD's first-parent chain"
     )
-    located = introductions[0]
-    assert GIT_SHA.fullmatch(located)
-    return located
+    assert len(_git("rev-list", "--parents", "-n", "1", parent).split()) == 2, (
+        "approved E must have exactly one parent"
+    )
+    current = _git(
+        "rev-list", "--first-parent", "--ancestry-path", "--reverse", f"{parent}..HEAD"
+    ).split()
+    assert current, "HEAD has no first-parent descendant after approved E"
+    previous = parent
+    for commit in current:
+        assert GIT_SHA.fullmatch(commit)
+        assert _git("rev-list", "--parents", "-n", "1", commit).split() == [
+            commit,
+            previous,
+        ], "current acceptance ancestry must be a sole-parent chain"
+        previous = commit
+    return current[0]
+
+
+def _authenticate_a_artifact(located: str) -> None:
+    assert APPROVED_EVIDENCE_SHA is not None
+    assert not _git_bytes("ls-tree", "-z", APPROVED_EVIDENCE_SHA, "--", ARTIFACT), (
+        "the acceptance path must be absent at E"
+    )
+    entry = _git_bytes("ls-tree", "-z", located, "--", ARTIFACT)
+    assert entry.startswith(b"100644 blob "), "A must add a regular acceptance file"
+    payload = _git_bytes("show", f"{located}:{ARTIFACT}")
+    assert hashlib.sha256(payload).hexdigest() == APPROVED_ACCEPTANCE_ARTIFACT_SHA256
+    record = json.loads(payload)
+    assert record["evidence_commit_sha"] == APPROVED_EVIDENCE_SHA
 
 
 def _constant_spans(source: str) -> tuple[list[tuple[int, int]], list[list[Any]]]:
@@ -887,17 +953,7 @@ def test_the_record_introducing_commit_directly_parents_the_approved_evidence() 
     if APPROVED_ACCEPTANCE_ARTIFACT_SHA256 is None or APPROVED_EVIDENCE_SHA is None:
         pytest.skip("the M3 acceptance record is authorized at A3")
     located = _locate_acceptance_commit()
-    lineage = _git("rev-list", "--parents", "-n", "1", located).split()
-    assert lineage[0] == located
-    assert len(lineage) == 2, (
-        f"the acceptance-introducing commit {located} must be a non-merge commit"
-    )
-    assert lineage[1] == APPROVED_EVIDENCE_SHA
-    payload = _git("show", f"{located}:{ARTIFACT}")
-    assert (
-        hashlib.sha256(payload.encode("utf-8")).hexdigest()
-        == APPROVED_ACCEPTANCE_ARTIFACT_SHA256
-    )
+    _authenticate_a_artifact(located)
 
 
 def test_the_a3_diff_writes_only_the_section_13_5_authorized_paths() -> None:
@@ -906,9 +962,20 @@ def test_the_a3_diff_writes_only_the_section_13_5_authorized_paths() -> None:
         pytest.skip("the M3 acceptance record is authorized at A3")
     located = _locate_acceptance_commit()
     changed = set(
-        _git("diff-tree", "--no-commit-id", "--name-only", "-r", located).split()
+        _git(
+            "diff",
+            "--no-ext-diff",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            f"{located}^",
+            located,
+            "--",
+        )
+        .rstrip("\0")
+        .split("\0")
     )
-    assert ARTIFACT in changed
+    assert {ARTIFACT, VALIDATOR} <= changed
     unauthorized = sorted(changed - A3_AUTHORIZED_PATHS)
     assert not unauthorized, (
         f"the A3 commit {located} writes {unauthorized}, which Section 13.5 "
@@ -932,6 +999,10 @@ def test_the_a3_diff_changes_only_the_two_approved_constant_assignments() -> Non
         pytest.skip("the M3 acceptance record is authorized at A3")
     located = _locate_acceptance_commit()
     parent = _git("rev-list", "--parents", "-n", "1", located).split()[1]
+    for commit in (parent, located):
+        assert _git_bytes("ls-tree", commit, "--", VALIDATOR).startswith(
+            b"100644 blob "
+        ), "the acceptance validator must retain its regular-file mode"
     before = _git("show", f"{parent}:{VALIDATOR}")
     after = _git("show", f"{located}:{VALIDATOR}")
     assert _outside_spans(before) == _outside_spans(after), (
@@ -950,6 +1021,328 @@ def test_the_a3_diff_changes_only_the_two_approved_constant_assignments() -> Non
         assert _assigned_literal(body_after) == f'"{value}"', (
             f"{name} at {located} is not the approved literal"
         )
+        equal = next(i for i, token in enumerate(body_before) if token.string == "=")
+        expected = [(token.type, token.string) for token in body_before]
+        assert expected[equal + 1] == (tokenize.NAME, "None")
+        expected[equal + 1] = (tokenize.STRING, f'"{value}"')
+        assert [(token.type, token.string) for token in body_after] == expected, (
+            f"{name} changed tokens other than its approved value"
+        )
+
+
+def _topology_commit(
+    files: Mapping[str, bytes | None], *, gitlink: str | None = None
+) -> str:
+    """Commit synthetic fixture bytes only in the monkeypatched temporary repo."""
+    for name, raw in files.items():
+        path = REPOSITORY_ROOT / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if raw is None:
+            path.unlink()
+        else:
+            _ = path.write_bytes(raw)
+    _ = _git("add", "--all")
+    if gitlink is not None:
+        _ = _git("update-index", "--add", "--cacheinfo", f"160000,{gitlink},{ARTIFACT}")
+    _ = _git("commit", "--allow-empty", "-qm", "synthetic topology fixture")
+    return _git("rev-parse", "HEAD").strip()
+
+
+def _topology_merge(*parents: str) -> str:
+    arguments = ["commit-tree", _git("write-tree").strip(), "-m", "synthetic merge"]
+    for parent in parents:
+        arguments.extend(("-p", parent))
+    commit = _git(*arguments).strip()
+    _ = _git("update-ref", "HEAD", commit)
+    return commit
+
+
+@pytest.fixture
+def acceptance_git(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[str, str, str, bytes]:
+    """Real add/delete/add history; no scientific runs or ambient Git writes."""
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", tmp_path)
+    _ = _git("init", "-q")
+    _ = _git("config", "user.name", "Synthetic Fixture")
+    _ = _git("config", "user.email", "fixture@example.invalid")
+    _ = _git("config", "commit.gpgsign", "false")
+    _ = _git("config", "core.autocrlf", "false")
+    _ = _git("config", "core.hooksPath", "/dev/null")
+    _ = _topology_commit({ARTIFACT: b'{"verdict":"REJECT"}\n'})
+    source = _topology_commit({ARTIFACT: None})
+    nulls = "".join(f"{name}: str | None = None\n" for name in APPROVED_CONSTANT_NAMES)
+    evidence = _topology_commit({VALIDATOR: nulls.encode()})
+    raw = json.dumps({"evidence_commit_sha": evidence}).encode() + b"\r\n"
+    digest = hashlib.sha256(raw).hexdigest()
+    approved = nulls.replace("= None", f'= "{evidence}"', 1)
+    approved = approved.replace("= None", f'= "{digest}"', 1)
+    acceptance = _topology_commit({ARTIFACT: raw, VALIDATOR: approved.encode()})
+    monkeypatch.setattr(sys.modules[__name__], "APPROVED_EVIDENCE_SHA", evidence)
+    monkeypatch.setattr(
+        sys.modules[__name__], "APPROVED_ACCEPTANCE_ARTIFACT_SHA256", digest
+    )
+    return source, evidence, acceptance, raw
+
+
+def _check_current_a() -> None:
+    test_the_record_introducing_commit_directly_parents_the_approved_evidence()
+    test_the_a3_diff_writes_only_the_section_13_5_authorized_paths()
+    test_the_a3_diff_changes_only_the_two_approved_constant_assignments()
+
+
+def test_acceptance_topology_uses_current_add_and_raw_bytes(
+    acceptance_git: tuple[str, str, str, bytes],
+) -> None:
+    _source, _evidence, acceptance, _raw = acceptance_git
+    _ = _topology_commit({"later.txt": b"later ordinary descendant"})
+    assert (
+        len(_git("log", "--diff-filter=A", "--format=%H", "--", ARTIFACT).split()) == 2
+    )
+    assert _locate_acceptance_commit() == acceptance
+    _check_current_a()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["at-e", "unrelated-e", "side-e", "merge-e", "merge-a", "later-merge", "gap"],
+)
+def test_acceptance_topology_rejects_hostile_ancestry(
+    acceptance_git: tuple[str, str, str, bytes],
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    source, evidence, acceptance, _raw = acceptance_git
+    if mutation == "at-e":
+        _ = _git("checkout", "--detach", "-q", evidence)
+    elif mutation == "unrelated-e":
+        orphan = _git("commit-tree", _git("write-tree").strip(), "-m", "orphan").strip()
+        monkeypatch.setattr(sys.modules[__name__], "APPROVED_EVIDENCE_SHA", orphan)
+    elif mutation == "side-e":
+        _ = _topology_merge(source, evidence)
+    elif mutation == "merge-e":
+        _ = _git("checkout", "--detach", "-q", evidence)
+        merged = _topology_merge(source, _git("rev-parse", f"{source}^").strip())
+        monkeypatch.setattr(sys.modules[__name__], "APPROVED_EVIDENCE_SHA", merged)
+        _ = _topology_commit({})
+    elif mutation == "merge-a":
+        _ = _topology_merge(evidence, source)
+    elif mutation == "later-merge":
+        _ = _topology_merge(acceptance, source)
+    else:
+        _ = _git("checkout", "--detach", "-q", evidence)
+        _ = _topology_commit({"docs/development/completion_ledger.md": b"intervening"})
+        _ = _topology_commit({ARTIFACT: _git_bytes("show", f"{acceptance}:{ARTIFACT}")})
+    with pytest.raises(AssertionError):
+        _check_current_a()
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "preexisting",
+        "symlink",
+        "gitlink",
+        "wrong-bytes",
+        "normalized-digest",
+        "wrong-e-binding",
+        "production",
+        "tool",
+        "unknown-path",
+        "logic",
+        "annotation",
+        "expression",
+        "comment",
+        "missing-validator",
+        "validator-mode",
+        "wrong-pin",
+    ],
+)
+def test_acceptance_topology_rejects_hostile_a_content(
+    acceptance_git: tuple[str, str, str, bytes],
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    _source, evidence, acceptance, raw = acceptance_git
+    validator = _git_bytes("show", f"{acceptance}:{VALIDATOR}")
+    _ = _git("checkout", "--detach", "-q", evidence)
+    files = {ARTIFACT: raw, VALIDATOR: validator}
+    if mutation == "preexisting":
+        evidence = _topology_commit({ARTIFACT: raw})
+        monkeypatch.setattr(sys.modules[__name__], "APPROVED_EVIDENCE_SHA", evidence)
+    elif mutation == "wrong-bytes":
+        files[ARTIFACT] += b" "
+    elif mutation == "normalized-digest":
+        digest = hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest()
+        monkeypatch.setattr(
+            sys.modules[__name__], "APPROVED_ACCEPTANCE_ARTIFACT_SHA256", digest
+        )
+    elif mutation == "wrong-e-binding":
+        files[ARTIFACT] = json.dumps({"evidence_commit_sha": acceptance}).encode()
+        monkeypatch.setattr(
+            sys.modules[__name__],
+            "APPROVED_ACCEPTANCE_ARTIFACT_SHA256",
+            hashlib.sha256(files[ARTIFACT]).hexdigest(),
+        )
+    elif mutation in {"production", "tool", "unknown-path"}:
+        name = {
+            "production": "src/forbidden file.py",
+            "tool": TOOL,
+            "unknown-path": "unknown.txt",
+        }[mutation]
+        files[name] = b"unauthorized"
+    elif mutation == "logic":
+        files[VALIDATOR] += b"changed = True\n"
+    elif mutation == "annotation":
+        files[VALIDATOR] = validator.replace(b"str | None", b"str", 1)
+    elif mutation == "expression":
+        files[VALIDATOR] = validator.replace(b"= ", b"= str(", 1).replace(
+            b"\n", b")\n", 1
+        )
+    elif mutation == "comment":
+        files[VALIDATOR] = validator.replace(b"\n", b"  # changed\n", 1)
+    elif mutation == "missing-validator":
+        del files[VALIDATOR]
+    elif mutation == "wrong-pin":
+        files[VALIDATOR] = validator.replace(evidence.encode(), acceptance.encode())
+    if mutation in {"symlink", "gitlink"}:
+        del files[ARTIFACT]
+        if mutation == "symlink":
+            path = REPOSITORY_ROOT / ARTIFACT
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to("missing-target")
+    _ = _topology_commit(files, gitlink=acceptance if mutation == "gitlink" else None)
+    if mutation == "validator-mode":
+        _ = _git("update-index", "--chmod=+x", VALIDATOR)
+        _ = _git("commit", "--amend", "--no-edit", "-q")
+    if mutation in {"symlink", "gitlink"}:
+        mode = b"120000" if mutation == "symlink" else b"160000"
+        assert _git_bytes("ls-tree", "HEAD", "--", ARTIFACT).startswith(mode)
+    with pytest.raises(AssertionError):
+        _check_current_a()
+
+
+@pytest.mark.parametrize(
+    "overlay", ["replace", "replace-blob", "graft-file", "graft-environment"]
+)
+def test_acceptance_topology_rejects_history_overlays(
+    acceptance_git: tuple[str, str, str, bytes],
+    monkeypatch: pytest.MonkeyPatch,
+    overlay: str,
+) -> None:
+    _source, evidence, good, raw = acceptance_git
+    validator = _git_bytes("show", f"{good}:{VALIDATOR}")
+    _ = _git("checkout", "--detach", "-q", evidence)
+    files = {ARTIFACT: raw, VALIDATOR: validator}
+    if overlay == "replace":
+        files["src/forbidden.py"] = b"unauthorized\n"
+    elif overlay == "replace-blob":
+        files[ARTIFACT] += b" "
+    else:
+        _ = _topology_commit({})  # Unruled gap: actual A is not E's direct child.
+    bad = _topology_commit(files)
+    with pytest.raises(AssertionError):
+        _check_current_a()
+    if overlay == "replace":
+        _ = _git("replace", bad, good)
+    elif overlay == "replace-blob":
+        _ = _git(
+            "replace",
+            _git("rev-parse", f"{bad}:{ARTIFACT}").strip(),
+            _git("rev-parse", f"{good}:{ARTIFACT}").strip(),
+        )
+    else:
+        graft = REPOSITORY_ROOT / ".git/info/grafts"
+        if overlay == "graft-environment":
+            graft = REPOSITORY_ROOT / "external-graft"
+            monkeypatch.setenv("GIT_GRAFT_FILE", str(graft))
+        graft.parent.mkdir(parents=True, exist_ok=True)
+        _ = graft.write_text(f"{bad} {evidence}\n")
+    # Prove native Git really interprets the forged edge/tree in this fixture.
+    apparent = (
+        subprocess.check_output(
+            ["git", "rev-list", "--parents", "-n", "1", bad], cwd=REPOSITORY_ROOT
+        )
+        .decode()
+        .split()
+    )
+    assert apparent == [bad, evidence]
+    apparent_paths = (
+        subprocess.check_output(
+            ["git", "diff", "--name-only", evidence, bad], cwd=REPOSITORY_ROOT
+        )
+        .decode()
+        .splitlines()
+    )
+    assert set(apparent_paths) == {ARTIFACT, VALIDATOR}
+    apparent_raw = subprocess.check_output(
+        ["git", "show", f"{bad}:{ARTIFACT}"], cwd=REPOSITORY_ROOT
+    )
+    assert apparent_raw == raw
+    with pytest.raises(AssertionError):
+        _check_current_a()
+
+
+def test_acceptance_topology_ignores_git_environment_redirects(
+    acceptance_git: tuple[str, str, str, bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _ = acceptance_git
+    monkeypatch.setenv("GIT_DIR", str(REPOSITORY_ROOT / "missing-repository"))
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(REPOSITORY_ROOT / "missing-objects"))
+    _check_current_a()
+    assert os.environ["GIT_DIR"].endswith("missing-repository")
+
+
+def test_acceptance_topology_rejects_config_hidden_gitlink_change(
+    acceptance_git: tuple[str, str, str, bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, evidence, good, _raw = acceptance_git
+    _ = _git("checkout", "--detach", "-q", evidence)
+    path = "forbidden-module"
+    _ = _git("update-index", "--add", "--cacheinfo", f"160000,{source},{path}")
+    _ = _git("commit", "--amend", "--no-edit", "-q")
+    evidence = _git("rev-parse", "HEAD").strip()
+    raw = json.dumps({"evidence_commit_sha": evidence}).encode()
+    digest = hashlib.sha256(raw).hexdigest()
+    validator = "".join(
+        f'{name}: str | None = "{value}"\n'
+        for name, value in zip(APPROVED_CONSTANT_NAMES, (evidence, digest), strict=True)
+    ).encode()
+    _ = _topology_commit({ARTIFACT: raw, VALIDATOR: validator})
+    _ = _git("update-index", "--add", "--cacheinfo", f"160000,{good},{path}")
+    _ = _git("commit", "--amend", "--no-edit", "-q")
+    monkeypatch.setattr(sys.modules[__name__], "APPROVED_EVIDENCE_SHA", evidence)
+    monkeypatch.setattr(
+        sys.modules[__name__], "APPROVED_ACCEPTANCE_ARTIFACT_SHA256", digest
+    )
+    _ = _git("config", "diff.ignoreSubmodules", "all")
+    apparent = (
+        subprocess.check_output(
+            ["git", "diff", "--name-only", evidence, "HEAD"], cwd=REPOSITORY_ROOT
+        )
+        .decode()
+        .splitlines()
+    )
+    assert set(apparent) == {ARTIFACT, VALIDATOR}
+    assert path in _git("diff", "--name-only", evidence, "HEAD").splitlines()
+    with pytest.raises(AssertionError, match="forbidden-module"):
+        _check_current_a()
+
+
+def test_acceptance_topology_allows_authorized_ledger_companion(
+    acceptance_git: tuple[str, str, str, bytes],
+) -> None:
+    _source, evidence, acceptance, raw = acceptance_git
+    validator = _git_bytes("show", f"{acceptance}:{VALIDATOR}")
+    _ = _git("checkout", "--detach", "-q", evidence)
+    _ = _topology_commit(
+        {
+            ARTIFACT: raw,
+            VALIDATOR: validator,
+            "docs/development/completion_ledger.md": b"Synthetic status companion.\n",
+        }
+    )
+    _check_current_a()
 
 
 def test_the_retained_record_authenticates_against_the_approved_constants() -> None:
