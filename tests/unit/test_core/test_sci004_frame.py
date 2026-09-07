@@ -848,3 +848,278 @@ def test_scan_validates_frozen_bound_inputs_before_evaluation(
         with pytest.raises(ValueError):
             invoke()
         assert evaluated == []
+
+
+@pytest.fixture
+def d35_slab_caller(monkeypatch: pytest.MonkeyPatch) -> Any:
+    """Exercise real assembly; synthetic providers are not a physical certificate."""
+    from fractions import Fraction
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from radiosim.core.mmode import solver
+    from radiosim.core.mmode.frame import FrozenHorizonTrajectory, HorizonRootEnclosure
+
+    def build(denominator: int = 100000000, *, empty: bool = False) -> Any:
+        width = Fraction(1, denominator)
+        frozen_roots = (
+            (
+                HorizonRootEnclosure(
+                    Fraction(1, 4), Fraction(1, 4) + width, "setting", 0.0
+                ),
+                HorizonRootEnclosure(
+                    Fraction(3, 4), Fraction(3, 4) + width, "rising", 0.0
+                ),
+            )
+            if not empty
+            else ()
+        )
+        operational_roots = tuple(
+            HorizonRootEnclosure(
+                root.turn_lo + 2 * width,
+                root.turn_hi + 2 * width,
+                root.orientation,
+                0.0,
+            )
+            for root in frozen_roots
+        )
+        original = tuple(
+            (root, root.turn_lo, root.turn_hi)
+            for root in (*frozen_roots, *operational_roots)
+        )
+        trajectory = FrozenHorizonTrajectory(0.0, 0.0, 1.0, "synthetic", frozen_roots)
+        direction = solver.LedgerDirection(
+            "synthetic-point",
+            "point",
+            0,
+            0,
+            "",
+            0,
+            np.asarray([0.0, 0.0, 1.0]),
+            0.0,
+            0.0,
+            (True,),
+            np.asarray([[1.0, 0.0, 0.0, 0.0]]),
+            1.0,
+        )
+
+        def center_turn(_index: int) -> Fraction:
+            return Fraction(1, 8)
+
+        grid: Any = SimpleNamespace(
+            horizon_domain=(Fraction(0), Fraction(1)),
+            sidereal_samples=1,
+            center_turn=center_turn,
+            alpha_rad=np.asarray([math.tau / 8]),
+            canonical_era_turn_grid_sha256="1" * 64,
+            canonical_era_grid_sha256="2" * 64,
+        )
+        frame: Any = SimpleNamespace(
+            site_manifest={"synthetic": True},
+            site_sha256="3" * 64,
+            frame_matrix_manifest={"synthetic": True},
+            frame_matrix_sha256="4" * 64,
+            iers_table_sha256="5" * 64,
+            pm_source_unit="arcsec",
+            pom00_argument_unit="rad",
+            xp0_arcsec=0.0,
+            yp0_arcsec=0.0,
+            das2r_rad_per_arcsec=math.pi / 648000,
+            xp0_rad=0.0,
+            yp0_rad=0.0,
+            sp0_rad=0.0,
+        )
+        context: Any = SimpleNamespace(
+            n_baselines=1,
+            n_frequencies=1,
+            frequencies_hz=np.asarray([1e8]),
+        )
+        calls: list[str] = []
+
+        def frozen(
+            received: Any, vector: Any, **domain: Any
+        ) -> FrozenHorizonTrajectory:
+            assert received is frame and vector is direction.cirs_direction
+            assert domain == {"horizon_lo": Fraction(0), "horizon_hi": Fraction(1)}
+            calls.append("frozen")
+            return trajectory
+
+        def scan(**arguments: Any) -> Any:
+            assert arguments["frame"] is frame and arguments["grid"] is grid
+            assert arguments["direction_ids"] == [direction.direction_id]
+            owned = arguments["frozen_root_bounds"]
+            assert len(owned) == 1 and len(owned[0]) == 2 * len(frozen_roots)
+            for index, root in enumerate(frozen_roots):
+                assert owned[0][2 * index] is root.turn_lo
+                assert owned[0][2 * index + 1] is root.turn_hi
+            calls.append("scan")
+            return SimpleNamespace(
+                roots=(operational_roots,),
+                guard_count=0,
+                crossing_rows=(),
+                summary_rows=(),
+                isolation_interval_count=0,
+                centre_values=np.ones((1, 1)),
+                evaluator=None,
+                ledger_sha256="6" * 64,
+                manifest=lambda: {"synthetic": True},
+                manifest_sha256=lambda: "7" * 64,
+            )
+
+        phase = {
+            "expected": 0,
+            "evaluated": 0,
+            "phase_max_rad": 0.0,
+            "direction_diagnostic_max_rad": 0.0,
+            "direction_diagnostic_argmax_id": "",
+            "direction_diagnostic_argmax_phase": 0.0,
+            "basis_diagnostic_max_rad": 0.0,
+            "basis_diagnostic_argmax_id": "",
+            "basis_diagnostic_argmax_phase": 0.0,
+        }
+        direct: dict[str, Any] = {
+            name: np.zeros((1, 1, 1, 4), dtype=np.complex128)
+            for name in ("F64", "F128", "O64", "O128")
+        }
+        direct.update(
+            EF=np.zeros((1, 1, 1, 4)),
+            EO=np.zeros((1, 1, 1, 4)),
+            split_rows=[],
+            split_ledger_sha256="8" * 64,
+            exposure_split_count=0,
+            node_totals=dict.fromkeys(("F64", "F128", "O64", "O128"), 0),
+        )
+        # Only unrelated expensive providers are synthetic. Pairing, lifting,
+        # membership, rounding, certificate assembly and identity remain real.
+        monkeypatch.setattr(solver, "frozen_horizon_trajectory", frozen)
+        monkeypatch.setattr(solver, "scan_operational_horizon", scan)
+
+        def synthetic_signs(*_args: Any) -> tuple[list[Any], int]:
+            return [], 0
+
+        def synthetic_phase(**_kwargs: Any) -> dict[str, Any]:
+            return phase
+
+        def synthetic_direct(**_kwargs: Any) -> dict[str, Any]:
+            return direct
+
+        monkeypatch.setattr(solver, "_sign_intervals", synthetic_signs)
+        monkeypatch.setattr(solver, "_phase_census", synthetic_phase)
+        monkeypatch.setattr(solver, "_direct_cubes", synthetic_direct)
+        certificate = solver.build_frame_certificate(
+            grid=grid,
+            frame=frame,
+            context=context,
+            directions=[direction],
+            beam_peak_ceiling=1.0,
+            input_identity_sha256="9" * 64,
+        )
+        assert calls == ["frozen", "scan"]
+        assert trajectory.roots is frozen_roots
+        for actual, (root, lo, hi) in zip(
+            (*frozen_roots, *operational_roots),
+            original,
+            strict=True,
+        ):
+            assert actual is root and actual.turn_lo is lo and actual.turn_hi is hi
+        return SimpleNamespace(
+            certificate=certificate,
+            direction=direction,
+            trajectory=trajectory,
+            operational_roots=operational_roots,
+            grid=grid,
+        )
+
+    return build
+
+
+@pytest.mark.parametrize("field", ["turns", "radians", "pair_order"])
+def test_d35_real_caller_nonzero_slab_contract(
+    d35_slab_caller: Any, field: str
+) -> None:
+    """Separate assembly assertions expose units and ordering independently."""
+    import struct
+    from fractions import Fraction
+
+    case = d35_slab_caller()
+    row = case.certificate.row
+    if field == "turns":
+        assert row["horizon_mismatch_measure_turn"] == "3/50000000"
+    elif field == "radians":
+        exact = Fraction(530567831402133, 1407374883553280000000)
+        expected = float(exact)
+        if Fraction.from_float(expected) < exact:
+            expected = math.nextafter(expected, math.inf)
+        assert struct.pack(">d", expected).hex() == "3e994ca8791f2827"
+        assert row["horizon_mismatch_measure_rad"] == expected
+    else:
+        pairs = row["horizon_root_pair_rows"][0]["pairs"]
+        assert [pair["orientation"] for pair in pairs] == ["setting", "rising"]
+        assert [pair["frozen_root_turn_lo"] for pair in pairs] == ["1/4", "3/4"]
+        assert [pair["pair_index"] for pair in pairs] == [0, 1]
+        assert [pair["operational_turn_lift"] for pair in pairs] == [0, 0]
+        slabs = row["horizon_slab_rows"]
+        assert [(slab["pair_index"], slab["orientation"]) for slab in slabs] == [
+            (0, "setting"),
+            (1, "rising"),
+        ]
+
+
+def test_d35_real_caller_rounds_single_tau_product_outward(
+    d35_slab_caller: Any,
+) -> None:
+    """Nearest rounding is below the exact product in this independent example."""
+    import struct
+    from fractions import Fraction
+
+    exact = Fraction(2652839157010665, 7036874488135144177664)
+    nearest = float(exact)
+    assert Fraction.from_float(nearest) < exact
+    assert struct.pack(">d", nearest).hex() == "3e994ca874e08dce"
+    expected = math.nextafter(nearest, math.inf)
+    assert struct.pack(">d", expected).hex() == "3e994ca874e08dcf"
+    row = d35_slab_caller(100000001).certificate.row
+    assert row["horizon_mismatch_measure_rad"] == expected
+
+
+def test_d35_pair_roots_returns_exact_turn_measure(d35_slab_caller: Any) -> None:
+    """The fourth result carries exact turns; displacement retains its old units."""
+    import struct
+    from fractions import Fraction
+
+    from radiosim.core.mmode import solver
+
+    case = d35_slab_caller()
+    pair_roots: Any = vars(solver)["_pair_roots"]
+    _, _, displacement, measure = pair_roots(
+        [case.direction],
+        [case.trajectory],
+        [case.operational_roots],
+        case.grid,
+    )
+    assert struct.pack(">d", displacement).hex() == "3e894ca8791f2827"
+    assert type(measure) is Fraction, "slab measure must retain exact Fraction turns"
+    assert measure == Fraction(3, 50000000)
+
+
+def test_d35_real_caller_zero_slab_and_owned_roots_control(
+    d35_slab_caller: Any,
+) -> None:
+    """Both empty and nonempty calls retain owned roots without certification claims."""
+    import struct
+
+    for empty in (True, False):
+        case = d35_slab_caller(empty=empty)
+        row = case.certificate.row
+        # The fixture checks object and endpoint identity after every real call.
+        assert row["horizon_root_pair_rows"][0]["frozen_root_count"] == (
+            0 if empty else 2
+        )
+        if empty:
+            assert row["horizon_root_pair_rows"][0]["pairs"] == []
+            assert row["horizon_slab_rows"] == []
+            assert row["horizon_mismatch_measure_turn"] == "0/1"
+            assert (
+                struct.pack(">d", row["horizon_mismatch_measure_rad"]).hex() == "0" * 16
+            )
