@@ -6144,3 +6144,160 @@ def test_check_rejects_noncanonical_input_before_its_validator(
     if target == "performance":
         arguments.extend(["--performance", str(performance)])
     assert module.main(arguments) == 1
+
+
+@pytest.mark.parametrize("payload", [b"", b"\x00\xff\x01"])
+def test_scientific_segment_authenticates_independent_raw_bytes(payload: bytes) -> None:
+    module = _tool()
+    segment = {
+        "tag": "flags.data",
+        "payload_hex": payload.hex(),
+        "byte_count": len(payload),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+    assert module.decode_scientific_segment(segment, "flags.data", "test") == payload
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("extra", 1),
+        ("tag", "weights.data"),
+        ("tag", 1),
+        ("byte_count", True),
+        ("byte_count", -1),
+        ("byte_count", 2),
+        ("payload_hex", "Ff"),
+        ("payload_hex", " f"),
+        ("payload_hex", "f"),
+        ("payload_hex", "gg"),
+        ("payload_hex", 255),
+        ("sha256", "0" * 64),
+        ("sha256", "A" * 64),
+    ],
+)
+def test_scientific_segment_rejects_untrusted_envelope(key: str, value: Any) -> None:
+    module = _tool()
+    segment = {
+        "tag": "flags.data",
+        "payload_hex": "ff",
+        "byte_count": 1,
+        "sha256": hashlib.sha256(b"\xff").hexdigest(),
+    }
+    segment[key] = value
+    with pytest.raises(module.EvidenceError):
+        module.decode_scientific_segment(segment, "flags.data", "test")
+    if key != "extra":
+        del segment[key]
+        with pytest.raises(module.EvidenceError):
+            module.decode_scientific_segment(segment, "flags.data", "test")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'"radiosim.result.v1"',
+        b'["XX","XY","YX","YY"]',
+        b'{"n":1.0,"z":-0.0}',
+        b'{"n":9007199254740993}',
+        '{"é":"😀"}'.encode(),
+    ],
+)
+def test_scientific_json_preserves_result_encoding_not_section14_j(
+    payload: bytes,
+) -> None:
+    module = _tool()
+    value = module._scientific_json(payload, "test")
+    assert (
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode()
+        == payload
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"a":1,"a":1}',
+        b'{"a":1,"\\u0061":1}',
+        b'{"a":{"x":1,"x":2}}',
+        b'{"n":NaN}',
+        b'{"n":Infinity}',
+        b'{"n":1e999}',
+        b'{"n":1e-999}',
+        b'{"n":1.00}',
+        b'{"z":-0}',
+        b'{"b":1,"a":2}',
+        b"{} ",
+        b"{}{}",
+        b'"\\u00e9"',
+        b'"\\ud800"',
+        b"\xef\xbb\xbf{}",
+        b'"\xff"',
+    ],
+)
+def test_scientific_json_rejects_nonfinite_duplicate_or_noncanonical_bytes(
+    payload: bytes,
+) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError):
+        module._scientific_json(payload, "test")
+
+
+@pytest.mark.parametrize(
+    ("role", "dtype", "shape", "unit"),
+    [
+        ("visibilities", "<c16", [49, 3, 1, 4], struct.pack("<dd", 1.5, -2.0)),
+        ("flags", "|b1", [49, 3, 1, 4], b"\x01"),
+        ("weights", "<f8", [49, 3, 1, 4], struct.pack("<d", 1.0)),
+        *[
+            (role, "<f8", [49], struct.pack("<d", 0.5))
+            for role in (
+                "time.utc_jd1",
+                "time.utc_jd2",
+                "time.integration_time_seconds",
+            )
+        ],
+        *[
+            (role, "<f8", [1], struct.pack("<d", 0.5))
+            for role in ("frequency_hz", "channel_width_hz")
+        ],
+    ],
+)
+def test_scientific_array_requires_exact_independent_layout(
+    role: str,
+    dtype: str,
+    shape: list[int],
+    unit: bytes,
+) -> None:
+    module = _tool()
+    count = 1
+    for extent in shape:
+        count *= extent
+    payload = unit * count
+    metadata = {"dtype": dtype, "shape": shape}
+    raw = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
+    module.validate_scientific_array(role, raw, payload)
+    with pytest.raises(module.EvidenceError):
+        module.validate_scientific_array(role, raw, payload + b"\0")
+    for changed in (
+        {**metadata, "dtype": ">f8"},
+        {**metadata, "shape": [True]},
+        {**metadata, "shape": [0]},
+        {**metadata, "extra": 1},
+    ):
+        with pytest.raises(module.EvidenceError):
+            encoded = json.dumps(
+                changed, sort_keys=True, separators=(",", ":")
+            ).encode()
+            module.validate_scientific_array(role, encoded, payload)
+    bad = b"\x02" if role == "flags" else struct.pack("<d", float("nan"))
+    with pytest.raises(module.EvidenceError):
+        module.validate_scientific_array(role, raw, payload[: -len(bad)] + bad)
+    with pytest.raises(module.EvidenceError):
+        module.validate_scientific_array("unknown", raw, payload)

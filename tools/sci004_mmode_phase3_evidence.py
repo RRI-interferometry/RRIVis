@@ -1047,6 +1047,124 @@ def decode_frame_certificate_storage(value: Any, *, label: str) -> dict[str, Any
     return _canonical_json_object(payload, label)
 
 
+SCIENTIFIC_SEGMENT_KEYS = ("tag", "payload_hex", "byte_count", "sha256")
+SCIENTIFIC_ARRAY_LAYOUTS: Mapping[str, tuple[str, tuple[int, ...], int]] = {
+    "visibilities": ("<c16", (49, 3, 1, 4), 16),
+    "flags": ("|b1", (49, 3, 1, 4), 1),
+    "weights": ("<f8", (49, 3, 1, 4), 8),
+    "time.utc_jd1": ("<f8", (49,), 8),
+    "time.utc_jd2": ("<f8", (49,), 8),
+    "time.integration_time_seconds": ("<f8", (49,), 8),
+    "frequency_hz": ("<f8", (1,), 8),
+    "channel_width_hz": ("<f8", (1,), 8),
+}
+
+
+def decode_scientific_segment(value: Any, expected_tag: str, label: str) -> bytes:
+    """Authenticate one D32 segment; ordering and scientific joins are separate."""
+    segment = _require_keys(value, SCIENTIFIC_SEGMENT_KEYS, label)
+    _require(
+        type(segment["tag"]) is str and segment["tag"] == expected_tag,
+        SCHEMA,
+        f"{label}: unexpected scientific segment tag",
+    )
+    count = segment["byte_count"]
+    _require(
+        type(count) is int and count >= 0,
+        SCHEMA,
+        f"{label}: byte_count must be a nonnegative integer",
+    )
+    encoded = segment["payload_hex"]
+    _require(
+        type(encoded) is str
+        and len(encoded) == 2 * count
+        and re.fullmatch("[0-9a-f]*", encoded) is not None,
+        SCHEMA,
+        f"{label}: payload must be exact lowercase hex of the declared length",
+    )
+    digest = _require_hex(segment["sha256"], 64, label)
+    payload = bytes.fromhex(encoded)
+    _require(
+        hashlib.sha256(payload).hexdigest() == digest,
+        DIGEST,
+        f"{label}: scientific segment SHA-256 mismatch",
+    )
+    return payload
+
+
+def _scientific_json(payload: bytes, label: str) -> Any:
+    """Decode exact result JSON bytes, distinct from Section 14 J serialization."""
+
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in items:
+            _require(key not in result, SCHEMA, f"{label}: duplicate JSON key {key!r}")
+            result[key] = value
+        return result
+
+    def constant(value: str) -> Any:
+        raise EvidenceError(SCHEMA, f"{label}: non-finite JSON constant {value}")
+
+    def finite_float(token: str) -> float:
+        value = float(token)
+        _require(math.isfinite(value), SCHEMA, f"{label}: non-finite JSON number")
+        return value
+
+    try:
+        value = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=pairs,
+            parse_constant=constant,
+            parse_float=finite_float,
+        )
+        encoded = json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+        _require(encoded == payload, SCHEMA, f"{label}: noncanonical result JSON")
+    except (ValueError, UnicodeError, OverflowError, RecursionError) as error:
+        raise EvidenceError(SCHEMA, f"{label}: invalid scientific JSON") from error
+    return value
+
+
+def validate_scientific_array(
+    role: str, metadata_payload: bytes, payload: bytes
+) -> None:
+    """Validate a D32 array buffer without conversion or a physics verdict."""
+    _require(role in SCIENTIFIC_ARRAY_LAYOUTS, SCHEMA, "unknown scientific array role")
+    metadata = _require_keys(
+        _scientific_json(metadata_payload, role), ("dtype", "shape"), role
+    )
+    dtype, shape, itemsize = SCIENTIFIC_ARRAY_LAYOUTS[role]
+    _require(metadata["dtype"] == dtype, SCHEMA, f"{role}: incorrect array dtype")
+    actual_shape = metadata["shape"]
+    _require(
+        isinstance(actual_shape, list)
+        and all(
+            type(size) is int and size > 0 for size in cast(list[Any], actual_shape)
+        )
+        and actual_shape == list(shape),
+        SCHEMA,
+        f"{role}: incorrect array shape",
+    )
+    _require(
+        len(payload) == math.prod(shape) * itemsize,
+        SCHEMA,
+        f"{role}: array byte length does not match its layout",
+    )
+    if role == "flags":
+        _require(all(byte in (0, 1) for byte in payload), SCHEMA, "invalid flag byte")
+    else:
+        _require(
+            all(math.isfinite(value) for (value,) in struct.iter_unpack("<d", payload)),
+            SCHEMA,
+            f"{role}: array contains a non-finite component",
+        )
+
+
 def _require_sorted_unique_strings(value: Any, label: str) -> list[str]:
     _require(isinstance(value, list), SCHEMA, f"{label} must be an array")
     items = list(value)
