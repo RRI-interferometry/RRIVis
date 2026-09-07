@@ -1055,6 +1055,7 @@ def acceptance_git(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[str, str, str, bytes]:
     """Real add/delete/add history; no scientific runs or ambient Git writes."""
+    _ = _tool()  # Load the real generator before redirecting repository reads.
     monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", tmp_path)
     _ = _git("init", "-q")
     _ = _git("config", "user.name", "Synthetic Fixture")
@@ -1082,6 +1083,73 @@ def _check_current_a() -> None:
     test_the_record_introducing_commit_directly_parents_the_approved_evidence()
     test_the_a3_diff_writes_only_the_section_13_5_authorized_paths()
     test_the_a3_diff_changes_only_the_two_approved_constant_assignments()
+
+
+@pytest.mark.parametrize("attack", ["replacement", "graft", "caller-routing"])
+def test_acceptance_tool_reads_original_ancestry_and_checkout(
+    acceptance_git: tuple[str, str, str, bytes],
+    monkeypatch: pytest.MonkeyPatch,
+    attack: str,
+) -> None:
+    """Generator preflight and parent checks share the actual Git context."""
+    _source, evidence, acceptance, _raw = acceptance_git
+    head = _topology_commit({"later.txt": b"actual checkout"})
+    module = _tool()
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", REPOSITORY_ROOT)
+    if attack == "replacement":
+        _ = _git("replace", head, acceptance)
+    elif attack == "graft":
+        _ = (REPOSITORY_ROOT / ".git/info/grafts").write_text(f"{head} {evidence}\n")
+    else:
+        for name in (
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        ):
+            monkeypatch.setenv(name, str(REPOSITORY_ROOT / "missing"))
+    assert module._git("rev-parse", "HEAD").strip() == head
+    assert module._git("rev-list", "--parents", "-n", "1", head).split() == [
+        head,
+        acceptance,
+    ]
+    _ = (REPOSITORY_ROOT / "unapproved.txt").write_text("visible dirty state")
+    with pytest.raises(module.AcceptanceError, match="not globally clean"):
+        module.preflight()
+
+
+@pytest.mark.parametrize("registered", [False, True])
+def test_acceptance_tool_ignores_local_worktree_redirection(
+    acceptance_git: tuple[str, str, str, bytes],
+    monkeypatch: pytest.MonkeyPatch,
+    registered: bool,
+) -> None:
+    """A clean foreign directory cannot hide edits in the intended checkout."""
+    _source, _evidence, head, _raw = acceptance_git
+    checkout = REPOSITORY_ROOT
+    if registered:
+        checkout = REPOSITORY_ROOT.parent / (REPOSITORY_ROOT.name + "-linked")
+        _ = _git("worktree", "add", "--detach", "-q", str(checkout), head)
+    try:
+        clean = REPOSITORY_ROOT.parent / (REPOSITORY_ROOT.name + "-clean")
+        for relative in _git("ls-files", "-z").rstrip("\0").split("\0"):
+            target = clean / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _ = target.write_bytes((checkout / relative).read_bytes())
+        _ = _git("config", "core.worktree", str(clean))
+        changed = checkout / VALIDATOR
+        _ = changed.write_bytes(changed.read_bytes() + b"# actual dirty checkout\n")
+        module = _tool()
+        monkeypatch.setattr(module, "REPOSITORY_ROOT", checkout)
+        assert module._git("rev-parse", "HEAD").strip() == head
+        assert VALIDATOR in module._git("status", "--porcelain=v1")
+        with pytest.raises(module.AcceptanceError, match="not globally clean"):
+            module.preflight()
+    finally:
+        _ = _git("config", "--unset", "core.worktree")
+        if registered:
+            _ = _git("worktree", "remove", "--force", str(checkout))
 
 
 @pytest.mark.parametrize("attack", ["blob-replacement", "caller-routing"])

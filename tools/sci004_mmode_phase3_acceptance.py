@@ -851,18 +851,54 @@ def build_acceptance_document(
 
 
 def _git(*arguments: str) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_GLOBAL=os.devnull,
     )
-    if completed.returncode != 0:
-        raise AcceptanceError(
-            ANCESTRY, f"git {' '.join(arguments)} failed: {completed.stderr.strip()}"
+    if arguments[0] == "status":
+        arguments = ("status", "--ignore-submodules=none", *arguments[1:])
+    root = REPOSITORY_ROOT.resolve()
+    command = [
+        "git",
+        "--no-pager",
+        "--no-replace-objects",
+        "--literal-pathspecs",
+        f"--work-tree={root}",
+        "-c",
+        "core.commitGraph=false",
+        "-c",
+        "core.fsmonitor=false",
+        "-c",
+        "core.untrackedCache=false",
+        "-c",
+        "color.ui=false",
+    ]
+
+    def run(query: list[str]) -> str:
+        completed = subprocess.run(
+            [*command, *query],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
         )
-    return completed.stdout
+        if completed.returncode != 0:
+            raise AcceptanceError(
+                ANCESTRY, f"git {' '.join(query)} failed: {completed.stderr.strip()}"
+            )
+        return completed.stdout
+
+    # Discover .git directories and registered-worktree gitfiles through Git,
+    # then bind both the object context and worktree for the actual query.
+    git_directory = run(["rev-parse", "--absolute-git-dir"]).removesuffix("\n")
+    return run([f"--git-dir={git_directory}", *arguments])
 
 
 def raw_sha256(path: Path) -> str:
