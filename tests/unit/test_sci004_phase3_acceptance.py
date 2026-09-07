@@ -288,14 +288,7 @@ def _historical_reject_bytes() -> bytes:
         HISTORICAL_REJECT_A,
         HISTORICAL_REJECT_E,
     ]
-    completed = subprocess.run(
-        ["git", "show", f"{HISTORICAL_REJECT_A}:{ARTIFACT}"],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
-    )
-    assert completed.returncode == 0, "historical REJECT blob is unavailable"
-    raw = completed.stdout
+    raw = _git_bytes("show", f"{HISTORICAL_REJECT_A}:{ARTIFACT}")
     assert hashlib.sha256(raw).hexdigest() == HISTORICAL_REJECT_SHA256
     record = json.loads(raw)
     assert record["verdict"] == "REJECT"
@@ -1089,6 +1082,41 @@ def _check_current_a() -> None:
     test_the_record_introducing_commit_directly_parents_the_approved_evidence()
     test_the_a3_diff_writes_only_the_section_13_5_authorized_paths()
     test_the_a3_diff_changes_only_the_two_approved_constant_assignments()
+
+
+@pytest.mark.parametrize("attack", ["blob-replacement", "caller-routing"])
+def test_historical_reject_reads_actual_raw_blob(
+    acceptance_git: tuple[str, str, str, bytes],
+    monkeypatch: pytest.MonkeyPatch,
+    attack: str,
+) -> None:
+    """Both the parent check and retained bytes ignore hostile Git overlays."""
+    source, _evidence, parent, _raw = acceptance_git
+    raw = (
+        json.dumps(
+            {"verdict": "REJECT", "evidence_commit_sha": parent, "source_sha": source}
+        ).encode()
+        + b"\r\n"
+    )
+    rejected = _topology_commit({ARTIFACT: raw})
+    module = sys.modules[__name__]
+    for name, value in (
+        ("HISTORICAL_REJECT_S", source),
+        ("HISTORICAL_REJECT_E", parent),
+        ("HISTORICAL_REJECT_A", rejected),
+        ("HISTORICAL_REJECT_SHA256", hashlib.sha256(raw).hexdigest()),
+    ):
+        monkeypatch.setattr(module, name, value)
+    if attack == "blob-replacement":
+        actual_blob = _git("rev-parse", f"{rejected}:{ARTIFACT}").strip()
+        forged_path = REPOSITORY_ROOT / "forged-blob.json"
+        _ = forged_path.write_bytes(b'{"verdict":"ACCEPT"}\n')
+        forged_blob = _git("hash-object", "-w", str(forged_path)).strip()
+        _ = _git("replace", actual_blob, forged_blob)
+    else:
+        for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_OBJECT_DIRECTORY"):
+            monkeypatch.setenv(name, str(REPOSITORY_ROOT / "absent"))
+    assert _historical_reject_bytes() == raw
 
 
 def test_acceptance_topology_uses_current_add_and_raw_bytes(
