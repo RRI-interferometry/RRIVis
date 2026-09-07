@@ -116,6 +116,7 @@ import json
 import math
 import os
 import re
+import stat
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -920,7 +921,7 @@ def build_acceptance_document(
     }
 
 
-def _git(*arguments: str) -> str:
+def _git_bytes(*arguments: str) -> bytes:
     environment = {
         key: value for key, value in os.environ.items() if not key.startswith("GIT_")
     }
@@ -950,25 +951,118 @@ def _git(*arguments: str) -> str:
         "color.ui=false",
     ]
 
-    def run(query: list[str]) -> str:
-        completed = subprocess.run(
-            [*command, *query],
-            cwd=root,
-            env=environment,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    def run(query: list[str]) -> bytes:
+        try:
+            completed = subprocess.run(
+                [*command, *query],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                check=False,
+            )
+        except OSError as error:
+            raise AcceptanceError(
+                ANCESTRY, "cannot execute Git for this checkout"
+            ) from error
         if completed.returncode != 0:
             raise AcceptanceError(
-                ANCESTRY, f"git {' '.join(query)} failed: {completed.stderr.strip()}"
+                ANCESTRY,
+                f"git {' '.join(query)} failed: "
+                f"{completed.stderr.decode('utf-8', 'replace').strip()}",
             )
         return completed.stdout
 
     # Discover .git directories and registered-worktree gitfiles through Git,
     # then bind both the object context and worktree for the actual query.
-    git_directory = run(["rev-parse", "--absolute-git-dir"]).removesuffix("\n")
+    git_directory = os.fsdecode(
+        run(["rev-parse", "--absolute-git-dir"]).removesuffix(b"\n")
+    )
     return run([f"--git-dir={git_directory}", *arguments])
+
+
+def _git(*arguments: str) -> str:
+    return _git_bytes(*arguments).decode("utf-8")
+
+
+def _require_raw_tracked_checkout(head: str) -> None:
+    """Bind every original tracked byte/type/mode to the preflight E tree."""
+    _require(_git("rev-parse", "HEAD").strip() == head, ANCESTRY, "E HEAD changed")
+    try:
+        _require(
+            stat.S_ISDIR(REPOSITORY_ROOT.lstat().st_mode),
+            ANCESTRY,
+            "tracked checkout root type changed",
+        )
+        root = REPOSITORY_ROOT.resolve(strict=True)
+        entries = _git_bytes("ls-tree", "-r", "-z", "--full-tree", head).split(b"\0")
+        _require(entries[-1] == b"", ANCESTRY, "tracked tree framing")
+        seen: set[bytes] = set()
+        for entry in entries[:-1]:
+            metadata, separator, relative = entry.partition(b"\t")
+            fields = metadata.split()
+            _require(
+                bool(separator) and len(fields) == 3 and relative not in seen,
+                ANCESTRY,
+                "tracked tree entry",
+            )
+            seen.add(relative)
+            mode, kind, oid = fields
+            components = relative.split(b"/")
+            _require(
+                all(part not in {b"", b".", b".."} for part in components),
+                ANCESTRY,
+                "tracked tree path",
+            )
+            parent = root
+            for component in components[:-1]:
+                parent /= os.fsdecode(component)
+                _require(
+                    stat.S_ISDIR(parent.lstat().st_mode),
+                    ANCESTRY,
+                    "tracked parent directory type changed",
+                )
+            # Status retains index/submodule checks, including uninitialized links.
+            if mode == b"160000":
+                _require(kind == b"commit", ANCESTRY, "tracked gitlink type")
+                continue
+            _require(
+                mode in {b"100644", b"100755", b"120000"} and kind == b"blob",
+                ANCESTRY,
+                "tracked tree type",
+            )
+            path = parent / os.fsdecode(components[-1])
+            actual_mode = path.lstat().st_mode
+            if mode == b"120000":
+                _require(stat.S_ISLNK(actual_mode), ANCESTRY, "tracked symlink type")
+                actual = os.fsencode(os.readlink(path))
+            else:
+                _require(stat.S_ISREG(actual_mode), ANCESTRY, "tracked regular type")
+                _require(
+                    bool(actual_mode & stat.S_IXUSR) == (mode == b"100755"),
+                    ANCESTRY,
+                    "tracked executable mode changed",
+                )
+                actual = path.read_bytes()
+            original = _git_bytes("cat-file", "blob", oid.decode("ascii"))
+            matches = actual == original
+            if not matches and mode != b"120000":
+                pointer = re.fullmatch(
+                    rb"version https://git-lfs.github.com/spec/v1\n"
+                    rb"oid sha256:([0-9a-f]{64})\nsize (0|[1-9][0-9]*)\n",
+                    original,
+                )
+                matches = pointer is not None and (
+                    pointer[2] == str(len(actual)).encode("ascii")
+                    and pointer[1] == hashlib.sha256(actual).hexdigest().encode("ascii")
+                )
+            _require(
+                matches, ANCESTRY, f"tracked raw bytes changed: {os.fsdecode(relative)}"
+            )
+    except OSError as error:
+        raise AcceptanceError(
+            ANCESTRY, "tracked checkout path cannot be read"
+        ) from error
+    _require(_git("rev-parse", "HEAD").strip() == head, ANCESTRY, "E HEAD changed")
 
 
 def raw_sha256(path: Path) -> str:
@@ -994,13 +1088,14 @@ def preflight() -> dict[str, str]:
             raise AcceptanceError(
                 DIGEST, f"the declared output {relative} already exists"
             )
+    _require_raw_tracked_checkout(head)
     return {
         "evidence_commit_sha": head,
         "evidence_artifact_sha256": raw_sha256(evidence),
     }
 
 
-def require_declared_outputs_only() -> None:
+def require_declared_outputs_only(evidence_commit_sha: str) -> None:
     """Require the repository's only new paths to equal the declared output set.
 
     Section 14.3 runs this *after* publication: the acceptance record is the one
@@ -1016,6 +1111,7 @@ def require_declared_outputs_only() -> None:
         f"after publication the repository's new paths must be exactly "
         f"{expected}, not {observed}",
     )
+    _require_raw_tracked_checkout(evidence_commit_sha)
 
 
 def write_atomic_no_overwrite(path: Path, payload: bytes) -> None:
@@ -1053,8 +1149,9 @@ def main(argv: list[str] | None = None) -> int:
             document = build_acceptance_document(state, review)
             validate_acceptance_document(document)
             payload = canonical_json(document)
+            _require_raw_tracked_checkout(state["evidence_commit_sha"])
             write_atomic_no_overwrite(REPOSITORY_ROOT / ACCEPTANCE_ARTIFACT, payload)
-            require_declared_outputs_only()
+            require_declared_outputs_only(state["evidence_commit_sha"])
             sys.stdout.write(
                 canonical_json(
                     {

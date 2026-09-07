@@ -36,6 +36,8 @@ import io
 import json
 import os
 import re
+import shlex
+import stat
 import subprocess
 import sys
 import tokenize
@@ -1703,3 +1705,213 @@ def test_acceptance_json_reader_preserves_canonical_large_binary64_tokens(
     module = _tool()
     value = module._json_object(payload, "fixture", canonical=canonical)
     assert module.canonical_json(value) == payload
+
+
+@pytest.fixture
+def raw_acceptance_tree(
+    acceptance_git: tuple[str, str, str, bytes], monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, str, Path]:
+    """A tiny E-shaped tree with an unrelated tracked file and a real symlink."""
+    module = _tool()
+    link = REPOSITORY_ROOT / "tracked-link"
+    link.symlink_to("outside-scope/payload.bin")
+    head = _topology_commit(
+        {
+            ARTIFACT: None,
+            EVIDENCE_ARTIFACT: b"{}",
+            "outside-scope/payload.bin": b"before\r\n",
+        }
+    )
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", REPOSITORY_ROOT)
+    assert module.preflight()["evidence_commit_sha"] == head
+    assert (
+        module._git_bytes("show", f"{head}:outside-scope/payload.bin") == b"before\r\n"
+    )
+    return module, head, REPOSITORY_ROOT / "outside-scope/payload.bin"
+
+
+@pytest.mark.parametrize("after_publication", [False, True])
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "ordinary",
+        "filter",
+        "assume-unchanged",
+        "skip-worktree",
+        "stat-cache",
+        "mode-cache",
+    ],
+)
+def test_acceptance_raw_checkout_rejects_native_false_clean_outside_grant(
+    raw_acceptance_tree: tuple[Any, str, Path], attack: str, after_publication: bool
+) -> None:
+    module, head, path = raw_acceptance_tree
+    relative = path.relative_to(REPOSITORY_ROOT).as_posix()
+    before = path.stat()
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns - 10_000_000_000))
+    _ = _git("update-index", "--refresh", "--", relative)
+    before = path.stat()
+    if attack == "filter":
+        _ = (REPOSITORY_ROOT / ".git/info/attributes").write_text(
+            f"{relative} filter=cloak\n"
+        )
+        _ = _git("config", "filter.cloak.clean", "printf 'before\\r\\n'")
+    elif attack in {"assume-unchanged", "skip-worktree"}:
+        _ = _git("update-index", f"--{attack}", relative)
+    elif attack == "stat-cache":
+        _ = _git("config", "core.trustctime", "false")
+        _ = _git("config", "core.checkStat", "minimal")
+    elif attack == "mode-cache":
+        _ = _git("config", "core.fileMode", "false")
+        path.chmod(before.st_mode | stat.S_IXUSR)
+    if attack not in {"ordinary", "mode-cache"}:
+        _ = path.write_bytes(b"after!\r\n")
+    if attack == "stat-cache":
+        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+    # Positive native concealment control; refusal must not rely on status.
+    assert _git("status", "--porcelain=v1", "--untracked-files=all") == ""
+    if after_publication:
+        _ = (REPOSITORY_ROOT / ARTIFACT).write_bytes(b"{}")
+    if attack == "ordinary":
+        if after_publication:
+            module.require_declared_outputs_only(head)
+        else:
+            assert module.preflight()["evidence_commit_sha"] == head
+    else:
+        with pytest.raises(module.AcceptanceError, match="tracked"):
+            if after_publication:
+                module.require_declared_outputs_only(head)
+            else:
+                module.preflight()
+
+
+@pytest.mark.parametrize(
+    "attack", ["link-target", "regular-type", "parent-link", "root-link"]
+)
+def test_acceptance_raw_checkout_checks_original_types_without_following_links(
+    raw_acceptance_tree: tuple[Any, str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    attack: str,
+) -> None:
+    module, head, path = raw_acceptance_tree
+    if attack == "link-target":
+        link = REPOSITORY_ROOT / "tracked-link"
+        link.unlink()
+        link.symlink_to("other-target")
+    elif attack == "regular-type":
+        path.unlink()
+        path.symlink_to("missing-target")
+    elif attack == "parent-link":
+        outside = REPOSITORY_ROOT.parent / "retained-original-directory"
+        _ = path.parent.rename(outside)
+        path.parent.symlink_to(outside, target_is_directory=True)
+    else:
+        alias = REPOSITORY_ROOT.parent / "checkout-alias"
+        alias.symlink_to(REPOSITORY_ROOT, target_is_directory=True)
+        monkeypatch.setattr(module, "REPOSITORY_ROOT", alias)
+    # Direct raw guard isolates its own path/type check from Git status refusal.
+    with pytest.raises(module.AcceptanceError, match="tracked"):
+        module._require_raw_tracked_checkout(head)
+
+
+@pytest.mark.parametrize(
+    "case", ["pointer", "hydrated", "wrong-size", "wrong-hash", "malformed"]
+)
+def test_acceptance_raw_checkout_authenticates_lfs_without_running_filters(
+    raw_acceptance_tree: tuple[Any, str, Path], case: str
+) -> None:
+    module, _, path = raw_acceptance_tree
+    payload = b"hydrated content\x00\r\n"
+    pointer = (
+        "version https://git-lfs.github.com/spec/v1\n"
+        f"oid sha256:{hashlib.sha256(payload).hexdigest()}\nsize {len(payload)}\n"
+    ).encode()
+    if case == "malformed":
+        pointer = pointer.replace(b"size ", b"size 0")
+    relative = path.relative_to(REPOSITORY_ROOT).as_posix()
+    head = _topology_commit({relative: pointer})
+    assert module.preflight()["evidence_commit_sha"] == head
+    _ = _git("update-index", "--assume-unchanged", relative)
+    if case != "pointer":
+        actual = payload + b"x" if case == "wrong-size" else payload
+        if case == "wrong-hash":
+            actual = b"X" + payload[1:]
+        _ = path.write_bytes(actual)
+    assert _git("status", "--porcelain=v1") == ""
+    if case in {"pointer", "hydrated"}:
+        assert module.preflight()["evidence_commit_sha"] == head
+    else:
+        with pytest.raises(module.AcceptanceError, match="raw bytes"):
+            module.preflight()
+
+
+def test_acceptance_raw_checkout_preserves_uninitialized_gitlinks_and_e_head(
+    raw_acceptance_tree: tuple[Any, str, Path],
+) -> None:
+    module, previous, _ = raw_acceptance_tree
+    _ = _git("update-index", "--add", "--cacheinfo", f"160000,{previous},vendor")
+    (REPOSITORY_ROOT / "vendor").mkdir()
+    _ = _git("commit", "-qm", "synthetic gitlink")
+    head = _git("rev-parse", "HEAD").strip()
+    assert module.preflight()["evidence_commit_sha"] == head
+    _ = (REPOSITORY_ROOT / ARTIFACT).write_bytes(b"{}")
+    module.require_declared_outputs_only(head)
+    with pytest.raises(module.AcceptanceError, match="E HEAD changed"):
+        module.require_declared_outputs_only(previous)
+
+
+@pytest.mark.parametrize("failure", ["missing-root", "missing-git"])
+def test_acceptance_git_launch_failure_uses_typed_ancestry_channel(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failure: str,
+) -> None:
+    module = _tool()
+    if failure == "missing-root":
+        monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path / "absent-checkout")
+    else:
+        monkeypatch.setenv("PATH", str(tmp_path))
+    with pytest.raises(module.AcceptanceError, match="cannot execute Git") as caught:
+        module._git("rev-parse", "HEAD")
+    assert caught.value.prefix == module.ANCESTRY
+    assert isinstance(caught.value.__cause__, OSError)
+    assert module.main(["preflight"]) == 1
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err.startswith(module.ANCESTRY + ": ")
+    assert "Traceback" not in output.err
+
+
+def test_acceptance_postpublication_rechecks_bytes_after_status_filter(
+    raw_acceptance_tree: tuple[Any, str, Path],
+) -> None:
+    module, head, path = raw_acceptance_tree
+    relative = path.relative_to(REPOSITORY_ROOT).as_posix()
+    before = path.stat()
+    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns - 20_000_000_000))
+    _ = _git("update-index", "--refresh", "--", relative)
+    _ = (REPOSITORY_ROOT / ".git/info/attributes").write_text(
+        f"{relative} filter=sideeffect\n"
+    )
+    helper = REPOSITORY_ROOT / ".git/sideeffect-clean.py"
+    _ = helper.write_text(
+        "from pathlib import Path\nimport sys\n"
+        f"Path({str(path)!r}).write_bytes(b'after!\\r\\n')\n"
+        "sys.stdout.buffer.write(b'before\\r\\n')\n"
+    )
+    _ = _git(
+        "config",
+        "filter.sideeffect.clean",
+        f"{shlex.quote(sys.executable)} {shlex.quote(str(helper))}",
+    )
+    os.utime(path, None)
+    _ = (REPOSITORY_ROOT / ARTIFACT).write_bytes(b"{}")
+    index_entries = _git_bytes("ls-files", "--stage", "-v", "-z")
+    module._require_raw_tracked_checkout(head)
+    assert path.read_bytes() == b"before\r\n"
+    with pytest.raises(module.AcceptanceError, match="tracked"):
+        module.require_declared_outputs_only(head)
+    assert path.read_bytes() == b"after!\r\n"
+    assert _git_bytes("ls-files", "--stage", "-v", "-z") == index_entries
+    assert _git("diff", "--cached", "--name-only") == ""
