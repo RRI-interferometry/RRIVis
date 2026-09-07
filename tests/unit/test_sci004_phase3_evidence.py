@@ -55,7 +55,8 @@ import subprocess
 import sys
 import time
 import tokenize
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -7795,6 +7796,67 @@ def test_frame_structure_refuses_untyped_scalars_and_roots(
         module.validate_frame_certificate_structure(row, label="test")
 
 
+# Test-only data identities declared by the default/py312 noarch lock artifacts.
+# These qualify synthetic integration coverage, never production evidence.
+_SYNTHETIC_CHARACTERIZATION_IERS = {
+    "0.2025.8.25.0.36.58": "ff2d22108e982bd86e326e01d797fa8bd545d51483359dd98e6c08fa5737f667",
+    "0.2026.7.13.0.54.2": "64c5e66d133c0aafacfbc60d595e750cd08d6e20007ba3e7dbb38bea64f5fe88",
+}
+_PRODUCTION_CHARACTERIZATION_IERS = (
+    "ff2d22108e982bd86e326e01d797fa8bd545d51483359dd98e6c08fa5737f667"
+)
+
+
+def _installed_characterization_iers() -> tuple[str, bytes]:
+    from importlib import metadata, resources
+
+    return (
+        metadata.version("astropy-iers-data"),
+        (resources.files("astropy_iers_data") / "data/finals2000A.all").read_bytes(),
+    )
+
+
+def _qualify_characterization_iers(
+    version: str, payload: bytes, phase_digest: str
+) -> str:
+    assert version in _SYNTHETIC_CHARACTERIZATION_IERS, "unqualified IERS version"
+    expected = _SYNTHETIC_CHARACTERIZATION_IERS[version]
+    assert hashlib.sha256(payload).hexdigest() == expected, "unqualified IERS bytes"
+    assert phase_digest == expected, "prepared phase IERS differs"
+    return expected
+
+
+@contextmanager
+def _qualified_characterization_context(
+    module: Any, phase: dict[str, Any]
+) -> Iterator[None]:
+    """Temporarily qualify synthetic tests; restore the same cached tool owner."""
+    assert _tool() is module
+    original = module._CHARACTERIZATION_IERS_SHA256
+    assert original == _PRODUCTION_CHARACTERIZATION_IERS
+    version, payload = _installed_characterization_iers()
+    expected = _qualify_characterization_iers(
+        version, payload, phase["iers_table_sha256"]
+    )
+    try:
+        with pytest.MonkeyPatch.context() as local:
+            local.setattr(module, "_CHARACTERIZATION_IERS_SHA256", expected)
+            yield
+    finally:
+        assert module._CHARACTERIZATION_IERS_SHA256 == original
+        assert _tool() is module
+
+
+@pytest.fixture
+def qualified_characterization_runtime(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+) -> Iterator[None]:
+    """Explicit per-test qualification, entered before hostile resource patches."""
+    module, _, phase = prepared_characterization_time
+    with _qualified_characterization_context(module, phase):
+        yield
+
+
 @pytest.fixture(scope="module")
 def prepared_characterization_time(
     tmp_path_factory: pytest.TempPathFactory,
@@ -8072,6 +8134,7 @@ def test_characterization_source_inventory_requires_explicit_family(
         )
 
 
+@pytest.mark.usefixtures("qualified_characterization_runtime")
 def test_characterization_time_prepared_grid_and_context(
     prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
 ) -> None:
@@ -8130,6 +8193,7 @@ def test_characterization_time_prepared_grid_and_context(
         ("outside_coverage", "(mapping|coverage)"),
     ],
 )
+@pytest.mark.usefixtures("qualified_characterization_runtime")
 def test_characterization_time_rehashed_semantic_mutations(
     prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
     mutation: str,
@@ -8205,6 +8269,7 @@ def test_characterization_time_rehashed_semantic_mutations(
     assert iers.IERS_A.open() is cached_table
 
 
+@pytest.mark.usefixtures("qualified_characterization_runtime")
 def test_characterization_time_authenticates_installed_table_bytes(
     prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
     tmp_path: Path,
@@ -8230,6 +8295,7 @@ def test_characterization_time_authenticates_installed_table_bytes(
 @pytest.mark.parametrize(
     "failure", ["missing", "unreadable", "package", "parser", "read"]
 )
+@pytest.mark.usefixtures("qualified_characterization_runtime")
 def test_characterization_time_resource_failures_preserve_context(
     prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
     tmp_path: Path,
@@ -8535,6 +8601,7 @@ def _projection_rehash(case: dict[str, Any], *, join_source: bool = True) -> Non
     case["digest"] = _object_digest(value["schema_version"], value)
 
 
+@pytest.mark.usefixtures("qualified_characterization_runtime")
 def test_characterization_projection_positive_and_deferred_semantics(
     characterization_projection: dict[str, Any],
 ) -> None:
@@ -8570,6 +8637,7 @@ def test_characterization_projection_positive_and_deferred_semantics(
     ],
 )
 @pytest.mark.parametrize("operation", ["missing", "extra"])
+@pytest.mark.usefixtures("qualified_characterization_runtime")
 def test_characterization_projection_closed_outer(
     characterization_projection: dict[str, Any],
     container: str,
@@ -8627,6 +8695,7 @@ def test_characterization_projection_closed_outer(
         "baseline_count",
     ],
 )
+@pytest.mark.usefixtures("qualified_characterization_runtime")
 def test_characterization_projection_rehashed_join_failures(
     characterization_projection: dict[str, Any], mutation: str
 ) -> None:
@@ -8712,6 +8781,7 @@ def test_characterization_projection_rehashed_join_failures(
         _tool().validate_characterization_input_projection(**case)
 
 
+@pytest.mark.usefixtures("qualified_characterization_runtime")
 def test_characterization_projection_signed_zero_width(
     characterization_projection: dict[str, Any],
 ) -> None:
@@ -8801,6 +8871,7 @@ def _receptor_family_projection(
 
 
 @pytest.mark.parametrize("family", SECTION_11_FAMILIES)
+@pytest.mark.usefixtures("qualified_characterization_runtime")
 def test_characterization_receptor_family_join(
     characterization_projection: dict[str, Any], family: str
 ) -> None:
@@ -9041,3 +9112,122 @@ def test_characterization_receptor_integer_zero_is_not_float_zero(
         "must be exact floats"
     )
     assert repr(case) == before
+
+
+def _assert_characterization_production_policy(
+    prepared: tuple[Any, dict[str, Any], dict[str, Any]],
+) -> None:
+    import ast
+
+    module, manifest, phase = prepared
+    assert module._CHARACTERIZATION_IERS_SHA256 == _PRODUCTION_CHARACTERIZATION_IERS
+    tree = ast.parse(Path(module.__file__).read_bytes())
+    bindings = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "_CHARACTERIZATION_IERS_SHA256"
+            for target in node.targets
+        )
+    ]
+    assert len(bindings) == 1 and len(bindings[0].targets) == 1
+    assert isinstance(bindings[0].value, ast.Constant)
+    assert bindings[0].value.value == _PRODUCTION_CHARACTERIZATION_IERS
+    version, payload = _installed_characterization_iers()
+    expected = _qualify_characterization_iers(
+        version, payload, phase["iers_table_sha256"]
+    )
+    digest = _object_digest(manifest["schema_version"], manifest)
+    if expected == _PRODUCTION_CHARACTERIZATION_IERS:
+        assert (
+            module.validate_characterization_time_manifest(manifest, digest, phase)
+            == manifest
+        )
+    else:
+        with pytest.raises(module.EvidenceError) as caught:
+            module.validate_characterization_time_manifest(manifest, digest, phase)
+        assert caught.value.prefix == "SCI004_M3_EVIDENCE_SCHEMA"
+        assert caught.value.detail == "locked IERS bytes"
+
+
+def test_characterization_runtime_unpatched_production_policy(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+) -> None:
+    """The newer test-only IERS identity is still rejected in production."""
+    _assert_characterization_production_policy(prepared_characterization_time)
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_characterization_runtime_context_restores_same_owner(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+    characterization_projection: dict[str, Any],
+    interrupted: bool,
+) -> None:
+    module, manifest, phase = prepared_characterization_time
+    _assert_characterization_production_policy(prepared_characterization_time)
+    validator = module.validate_characterization_time_manifest
+    before = repr((manifest, phase, characterization_projection))
+    expectation = (
+        pytest.raises(RuntimeError, match="^synthetic context interruption$")
+        if interrupted
+        else nullcontext()
+    )
+    with expectation:
+        with _qualified_characterization_context(module, phase):
+            assert module.validate_characterization_time_manifest is validator
+            assert (
+                module.validate_characterization_time_manifest(
+                    manifest,
+                    _object_digest(manifest["schema_version"], manifest),
+                    phase,
+                )
+                == manifest
+            )
+            assert (
+                module.validate_characterization_input_projection(
+                    **characterization_projection
+                )
+                == characterization_projection["value"]
+            )
+            if interrupted:
+                raise RuntimeError("synthetic context interruption")
+    assert module.validate_characterization_time_manifest is validator
+    assert repr((manifest, phase, characterization_projection)) == before
+    _assert_characterization_production_policy(prepared_characterization_time)
+
+
+@pytest.mark.parametrize(
+    "mutation,reason",
+    [
+        ("version", "unqualified IERS version"),
+        ("resource", "unqualified IERS bytes"),
+        ("one_byte", "unqualified IERS bytes"),
+        ("phase", "prepared phase IERS differs"),
+    ],
+)
+def test_characterization_runtime_qualification_refuses_unknown_identity(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+    mutation: str,
+    reason: str,
+) -> None:
+    module, _, phase = prepared_characterization_time
+    version, payload = _installed_characterization_iers()
+    expected = _qualify_characterization_iers(
+        version, payload, phase["iers_table_sha256"]
+    )
+    assert expected == _SYNTHETIC_CHARACTERIZATION_IERS[version]
+    phase_digest = phase["iers_table_sha256"]
+    if mutation == "version":
+        version = "unlisted.version"
+    elif mutation == "resource":
+        payload = b"unqualified resource"
+    elif mutation == "one_byte":
+        payload = payload[:-1] + bytes([payload[-1] ^ 1])
+    else:
+        phase_digest = "0" * 64
+    with pytest.raises(AssertionError) as caught:
+        _ = _qualify_characterization_iers(version, payload, phase_digest)
+    assert str(caught.value).splitlines()[0] == reason
+    assert module._CHARACTERIZATION_IERS_SHA256 == _PRODUCTION_CHARACTERIZATION_IERS
