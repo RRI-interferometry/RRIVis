@@ -197,11 +197,41 @@ SOLVER_AFTER = SOLVER_BEFORE.replace(
     b"value='unchanged')",
     b"value='unchanged', input_identity_sha256=solved['input_identity_sha256'])",
 )
+SOLVER_REPAIRED = SOLVER_AFTER + b"geometry_repaired = True\n"
 FIXTURE_BEFORE = b"snapshot = MModeSolverSnapshot(value='unchanged')\n"
 FIXTURE_AFTER = FIXTURE_BEFORE.replace(
     b"value='unchanged')",
     b"value='unchanged', input_identity_sha256=_mmode_fixture_digest('input_identity'))",
 )
+
+
+def bind_causal_regression(
+    root: Path, causal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bind actual temporary Git bytes to the synthetic causal identity."""
+    monkeypatch.setattr(history, "D35_CAUSAL_REGRESSION_SHA", causal)
+    monkeypatch.setattr(
+        history,
+        "D35_CAUSAL_REGRESSION_BLOB",
+        sha256(
+            history_git(root, "show", f"{causal}:{history.FRAME_TEST_PATH}")
+        ).hexdigest(),
+    )
+    monkeypatch.setattr(
+        history,
+        "D35_CAUSAL_REGRESSION_PATCH",
+        sha256(
+            history_git(
+                root,
+                "diff",
+                "--binary",
+                "--full-index",
+                history.D35_DESIGN_EDGE.sha,
+                causal,
+                "--",
+            )
+        ).hexdigest(),
+    )
 
 
 def source_design_object(
@@ -368,8 +398,29 @@ def phase_objects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PhaseObjec
             history.FRAME_PATH: _d34_repaired_frame(frame),
         }
     )
+    import ast
+    import sys
+
+    monkeypatch.setattr(
+        history,
+        "D35_SOLVER_AST_PROFILES",
+        {
+            (sys.implementation.name, *sys.version_info[:2]): {
+                name: sha256(
+                    ast.dump(
+                        ast.parse(raw), annotate_fields=True, include_attributes=False
+                    ).encode()
+                ).hexdigest()
+                for name, raw in (
+                    ("O0", SOLVER_BEFORE),
+                    ("O1", SOLVER_AFTER),
+                    ("G1", SOLVER_REPAIRED),
+                )
+            }
+        },
+    )
     source_designs: list[history.SourceDesignEdge] = []
-    parent = status
+    parent = commit(status, {history.SOLVER_PATH: SOLVER_AFTER})
     for edge in history.SOURCE_DESIGN_EDGES:
         created = source_design_object(
             root, cast(Callable[..., str], commit), parent, edge
@@ -381,13 +432,16 @@ def phase_objects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PhaseObjec
     monkeypatch.setattr(
         history, "HISTORICAL_D33_SOURCE_DESIGN_SHA", source_designs[1].sha
     )
-    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[2].sha)
+    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[3].sha)
+    monkeypatch.setattr(history, "D35_DESIGN_EDGE", source_designs[3])
     monkeypatch.setattr(
         history, "HISTORICAL_D34_SOURCE_DESIGN_SHA", source_designs[2].sha
     )
     regression = commit(
         parent, {history.FRAME_TEST_PATH: edits.pop(history.FRAME_TEST_PATH)}
     )
+    bind_causal_regression(root, regression, monkeypatch)
+    edits[history.SOLVER_PATH] = SOLVER_REPAIRED
     source = commit(regression, edits)
     terminal = commit(source, dict.fromkeys(history.DISPOSAL_PINS))
     return (
@@ -434,6 +488,8 @@ def test_complete_ranges_join_git_objects_and_keep_status_and_disposal(phase_obj
         "status",
     ]
     assert [row["role"] for row in document["source"]["commits"]] == [
+        "source",
+        "source-design-successor",
         "source-design-successor",
         "source-design-successor",
         "source-design-successor",
@@ -1001,9 +1057,11 @@ def test_live_source_design_edges_authenticate(edge: history.SourceDesignEdge) -
     assert tuple(item.sha for item in history.SOURCE_DESIGN_EDGES) == (
         history.HISTORICAL_SOURCE_DESIGN_SHA,
         history.HISTORICAL_D33_SOURCE_DESIGN_SHA,
+        history.HISTORICAL_D34_SOURCE_DESIGN_SHA,
         history.SOURCE_DESIGN_SHA,
     )
-    assert history.SOURCE_DESIGN_SHA == history.D34_DESIGN_EDGE.sha
+    assert history.HISTORICAL_D34_SOURCE_DESIGN_SHA == history.D34_DESIGN_EDGE.sha
+    assert history.SOURCE_DESIGN_SHA == history.D35_DESIGN_EDGE.sha
     assert edge.reviewers == (
         "/root/e_lifecycle_physics"
         if edge.correction == 34
@@ -1018,9 +1076,7 @@ def test_source_design_authentication_rejects_other_identities(sha: str) -> None
         history.authenticate_source_design_successor(sha)
 
 
-@pytest.mark.parametrize(
-    "edge", (*history.SOURCE_DESIGN_EDGES, history.D35_DESIGN_EDGE)
-)
+@pytest.mark.parametrize("edge", history.SOURCE_DESIGN_EDGES)
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1183,9 +1239,11 @@ def test_source_design_real_objects_require_own_review(
         (32, 34, 33),
         (34, 33, 32),
         (32, 33, 34),
+        (32, 33, 35, 34),
+        (32, 33, 34, 35),
     ],
 )
-def test_complete_source_requires_three_designs_in_order(
+def test_complete_source_requires_four_designs_in_order(
     phase_objects: PhaseObjects,
     monkeypatch: pytest.MonkeyPatch,
     order: tuple[int, ...],
@@ -1193,17 +1251,21 @@ def test_complete_source_requires_three_designs_in_order(
     root, commit, _, _, _, red, source, _ = phase_objects
     prototypes = {edge.correction: edge for edge in history.SOURCE_DESIGN_EDGES}
     edges: dict[int, history.SourceDesignEdge] = {}
-    parent = red
+    parent = commit(red, {history.SOLVER_PATH: SOLVER_AFTER})
     for correction in order:
         edge = source_design_object(root, commit, parent, prototypes[correction])
         edges[correction] = edge
         parent = edge.sha
     # Keep absent identities pinned too; their objects cannot be invented in S.
-    expected = tuple(edges.get(number, prototypes[number]) for number in (32, 33, 34))
+    expected = tuple(
+        edges.get(number, prototypes[number]) for number in (32, 33, 34, 35)
+    )
     monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", expected)
     monkeypatch.setattr(history, "HISTORICAL_SOURCE_DESIGN_SHA", expected[0].sha)
     monkeypatch.setattr(history, "HISTORICAL_D33_SOURCE_DESIGN_SHA", expected[1].sha)
-    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", expected[2].sha)
+    monkeypatch.setattr(history, "HISTORICAL_D34_SOURCE_DESIGN_SHA", expected[2].sha)
+    monkeypatch.setattr(history, "D35_DESIGN_EDGE", expected[3])
+    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", expected[3].sha)
     edits = {
         path: history_git(root, "show", f"{source}:{path}")
         for path in history.SOURCE_PATHS
@@ -1215,6 +1277,10 @@ def test_complete_source_requires_three_designs_in_order(
         parent = commit(
             parent, {history.FRAME_TEST_PATH: edits.pop(history.FRAME_TEST_PATH)}
         )
+    if order == (32, 33, 34, 35):
+        bind_causal_regression(root, parent, monkeypatch)
+    else:
+        edits[history.SOLVER_PATH] = SOLVER_AFTER
     tip = commit(commit(parent, edits), dict.fromkeys(history.DISPOSAL_PINS))
     partial = history.describe_phase_range(
         red, tip, "source", root=root, require_complete=False
@@ -1224,11 +1290,11 @@ def test_complete_source_requires_three_designs_in_order(
         for row in partial["commits"]
         if row["role"] == "source-design-successor"
     ] == [edges[number].sha for number in order]
-    if order == (32, 33, 34):
+    if order == (32, 33, 34, 35):
         assert history.describe_phase_range(red, tip, "source", root=root) == partial
     else:
         with pytest.raises(
-            history.HistoryError, match="exact D32 then D33 then D34 once"
+            history.HistoryError, match="exact D32 then D33 then D34 then D35 once"
         ):
             _ = history.describe_phase_range(red, tip, "source", root=root)
 
@@ -1300,11 +1366,11 @@ def test_source_design_role_authenticates_before_excluding_paths(
         with pytest.raises(history.HistoryError, match="source role"):
             _ = history.describe_phase_range(red, tip, "source", root=root)
     elif mutation == "bad_pin":
-        first, second, third = history.SOURCE_DESIGN_EDGES
+        first, *rest = history.SOURCE_DESIGN_EDGES
         monkeypatch.setattr(
             history,
             "SOURCE_DESIGN_EDGES",
-            (replace(first, patch="0" * 64), second, third),
+            (replace(first, patch="0" * 64), *rest),
         )
         with pytest.raises(history.HistoryError, match="source design complete diff"):
             _ = history.describe_phase_range(red, terminal, "source", root=root)
@@ -1333,7 +1399,7 @@ def test_source_document_cannot_rebind_or_disguise_design_entries(
             history.OPERATIVE_DESIGN_SHA,
             history.HISTORICAL_SOURCE_DESIGN_SHA,
         ):
-            with pytest.raises(history.HistoryError, match="current D34"):
+            with pytest.raises(history.HistoryError, match="current D35"):
                 history.validate_phase_ranges(
                     document,
                     design_sha=design,
@@ -1780,27 +1846,20 @@ def test_d34_seeded_regression_authenticates_its_source_prefix(
         )
 
 
-def test_pending_d35_authentication_does_not_activate_source_authority() -> None:
-    """The real reviewed landing authenticates only through its pending entry."""
+def test_d35_authentication_and_current_source_authority() -> None:
+    """Activation requires all four real edges; historical D34 stays distinct."""
     history.authenticate_pending_d35()
-    assert history.D35_DESIGN_EDGE.sha == "dd26e045897274f4b09de38ad4552904cc3c33ab"
+    history.authenticate_source_design_successor(history.D35_DESIGN_EDGE.sha)
+    assert history.SOURCE_DESIGN_SHA == history.D35_DESIGN_EDGE.sha
     assert history.HISTORICAL_D34_SOURCE_DESIGN_SHA == history.D34_DESIGN_EDGE.sha
-    assert history.SOURCE_DESIGN_SHA == history.HISTORICAL_D34_SOURCE_DESIGN_SHA
-    assert [edge.correction for edge in history.SOURCE_DESIGN_EDGES] == [32, 33, 34]
-    with pytest.raises(history.HistoryError, match="unknown source design successor"):
-        history.authenticate_source_design_successor(history.D35_DESIGN_EDGE.sha)
+    assert [edge.correction for edge in history.SOURCE_DESIGN_EDGES] == [32, 33, 34, 35]
     records = [
         {"sha": edge.sha, "role": "source-design-successor"}
         for edge in history.SOURCE_DESIGN_EDGES
     ]
     history.require_source_design_successors(records)
-    with pytest.raises(history.HistoryError, match="exact D32 then D33 then D34 once"):
-        history.require_source_design_successors(
-            [
-                *records,
-                {"sha": history.D35_DESIGN_EDGE.sha, "role": "source-design-successor"},
-            ]
-        )
+    with pytest.raises(history.HistoryError, match="then D35 once"):
+        history.require_source_design_successors(records[:-1])
 
 
 @pytest.mark.parametrize(
@@ -1957,3 +2016,167 @@ def test_geometry_guard_actual_prefix_and_observed_source() -> None:
             _ = history.validate_solver_geometry_transition(
                 old, observed, cumulative=True
             )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        None,
+        "identity",
+        "parent",
+        "extra_path",
+        "mode",
+        "merge",
+        "blob",
+        "patch",
+        "missing",
+        "second_parent",
+    ],
+)
+def test_d35_causal_authentication_uses_exact_original_objects(
+    phase_objects: PhaseObjects, monkeypatch: pytest.MonkeyPatch, attack: str | None
+) -> None:
+    root, commit, base, _, _, _, source, _ = phase_objects
+    parent = source
+    design = history.D35_DESIGN_EDGE.sha
+    causal = history.D35_CAUSAL_REGRESSION_SHA
+    if attack == "identity":
+        monkeypatch.setattr(history, "D35_CAUSAL_REGRESSION_SHA", design)
+    elif attack in {"parent", "extra_path", "mode", "merge"}:
+        edits = {history.FRAME_TEST_PATH: b"# substituted causal test\n"}
+        if attack == "extra_path":
+            edits[history.STATUS_PATH] = b"# extra\n"
+        causal = commit(
+            source if attack == "parent" else design,
+            edits,
+            mode="100755" if attack == "mode" else "100644",
+            extra_parent=base if attack == "merge" else None,
+        )
+        bind_causal_regression(root, causal, monkeypatch)
+        parent = causal
+    elif attack in {"blob", "patch"}:
+        monkeypatch.setattr(
+            history, "D35_CAUSAL_REGRESSION_" + attack.upper(), "0" * 64
+        )
+    elif attack == "missing":
+        parent = design
+    elif attack == "second_parent":
+        parent = commit(
+            base, {history.STATUS_PATH: b"# other branch\n"}, extra_parent=source
+        )
+    if attack is None:
+        history.authenticate_d35_causal_regression(root, parent)
+    else:
+        with pytest.raises(history.HistoryError, match="D35 causal regression"):
+            history.authenticate_d35_causal_regression(root, parent)
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        None,
+        "premature",
+        "arbitrary_test",
+        "combined",
+        "same_commit",
+        "G0",
+        "foreign",
+        "foreign_restored",
+        "foreign_suffix",
+        "foreign_after_restoration",
+        "reverted",
+        "reverted_suffix",
+        "reverted_after_restoration",
+    ],
+)
+def test_d35_solver_transitions_validate_every_intermediate(
+    phase_objects: PhaseObjects, attack: str | None
+) -> None:
+    root, commit, _, _, _, status, _, _ = phase_objects
+    causal = history.D35_CAUSAL_REGRESSION_SHA
+    parent = causal
+    raw = SOLVER_REPAIRED
+    if attack in {"premature", "same_commit"}:
+        parent = history.D35_DESIGN_EDGE.sha
+    elif attack == "arbitrary_test":
+        parent = commit(
+            history.D35_DESIGN_EDGE.sha, {history.FRAME_TEST_PATH: b"# unrelated\n"}
+        )
+    elif attack == "combined":
+        parent = status
+    elif attack == "G0":
+        raw = SOLVER_BEFORE + b"geometry_repaired = True\n"
+    elif attack in {
+        "foreign",
+        "foreign_restored",
+        "foreign_suffix",
+        "foreign_after_restoration",
+    }:
+        raw += b"unrelated_numerical_change = 1\n"
+    edits = {history.SOLVER_PATH: raw}
+    if attack == "same_commit":
+        edits[history.FRAME_TEST_PATH] = b"# tests and geometry together\n"
+    tip = commit(parent, edits)
+    start = parent
+    if attack in {"foreign_restored", "foreign_suffix", "foreign_after_restoration"}:
+        if attack == "foreign_suffix":
+            start = tip
+        tip = commit(tip, {history.SOLVER_PATH: SOLVER_REPAIRED})
+    elif attack in {"reverted", "reverted_suffix", "reverted_after_restoration"}:
+        tip = commit(tip, {history.SOLVER_PATH: SOLVER_AFTER})
+        if attack == "reverted_suffix":
+            start = tip
+        tip = commit(tip, {history.SOLVER_PATH: SOLVER_REPAIRED})
+    if attack in {"foreign_after_restoration", "reverted_after_restoration"}:
+        # Both requested endpoints are valid G1 and the suffix is status-only.
+        # Only authentication of the earlier prefix can detect the bad interval.
+        start = tip
+        assert (
+            history_git(root, "show", f"{start}:{history.SOLVER_PATH}")
+            == SOLVER_REPAIRED
+        )
+        tip = commit(start, {history.STATUS_PATH: b"# after full restoration\n"})
+    if attack is None:
+        result = history.describe_phase_range(
+            start, tip, "source", root=root, require_complete=False
+        )
+        assert result["commits"][-1]["sha"] == tip
+        # An already-repaired partial suffix is legal, without losing its prefix.
+        end = commit(
+            tip, {history.SOLVER_PATH: SOLVER_REPAIRED + b"# formatting only\n"}
+        )
+        _ = history.describe_phase_range(
+            tip, end, "source", root=root, require_complete=False
+        )
+    else:
+        pattern = (
+            "D35 causal regression"
+            if attack in {"premature", "arbitrary_test", "same_commit"}
+            else "required presence"
+            if attack == "G0"
+            else "unapproved whole-module state"
+            if attack.startswith("foreign")
+            else "forbidden directed states"
+        )
+        with pytest.raises(history.HistoryError, match=pattern):
+            _ = history.describe_phase_range(
+                start, tip, "source", root=root, require_complete=False
+            )
+
+
+def test_d35_complete_source_rejects_old_geometry_terminal(
+    phase_objects: PhaseObjects,
+) -> None:
+    root, commit, _, _, _, red, source, _ = phase_objects
+    edits = {
+        path: history_git(root, "show", f"{source}:{path}")
+        for path in history.SOURCE_PATHS
+    }
+    edits[history.SOLVER_PATH] = SOLVER_AFTER
+    tip = commit(history.D35_CAUSAL_REGRESSION_SHA, edits)
+    terminal = commit(tip, dict.fromkeys(history.DISPOSAL_PINS))
+    _ = history.describe_phase_range(
+        red, terminal, "source", root=root, require_complete=False
+    )
+    with pytest.raises(history.HistoryError, match="forbidden directed states"):
+        _ = history.describe_phase_range(red, terminal, "source", root=root)

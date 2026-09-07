@@ -26,7 +26,7 @@ RED_DESIGN_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 HISTORICAL_SOURCE_DESIGN_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
 HISTORICAL_D33_SOURCE_DESIGN_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
 HISTORICAL_D34_SOURCE_DESIGN_SHA = "90ef12e10c869b0928ad0afd51b9f7069729aa26"
-SOURCE_DESIGN_SHA = "90ef12e10c869b0928ad0afd51b9f7069729aa26"
+SOURCE_DESIGN_SHA = "dd26e045897274f4b09de38ad4552904cc3c33ab"
 DESIGN_SUCCESSOR_PARENT = "87b16ba16c8a4ab4ff8b9e6bf213c5ce45a41bfe"
 DESIGN_SUCCESSOR_BLOBS = (
     "4f5e61dfc03a983d0806c656e8785c656f84bc17f2c52e1fa1151639dcd16f33",
@@ -551,6 +551,7 @@ SOURCE_DESIGN_EDGES = (
         ("/root/d30_physics_review", "/root/d30_provenance_review"),
     ),
     D34_DESIGN_EDGE,
+    D35_DESIGN_EDGE,
 )
 
 
@@ -566,7 +567,7 @@ def _source_design_header(text: str, label: str, correction: int) -> str:
 def authenticate_source_design_successor(
     commit_sha: str, root: Path = REPOSITORY_ROOT
 ) -> None:
-    """Authenticate a finalized D32/D33/D34 edge, without changing active ranges."""
+    """Authenticate a finalized D32/D33/D34/D35 edge, without changing active ranges."""
     matches = [edge for edge in SOURCE_DESIGN_EDGES if edge.sha == commit_sha]
     _require(len(matches) == 1, "unknown source design successor")
     _authenticate_source_design_edge(matches[0], root)
@@ -660,21 +661,22 @@ def require_design_successor(records: list[dict[str, Any]]) -> None:
 
 
 def require_source_design_successors(records: list[dict[str, Any]]) -> None:
-    """Require the three authenticated S design edges once in D32/D33/D34 order."""
+    """Require the four authenticated S design edges once in D32/D33/D34/D35 order."""
     expected = [
         HISTORICAL_SOURCE_DESIGN_SHA,
         HISTORICAL_D33_SOURCE_DESIGN_SHA,
+        HISTORICAL_D34_SOURCE_DESIGN_SHA,
         SOURCE_DESIGN_SHA,
     ]
     _require(
-        len(set(expected)) == 3
+        len(set(expected)) == 4
         and [edge.sha for edge in SOURCE_DESIGN_EDGES] == expected,
         "source design authority bindings",
     )
     _require(
         [row["sha"] for row in records if row["role"] == "source-design-successor"]
         == expected,
-        "complete source requires exact D32 then D33 then D34 once",
+        "complete source requires exact D32 then D33 then D34 then D35 once",
     )
 
 
@@ -757,6 +759,80 @@ def _validate_bridge_delta(
     _require(before == after, "source bridge changes the preceding AST")
 
 
+D35_CAUSAL_REGRESSION_SHA = "5790241f094c78e11d1420dc4b5675f58cb8f0ad"
+D35_CAUSAL_REGRESSION_BLOB = (
+    "ee52926a7e1e4c9f2a508f64ad18d8fd5e780e64540370fc95ce193418ba3761"
+)
+D35_CAUSAL_REGRESSION_PATCH = (
+    "bebe9363cf073e6496afd2ff706f54cf4d6bf833413a18be5be898c39d01182e"
+)
+
+
+def authenticate_d35_causal_regression(root: Path, parent: str) -> None:
+    """Require the genuine separate causal commit on the repair parent's history."""
+    design = D35_DESIGN_EDGE.sha
+    authenticate_source_design_successor(design, root)
+    causal = _exact_commit(root, D35_CAUSAL_REGRESSION_SHA)
+    _require(
+        _git(root, "rev-list", "--parents", "-n", "1", causal).decode().split()
+        == [causal, design],
+        "D35 causal regression exact sole parent",
+    )
+    _require(
+        _commit_delta(root, design, causal) == {FRAME_TEST_PATH: "M"},
+        "D35 causal regression exact path/change kind",
+    )
+    for revision in (design, causal):
+        metadata = (
+            _git(root, "ls-tree", revision, "--", FRAME_TEST_PATH).decode().split()
+        )
+        _require(
+            len(metadata) == 4
+            and metadata[:2] == ["100644", "blob"]
+            and metadata[3] == FRAME_TEST_PATH,
+            "D35 causal regression exact regular mode",
+        )
+    _require(
+        _sha256(_git(root, "show", f"{causal}:{FRAME_TEST_PATH}"))
+        == D35_CAUSAL_REGRESSION_BLOB,
+        "D35 causal regression raw test blob",
+    )
+    _require(
+        _sha256(_git(root, "diff", "--binary", "--full-index", design, causal, "--"))
+        == D35_CAUSAL_REGRESSION_PATCH,
+        "D35 causal regression complete patch",
+    )
+    ancestry = _git(root, "rev-list", "--first-parent", parent).decode().split()
+    _require(
+        causal in ancestry
+        and design in ancestry
+        and ancestry.index(causal) < ancestry.index(design),
+        "D35 causal regression must precede repair on first-parent history",
+    )
+
+
+def _validate_solver_delta(
+    root: Path, parent: str, commit: str, *, cumulative: bool = False
+) -> None:
+    """Compose the original bridge predicates with exact directed geometry states."""
+    before = _git(root, "show", f"{parent}:{SOLVER_PATH}")
+    after = _git(root, "show", f"{commit}:{SOLVER_PATH}")
+    _ = _bridge_ast(before, SOLVER_PATH, False if cumulative else None)
+    _ = _bridge_ast(after, SOLVER_PATH, True)
+    old, new = validate_solver_geometry_transition(before, after, cumulative=cumulative)
+    if new == "G1":
+        repair_parent = parent
+        if cumulative:
+            parents = (
+                _git(root, "rev-list", "--parents", "-n", "1", commit).decode().split()
+            )
+            _require(len(parents) == 2, "complete source terminal sole parent")
+            repair_parent = parents[1]
+        authenticate_d35_causal_regression(root, repair_parent)
+    elif old in {"O0", "O1"}:
+        _validate_bridge_delta(root, parent, commit, SOLVER_PATH, cumulative=cumulative)
+
+
 def _require_d34_parent(root: Path, parent: str) -> None:
     authenticate_source_design_successor(HISTORICAL_D34_SOURCE_DESIGN_SHA, root)
     _require(
@@ -834,8 +910,10 @@ def _phase_role(
         paths <= SOURCE_PATHS and set(delta.values()) == {"M"},
         "source role path/change-kind boundary",
     )
-    for path in paths & {SOLVER_PATH, SNAPSHOT_FIXTURE_PATH}:
-        _validate_bridge_delta(root, parent, commit, path)
+    if SOLVER_PATH in paths:
+        _validate_solver_delta(root, parent, commit)
+    if SNAPSHOT_FIXTURE_PATH in paths:
+        _validate_bridge_delta(root, parent, commit, SNAPSHOT_FIXTURE_PATH)
     if paths & {FRAME_PATH, FRAME_TEST_PATH}:
         _require_d34_parent(root, parent)
     if FRAME_PATH in paths:
@@ -960,8 +1038,10 @@ def describe_phase_range(
         else:
             if phase == "source":
                 require_source_design_successors(records)
-                for path in (SOLVER_PATH, SNAPSHOT_FIXTURE_PATH):
-                    _validate_bridge_delta(root, base, terminal, path, cumulative=True)
+                _validate_solver_delta(root, base, terminal, cumulative=True)
+                _validate_bridge_delta(
+                    root, base, terminal, SNAPSHOT_FIXTURE_PATH, cumulative=True
+                )
                 _validate_frame_delta(root, base, terminal, cumulative=True)
                 _require(
                     not workflows or workflows[0]["sha"] != terminal,
@@ -996,7 +1076,7 @@ def validate_phase_ranges(
     )
     _require(
         design_sha == SOURCE_DESIGN_SHA,
-        "phase_ranges operative design must be current D34",
+        "phase_ranges operative design must be current D35",
     )
     endpoints = (
         (DESIGN_SHA, PREREQUISITE_TIP_SHA),
