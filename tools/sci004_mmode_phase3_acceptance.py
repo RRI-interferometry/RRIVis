@@ -40,7 +40,7 @@ Why ``M3`` reviews two artifacts, not one
 evidence envelope and exactly one Section 11 performance record at
 ``output/benchmarks/reference/sci004/<UTC>-<host>.json``.  Section 14.3 requires
 the ``A3`` validator to authenticate "the raw performance path/digest, exact S3
-and lock, all nine ordered identity joins, schedules, timing tagged unions and
+and lock, all ordered identity joins, schedules, timing tagged unions and
 sample cardinality, host/native memory rules, and both fixed numerical
 predicates", so the record's ``reviewed_artifacts`` carries the benchmark file
 beside the envelope and the active validator is invoked over both.  A record
@@ -66,15 +66,20 @@ Section 14.3 clause                                                oracle_id
 "host/native memory rules"                                         ``m3.performance-memory``
 "both fixed numerical predicates" (tier-1a/tier-2)                 ``m3.performance-direct-predicate``
 "both fixed numerical predicates" (backend complex128)             ``m3.performance-backend-predicate``
+"every fingerprint and retained observation-set artifact"          ``m3.fingerprint-authentication``
 =================================================================  ==========================================
 
-The sentence's remaining two obligations -- "one standard-output round trip" and
-"every fingerprint and retained observation-set artifact" -- are enforced
-structurally rather than as further required identifiers the memo does not
-name: the round trip is the evidence envelope's ``output_cases``, which the
-active evidence validator re-checks here, and the fingerprint and
-observation-set artifacts are named in :data:`REVIEWED_PATHS` and hashed at
-generation.  A reviewer may add further oracles; the nine are a floor.
+The standard-output round trip is enforced structurally through the evidence
+envelope's ``output_cases``. Correction #25 separately requires the fingerprint
+obligation as ``m3.fingerprint-authentication``: the independent reviewer must
+reconstruct every v2 characterization and characterization-time preimage,
+their distinct ERA/UTC identities and joins, hostile mutations, relocation
+equality, and semantic-layout inequality. A reviewer may add further oracles;
+the ten listed here are the floor.
+
+D31 also requires the independent reviewer to join the reconstructed phase
+preimage to the same-run solver-owned runtime identity. Declaring this oracle
+does not establish those joins or replace independent numerical verification.
 
 The three deferrals
 -------------------
@@ -95,6 +100,12 @@ record binds the ``D`` that was operative when the red slice was cut, and
 Section 13.7's bounded corrections have superseded it since -- Section 14.4
 stars the ``R3 ->* S3`` edge for exactly that reason.  The two values are
 therefore *expected to differ*, and this tool deliberately does not equate them.
+
+D31 further separates the operative design from D30, the prerequisite-range
+origin. Their independent history authentication remains required. During an
+incomplete source range the exact historical REJECT artifact may remain under
+D31's disposal ordering; it is never a current approval and the existing
+no-overwrite rule continues to block generation until its isolated disposal.
 """
 
 from __future__ import annotations
@@ -227,6 +238,7 @@ REQUIRED_ORACLES: tuple[str, ...] = (
     "m3.performance-memory",
     "m3.performance-direct-predicate",
     "m3.performance-backend-predicate",
+    "m3.fingerprint-authentication",
 )
 
 #: The topic prefixes an ``ACCEPT`` record's ``claims_not_licensed`` must carry:

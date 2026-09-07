@@ -1,9 +1,12 @@
 """Strict authentication of the SCI-004 phase-M3 independent acceptance record.
 
 ``docs/development/sci004_mmode_design.md`` Sections 13.5, 14.3 and 14.4 freeze
-this module's successor authority: it lands in ``S3`` with both approved
+this module's successor authority: terminal ``S3`` has both approved
 constants as the literal ``None`` and the official acceptance path **absent**,
-and every synthetic schema fixture passing.  ``A3`` then changes *only* the two
+and every synthetic schema fixture passing. During the incomplete source range,
+D31 permits only the authenticated historical REJECT artifact to remain; it
+never activates current acceptance and must be disposed before terminal S3.
+``A3`` then changes *only* the two
 constants below and adds the acceptance JSON, plus the status prose Section 13.5
 authorizes.  No import, expression, annotation, key, surrounding token, or other
 literal in either assignment may change, so this module's own token stream
@@ -18,7 +21,7 @@ Section 14.3's ``A3`` obligations are wider than ``A2``'s because ``E3`` retains
 two artifacts.  The tests below therefore also require the record to have read
 and hashed the retained Section 11 performance record at its host-bound path,
 and -- once the record exists -- re-run the active performance validation, join
-the nine ordered workload identities, and require a release scan that still
+the ordered workload identities, and require a release scan that still
 reports ``SCI-004`` as ROADMAP.  No elapsed-time threshold is asserted anywhere:
 Section 11's timings gate nothing.
 
@@ -44,8 +47,16 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 #: Section 14.3's two approved constants.  ``A3`` replaces exactly these two
 #: ``None`` literals and nothing else in this module.
-APPROVED_EVIDENCE_SHA: str | None = "886e62fd9f8328826b388b8960ed7413da26b6d1"
-APPROVED_ACCEPTANCE_ARTIFACT_SHA256: str | None = "283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d"  # fmt: skip
+APPROVED_EVIDENCE_SHA: str | None = None
+APPROVED_ACCEPTANCE_ARTIFACT_SHA256: str | None = None
+
+# Historical rejected attempt, never eligible as the current approval.
+HISTORICAL_REJECT_A = "8529da951e2378115ffde8d5da3e2af56f3323d0"
+HISTORICAL_REJECT_E = "886e62fd9f8328826b388b8960ed7413da26b6d1"
+HISTORICAL_REJECT_S = "b07925ab14b56b3ca0fa863f806290748a31df6b"
+HISTORICAL_REJECT_SHA256 = (
+    "283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d"
+)
 
 TOOL = "tools/sci004_mmode_phase3_acceptance.py"
 ARTIFACT = "docs/development/sci004_mmode_phase3_acceptance.json"
@@ -110,7 +121,7 @@ ACCEPTANCE_KEYS: tuple[str, ...] = (
     "claims_not_licensed",
 )
 
-#: Section 14.3's nine required ``A3`` re-derivation identifiers, restated here
+#: Section 14.3's ten required ``A3`` re-derivation identifiers, restated here
 #: rather than imported so a silently shortened generator list fails.
 REQUIRED_ORACLES: tuple[str, ...] = (
     "m3.sci005-dependency-gate",
@@ -122,6 +133,7 @@ REQUIRED_ORACLES: tuple[str, ...] = (
     "m3.performance-memory",
     "m3.performance-direct-predicate",
     "m3.performance-backend-predicate",
+    "m3.fingerprint-authentication",
 )
 
 #: The three accepted-correction deferrals plus the two standing non-claims.
@@ -267,21 +279,136 @@ def _rejects(module: Any, record: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_the_approved_constants_are_null_sentinels_before_a3() -> None:
-    """Section 14.3: at ``S3``/``E3`` both approved digests are ``None``."""
-    if APPROVED_EVIDENCE_SHA is None or APPROVED_ACCEPTANCE_ARTIFACT_SHA256 is None:
-        assert APPROVED_EVIDENCE_SHA is None
-        assert APPROVED_ACCEPTANCE_ARTIFACT_SHA256 is None
-        return
-    assert GIT_SHA.fullmatch(APPROVED_EVIDENCE_SHA)
-    assert SHA256.fullmatch(APPROVED_ACCEPTANCE_ARTIFACT_SHA256)
+def _historical_reject_bytes() -> bytes:
+    """Authenticate the immutable rejected attempt independently of live pins."""
+    assert _git("rev-list", "--parents", "-n", "1", HISTORICAL_REJECT_A).split() == [
+        HISTORICAL_REJECT_A,
+        HISTORICAL_REJECT_E,
+    ]
+    completed = subprocess.run(
+        ["git", "show", f"{HISTORICAL_REJECT_A}:{ARTIFACT}"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0, "historical REJECT blob is unavailable"
+    raw = completed.stdout
+    assert hashlib.sha256(raw).hexdigest() == HISTORICAL_REJECT_SHA256
+    record = json.loads(raw)
+    assert record["verdict"] == "REJECT"
+    assert record["evidence_commit_sha"] == HISTORICAL_REJECT_E
+    assert record["source_sha"] == HISTORICAL_REJECT_S
+    return raw
 
 
-def test_the_official_acceptance_artifact_is_absent_before_a3() -> None:
-    """Section 14.3: null constants require the acceptance JSON to be absent."""
-    if APPROVED_ACCEPTANCE_ARTIFACT_SHA256 is not None:
-        return
-    assert not (REPOSITORY_ROOT / ARTIFACT).exists()
+def _acceptance_lifecycle(
+    root: Path, evidence_sha: str | None, artifact_sha256: str | None
+) -> str:
+    """Classify pre-A state without licensing intermediate S as terminal S."""
+    assert (evidence_sha is None) == (artifact_sha256 is None), "mixed approval pins"
+    artifact = root / ARTIFACT
+    assert not artifact.is_symlink(), "acceptance artifact must not be a symlink"
+    if evidence_sha is not None:
+        assert type(evidence_sha) is str and GIT_SHA.fullmatch(evidence_sha)
+        assert type(artifact_sha256) is str and SHA256.fullmatch(artifact_sha256)
+        assert evidence_sha != HISTORICAL_REJECT_E, "rejected E cannot be approved"
+        assert artifact_sha256 != HISTORICAL_REJECT_SHA256, "REJECT cannot be approved"
+        return "current-approval"
+    if not artifact.exists():
+        return "unapproved-absent"
+    assert artifact.is_file(), "retained historical REJECT must be a regular file"
+    raw = artifact.read_bytes()
+    assert hashlib.sha256(raw).hexdigest() == HISTORICAL_REJECT_SHA256, (
+        "unapproved artifact is not the exact historical REJECT"
+    )
+    assert raw == _historical_reject_bytes(), "historical REJECT blob differs"
+    return "historical-reject"
+
+
+def test_the_approval_lifecycle_keeps_rejected_history_separate() -> None:
+    """D31 permits frozen rejected bytes only while the source range is incomplete."""
+    _ = _acceptance_lifecycle(
+        REPOSITORY_ROOT, APPROVED_EVIDENCE_SHA, APPROVED_ACCEPTANCE_ARTIFACT_SHA256
+    )
+
+
+def test_null_approval_pins_allow_absent_or_exact_historical_reject(
+    tmp_path: Path,
+) -> None:
+    assert _acceptance_lifecycle(tmp_path, None, None) == "unapproved-absent"
+    artifact = tmp_path / ARTIFACT
+    artifact.parent.mkdir(parents=True)
+    _ = artifact.write_bytes(_historical_reject_bytes())
+    assert _acceptance_lifecycle(tmp_path, None, None) == "historical-reject"
+
+
+@pytest.mark.parametrize(
+    ("evidence_sha", "digest"),
+    [
+        (FORTY, None),
+        (None, SIXTY_FOUR),
+        (HISTORICAL_REJECT_E, HISTORICAL_REJECT_SHA256),
+        (HISTORICAL_REJECT_E, SIXTY_FOUR),
+        (FORTY, HISTORICAL_REJECT_SHA256),
+    ],
+)
+def test_mixed_or_historical_approval_pins_are_rejected(
+    tmp_path: Path, evidence_sha: str | None, digest: str | None
+) -> None:
+    with pytest.raises(AssertionError, match="mixed approval|cannot be approved"):
+        _ = _acceptance_lifecycle(tmp_path, evidence_sha, digest)
+
+
+@pytest.mark.parametrize("mutation", ["bytes", "verdict", "evidence", "source"])
+def test_changed_historical_reject_is_not_a_pre_a_allowance(
+    tmp_path: Path, mutation: str
+) -> None:
+    raw = _historical_reject_bytes()
+    if mutation == "bytes":
+        raw += b"\n"
+    else:
+        record = json.loads(raw)
+        field = {
+            "verdict": "verdict",
+            "evidence": "evidence_commit_sha",
+            "source": "source_sha",
+        }[mutation]
+        record[field] = "ACCEPT" if mutation == "verdict" else FORTY
+        raw = json.dumps(record).encode()
+    artifact = tmp_path / ARTIFACT
+    artifact.parent.mkdir(parents=True)
+    _ = artifact.write_bytes(raw)
+    with pytest.raises(AssertionError, match="exact historical REJECT"):
+        _ = _acceptance_lifecycle(tmp_path, None, None)
+
+
+def test_historical_reject_symlink_is_not_a_pre_a_allowance(tmp_path: Path) -> None:
+    target = tmp_path / "rejected.json"
+    _ = target.write_bytes(_historical_reject_bytes())
+    artifact = tmp_path / ARTIFACT
+    artifact.parent.mkdir(parents=True)
+    artifact.symlink_to(target)
+    with pytest.raises(AssertionError, match="symlink"):
+        _ = _acceptance_lifecycle(tmp_path, None, None)
+
+
+def test_retained_historical_reject_keeps_acceptance_generation_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    module = _tool()
+    artifact = tmp_path / ARTIFACT
+    artifact.parent.mkdir(parents=True)
+    _ = artifact.write_bytes(_historical_reject_bytes())
+    evidence = tmp_path / EVIDENCE_ARTIFACT
+    _ = evidence.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(module, "REPOSITORY_ROOT", tmp_path)
+
+    def clean_git(*args: str) -> str:
+        return FORTY if args == ("rev-parse", "HEAD") else ""
+
+    monkeypatch.setattr(module, "_git", clean_git)
+    with pytest.raises(module.AcceptanceError, match="already exists"):
+        module.preflight()
 
 
 def test_the_acceptance_generator_is_already_tracked_at_s3() -> None:
@@ -429,7 +556,7 @@ def test_accept_with_a_false_oracle_is_rejected() -> None:
 
 @pytest.mark.parametrize("oracle_id", REQUIRED_ORACLES)
 def test_accept_missing_a_required_oracle_is_rejected(oracle_id: str) -> None:
-    """Section 14.3's nine ``A3`` identifiers are required, not optional prose."""
+    """Section 14.3's ten ``A3`` identifiers are required, not optional prose."""
     module = _tool()
     record = _synthetic_record()
     record["rederived_oracles"] = [
@@ -445,7 +572,7 @@ def test_a_duplicate_oracle_identifier_is_rejected() -> None:
     assert "unique" in _rejects(module, record)
 
 
-def test_the_generator_and_validator_declare_the_same_nine_oracles() -> None:
+def test_the_generator_and_validator_declare_the_same_ten_oracles() -> None:
     module = _tool()
     assert tuple(module.REQUIRED_ORACLES) == REQUIRED_ORACLES
 
