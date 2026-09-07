@@ -52,6 +52,7 @@ import os
 import re
 import shutil
 import site
+import stat
 import struct
 import subprocess
 import sys
@@ -1258,6 +1259,90 @@ def test_both_section_8_public_path_rejections_have_their_own_case(
 # --- Correction #24: the separate post-source six-case red delta ------------
 
 
+def _oracle_worktree_snapshot() -> tuple[bytes, bytes]:
+    """Inspect the fixed path before Git can hide it through conversion/cache."""
+    path = POST_SOURCE_ORACLE_PATH
+    attrs = _red_git_process(("check-attr", "--all", "-z", "--", path))
+    fields = attrs.stdout.split(b"\0")
+    transforms = {
+        b"diff",
+        b"filter",
+        b"text",
+        b"eol",
+        b"crlf",
+        b"ident",
+        b"working-tree-encoding",
+    }
+    config = _git("config", "--null", "--name-only", "--list").split("\0")
+    if (
+        attrs.returncode != 0
+        or fields[-1] != b""
+        or (len(fields) - 1) % 3
+        or transforms.intersection(fields[1:-1:3])
+        or any(key.startswith("diff.default.") for key in config)
+    ):
+        raise RedRecordSchemaError("worktree oracle conversion/driver is not raw")
+    expected = b"H " + path.encode("utf-8", "surrogateescape") + b"\0"
+    tracked = _red_git_process(("ls-files", "-v", "-z", "--", path))
+    if tracked.returncode != 0 or tracked.stdout != expected:
+        raise RedRecordSchemaError("worktree oracle index flags/path are not ordinary")
+    source = REPOSITORY_ROOT / path
+    try:
+        mode = source.lstat().st_mode
+        if not stat.S_ISREG(mode) or not source.parent.resolve(
+            strict=True
+        ).is_relative_to(REPOSITORY_ROOT.resolve()):
+            raise RedRecordSchemaError("worktree oracle is not an owned regular file")
+        return (b"100755" if mode & stat.S_IXUSR else b"100644", source.read_bytes())
+    except OSError as exc:
+        raise RedRecordSchemaError("worktree oracle cannot be read") from exc
+
+
+def _bind_oracle_patch_to_raw_worktree(
+    snapshot: tuple[bytes, bytes], patch: bytes
+) -> None:
+    """Bind untouched full-index output to actual bytes, even with stale stat data."""
+
+    def oid(raw: bytes) -> bytes:
+        # The governed repository uses Git's 40-hex SHA-1 blob object format.
+        return (
+            hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw)
+            .hexdigest()
+            .encode("ascii")
+        )
+
+    original = _tree_blob(POST_SOURCE_PRE_FIX_SHA, POST_SOURCE_ORACLE_PATH)
+    old_mode = (
+        _git("ls-tree", "-z", POST_SOURCE_PRE_FIX_SHA, "--", POST_SOURCE_ORACLE_PATH)
+        .split(" ", 1)[0]
+        .encode("ascii")
+    )
+    mode, raw = snapshot
+    lines = patch.splitlines()
+    indexes = [line for line in lines if line.startswith(b"index ")]
+    expected = (
+        []
+        if raw == original
+        else [
+            b"index "
+            + oid(original)
+            + b".."
+            + oid(raw)
+            + (b" " + mode if mode == old_mode else b"")
+        ]
+    )
+    modes = [line for line in lines if line.startswith((b"old mode ", b"new mode "))]
+    expected_modes = (
+        [] if mode == old_mode else [b"old mode " + old_mode, b"new mode " + mode]
+    )
+    if (
+        indexes != expected
+        or modes != expected_modes
+        or (raw == original and mode == old_mode and patch)
+    ):
+        raise RedRecordSchemaError("oracle patch does not bind raw worktree bytes/mode")
+
+
 def _post_source_oracle_diff() -> bytes:
     anchor = resolve_r3_replay_anchor()
     argv = [
@@ -1271,14 +1356,142 @@ def _post_source_oracle_diff() -> bytes:
     if anchor.role == "r3":
         argv.append(anchor.commit)
     argv.extend(("--", POST_SOURCE_ORACLE_PATH))
-    completed = subprocess.run(
-        argv,
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
-    )
+    snapshot = _oracle_worktree_snapshot() if anchor.role != "r3" else None
+    completed = _red_git_process(argv[1:])
     assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    if snapshot is not None:
+        if _oracle_worktree_snapshot() != snapshot:
+            raise RedRecordSchemaError("worktree oracle changed during patch read")
+        _bind_oracle_patch_to_raw_worktree(snapshot, completed.stdout)
     return completed.stdout
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "ordinary",
+        "committed",
+        "filter",
+        "text",
+        "eol",
+        "ident",
+        "encoding",
+        "assume-unchanged",
+        "skip-worktree",
+        "stat-cache",
+        "autocrlf",
+        "mode-cache",
+    ],
+)
+def test_raw_oracle_worktree_native_conversion_and_cache_controls(
+    raw_red_git_repository: tuple[Path, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+) -> None:
+    from types import SimpleNamespace
+
+    root, parent, child = raw_red_git_repository
+    original = b"$Id$\n" if case == "ident" else b"after\n"
+    if case == "ident":
+        child = _raw_red_commit(root, parent, original)
+    config = (root / "config").read_bytes()
+    with _detached_fingerprint_replay_worktree(child) as (worktree, _):
+        with monkeypatch.context() as scoped:
+            module = sys.modules[__name__]
+            scoped.setattr(module, "REPOSITORY_ROOT", worktree)
+            scoped.setattr(module, "POST_SOURCE_PRE_FIX_SHA", child)
+            scoped.setattr(module, "POST_SOURCE_ORACLE_PATH", "oracle.py")
+            scoped.setattr(
+                module,
+                "resolve_r3_replay_anchor",
+                lambda: SimpleNamespace(role="pre-commit-authoring-tip", commit=child),
+            )
+            assert _post_source_oracle_diff() == b""
+            path = worktree / "oracle.py"
+            before = path.stat()
+            # Cached mtime must predate the index write to avoid Git's racy-index
+            # safeguard in the native stale-stat positive control.
+            os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns - 10_000_000_000))
+            _ = _native_red_git(
+                worktree, "update-index", "--refresh", "--", "oracle.py"
+            )
+            before = path.stat()
+            try:
+                attribute = {
+                    "filter": "filter=cloak",
+                    "text": "text",
+                    "eol": "eol=lf",
+                    "ident": "ident",
+                    "encoding": "working-tree-encoding=UTF-16LE",
+                }.get(case)
+                altered = b"evil! changed\n" if case == "ordinary" else b"evil!\n"
+                if attribute:
+                    _ = (root / "info/attributes").write_text(
+                        f"oracle.py {attribute}\n"
+                    )
+                if case == "filter":
+                    _ = _native_red_git(
+                        root, "config", "filter.cloak.clean", "printf 'after\\n'"
+                    )
+                elif case in {"text", "eol", "autocrlf"}:
+                    altered = b"after\r\n"
+                    if case == "autocrlf":
+                        _ = _native_red_git(root, "config", "core.autocrlf", "true")
+                elif case == "ident":
+                    altered = b"$Id: forged $\n"
+                elif case == "encoding":
+                    altered = "after\n".encode("utf-16-le")
+                elif case in {"assume-unchanged", "skip-worktree"}:
+                    _ = _native_red_git(
+                        worktree, "update-index", f"--{case}", "oracle.py"
+                    )
+                elif case == "stat-cache":
+                    _ = _native_red_git(root, "config", "core.trustctime", "false")
+                    _ = _native_red_git(root, "config", "core.checkStat", "minimal")
+                elif case == "mode-cache":
+                    _ = _native_red_git(root, "config", "core.fileMode", "false")
+                    altered = original
+                    path.chmod(before.st_mode | stat.S_IXUSR)
+                _ = path.write_bytes(altered)
+                if case == "stat-cache":
+                    os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns))
+                native = _native_red_git(
+                    worktree,
+                    "diff",
+                    "--binary",
+                    "--full-index",
+                    child,
+                    "--",
+                    "oracle.py",
+                )
+                if case == "ordinary":
+                    assert native and b"+evil!" in native
+                    assert _post_source_oracle_diff() == native
+                elif case == "committed":
+                    scoped.setattr(
+                        module,
+                        "resolve_r3_replay_anchor",
+                        lambda: SimpleNamespace(role="r3", commit=child),
+                    )
+                    assert _post_source_oracle_diff() == b""
+                else:
+                    assert native == b"", (
+                        "native conversion/cache must conceal the changed bytes or mode"
+                    )
+                    with pytest.raises(RedRecordSchemaError):
+                        _ = _post_source_oracle_diff()
+            finally:
+                _ = (root / "config").write_bytes(config)
+                (root / "info/attributes").unlink(missing_ok=True)
+                _ = _native_red_git(
+                    worktree,
+                    "update-index",
+                    "--no-assume-unchanged",
+                    "--no-skip-worktree",
+                    "oracle.py",
+                )
+                path.chmod(before.st_mode)
+                _ = path.write_bytes(original)
 
 
 def test_the_post_source_record_is_exactly_its_canonical_serialization() -> None:
@@ -1565,12 +1778,7 @@ def _fingerprint_oracle_diff() -> bytes:
         ORIGINAL_FINGERPRINT_R3_SHA,
     ]
     argv.extend(("--", FINGERPRINT_POST_SOURCE_ORACLE_PATH))
-    completed = subprocess.run(
-        argv,
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
-    )
+    completed = _red_git_process(argv[argv.index("diff") :])
     assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
     return completed.stdout
 
