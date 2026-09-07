@@ -5295,6 +5295,198 @@ def validate_frame_certificate_structure(value: Any, *, label: str) -> dict[str,
     return preimage
 
 
+FRAME_GEOMETRY_MANIFEST_LAYOUTS: Mapping[str, tuple[str, Mapping[str, int]]] = {
+    "site_manifest": (
+        "radiosim.mmode-site.v1",
+        {
+            "longitude_deg_f64be": 0,
+            "latitude_deg_f64be": 0,
+            "height_m_f64be": 0,
+            "itrs_xyz_m_f64be": 3,
+        },
+    ),
+    "frame_matrix_manifest": (
+        "radiosim.mmode-frame-matrices.v1",
+        {
+            "era0_rad_f64be": 0,
+            "rpom0_f64be": 9,
+            "cirs_to_itrs_anchor_f64be": 9,
+            "local_east_itrs_f64be": 3,
+            "local_north_itrs_f64be": 3,
+            "local_up_itrs_f64be": 3,
+        },
+    ),
+}
+FRAME_ENCLOSURE_CONSTANTS = (
+    ("coherency_half_factor", "binary64", "3fe0000000000000"),
+    ("enclosure_accumulation_rounding", "literal", "toward_positive_infinity"),
+    ("fringe_operator_norm_ceiling", "binary64", "3ff0000000000000"),
+    ("gauss_order_high", "integer", "128"),
+    ("gauss_order_low", "integer", "64"),
+    ("hadamard_factor_norm_ceiling", "binary64", "3ff0000000000000"),
+    ("magnitude_ceiling_rounding", "literal", "nextafter_toward_positive_infinity"),
+    ("rectangle_form", "literal", "[-G_abs,G_abs,-G_abs,G_abs]"),
+    ("root_cell_nominal_contribution", "literal", "exact_complex_zero"),
+)
+FRAME_SCAN_CONSTANTS = (
+    ("L_op", "binary64", "40192872b020c49c"),
+    ("h_0", "rational", "1/4096"),
+    ("probe_magnitude_floor", "binary64", "3ddb7cdfd9d7bdbb"),
+    ("probe_offset_turn", "rational", "1/100000000"),
+    ("root_enclosure_width_rad", "binary64", "3da5fd7fe1796495"),
+    ("root_residual_bound", "binary64", "3d95fd7fe1796495"),
+    ("scan_algorithm", "literal", "radiosim.mmode-operational-horizon-scan.v1"),
+    ("unresolved_width_turn", "rational", "1/17592186044416"),
+)
+
+
+def _frame_manifest_rows(
+    manifest: Mapping[str, Any],
+    paths: tuple[str, ...],
+    constants: tuple[tuple[str, str, str], ...],
+    label: str,
+) -> None:
+    """Validate complete source-path and constant inventories, without Git claims."""
+    files = manifest["implementation_files"]
+    _require(
+        isinstance(files, list) and len(cast(list[Any], files)) == len(paths),
+        SCHEMA,
+        f"{label}: incorrect implementation-file inventory",
+    )
+    for entry, path in zip(cast(list[Any], files), paths, strict=True):
+        row = _require_keys(entry, ("path", "sha256"), label)
+        _require(
+            type(row["path"]) is str and row["path"] == path,
+            SCHEMA,
+            f"{label}: incorrect implementation path or order",
+        )
+        _ = _require_hex(row["sha256"], 64, label)
+    rows = manifest["constant_rows"]
+    _require(
+        isinstance(rows, list) and len(cast(list[Any], rows)) == len(constants),
+        SCHEMA,
+        f"{label}: incorrect constant inventory",
+    )
+    for entry, expected in zip(cast(list[Any], rows), constants, strict=True):
+        row = _require_keys(entry, ("name", "type", "value"), label)
+        actual = tuple(row[key] for key in ("name", "type", "value"))
+        _require(
+            all(type(item) is str for item in actual) and actual == expected,
+            SCHEMA,
+            f"{label}: incorrect constant triple or order",
+        )
+
+
+def validate_frame_manifest_structure(
+    value: Any, *, label: str
+) -> dict[str, dict[str, Any]]:
+    """Authenticate four closed manifests and their local certificate joins.
+
+    The caller separately authenticates the full certificate structure. Site
+    conversion, matrix physics, Git/environment provenance, ledger semantics,
+    numerical budgets, source cascade and admission remain unvalidated here.
+    """
+    _require(isinstance(value, Mapping), SCHEMA, f"{label}: expected a certificate")
+    manifests: dict[str, dict[str, Any]] = {}
+    for name, (schema, layout) in FRAME_GEOMETRY_MANIFEST_LAYOUTS.items():
+        manifest = _require_keys(value.get(name), ("schema_version", *layout), name)
+        _require(
+            manifest["schema_version"] == schema,
+            SCHEMA,
+            f"{label}.{name}: incorrect schema",
+        )
+        for field, count in layout.items():
+            values = manifest[field]
+            if count:
+                _require(
+                    isinstance(values, list) and len(cast(list[Any], values)) == count,
+                    SCHEMA,
+                    f"{label}.{name}.{field}: incorrect array length",
+                )
+            else:
+                values = [values]
+            for item in cast(list[Any], values):
+                encoded = _require_hex(item, 16, f"{label}.{name}.{field}")
+                _require(
+                    math.isfinite(struct.unpack(">d", bytes.fromhex(encoded))[0]),
+                    SCHEMA,
+                    f"{label}.{name}.{field}: non-finite F64",
+                )
+        manifests[name] = manifest
+    for name in ("direct_integrand_enclosure_manifest", "horizon_scan_manifest"):
+        scan = name == "horizon_scan_manifest"
+        schema = (
+            "radiosim.mmode-operational-horizon-scan.v1"
+            if scan
+            else "radiosim.mmode-direct-integrand-enclosure.v1"
+        )
+        joins = (
+            ("iers_table_sha256",)
+            if scan
+            else ("input_identity_sha256", "frame_matrix_sha256")
+        )
+        versions = ("astropy_version", "erfa_version") if scan else ()
+        manifest = _require_keys(
+            value.get(name),
+            (
+                "schema_version",
+                "algorithm_id",
+                "implementation_files",
+                "constant_rows",
+                *joins,
+                *versions,
+            ),
+            name,
+        )
+        _require(
+            manifest["schema_version"] == schema and manifest["algorithm_id"] == schema,
+            SCHEMA,
+            f"{label}.{name}: incorrect schema or algorithm",
+        )
+        paths = (
+            ("src/radiosim/core/mmode/frame.py", "src/radiosim/core/mmode/time.py")
+            if scan
+            else (
+                "src/radiosim/core/mmode/frame.py",
+                "src/radiosim/core/mmode/solver.py",
+                "src/radiosim/core/mmode/transfer.py",
+            )
+        )
+        _frame_manifest_rows(
+            manifest,
+            paths,
+            FRAME_SCAN_CONSTANTS if scan else FRAME_ENCLOSURE_CONSTANTS,
+            f"{label}.{name}",
+        )
+        for field in versions:
+            _require(
+                type(manifest[field]) is str and bool(manifest[field]),
+                SCHEMA,
+                f"{label}.{name}.{field}: expected a nonempty version string",
+            )
+        for field in joins:
+            expected = _require_hex(value.get(field), 64, f"{label}.{field}")
+            _require(
+                _require_hex(manifest[field], 64, f"{label}.{name}.{field}")
+                == expected,
+                DIGEST,
+                f"{label}.{name}.{field}: certificate join mismatch",
+            )
+        manifests[name] = manifest
+    for name, manifest in manifests.items():
+        field = name.removesuffix("_manifest") + "_sha256"
+        expected = _require_hex(value.get(field), 64, f"{label}.{field}")
+        digest = (
+            hashlib.sha256(canonical_json(manifest)).hexdigest()
+            if name == "horizon_scan_manifest"
+            else object_digest(manifest["schema_version"], manifest)
+        )
+        _require(
+            digest == expected, DIGEST, f"{label}.{field}: manifest digest mismatch"
+        )
+    return manifests
+
+
 def _snapshot_identity(snapshot: Mapping[str, Any]) -> str:
     """Return one solver snapshot's Section 14.0 object identity."""
     return object_digest("radiosim.mmode-solver-snapshot.v1", dict(snapshot))

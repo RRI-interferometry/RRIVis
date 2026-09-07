@@ -7037,6 +7037,293 @@ def test_scientific_solver_refuses_closed_schema_and_typed_mutations(
         module.validate_scientific_solver(row, family, iers, label="solver")
 
 
+def _frame_manifest_test_digest(name: str, manifest: dict[str, Any]) -> str:
+    """Independent identity oracle for these string-only synthetic manifests."""
+    payload = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    if name == "horizon_scan_manifest":
+        return hashlib.sha256(payload).hexdigest()
+    prefix = manifest["schema_version"].encode("ascii") + b"\0"
+    return hashlib.sha256(
+        prefix + struct.pack(">Q", len(payload)) + payload
+    ).hexdigest()
+
+
+def _synthetic_frame_manifests() -> dict[str, Any]:
+    """Build four manifest specimens, without claiming a full frame certificate."""
+
+    def f64(value: float) -> str:
+        return struct.pack(">d", value).hex()
+
+    row: dict[str, Any] = {
+        "input_identity_sha256": "a" * 64,
+        "iers_table_sha256": "b" * 64,
+    }
+    row["site_manifest"] = {
+        "schema_version": "radiosim.mmode-site.v1",
+        "longitude_deg_f64be": f64(0.0),
+        "latitude_deg_f64be": f64(0.0),
+        "height_m_f64be": f64(-0.0),
+        "itrs_xyz_m_f64be": [f64(6378137.0), f64(0.0), f64(0.0)],
+    }
+    identity = [f64(float(i == j)) for i in range(3) for j in range(3)]
+    row["frame_matrix_manifest"] = {
+        "schema_version": "radiosim.mmode-frame-matrices.v1",
+        "era0_rad_f64be": f64(0.0),
+        "rpom0_f64be": identity,
+        "cirs_to_itrs_anchor_f64be": list(identity),
+        "local_east_itrs_f64be": [f64(0.0), f64(1.0), f64(0.0)],
+        "local_north_itrs_f64be": [f64(0.0), f64(0.0), f64(1.0)],
+        "local_up_itrs_f64be": [f64(1.0), f64(0.0), f64(0.0)],
+    }
+    tables = {
+        "direct_integrand_enclosure_manifest": [
+            ("coherency_half_factor", "binary64", f64(0.5)),
+            ("enclosure_accumulation_rounding", "literal", "toward_positive_infinity"),
+            ("fringe_operator_norm_ceiling", "binary64", f64(1.0)),
+            ("gauss_order_high", "integer", "128"),
+            ("gauss_order_low", "integer", "64"),
+            ("hadamard_factor_norm_ceiling", "binary64", f64(1.0)),
+            (
+                "magnitude_ceiling_rounding",
+                "literal",
+                "nextafter_toward_positive_infinity",
+            ),
+            ("rectangle_form", "literal", "[-G_abs,G_abs,-G_abs,G_abs]"),
+            ("root_cell_nominal_contribution", "literal", "exact_complex_zero"),
+        ],
+        "horizon_scan_manifest": [
+            ("L_op", "binary64", f64(6.2895)),
+            ("h_0", "rational", "1/4096"),
+            ("probe_magnitude_floor", "binary64", f64(1e-10)),
+            ("probe_offset_turn", "rational", "1/100000000"),
+            ("root_enclosure_width_rad", "binary64", f64(1e-11)),
+            ("root_residual_bound", "binary64", f64(5e-12)),
+            ("scan_algorithm", "literal", "radiosim.mmode-operational-horizon-scan.v1"),
+            ("unresolved_width_turn", "rational", "1/17592186044416"),
+        ],
+    }
+    for name, table in tables.items():
+        scan = name == "horizon_scan_manifest"
+        schema = (
+            "radiosim.mmode-operational-horizon-scan.v1"
+            if scan
+            else "radiosim.mmode-direct-integrand-enclosure.v1"
+        )
+        row[name] = {
+            "schema_version": schema,
+            "algorithm_id": schema,
+            "implementation_files": [
+                {"path": "src/radiosim/core/mmode/" + path, "sha256": "c" * 64}
+                for path in (
+                    ("frame.py", "time.py")
+                    if scan
+                    else ("frame.py", "solver.py", "transfer.py")
+                )
+            ],
+            "constant_rows": [
+                {"name": key, "type": kind, "value": value}
+                for key, kind, value in table
+            ],
+        }
+        if scan:
+            row[name].update(
+                iers_table_sha256=row["iers_table_sha256"],
+                astropy_version="synthetic.dev1",
+                erfa_version="synthetic+test",
+            )
+        else:
+            row[name].update(
+                input_identity_sha256=row["input_identity_sha256"],
+                frame_matrix_sha256=_frame_manifest_test_digest(
+                    "frame_matrix_manifest", row["frame_matrix_manifest"]
+                ),
+            )
+    for name in ("site_manifest", "frame_matrix_manifest", *tables):
+        row[name.removesuffix("_manifest") + "_sha256"] = _frame_manifest_test_digest(
+            name, row[name]
+        )
+    return row
+
+
+def test_frame_manifests_match_independent_identities_without_mutating_inputs() -> None:
+    row = _synthetic_frame_manifests()
+    before = copy.deepcopy(row)
+    manifests = _tool().validate_frame_manifest_structure(row, label="test")
+    assert row == before
+    assert [len(manifest) for manifest in manifests.values()] == [5, 7, 6, 7]
+    assert manifests == {name: row[name] for name in manifests}
+    assert manifests["site_manifest"]["height_m_f64be"] == "8000000000000000"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "site_manifest",
+        "frame_matrix_manifest",
+        "direct_integrand_enclosure_manifest",
+        "horizon_scan_manifest",
+    ],
+)
+def test_frame_manifests_require_closed_roots_and_independent_digests(
+    name: str,
+) -> None:
+    module = _tool()
+    row = _synthetic_frame_manifests()
+    mutations: list[Any] = [[], {**row[name], "extra": True}]
+    mutations.extend(
+        {key: value for key, value in row[name].items() if key != omitted}
+        for omitted in row[name]
+    )
+    mutations.append({**row[name], "schema_version": "wrong"})
+    for manifest in mutations:
+        changed = copy.deepcopy(row)
+        changed[name] = manifest
+        with pytest.raises(module.EvidenceError) as error:
+            module.validate_frame_manifest_structure(changed, label="test")
+        assert error.value.prefix == module.SCHEMA
+    field = name.removesuffix("_manifest") + "_sha256"
+    row[field] = "f" * 64
+    if name == "frame_matrix_manifest":
+        enclosure = row["direct_integrand_enclosure_manifest"]
+        enclosure[field] = row[field]
+        row["direct_integrand_enclosure_sha256"] = _frame_manifest_test_digest(
+            "direct_integrand_enclosure_manifest", enclosure
+        )
+    with pytest.raises(module.EvidenceError, match="manifest digest mismatch"):
+        module.validate_frame_manifest_structure(row, label="test")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [True, 0.0, "xyz", "ABCDEF0123456789", "7ff0000000000000", "7ff8000000000000"],
+)
+def test_frame_manifests_reject_resigned_invalid_f64(value: Any) -> None:
+    module = _tool()
+    for name, field in (
+        ("site_manifest", "height_m_f64be"),
+        ("frame_matrix_manifest", "rpom0_f64be"),
+    ):
+        row = _synthetic_frame_manifests()
+        if name == "site_manifest":
+            row[name][field] = value
+        else:
+            row[name][field][0] = value
+        row[name.removesuffix("_manifest") + "_sha256"] = _frame_manifest_test_digest(
+            name, row[name]
+        )
+        with pytest.raises(module.EvidenceError) as error:
+            module.validate_frame_manifest_structure(row, label="test")
+        assert error.value.prefix == module.SCHEMA
+
+
+@pytest.mark.parametrize("mutation", ["short", "long", "nested", "tuple"])
+def test_frame_manifests_require_exact_vector_and_matrix_layouts(mutation: str) -> None:
+    module = _tool()
+    for name, field in (
+        ("site_manifest", "itrs_xyz_m_f64be"),
+        ("frame_matrix_manifest", "rpom0_f64be"),
+    ):
+        row = _synthetic_frame_manifests()
+        values = row[name][field]
+        row[name][field] = {
+            "short": values[:-1],
+            "long": values + values[:1],
+            "nested": [values],
+            "tuple": tuple(values),
+        }[mutation]
+        with pytest.raises(module.EvidenceError):
+            module.validate_frame_manifest_structure(row, label="test")
+
+
+@pytest.mark.parametrize(
+    "name", ["direct_integrand_enclosure_manifest", "horizon_scan_manifest"]
+)
+@pytest.mark.parametrize("field", ["implementation_files", "constant_rows"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "duplicate",
+        "reverse",
+        "extra",
+        "wrong-root",
+        "row-extra",
+        "row-missing",
+        "wrong-value",
+        "wrong-type",
+    ],
+)
+def test_frame_manifest_inventories_reject_resigned_mutations(
+    name: str, field: str, mutation: str
+) -> None:
+    module = _tool()
+    row = _synthetic_frame_manifests()
+    entries = row[name][field]
+    if mutation == "missing":
+        entries.pop()
+    elif mutation == "duplicate":
+        entries[1] = entries[0]
+    elif mutation == "reverse":
+        entries.reverse()
+    elif mutation == "extra":
+        entries.append(entries[0])
+    elif mutation == "wrong-root":
+        row[name][field] = {}
+    elif mutation == "row-extra":
+        entries[0]["extra"] = "x"
+    elif mutation == "row-missing":
+        entries[0].pop("path" if field == "implementation_files" else "type")
+    else:
+        key = "sha256" if field == "implementation_files" else "value"
+        entries[0][key] = True if mutation == "wrong-type" else "f" * 16
+    row[name.removesuffix("_manifest") + "_sha256"] = _frame_manifest_test_digest(
+        name, row[name]
+    )
+    with pytest.raises(module.EvidenceError) as error:
+        module.validate_frame_manifest_structure(row, label="test")
+    assert error.value.prefix == module.SCHEMA
+
+
+@pytest.mark.parametrize(
+    ("name", "field", "value"),
+    [
+        ("horizon_scan_manifest", "astropy_version", ""),
+        ("horizon_scan_manifest", "erfa_version", True),
+        ("horizon_scan_manifest", "algorithm_id", "wrong"),
+        ("direct_integrand_enclosure_manifest", "algorithm_id", "wrong"),
+        ("direct_integrand_enclosure_manifest", "input_identity_sha256", "f" * 64),
+        ("direct_integrand_enclosure_manifest", "frame_matrix_sha256", "f" * 64),
+        ("horizon_scan_manifest", "iers_table_sha256", "f" * 64),
+    ],
+)
+def test_frame_manifests_enforce_versions_algorithms_and_resigned_local_joins(
+    name: str, field: str, value: Any
+) -> None:
+    module = _tool()
+    row = _synthetic_frame_manifests()
+    row[name][field] = value
+    row[name.removesuffix("_manifest") + "_sha256"] = _frame_manifest_test_digest(
+        name, row[name]
+    )
+    with pytest.raises(module.EvidenceError):
+        module.validate_frame_manifest_structure(row, label="test")
+
+
+def test_frame_scan_manifest_uses_raw_hash_not_domain_digest() -> None:
+    module = _tool()
+    row = _synthetic_frame_manifests()
+    scan = row["horizon_scan_manifest"]
+    payload = json.dumps(scan, sort_keys=True, separators=(",", ":")).encode()
+    row["horizon_scan_sha256"] = hashlib.sha256(
+        scan["schema_version"].encode()
+        + b"\0"
+        + struct.pack(">Q", len(payload))
+        + payload
+    ).hexdigest()
+    with pytest.raises(module.EvidenceError, match="manifest digest mismatch"):
+        module.validate_frame_manifest_structure(row, label="test")
+
+
 def _synthetic_frame_structure() -> dict[str, Any]:
     """Only a structural specimen; nested empty values cannot establish a certificate."""
     row: dict[str, Any] = {}
