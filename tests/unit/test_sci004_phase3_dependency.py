@@ -19,6 +19,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -873,20 +874,146 @@ class DependencyCertificateError(AssertionError):
     """The SCI-004 M3 dependency or design binding failed strict validation."""
 
 
-def _git(*arguments: str, cwd: Path | None = None) -> str:
-    completed = subprocess.run(
-        ["git", *arguments],
-        cwd=REPOSITORY_ROOT if cwd is None else cwd,
+def _git_environment() -> dict[str, str]:
+    """Bound both direct Git and the unchanged historical verifier's children."""
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith(("GIT_", "PYTHON", "_PYTHON"))
+        and key != "__PYVENV_LAUNCHER__"
+    }
+    environment.update(
+        # The pinned verifiers import only the standard library. Prevent caller
+        # startup/import routing before either unchanged verifier can execute.
+        PYTHONNOUSERSITE="1",
+        PYTHONSAFEPATH="1",
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_ATTR_NOSYSTEM="1",
+    )
+    settings = {
+        "core.attributesFile": os.devnull,
+        "core.bigFileThreshold": "512m",
+        "core.abbrev": "7",
+        "diff.renameLimit": "1000",
+        "diff.renames": "true",
+        "core.commitGraph": "false",
+        "advice.graftFileDeprecated": "false",
+    }
+    environment["GIT_CONFIG_COUNT"] = str(len(settings))
+    for index, (key, value) in enumerate(settings.items()):
+        environment[f"GIT_CONFIG_KEY_{index}"] = key
+        environment[f"GIT_CONFIG_VALUE_{index}"] = value
+    return environment
+
+
+def _git_process(
+    arguments: Sequence[str], *, cwd: Path | None = None, settings: Sequence[str] = ()
+) -> subprocess.CompletedProcess[bytes]:
+    root = (REPOSITORY_ROOT if cwd is None else cwd).resolve()
+    environment = _git_environment()
+    prefix = [
+        "git",
+        "--no-pager",
+        "--no-replace-objects",
+        "--literal-pathspecs",
+        "-c",
+        "color.ui=false",
+        "-c",
+        "diff.suppressBlankEmpty=false",
+        *settings,
+    ]
+    if arguments[0] == "diff":
+        config = subprocess.run(
+            [*prefix, "config", "--null", "--name-only", "--list"],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            check=False,
+        )
+        if config.returncode != 0 or any(
+            key.startswith(b"diff.default.") for key in config.stdout.split(b"\0")
+        ):
+            raise DependencyCertificateError("default diff driver alters raw bytes")
+        # Keep the historical format, including each caller's rename choice.
+        arguments = (
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-relative",
+            "--find-renames",
+            "--ignore-submodules=none",
+            "--submodule=short",
+            "--indent-heuristic",
+            "--diff-algorithm=myers",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "--unified=3",
+            "--inter-hunk-context=0",
+            "--output-indicator-new=+",
+            "--output-indicator-old=-",
+            "--output-indicator-context= ",
+            "-O/dev/null",
+            *arguments[1:],
+        )
+        names = subprocess.run(
+            [*prefix, "diff", "--name-only", "-z", *arguments[1:]],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            check=False,
+        )
+        if names.returncode == 0 and names.stdout:
+            if not names.stdout.endswith(b"\0"):
+                raise DependencyCertificateError("raw diff path framing")
+            paths = names.stdout[:-1].decode("utf-8", "surrogateescape").split("\0")
+            attributes = subprocess.run(
+                [*prefix, "check-attr", "--all", "-z", "--", *paths],
+                cwd=root,
+                env=environment,
+                capture_output=True,
+                check=False,
+            )
+            fields = attributes.stdout.split(b"\0")[:-1]
+            if (
+                attributes.returncode != 0
+                or (attributes.stdout and not attributes.stdout.endswith(b"\0"))
+                or len(fields) % 3
+                or any(name == b"diff" for name in fields[1::3])
+            ):
+                raise DependencyCertificateError(
+                    "effective diff attributes alter raw bytes"
+                )
+    elif arguments[0] == "diff-tree":
+        arguments = (
+            "diff-tree",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--ignore-submodules=none",
+            *arguments[1:],
+        )
+    return subprocess.run(
+        [*prefix, *arguments],
+        cwd=root,
+        env=environment,
         capture_output=True,
-        text=True,
         check=False,
     )
+
+
+def _git(*arguments: str, cwd: Path | None = None) -> str:
+    completed = _git_process(arguments, cwd=cwd)
     if completed.returncode != 0:
         raise DependencyCertificateError(
             f"git {' '.join(arguments)} failed with exit code "
-            f"{completed.returncode}: {completed.stderr.strip()}"
+            f"{completed.returncode}: {completed.stderr.decode('utf-8', 'replace').strip()}"
         )
-    return completed.stdout
+    return completed.stdout.decode("utf-8")
 
 
 def _peel_to_commit(revision: str) -> str:
@@ -915,12 +1042,7 @@ def _tree_blob(commit: str, relative: str) -> bytes:
         raise DependencyCertificateError(
             f"{relative!r} at {commit} is not a regular blob: {entries[0]!r}"
         )
-    completed = subprocess.run(
-        ["git", "cat-file", "blob", object_id],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
-    )
+    completed = _git_process(("cat-file", "blob", object_id))
     if completed.returncode != 0:
         raise DependencyCertificateError(
             f"cannot cat-file {object_id} for {relative!r} at {commit}"
@@ -942,9 +1064,8 @@ def _tracked_paths(commit: str) -> tuple[str, ...]:
 
 
 def _hermetic_diff_digest(commit: str, *paths: str) -> str:
-    completed = subprocess.run(
-        [
-            *_HERMETIC_GIT,
+    completed = _git_process(
+        (
             "diff",
             "--no-color",
             "--no-ext-diff",
@@ -955,10 +1076,8 @@ def _hermetic_diff_digest(commit: str, *paths: str) -> str:
             commit,
             "--",
             *paths,
-        ],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
+        ),
+        settings=_HERMETIC_GIT[1:],
     )
     if completed.returncode != 0:
         raise DependencyCertificateError(
@@ -970,9 +1089,8 @@ def _hermetic_diff_digest(commit: str, *paths: str) -> str:
 
 def _binary_full_index_diff(commit: str, *paths: str) -> bytes:
     """Return the correction-governed raw binary/full-index diff bytes."""
-    completed = subprocess.run(
-        [
-            "git",
+    completed = _git_process(
+        (
             "diff",
             "--no-ext-diff",
             "--binary",
@@ -981,10 +1099,7 @@ def _binary_full_index_diff(commit: str, *paths: str) -> bytes:
             commit,
             "--",
             *paths,
-        ],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
+        )
     )
     if completed.returncode != 0:
         raise DependencyCertificateError(
@@ -996,18 +1111,253 @@ def _binary_full_index_diff(commit: str, *paths: str) -> bytes:
 
 def _is_ancestor(ancestor: str, descendant: str) -> bool:
     """Return the inclusive ancestry answer Section 13.2 requires."""
-    completed = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
-        cwd=REPOSITORY_ROOT,
-        capture_output=True,
-        check=False,
-    )
+    completed = _git_process(("merge-base", "--is-ancestor", ancestor, descendant))
     if completed.returncode not in (0, 1):
         raise DependencyCertificateError(
             "git merge-base --is-ancestor failed for "
             f"{ancestor}..{descendant}: {completed.stderr.decode('utf-8', 'replace')}"
         )
     return completed.returncode == 0
+
+
+@pytest.fixture
+def raw_dependency_git(
+    phase_objects: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, ...]:
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", phase_objects[0])
+    return phase_objects
+
+
+def _raw_dependency_snapshot(commit: str) -> tuple[bytes, bytes, str, tuple[str, ...]]:
+    return (
+        _tree_blob(commit, "src/radiosim/core/result.py"),
+        _binary_full_index_diff(commit),
+        _hermetic_diff_digest(commit),
+        _commit_parents(commit),
+    )
+
+
+@pytest.mark.parametrize("overlay", ["commit", "blob", "graft", "graft-env"])
+def test_raw_dependency_git_ignores_object_and_parent_overlays(
+    raw_dependency_git: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch, overlay: str
+) -> None:
+    root, commit, _base, prerequisite, _red, status, source, _terminal = (
+        raw_dependency_git
+    )
+    path = "src/radiosim/core/result.py"
+    bad = commit(status, {path: b"actual bytes\r\n", "Fix.md": b"forbidden\n"})
+    expected = _raw_dependency_snapshot(bad)
+    if overlay in {"commit", "blob"}:
+        left, right = bad, source
+        if overlay == "blob":
+            left = _git("rev-parse", f"{bad}:{path}").strip()
+            right = _git("rev-parse", f"{source}:{path}").strip()
+        _ = _git("replace", left, right)
+        apparent = subprocess.check_output(["git", "show", f"{bad}:{path}"], cwd=root)
+        assert apparent != expected[0]
+    else:
+        graft = root / "info/grafts"
+        if overlay == "graft-env":
+            graft = root / "external-graft"
+            monkeypatch.setenv("GIT_GRAFT_FILE", str(graft))
+        _ = graft.write_text(f"{bad} {prerequisite}\n")
+        apparent = (
+            subprocess.check_output(
+                ["git", "rev-list", "--parents", "-n", "1", bad], cwd=root
+            )
+            .decode()
+            .split()
+        )
+        assert apparent == [bad, prerequisite]
+    assert _raw_dependency_snapshot(bad) == expected
+    assert "Fix.md" in _changed_paths(bad)
+    assert _is_ancestor(status, bad)
+    assert not _is_ancestor(bad, status)
+    with pytest.raises(DependencyCertificateError):
+        _ = _is_ancestor("0" * 40, bad)
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_COMMON_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ],
+)
+def test_raw_dependency_git_ignores_caller_repository_routing(
+    raw_dependency_git: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    source = raw_dependency_git[-2]
+    expected = _raw_dependency_snapshot(source)
+    wrong = str(REPOSITORY_ROOT / "missing")
+    monkeypatch.setenv(name, wrong)
+    assert _raw_dependency_snapshot(source) == expected
+    assert os.environ[name] == wrong
+
+
+@pytest.mark.parametrize("attribute", ["-diff", "diff=hostile", "diff=unspecified"])
+def test_raw_dependency_git_refuses_effective_diff_attributes(
+    raw_dependency_git: tuple[Any, ...], attribute: str
+) -> None:
+    source = raw_dependency_git[-2]
+    expected = _raw_dependency_snapshot(source)
+    _ = (REPOSITORY_ROOT / "info/attributes").write_text(
+        f"src/radiosim/core/result.py {attribute}\n"
+    )
+    if "=" in attribute:
+        _ = _git("config", f"diff.{attribute.split('=')[1]}.binary", "true")
+    apparent = subprocess.check_output(
+        ["git", "diff", "--binary", "--full-index", f"{source}^", source],
+        cwd=REPOSITORY_ROOT,
+    )
+    assert apparent != expected[1]
+    assert _tree_blob(source, "src/radiosim/core/result.py") == expected[0]
+    for reader in (_binary_full_index_diff, _hermetic_diff_digest):
+        with pytest.raises(
+            DependencyCertificateError, match="effective diff attributes"
+        ):
+            _ = reader(source)
+
+
+def test_raw_dependency_git_refuses_default_diff_driver(
+    raw_dependency_git: tuple[Any, ...],
+) -> None:
+    source = raw_dependency_git[-2]
+    expected = _binary_full_index_diff(source)
+    assert _git("check-attr", "--all", "--", "src/radiosim/core/result.py") == ""
+    _ = _git("config", "diff.default.binary", "true")
+    apparent = subprocess.check_output(
+        ["git", "diff", "--binary", "--full-index", f"{source}^", source],
+        cwd=REPOSITORY_ROOT,
+    )
+    assert b"GIT binary patch" in apparent and apparent != expected
+    for reader in (_binary_full_index_diff, _hermetic_diff_digest):
+        with pytest.raises(DependencyCertificateError, match="default diff driver"):
+            _ = reader(source)
+
+
+@pytest.mark.parametrize("attribute", ["*.fits filter=lfs diff=lfs -text", "* !diff"])
+def test_raw_dependency_git_preserves_unrelated_or_reset_attributes(
+    raw_dependency_git: tuple[Any, ...], attribute: str
+) -> None:
+    source = raw_dependency_git[-2]
+    expected = _raw_dependency_snapshot(source)
+    _ = (REPOSITORY_ROOT / "info/attributes").write_text(attribute + "\n")
+    assert _raw_dependency_snapshot(source) == expected
+
+
+def test_raw_dependency_git_neutralizes_binary_threshold_and_external_diff(
+    raw_dependency_git: tuple[Any, ...],
+) -> None:
+    source = raw_dependency_git[-2]
+    expected = _raw_dependency_snapshot(source)
+    _ = _git("config", "core.bigFileThreshold", "0")
+    # --binary preloads small blobs; the historical non-binary reader is the
+    # path where this threshold changes text into a binary-difference notice.
+    apparent = subprocess.check_output(
+        ["git", "diff", "--find-renames", "-U3", f"{source}^", source, "--"],
+        cwd=REPOSITORY_ROOT,
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("GIT_")
+        },
+    )
+    assert b"Binary files" in apparent
+    assert hashlib.sha256(apparent).hexdigest() != expected[2]
+    _ = _git("config", "core.abbrev", "12")
+    _ = _git("config", "diff.renames", "false")
+    _ = _git("config", "diff.external", "false")
+    apparent_process = subprocess.run(
+        ["git", "diff", f"{source}^", source],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert apparent_process.returncode != 0
+    assert _raw_dependency_snapshot(source) == expected
+
+
+def test_raw_dependency_git_child_environment_preserves_explicit_repository(
+    raw_dependency_git: tuple[Any, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = raw_dependency_git[-2]
+    monkeypatch.setenv("GIT_DIR", str(REPOSITORY_ROOT / "missing"))
+    environment = _git_environment()
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import subprocess,sys; sys.stdout.buffer.write(subprocess.check_output(['git','cat-file','blob',sys.argv[1]]))",
+            f"{source}:src/radiosim/core/result.py",
+        ],
+        cwd=REPOSITORY_ROOT,
+        env=environment,
+        capture_output=True,
+        check=False,
+    )
+    assert completed.returncode == 0 and completed.stderr == b""
+    assert completed.stdout == _tree_blob(source, "src/radiosim/core/result.py")
+    assert os.environ["GIT_DIR"].endswith("missing")
+
+
+@pytest.mark.parametrize("routing", ["PYTHONPATH", "PYTHONUSERBASE"])
+@pytest.mark.parametrize(
+    "tool", [STAGE2_TOOL_PATH, "tools/sci005_stage1_acceptance.py"]
+)
+def test_raw_dependency_git_child_environment_blocks_python_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, routing: str, tool: str
+) -> None:
+    # Exercise actual verifier startup, with the external hook as a native
+    # positive control; hashing the verifier alone does not cover this import.
+    for name in tuple(os.environ):
+        if name.startswith("PYTHON"):
+            monkeypatch.delenv(name)
+    monkeypatch.setenv(routing, str(tmp_path))
+    hook_directory = tmp_path
+    if routing == "PYTHONUSERBASE":
+        hook_directory = Path(
+            subprocess.check_output(
+                [sys.executable, "-c", "import site; print(site.getusersitepackages())"]
+            )
+            .decode()
+            .strip()
+        )
+        hook_directory.mkdir(parents=True)
+    marker = tmp_path / "outside-startup-executed"
+    _ = (hook_directory / "sitecustomize.py").write_text(
+        f"from pathlib import Path\nPath({str(marker)!r}).write_text(__file__)\n"
+    )
+    arguments = [sys.executable, str(REPOSITORY_ROOT / tool), "--help"]
+    apparent = subprocess.run(arguments, capture_output=True, check=False)
+    assert apparent.returncode == 0 and marker.is_file()
+    marker.unlink()
+    completed = subprocess.run(
+        arguments, env=_git_environment(), capture_output=True, check=False
+    )
+    assert completed.returncode == 0 and completed.stderr == b""
+    assert completed.stdout == apparent.stdout
+    assert not marker.exists()
+    assert os.environ[routing] == str(tmp_path)
+
+
+def test_raw_dependency_git_child_environment_ignores_python_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing_home = str(tmp_path / "missing-python-runtime")
+    monkeypatch.setenv("PYTHONHOME", missing_home)
+    arguments = [sys.executable, str(REPOSITORY_ROOT / STAGE2_TOOL_PATH), "--help"]
+    apparent = subprocess.run(arguments, capture_output=True, check=False)
+    assert apparent.returncode != 0 and missing_home.encode() in apparent.stderr
+    completed = subprocess.run(
+        arguments, env=_git_environment(), capture_output=True, check=False
+    )
+    assert completed.returncode == 0 and completed.stderr == b""
+    assert os.environ["PYTHONHOME"] == missing_home
 
 
 def _is_lower_hex(value: object, *, width: int) -> bool:
@@ -1429,6 +1779,7 @@ def replay_stage2_certificate(anchor: str) -> tuple[bytes, float]:
                 anchor,
             ],
             cwd=worktree,
+            env=_git_environment(),
             capture_output=True,
             check=False,
         )
