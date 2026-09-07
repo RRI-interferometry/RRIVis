@@ -61,7 +61,52 @@ def _require(condition: bool, message: str) -> None:
 
 
 def _git(root: Path, *arguments: str) -> bytes:
-    # Raw historical diff hashes must not depend on local presentation choices.
+    # Authenticate actual objects, independent of caller routing or overlays.
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("GIT_")
+    }
+    environment.update(
+        GIT_NO_REPLACE_OBJECTS="1",
+        GIT_GRAFT_FILE=os.devnull,
+        GIT_CONFIG_NOSYSTEM="1",
+        GIT_CONFIG_SYSTEM=os.devnull,
+        GIT_CONFIG_GLOBAL=os.devnull,
+        GIT_ATTR_NOSYSTEM="1",
+    )
+    # Names-only queries are not transformed; use them to check the effective
+    # attributes before accepting any patch bytes from this same Git boundary.
+    if arguments[0] == "diff" and not {"--name-only", "--name-status"}.intersection(
+        arguments
+    ):
+        # Git falls back to the configurable 'default' driver even when no
+        # effective diff attribute is present. Inspect names without values.
+        config_names = _git(root, "config", "--null", "--name-only", "--list").split(
+            b"\0"
+        )
+        _require(
+            not any(name.startswith(b"diff.default.") for name in config_names),
+            "configured default diff driver can transform authenticated patch bytes",
+        )
+        paths = _git(root, "diff", "--name-only", "-z", *arguments[1:]).split(b"\0")
+        _require(paths[-1] == b"", "Git diff path framing")
+        if paths[:-1]:
+            attributes = _git(
+                root,
+                "check-attr",
+                "--all",
+                "-z",
+                "--",
+                *(path.decode("utf-8", "surrogateescape") for path in paths[:-1]),
+            ).split(b"\0")
+            _require(attributes[-1] == b"", "Git attribute framing")
+            _require((len(attributes) - 1) % 3 == 0, "Git attribute tuple framing")
+            # --all omits unspecified attributes but retains an explicit driver
+            # named 'unspecified'; rejecting every diff row catches both cases.
+            _require(
+                b"diff" not in attributes[1:-1:3],
+                "effective diff attribute can transform authenticated patch bytes",
+            )
+    # Preserve the exact historical binary/full-index patch format.
     if arguments[0] == "diff":
         arguments = (
             "diff",
@@ -76,25 +121,44 @@ def _git(root: Path, *arguments: str) -> bytes:
             "--unified=3",
             "--inter-hunk-context=0",
             "--no-relative",
+            "--ignore-submodules=none",
+            "--submodule=short",
             "--output-indicator-new=+",
             "--output-indicator-old=-",
             "--output-indicator-context= ",
             "-O/dev/null",
             *arguments[1:],
         )
-    environment = os.environ.copy()
-    _ = environment.pop("GIT_DIFF_OPTS", None)
+    elif arguments[0] == "show":
+        arguments = ("show", "--no-ext-diff", "--no-textconv", *arguments[1:])
+    elif arguments[0] == "diff-tree":
+        arguments = (
+            "diff-tree",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--ignore-submodules=none",
+            *arguments[1:],
+        )
     completed = subprocess.run(
         [
             "git",
             "--no-pager",
+            "--no-replace-objects",
+            "--literal-pathspecs",
+            "-c",
+            "core.commitGraph=false",
+            "-c",
+            "core.bigFileThreshold=512m",
+            "-c",
+            "core.attributesFile=" + os.devnull,
             "-c",
             "color.ui=false",
             "-c",
             "diff.suppressBlankEmpty=false",
             *arguments,
         ],
-        cwd=root,
+        cwd=root.resolve(),
         env=environment,
         capture_output=True,
         check=False,

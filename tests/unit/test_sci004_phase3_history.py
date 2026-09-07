@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import copy
 import os
+import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from tools import sci004_phase3_history as history
+
+# One reference to the internal reader shared by raw-object boundary tests.
+history_git = history._git
 
 
 @pytest.fixture
@@ -288,7 +293,7 @@ def phase_objects(tmp_path, monkeypatch):
         history,
         "DESIGN_SUCCESSOR_DIFF",
         history._sha256(
-            history._git(root, "diff", "--binary", "--full-index", red, design, "--")
+            history_git(root, "diff", "--binary", "--full-index", red, design, "--")
         ),
     )
     status = commit(design, {history.STATUS_PATH: b"red status\n"})
@@ -621,7 +626,7 @@ def test_rebound_design_objects_still_need_own_review_header(
     phase_objects, monkeypatch, violation
 ):
     root, commit, _, _, red, _, _, _ = phase_objects
-    original = history._git(
+    original = history_git(
         root, "show", f"{history.OPERATIVE_DESIGN_SHA}:{history.DESIGN_PATHS[1]}"
     )
     if violation == "pins_in_old_header":
@@ -649,8 +654,244 @@ def test_rebound_design_objects_still_need_own_review_header(
         history,
         "DESIGN_SUCCESSOR_DIFF",
         history._sha256(
-            history._git(root, "diff", "--binary", "--full-index", red, forged, "--")
+            history_git(root, "diff", "--binary", "--full-index", red, forged, "--")
         ),
     )
     with pytest.raises(history.HistoryError):
         history.authenticate_design_successor(root)
+
+
+PhaseObjects = tuple[Path, Callable[..., str], str, str, str, str, str, str]
+
+
+def _hostile_git(root: Path, *arguments: str, data: bytes | None = None) -> bytes:
+    """Create hostile overlays only inside the synthetic bare fixture."""
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=root,
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("GIT_")
+        },
+        input=data,
+        capture_output=True,
+        check=True,
+    ).stdout
+
+
+def test_complete_history_rejects_replaced_unauthorized_terminal(
+    phase_objects: PhaseObjects,
+) -> None:
+    root, commit, _, _, _, _, source, good = phase_objects
+    edits: dict[str, bytes | None] = dict.fromkeys(history.DISPOSAL_PINS)
+    edits["Fix.md"] = b"unauthorized source change\n"
+    bad = commit(source, edits)
+    bad_objects = (*phase_objects[:-1], bad)
+    with pytest.raises(history.HistoryError, match="source role"):
+        _ = _phase_document(bad_objects)
+    _ = _hostile_git(root, "replace", bad, good)
+    # The ambient Git view reproduces the reported complete-validator bypass.
+    assert b"Fix.md" not in _hostile_git(root, "diff", "--name-only", source, bad)
+    assert b"Fix.md" in history_git(root, "diff", "--name-only", source, bad)
+    with pytest.raises(history.HistoryError, match="source role"):
+        _ = _phase_document(bad_objects)
+    _validate_document(_phase_document(phase_objects), phase_objects)
+
+
+def test_history_reads_original_blob_despite_replacement(
+    phase_objects: PhaseObjects,
+) -> None:
+    root, _, base, _, _, _, _, _ = phase_objects
+    path = next(iter(history.DISPOSAL_PINS))
+    original = _hostile_git(root, "rev-parse", f"{base}:{path}").decode().strip()
+    replacement = (
+        _hostile_git(
+            root, "hash-object", "-w", "--stdin", data=b"counterfeit artifact\n"
+        )
+        .decode()
+        .strip()
+    )
+    _ = _hostile_git(root, "replace", original, replacement)
+    assert _hostile_git(root, "show", f"{base}:{path}") == b"counterfeit artifact\n"
+    assert history_git(root, "show", f"{base}:{path}") == b"rejected\n"
+    _validate_document(_phase_document(phase_objects), phase_objects)
+
+
+@pytest.mark.parametrize("external", [False, True])
+def test_history_ignores_grafted_parents(
+    phase_objects: PhaseObjects, monkeypatch: pytest.MonkeyPatch, external: bool
+) -> None:
+    root, _, base, _, _, _, source, terminal = phase_objects
+    graft = root / ("external-grafts" if external else "info/grafts")
+    _ = graft.write_text(f"{terminal} {base}\n")
+    if external:
+        monkeypatch.setenv("GIT_GRAFT_FILE", str(graft))
+    else:
+        assert _hostile_git(
+            root, "rev-list", "--parents", "-n", "1", terminal
+        ).split() == [terminal.encode(), base.encode()]
+    assert history_git(root, "rev-list", "--parents", "-n", "1", terminal).split() == [
+        terminal.encode(),
+        source.encode(),
+    ]
+    _validate_document(_phase_document(phase_objects), phase_objects)
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "GIT_DIR",
+        "GIT_COMMON_DIR",
+        "GIT_WORK_TREE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_INDEX_FILE",
+        "GIT_SHALLOW_FILE",
+        "GIT_CONFIG",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_NAMESPACE",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_ATTR_SOURCE",
+        "GIT_CEILING_DIRECTORIES",
+    ],
+)
+def test_complete_history_ignores_caller_git_routing(
+    phase_objects: PhaseObjects, monkeypatch: pytest.MonkeyPatch, variable: str
+) -> None:
+    expected = _phase_document(phase_objects)
+    value = str(phase_objects[0] / "absent-redirect")
+    monkeypatch.setenv(variable, value)
+    observed = _phase_document(phase_objects)
+    assert observed == expected
+    _validate_document(observed, phase_objects)
+    assert os.environ[variable] == value
+
+
+def test_history_rejects_config_hidden_gitlink(
+    phase_objects: PhaseObjects,
+) -> None:
+    root, _, _, _, _, _, source, terminal = phase_objects
+    tree = _hostile_git(root, "ls-tree", f"{terminal}^{{tree}}")
+    tree += f"160000 commit {source}\tforbidden-module\n".encode()
+    new_tree = _hostile_git(root, "mktree", data=tree).decode().strip()
+    raw = _hostile_git(root, "cat-file", "commit", terminal)
+    _, remainder = raw.split(b"\n", 1)
+    bad = (
+        _hostile_git(
+            root,
+            "hash-object",
+            "-w",
+            "-t",
+            "commit",
+            "--stdin",
+            data=f"tree {new_tree}\n".encode() + remainder,
+        )
+        .decode()
+        .strip()
+    )
+    _ = _hostile_git(root, "config", "diff.ignoreSubmodules", "all")
+    assert b"forbidden-module" not in _hostile_git(
+        root, "diff", "--name-only", source, bad
+    )
+    assert b"forbidden-module" in history_git(root, "diff", "--name-only", source, bad)
+    assert b"forbidden-module" in history_git(
+        root, "diff-tree", "--no-commit-id", "--name-only", "-r", bad
+    )
+    with pytest.raises(history.HistoryError, match="source role"):
+        _ = _phase_document((*phase_objects[:-1], bad))
+
+
+def test_history_disables_local_external_diff_and_textconv(
+    phase_objects: PhaseObjects,
+) -> None:
+    root, _, _, _, _, _, source, _ = phase_objects
+    expected = _phase_document(phase_objects)
+    _ = _hostile_git(root, "config", "diff.external", "false")
+    assert _phase_document(phase_objects) == expected
+    _ = (root / "info/attributes").write_text("*.py diff=hostile\n")
+    _ = _hostile_git(root, "config", "diff.hostile.textconv", "false")
+    assert history_git(root, "show", f"{source}:src/radiosim/core/result.py") == (
+        b"# source fixture\n"
+    )
+    with pytest.raises(history.HistoryError, match="effective diff attribute"):
+        _ = _phase_document(phase_objects)
+
+
+@pytest.mark.parametrize(
+    "attribute", ["-diff", "diff", "diff=hostile", "diff=unspecified"]
+)
+def test_complete_history_refuses_local_patch_attribute_transforms(
+    phase_objects: PhaseObjects,
+    attribute: str,
+) -> None:
+    root, _, _, _, _, status, source, _ = phase_objects
+    original = _phase_document(phase_objects)
+    _validate_document(original, phase_objects)
+    _ = (root / "info/attributes").write_text(
+        f"src/radiosim/core/result.py {attribute}\n"
+    )
+    for driver in ("hostile", "unspecified"):
+        _ = _hostile_git(root, "config", f"diff.{driver}.binary", "true")
+    if attribute != "diff":
+        assert b"GIT binary patch" in _hostile_git(
+            root, "diff", "--binary", "--full-index", status, source, "--"
+        )
+    with pytest.raises(history.HistoryError, match="effective diff attribute"):
+        _ = _phase_document(phase_objects)
+    with pytest.raises(history.HistoryError, match="effective diff attribute"):
+        _validate_document(original, phase_objects)
+
+
+def test_history_preserves_unrelated_lfs_and_disabled_diff_attributes(
+    phase_objects: PhaseObjects,
+) -> None:
+    root, _, _, _, _, _, _, _ = phase_objects
+    expected = _phase_document(phase_objects)
+    _ = (root / "info/attributes").write_text(
+        "*.fits filter=lfs diff=lfs merge=lfs -text\n"
+        "src/radiosim/core/result.py !diff\n"
+    )
+    _ = _hostile_git(root, "config", "diff.unspecified.binary", "true")
+    assert _phase_document(phase_objects) == expected
+    _validate_document(expected, phase_objects)
+
+
+def test_history_ignores_local_binary_threshold(
+    phase_objects: PhaseObjects,
+) -> None:
+    root, _, _, _, _, status, source, _ = phase_objects
+    expected = _phase_document(phase_objects)
+    args = ("diff", "--full-index", status, source, "--")
+    original_patch = history_git(root, *args)
+    _ = _hostile_git(root, "config", "core.bigFileThreshold", "0")
+    # --binary preloads buffers before classification in Git 2.55; exercise
+    # the ordinary patch form also used to authenticate review-header additions.
+    altered_patch = _hostile_git(root, *args)
+    assert b"Binary files " in altered_patch
+    assert altered_patch != original_patch
+    assert history_git(root, *args) == original_patch
+    assert _phase_document(phase_objects) == expected
+    _validate_document(expected, phase_objects)
+
+
+def test_complete_history_refuses_configured_default_diff_driver(
+    phase_objects: PhaseObjects,
+) -> None:
+    root, _, _, _, _, status, source, _ = phase_objects
+    expected = _phase_document(phase_objects)
+    _ = _hostile_git(root, "config", "diff.default.binary", "true")
+    assert (
+        _hostile_git(
+            root, "check-attr", "--all", "-z", "--", "src/radiosim/core/result.py"
+        )
+        == b""
+    )
+    assert b"GIT binary patch" in _hostile_git(
+        root, "diff", "--binary", "--full-index", status, source, "--"
+    )
+    with pytest.raises(history.HistoryError, match="configured default diff driver"):
+        _ = _phase_document(phase_objects)
+    with pytest.raises(history.HistoryError, match="configured default diff driver"):
+        _validate_document(expected, phase_objects)
