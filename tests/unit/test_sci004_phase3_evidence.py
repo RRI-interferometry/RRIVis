@@ -1973,7 +1973,6 @@ def test_retained_red_inventory_keeps_epoch_controls_and_six_key_reference(
     assert len(red_nodes[0].union(*red_nodes[1:])) == 37
     # This legitimate control was red in the earlier epoch; do not forbid it.
     assert records[2]["passing_controls"][0]["test_nodeid"] in red_nodes[0]
-    module.validate_retained_red_case_records(*records)
     reference = module._red_failure_record_reference(module._red_commit_sha())
     assert set(reference) == {
         "path",
@@ -2012,7 +2011,15 @@ def test_retained_red_inventory_keeps_epoch_controls_and_six_key_reference(
         ("cases", "observed_message", "unrelated failure"),
         ("cases", "fixture_identity_sha256", "0" * 64),
         ("cases", "invalid_config_raw_sha256", "0" * 64),
+        ("cases", "stdout_sha256", "0" * 64),
+        ("cases", "stderr_sha256", "0" * 64),
         ("cases", "unexpected", True),
+        ("commands", "exit_code", True),
+        ("commands", "cwd", "elsewhere"),
+        ("commands", "pixi_environment", "other"),
+        ("commands", "duration_seconds", True),
+        ("commands", "started_at_utc", None),
+        ("commands", "stdout_sha256", "0" * 64),
     ],
 )
 def test_retained_red_inventory_semantics_reject_decoded_row_mutation(
@@ -2034,16 +2041,111 @@ def test_retained_red_inventory_semantics_reject_decoded_row_mutation(
         if requested == path:
             document = copy.deepcopy(document)
             document[section][0][field] = replacement
-        return (raw, document)
+        return raw, document
 
     monkeypatch.setattr(module, "_canonical_artifact", decoded_mutation)
     with pytest.raises(module.EvidenceError):
-        module.validate_retained_red_case_records(
-            *(
-                module._canonical_artifact(path, label="case-only decoder fixture")[1]
-                for path in (RED_RECORD, POST_SOURCE_RED_RECORD, FINGERPRINT_RED_RECORD)
-            )
+        module._red_failure_record_reference(module._red_commit_sha())
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "red-reorder",
+        "red-duplicate",
+        "red-missing",
+        "red-extra",
+        "red-not-list",
+        "cross-epoch-node",
+        "command-reorder",
+        "command-extra-node",
+        "command-prefix",
+        "command-bad-executable",
+        "command-bad-junit",
+        "command-extra",
+        "control-reorder",
+        "control-missing",
+        "control-duplicate",
+        "control-case-node",
+        "control-id",
+        "control-requirement",
+        "control-purpose",
+        "control-index-bool",
+        "control-exit-bool",
+        "control-outcome",
+        "control-pass-int",
+        "control-extra-key",
+    ],
+)
+def test_retained_red_inventory_rejects_partition_and_command_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    authenticated_red_reads: dict[str, Any],
+    mutation: str,
+) -> None:
+    module = _tool()
+    for name, reader in authenticated_red_reads.items():
+        monkeypatch.setattr(module, name, reader)
+    original = module._canonical_artifact
+
+    def decoded_mutation(requested: str, *, label: str) -> tuple[bytes, dict[str, Any]]:
+        raw, document = original(requested, label=label)
+        if requested != FINGERPRINT_RED_RECORD:
+            return raw, document
+        document = copy.deepcopy(document)
+        rows, commands, controls = (
+            document["cases"],
+            document["commands"],
+            document["passing_controls"],
         )
+        if mutation == "red-reorder":
+            rows.reverse()
+        elif mutation == "red-duplicate":
+            rows[1] = copy.deepcopy(rows[0])
+        elif mutation == "red-missing":
+            rows.pop()
+        elif mutation == "red-extra":
+            rows.append(copy.deepcopy(rows[0]))
+        elif mutation == "red-not-list":
+            document["cases"] = tuple(rows)
+        elif mutation == "cross-epoch-node":
+            rows[0]["test_nodeid"] = controls[0]["test_nodeid"]
+        elif mutation == "command-reorder":
+            commands[0]["argv"][9:] = reversed(commands[0]["argv"][9:])
+        elif mutation == "command-extra-node":
+            commands[0]["argv"].append("tests/invented.py::test_extra")
+        elif mutation == "command-prefix":
+            commands[0]["argv"][6] = "no:cacheprovider"
+        elif mutation == "command-bad-executable":
+            commands[0]["argv"][0] = "python"
+        elif mutation == "command-bad-junit":
+            commands[0]["argv"][8] = "junit.xml"
+        elif mutation == "command-extra":
+            commands.append(copy.deepcopy(commands[0]))
+        elif mutation == "control-reorder":
+            controls.reverse()
+        elif mutation == "control-missing":
+            controls.pop()
+        elif mutation == "control-duplicate":
+            controls[1] = copy.deepcopy(controls[0])
+        elif mutation == "control-case-node":
+            controls[0]["test_nodeid"] = rows[0]["test_nodeid"]
+        else:
+            field, value = {
+                "control-id": ("control_id", "invented"),
+                "control-requirement": ("requirement_id", "invented"),
+                "control-purpose": ("purpose", "invented"),
+                "control-index-bool": ("command_index", False),
+                "control-exit-bool": ("exit_code", False),
+                "control-outcome": ("observed_outcome", "skip"),
+                "control-pass-int": ("pass", 1),
+                "control-extra-key": ("unexpected", True),
+            }[mutation]
+            controls[0][field] = value
+        return raw, document
+
+    monkeypatch.setattr(module, "_canonical_artifact", decoded_mutation)
+    with pytest.raises(module.EvidenceError):
+        module._red_failure_record_reference(module._red_commit_sha())
 
 
 @pytest.mark.parametrize(

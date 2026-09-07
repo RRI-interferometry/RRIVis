@@ -4020,17 +4020,85 @@ _RED_CASE_INVENTORIES = (
         ),
     ),
 )
+_RED_COMMAND_CONTROLS = (
+    (
+        (
+            "tests/unit/test_io/test_standard_visibility.py::test_shared_projection_has_canonical_blt_polarization_and_phase[uvfits]",
+        ),
+        (
+            "tests/unit/test_io/test_hdf5_result.py::test_versioned_hdf5_round_trip_is_scientifically_exact[complex128]",
+        ),
+        (
+            "tests/unit/test_io/test_result_summary.py::test_summary_json_is_exact_bounded_metadata_contract",
+        ),
+        (
+            "tests/unit/test_io/test_uvfits.py::test_uvfits_round_trip_preserves_supported_dtype_and_raw_contract[complex128]",
+        ),
+        (
+            "tests/unit/test_io/test_measurement_set.py::test_measurement_set_round_trip_and_raw_storage[complex128]",
+        ),
+        (
+            "tests/characterization/test_sci004_mmode.py::test_one_point_family_runs_to_completion_through_the_public_path",
+        ),
+        (
+            "tests/performance/test_sci004_mmode.py::test_the_perf001_record_surface_and_non_gating_markers_hold_today",
+        ),
+        (
+            "tests/unit/test_tier8_release_acceptance.py::test_the_release_scan_still_reports_sci004_as_roadmap",
+        ),
+    ),
+    (
+        (
+            "tests/unit/test_io/test_hdf5_result.py::test_an_mmode_result_publishes_and_reloads_from_hdf5",
+            "tests/unit/test_io/test_hdf5_result.py::test_the_stored_solver_json_keeps_the_section_10_key_order",
+            "tests/unit/test_io/test_hdf5_result.py::test_the_hdf5_reader_reconstructs_the_mmode_arm_and_never_relabels_it",
+            "tests/unit/test_io/test_hdf5_result.py::test_the_mmode_scientific_and_provenance_fingerprints_survive_hdf5",
+            "tests/unit/test_io/test_hdf5_result.py::test_versioned_hdf5_round_trip_is_scientifically_exact[complex128]",
+        ),
+    ),
+    (
+        (
+            "tests/characterization/test_sci004_mmode.py::test_every_new_family_records_its_six_section_11_parts[mmode_single_scalar_mode]",
+            "tests/characterization/test_sci004_mmode.py::test_distinct_layout_roots_preserve_scientific_and_cube_identities",
+            "tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_changes_for_semantic_instrument_content",
+        ),
+    ),
+)
+_FINGERPRINT_PASSING_IDENTITIES = (
+    (
+        "m3.fingerprint.family-record-schema",
+        "SCI-004-11-FAMILY-RECORD-SCHEMA",
+        "tests/characterization/test_sci004_mmode.py::test_every_new_family_records_its_six_section_11_parts[mmode_single_scalar_mode]",
+        "exact domain-discriminated family-record schema and all pre-existing family joins "
+        "remain valid",
+    ),
+    (
+        "m3.fingerprint.relocation-science-control",
+        "SCI-004-11-PATH-INDEPENDENT-CHARACTERIZATION",
+        "tests/characterization/test_sci004_mmode.py::test_distinct_layout_roots_preserve_scientific_and_cube_identities",
+        "relocation fixture preserves independently derived scientific and raw-cube "
+        "identities",
+    ),
+    (
+        "m3.fingerprint.semantic-separation-control",
+        "SCI-004-11-SEMANTIC-INPUT-SEPARATION",
+        "tests/characterization/test_sci004_mmode.py::test_characterization_input_identity_changes_for_semantic_instrument_content",
+        "semantic antenna-layout mutation changes characterization input identity",
+    ),
+)
 
 
 def validate_retained_red_case_records(
-    historical: dict[str, Any], post_source: dict[str, Any], fingerprint: dict[str, Any]
+    historical: dict[str, Any],
+    post_source: dict[str, Any],
+    fingerprint: dict[str, Any],
 ) -> None:
-    """Validate the ordered 29/6/2 case inventories and fixture projections.
+    """Validate ordered 29/6/2 cases and their command/control joins.
 
     Callers must first authenticate each original document's raw bytes, epoch,
     phase and pre-fix source identity. This utility does not authenticate Git
-    history or those document bindings. Command/log joins and passing controls
-    are outside this case-only slice.
+    history or those document bindings. It validates case identities, fixture
+    projections, command/log joins and the ordered fingerprint passing controls.
     """
     case_keys = _RED_CASE_IDENTITY_KEYS + (
         "invalid_config_raw_sha256",
@@ -4042,18 +4110,95 @@ def validate_retained_red_case_records(
         "stderr_sha256",
         "red_failure_confirmed",
     )
+    command_keys = (
+        "argv",
+        "cwd",
+        "pixi_environment",
+        "started_at_utc",
+        "duration_seconds",
+        "exit_code",
+        "stdout_sha256",
+        "stderr_sha256",
+    )
     all_nodes: set[str] = set()
     all_cases: set[str] = set()
     for epoch, document in enumerate((historical, post_source, fingerprint)):
         expected = _RED_CASE_INVENTORIES[epoch]
         rows = document.get("cases")
+        commands = document.get("commands")
         label = f"retained red inventory {epoch}"
         _require(
             isinstance(rows, list) and len(cast(list[Any], rows)) == len(expected),
             PREFLIGHT,
             f"{label} has the wrong ordered case inventory",
         )
+        tails = _RED_COMMAND_CONTROLS[epoch]
+        _require(
+            isinstance(commands, list) and len(cast(list[Any], commands)) == len(tails),
+            PREFLIGHT,
+            f"{label} has the wrong command inventory",
+        )
         rows = cast(list[Any], rows)
+        commands = cast(list[Any], commands)
+        for index, command in enumerate(commands):
+            command = _require_keys(command, command_keys, label)
+            argv = command["argv"]
+            _require(
+                isinstance(argv, list)
+                and len(cast(list[Any], argv)) >= 9
+                and all(isinstance(arg, str) and arg for arg in cast(list[Any], argv)),
+                PREFLIGHT,
+                f"{label} command argv must contain strings",
+            )
+            argv = cast(list[str], argv)
+            prefix = [
+                "-m",
+                "pytest",
+                "-p",
+                "no:randomly",
+                "-p",
+                "no:cacheprovider" if epoch == 0 else "no:xdist",
+                "--junit-xml",
+            ]
+            _require(
+                argv[1:8] == prefix
+                and Path(argv[0]).is_absolute()
+                and argv[0].endswith("/.pixi/envs/default/bin/python")
+                and Path(argv[8]).is_absolute()
+                and Path(argv[8]).name
+                == (f"junit-{index}.xml" if epoch == 0 else "junit.xml"),
+                PREFLIGHT,
+                f"{label} command framing changed",
+            )
+            nodes = [row[2] for row in expected if row[6] == index] + list(tails[index])
+            _require(
+                argv[9:] == nodes and len(set(nodes)) == len(nodes),
+                PREFLIGHT,
+                f"{label} command nodes differ from the ordered red/control partition",
+            )
+            _require(
+                command["cwd"] == "."
+                and command["pixi_environment"] == "default"
+                and type(command["exit_code"]) is int
+                and command["exit_code"] == 1,
+                PREFLIGHT,
+                f"{label} command context or exit differs",
+            )
+            _require(
+                _require_finite(command["duration_seconds"], label) >= 0,
+                PREFLIGHT,
+                f"{label} command duration is negative",
+            )
+            stamp = command["started_at_utc"]
+            _require(
+                isinstance(stamp, str)
+                and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp)
+                is not None,
+                PREFLIGHT,
+                f"{label} command UTC timestamp is invalid",
+            )
+            for key in ("stdout_sha256", "stderr_sha256"):
+                _ = _require_hex(command[key], 64, label)
         for row, identity in zip(rows, expected, strict=True):
             row = _require_keys(row, case_keys, label)
             _require(
@@ -4062,7 +4207,7 @@ def validate_retained_red_case_records(
                 PREFLIGHT,
                 f"{label} ordered case identity differs",
             )
-            node, case_id = (row["test_nodeid"], row["case_id"])
+            node, case_id = row["test_nodeid"], row["case_id"]
             _require(
                 node not in all_nodes and case_id not in all_cases,
                 PREFLIGHT,
@@ -4070,11 +4215,12 @@ def validate_retained_red_case_records(
             )
             all_nodes.add(node)
             all_cases.add(case_id)
+            command = commands[row["command_index"]]
             _require(
                 type(row["exit_code"]) is int
                 and row["exit_code"] == 1
-                and (row["red_failure_confirmed"] is True)
-                and (row["observed_outcome"] == identity[3]),
+                and row["red_failure_confirmed"] is True
+                and row["observed_outcome"] == identity[3],
                 PREFLIGHT,
                 f"{label} case must confirm its expected failure",
             )
@@ -4082,10 +4228,16 @@ def validate_retained_red_case_records(
             _require(
                 isinstance(message, str)
                 and bool(message)
-                and (re.search(row["expected_failure_pattern"], message) is not None),
+                and re.search(row["expected_failure_pattern"], message) is not None,
                 PREFLIGHT,
                 f"{label} case message does not match its expected failure",
             )
+            for key in ("stdout_sha256", "stderr_sha256"):
+                _require(
+                    row[key] == command[key],
+                    PREFLIGHT,
+                    f"{label} case does not join its command {key}",
+                )
             _ = _require_hex(row["invalid_config_raw_sha256"], 64, label)
             fixture = {
                 "phase": document["phase"],
@@ -4101,6 +4253,33 @@ def validate_retained_red_case_records(
                 PREFLIGHT,
                 f"{label} fixture identity does not join its six-field preimage",
             )
+    controls = fingerprint.get("passing_controls")
+    _require(
+        isinstance(controls, list) and len(cast(list[Any], controls)) == 3,
+        PREFLIGHT,
+        "fingerprint passing control inventory differs",
+    )
+    controls = cast(list[Any], controls)
+    control_keys = ("control_id", "requirement_id", "test_nodeid", "purpose")
+    for row, expected_control in zip(
+        controls, _FINGERPRINT_PASSING_IDENTITIES, strict=True
+    ):
+        row = _require_keys(
+            row,
+            control_keys + ("command_index", "exit_code", "observed_outcome", "pass"),
+            "fingerprint control",
+        )
+        _require(
+            tuple(row[key] for key in control_keys) == expected_control
+            and type(row["command_index"]) is int
+            and row["command_index"] == 0
+            and type(row["exit_code"]) is int
+            and row["exit_code"] == 0
+            and row["observed_outcome"] == "pass"
+            and row["pass"] is True,
+            PREFLIGHT,
+            "fingerprint ordered passing control identity or outcome differs",
+        )
 
 
 def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
@@ -4140,7 +4319,7 @@ def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
     if not _is_ancestor(original_fingerprint_red_commit, current_design):
         raise EvidenceError(
             PREFLIGHT,
-            "the original fingerprint R3 is not connected to current operative D30",
+            "the original fingerprint R3 is not connected to current operative design",
         )
     historical_raw, historical = _canonical_artifact(
         RED_FAILURE_RECORD, label="the historical phase-3 red record"
@@ -4239,6 +4418,7 @@ def _red_failure_record_reference(red_commit: str) -> dict[str, Any]:
             PREFLIGHT, "the fingerprint red record does not bind its ruled chain"
         )
 
+    validate_retained_red_case_records(historical, post_source, fingerprint)
     return {
         "path": RED_FAILURE_RECORD,
         "sha256": historical_sha256,
