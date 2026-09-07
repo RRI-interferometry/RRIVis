@@ -753,32 +753,6 @@ def ecmascript_number(value: float) -> str:
     return f"{mantissa}e{sign}{abs(int(exponent_text))}"
 
 
-def _render(value: Any) -> str:
-    if value is None:
-        return "null"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return ecmascript_number(value)
-    if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-    if isinstance(value, Mapping):
-        body = ",".join(
-            f"{json.dumps(str(key), ensure_ascii=False, separators=(',', ':'))}:"
-            f"{_render(item)}"
-            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
-        )
-        return "{" + body + "}"
-    if isinstance(value, (list, tuple)):
-        return "[" + ",".join(_render(item) for item in value) + "]"
-    raise EvidenceError(SCHEMA, f"{type(value).__name__} is not JSON")
-
-
-def canonical_json(value: Any) -> bytes:
-    """Return Section 14's canonical UTF-8 serialization of one document."""
-    return _render(value).encode("utf-8")
-
-
 def domain_digest(domain: str, payload: bytes) -> str:
     """Return Section 14.0's ``D(d, p) = SHA256(d || NUL || U64(len(p)) || p)``.
 
@@ -883,8 +857,8 @@ FRAME_CERTIFICATE_STORAGE_KEYS = (
 FRAME_CERTIFICATE_STORAGE_LIMIT = 33_554_432
 
 
-def _certificate_storage_j(value: Any) -> bytes:
-    """Render D33 Section 14 J without changing historical evidence serialization."""
+def canonical_json(value: Any) -> bytes:
+    """Return Section 14 J with finite binary64 numbers and escaped Unicode."""
 
     def string(text: str) -> str:
         # Lone surrogates cannot represent Unicode scalar values in UTF-8 JSON.
@@ -898,12 +872,12 @@ def _certificate_storage_j(value: Any) -> bytes:
             return "true" if item else "false"
         if isinstance(item, (int, float)):
             number = float(item)
-            _require(math.isfinite(number), SCHEMA, "certificate number must be finite")
+            _require(math.isfinite(number), SCHEMA, "JSON number must be finite")
             if isinstance(item, int):
                 _require(
                     int(number) == item,
                     SCHEMA,
-                    "certificate integer cannot roundtrip through binary64",
+                    "JSON integer cannot roundtrip through binary64",
                 )
             return ecmascript_number(number)
         if isinstance(item, str):
@@ -913,7 +887,7 @@ def _certificate_storage_j(value: Any) -> bytes:
             _require(
                 all(isinstance(key, str) for key in mapping),
                 SCHEMA,
-                "certificate object keys must be strings",
+                "JSON object keys must be strings",
             )
             entries = cast(Mapping[str, Any], mapping)
             return (
@@ -929,12 +903,17 @@ def _certificate_storage_j(value: Any) -> bytes:
                 + ",".join(render(child) for child in cast(Sequence[Any], item))
                 + "]"
             )
-        raise EvidenceError(SCHEMA, f"{type(item).__name__} is not certificate JSON")
+        raise EvidenceError(SCHEMA, f"{type(item).__name__} is not JSON")
 
-    return render(value).encode("utf-8")
+    try:
+        return render(value).encode("utf-8")
+    except (ValueError, UnicodeError, OverflowError, RecursionError) as error:
+        raise EvidenceError(
+            SCHEMA, "value cannot be encoded as Section 14 J"
+        ) from error
 
 
-def _certificate_storage_json(payload: bytes, label: str) -> dict[str, Any]:
+def _canonical_json_object(payload: bytes, label: str) -> dict[str, Any]:
     """Parse one finite object with exact Section 14 J bytes, without duplicates."""
 
     def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -964,7 +943,7 @@ def _certificate_storage_json(payload: bytes, label: str) -> dict[str, Any]:
         )
         _require(isinstance(value, dict), SCHEMA, f"{label}: expected JSON object")
         _require(
-            _certificate_storage_j(value) == payload,
+            canonical_json(value) == payload,
             SCHEMA,
             f"{label}: noncanonical J bytes",
         )
@@ -979,7 +958,7 @@ def encode_frame_certificate_storage(certificate: Any) -> dict[str, Any]:
     """Encode D33 transport; full certificate schema and cascade checks are separate."""
     _require(isinstance(certificate, Mapping), SCHEMA, "certificate must be an object")
     try:
-        payload = _certificate_storage_j(certificate)
+        payload = canonical_json(certificate)
     except (ValueError, UnicodeError, OverflowError, RecursionError) as error:
         raise EvidenceError(SCHEMA, "certificate cannot be encoded as J") from error
     _require(
@@ -987,7 +966,7 @@ def encode_frame_certificate_storage(certificate: Any) -> dict[str, Any]:
         SCHEMA,
         "certificate uncompressed size is outside the D33 bound",
     )
-    _ = _certificate_storage_json(payload, "certificate")
+    _ = _canonical_json_object(payload, "certificate")
     compressed = zlib.compress(payload, level=9)
     _require(
         len(compressed) <= FRAME_CERTIFICATE_STORAGE_LIMIT,
@@ -1065,7 +1044,7 @@ def decode_frame_certificate_storage(value: Any, *, label: str) -> dict[str, Any
         DIGEST,
         f"{label}: uncompressed SHA-256 mismatch",
     )
-    return _certificate_storage_json(payload, label)
+    return _canonical_json_object(payload, label)
 
 
 def _require_sorted_unique_strings(value: Any, label: str) -> list[str]:
@@ -1308,16 +1287,14 @@ def _protocol_record(
 ) -> dict[str, Any]:
     """Parse one exact canonical sampler record with no schema drift."""
     try:
-        value = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise EvidenceError(SCHEMA, f"the RSS sampler {label} is not JSON") from exc
-    record = _require_keys(value, keys, f"RSS sampler {label}")
-    _require(
-        canonical_json(record) == payload,
-        SCHEMA,
-        f"the RSS sampler {label} is not canonical JSON",
-    )
-    return record
+        value = _canonical_json_object(payload, f"RSS sampler {label}")
+    except EvidenceError as exc:
+        if isinstance(exc.__cause__, (UnicodeDecodeError, json.JSONDecodeError)):
+            raise EvidenceError(SCHEMA, f"the RSS sampler {label} is not JSON") from exc
+        raise EvidenceError(
+            SCHEMA, f"the RSS sampler {label} is not canonical JSON: {exc.detail}"
+        ) from exc
+    return _require_keys(value, keys, f"RSS sampler {label}")
 
 
 def _validate_ready_record(record: Mapping[str, Any], target_pid: int) -> int:
@@ -3078,11 +3055,9 @@ def _canonical_artifact(path: str, *, label: str) -> tuple[bytes, dict[str, Any]
     """Read one red artifact and require exact canonical bytes."""
     raw = (REPOSITORY_ROOT / path).read_bytes()
     try:
-        value = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        value = _canonical_json_object(raw, label)
+    except EvidenceError as exc:
         raise EvidenceError(PREFLIGHT, f"{label} is not canonical JSON") from exc
-    if not isinstance(value, dict) or canonical_json(value) != raw:
-        raise EvidenceError(PREFLIGHT, f"{label} is not its canonical JSON bytes")
     return raw, value
 
 
@@ -5221,13 +5196,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if arguments.command == "generate":
             return build_phase3_evidence(arguments.source_sha)
-        document = json.loads(
-            _read_evidence_payload(Path(arguments.artifact)).decode("utf-8")
+        document = _canonical_json_object(
+            _read_evidence_payload(Path(arguments.artifact)), "evidence artifact"
         )
         validate_evidence_artifact(document)
         if arguments.performance:
-            record = json.loads(
-                Path(arguments.performance).read_bytes().decode("utf-8")
+            record = _canonical_json_object(
+                Path(arguments.performance).read_bytes(), "performance artifact"
             )
             validate_performance_document(record)
         return 0

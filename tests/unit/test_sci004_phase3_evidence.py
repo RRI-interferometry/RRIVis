@@ -6076,3 +6076,71 @@ def test_evidence_check_rejects_size_before_json_or_validation(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "evidence artifact must be smaller" in captured.err
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ({"é": "😀"}, b'{"\\u00e9":"\\ud83d\\ude00"}'),
+        ({"n": 10**21}, b'{"n":1e+21}'),
+        ({"n": 9007199254740992}, b'{"n":9007199254740992}'),
+    ],
+)
+def test_general_j_uses_section14_unicode_and_number_bytes(
+    value: Any, expected: bytes
+) -> None:
+    module = _tool()
+    assert module.canonical_json(value) == expected
+    assert (
+        module.canonical_json(module._canonical_json_object(expected, "test"))
+        == expected
+    )
+    assert module.object_digest("test.v1", value) == _domain_digest("test.v1", expected)
+
+
+@pytest.mark.parametrize("value", [9007199254740993, {1: "key"}, "\ud800"])
+def test_general_j_rejects_values_without_faithful_json_identity(value: Any) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError):
+        module.canonical_json(value)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"a":1,"a":1}',
+        b'{"a": {"b":1,"b":1}}',
+        b'{"a":NaN}',
+        b'{"a":1e999}',
+        b'{"a":1.0}',
+        b'{"a":1} ',
+        b'{"a":"\xc3\xa9"}',
+        b'{"a":1000000000000000000000}',
+        b"[]",
+    ],
+)
+@pytest.mark.parametrize("target", ["artifact", "performance"])
+def test_check_rejects_noncanonical_input_before_its_validator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: bytes, target: str
+) -> None:
+    module = _tool()
+    artifact = tmp_path / "evidence.json"
+    performance = tmp_path / "performance.json"
+    _ = artifact.write_bytes(payload if target == "artifact" else b"{}")
+    _ = performance.write_bytes(payload)
+
+    def forbidden(_value: Any) -> None:
+        pytest.fail("noncanonical raw bytes reached the semantic validator")
+
+    def valid_evidence(_value: Any) -> None:
+        return None
+
+    if target == "artifact":
+        monkeypatch.setattr(module, "validate_evidence_artifact", forbidden)
+    else:
+        monkeypatch.setattr(module, "validate_evidence_artifact", valid_evidence)
+        monkeypatch.setattr(module, "validate_performance_document", forbidden)
+    arguments = ["check", "--artifact", str(artifact)]
+    if target == "performance":
+        arguments.extend(["--performance", str(performance)])
+    assert module.main(arguments) == 1
