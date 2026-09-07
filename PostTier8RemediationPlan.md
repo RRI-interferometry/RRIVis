@@ -15,6 +15,38 @@ re-verified at execution time, not trusted from here.
 
 ---
 
+**Current continuation #34 candidate — 2026-09-07.** Independent source and
+retained-data checks found that the operational horizon scanner omits the
+frozen root bounds required by Section 12.1 from its initial partition. The
+correction restores their exact shared in-domain union, without changing
+root/enclosure ownership, coordinate physics, classification or error budgets.
+A separate intended-red S regression, bounded source repair, independent
+reviews and actual four-family measurements must establish the outcome.
+The existing D32 source-hash-only transition cannot admit this numerical repair.
+Observation admission remains closed pending a further reviewed relation based
+on measured changed and unchanged quantities.
+
+D34 has exact sole parent `a8a9f53943d7d964f475c376b6ce0dbb9b0157fc` and changes only
+the two design paths. It becomes current S/E/A authority only after ordinary
+dual review and own-header finalization. D30/P/D31/R and all historical pins
+remain unchanged; exact D32, D33 and D34 are the only three source-design
+successors. The bounded numerical grant adds the frame module and its existing
+unit-test file to the previous eleven modified source/test paths; the same
+four disposals remain last. The memo alone specifies these restrictions.
+
+An optional, separately authenticated `verification-workflow` entry may change
+only the compatibility-job timeout from 45 to 120 minutes after D34. It preserves
+all six cells, commands and CI-001 checks; actual exact-S CI success remains
+required. The conditional S aggregate is seventeen paths without that entry
+and eighteen with it. No broader workflow or numerical grant is implied.
+Fresh independent physics/governance and computational/provenance reviewers
+both returned ACCEPT against the identical complete round-2 candidate pins
+recorded in the final D34 header.
+This design candidate accepts no implementation, observation or phase. M3 is
+not accepted, SCI-004 and PERF-001 remain ROADMAP, and closure C stays locked.
+
+The following correction-#33 continuation record is retained historically.
+
 **Current continuation #33 candidate — 2026-09-07.** The complete D32
 transition projections measure 143,135,033 bytes before ordinary evidence and
 reviews, exceeding GitHub's 100 MiB individual-file limit. Correction #33

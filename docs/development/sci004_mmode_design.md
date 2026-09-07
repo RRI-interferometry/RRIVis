@@ -32,6 +32,167 @@ phrasing and should cross-reference Section 13.7's operative-`D`
 definition. This correction's landing commit is the operative `D` of
 Section 13.7.
 
+**Bounded correction #34 candidate — 2026-09-07 (restore the required
+operational-scan partition).** Independent inspection at
+`786413f2aa7bdcfc8f695b07aca48921359bf211` found that
+`scan_operational_horizon` accepts `frozen_root_bounds` but uses it only for
+an outer-length check. Section 12.1 still requires those bounds in the initial
+partition; no intervening correction waived that rule. In each of four
+authenticated retained certificate/phase pairs, all 10,240 frozen-bound
+occurrences (5,133 distinct in-domain values) are absent from the constructed
+4,193-boundary initial set. This exact-rational comparison does not rerun the
+scan or independently prove the retained roots. Its record hashes to
+`c8549b5e84864898459d9ad85c4257c46690d34384df08a713efb8d7c683ac6c`;
+an independent reconstruction hashes to
+`99ebcfbc4902866da5bc09576d597a17d24b9944bce1a73041b7ab7d8d2e7a17`.
+The original source and all observations remain historical evidence. They do
+not establish compliance with the omitted partition requirement.
+
+**Exact successor and finite scope.** D34 is one ordinary, independently
+reviewed, sole-parent design-only commit with parent
+`a8a9f53943d7d964f475c376b6ce0dbb9b0157fc`, changing exactly this memo and
+`PostTier8RemediationPlan.md`. Section 13.7's complete candidate pins, two
+original independent ACCEPT reviews, own-header finalization, and landed raw
+blob/full-diff checks apply. Only the finalized exact landing becomes current
+S/E/A design authority. Preserve D30 as range origin, the exact P range, D31
+as historical R authority, terminal R567, first S and every existing ancestor.
+Complete S contains exact D32, D33 and D34 in that order as its only three
+`source-design-successor` entries, each authenticated against its own original
+parent, two paths, review records, header and bytes. No historical identity or
+review pin is replaced. The three `phase_ranges` keys remain unchanged.
+
+The previous eleven modified source/test paths and four exact disposals remain.
+Add only `src/radiosim/core/mmode/frame.py` and
+`tests/unit/test_core/test_sci004_frame.py` for the following repair and tests.
+Thus the scientific S aggregate is thirteen modified paths plus four disposals.
+History, dependency, evidence and acceptance machinery within the existing
+grant may authenticate exact D34, its current/historical roles, the new finite
+path restrictions and the optional verification entry below. Preserve all
+original R commands, nodes, expected outcomes, inventories, bytes and review
+exceptions. Preserve D31's solver/runtime-field and fixture AST restrictions;
+this correction grants no other solver or characterization computation change.
+
+**Required numerical repair.** Continue taking each direction's frozen bounds
+from its already computed `FrozenHorizonTrajectory.roots`, retaining each root's
+exact `turn_lo` and `turn_hi` and the direction-ledger order. Form the shared
+initial boundary set from the existing uniform grid, horizon endpoints,
+retained sample centers and exposure edges, together with the exact union of
+all supplied frozen bounds inside the closed horizon domain. Sort and
+deduplicate by exact rational equality. A bound coinciding with another bound
+or an existing grid point creates one boundary and one batched initial
+evaluation. Input ordering cannot change that set. Do not modify or deduplicate
+the owned root/enclosure records themselves.
+
+Accept finite list/tuple containers with an outer entry for each direction;
+empty inner containers remain valid for root-free trajectories. Every endpoint
+must have exact type `fractions.Fraction`. Reject other containers and endpoint
+types with `ValueError` before any trajectory evaluation; do not coerce floats,
+integers, booleans, strings or generators. Retain the outer cardinality check.
+Include endpoints satisfying `horizon_lo <= bound <= horizon_hi` only. A frozen
+enclosure near the seam can legitimately extend outside the domain because
+the existing certifier does not clip it. Preserve that enclosure intact while
+excluding its exterior endpoint from the partition: do not wrap, clamp, relift
+or newly reject a legitimate enclosure. Filtering is a partition projection,
+not proof that an arbitrary supplied enclosure has authentic provenance.
+
+Restrict production changes to initial-boundary construction and its input
+validation in `scan_operational_horizon`, with a small local helper if needed.
+The cumulative AST of every other existing frame function and all scientific
+constants must remain exact; inside the scanner, preserve the subsequent
+evaluation, classification, refinement, guard, root, summary and serialization
+logic. Preserve all derivative ceilings, spacing, residual/root-width/guard
+limits, unresolved floors, frame/error budgets, coordinate transforms, IERS
+ownership and numerical operation order. This restores an existing requirement;
+it does not license a different horizon model or a relaxed certificate.
+
+**Regression, source review and measurements.** Land a separately identified S
+regression before the repair. On the original scanner, require the intended
+missing-boundary assertions to fail, with no import/collection substitution.
+Use a recorded synthetic trajectory and exact grid to check distinct non-grid
+bounds across multiple directions, duplicates, coincident grid/horizon bounds,
+input ordering and legitimate exterior endpoints without a full solve.
+The repaired test must prove the exact sorted in-domain union and one initial
+evaluation per distinct boundary. Check malformed containers and endpoints
+before evaluation, and independently verify the caller passes the original
+owned enclosure endpoints unchanged. Preserve these new S regression outcomes
+separately; they are not a fourth historical M3 red record or a new R phase.
+
+Obtain fresh independent physics/numerical and computational/provenance reviews
+of the identical complete repair candidate. Verify the focused frame/scan
+tests on Python 3.11 and 3.12 and all relevant existing public integration tests
+with unchanged budgets. Then run the four actual Section 11 families from a
+clean, exact repaired source, retaining original and new numerical cubes or
+their required reconstructable evidence, complete certificates, scientific
+segments, phase/time/input identities, source and environment provenance.
+Compare exact initial/terminal partitions, root/guard and summary data, error
+preimages, solver/scientific identities and cube bytes. Distinguish measured
+changes from measured equality. An unexpected gate failure stops acceptance
+of this repair while diagnosis continues; no expected-red relabeling is allowed.
+
+**Historical transition and admission boundary.** D32's three-stage source-only
+cascade, including its fixed frame blob, remains exactly its original
+historical relation. The repaired partition changes numerical certificate
+construction and cannot be admitted by adding a hash to that relation or
+substituting an implementation digest. This correction authorizes only the
+bounded repair, validators and measurements above. It admits no observation
+and defines no new numerical transition acceptance relation. After measuring
+the outcomes, a further prospective, independently reviewed finite relation
+must specify the actual changed/unchanged quantities, complete value-bearing
+proofs and per-family admission obligations before any append or new E/A
+publication. Existing D33 lossless storage, decoded scientific checks and size
+bounds remain mandatory; a storage roundtrip cannot confer conformity.
+
+**Optional compatibility execution budget.** The compatibility job currently
+has a 45-minute limit; the retained exact-R567 Linux/Python-3.12 annotation
+records exhaustion of that limit. The retained composed historical replay took
+1,106.68 seconds and the seven public integration tests took 741.40 seconds,
+before the remaining compatibility work. Permit zero or one
+separate sole-parent S commit after finalized D34 and before terminal S that
+changes only `jobs.compatibility.timeout-minutes` in `.github/workflows/ci.yml`
+from literal `45` to literal `120`. This is a finite execution allowance, not a
+runtime prediction, scientific-budget change or CI success claim.
+
+Give that entry the closed role `verification-workflow`; authenticate its
+actual ancestry, original/resulting raw workflow blobs and complete patch.
+Reversing exactly the approved scalar replacement must restore the preceding
+workflow bytes. Permit no other path or byte change, repeated change/reversion,
+duplicate/expression-valued timeout, wrong placement or unknown role. Preserve
+every matrix cell, runner, environment, command, condition, permission, CI-001
+check, artifact and backend/quality timeout. Enumerate the actual workflow
+entry in S; the conditional aggregate has eighteen paths when it is present
+and seventeen otherwise. Do not label it status-only or exclude an unrecorded
+workflow change. Terminal-S CI must run that exact source SHA and complete all
+six cells and the dedicated parity job. Cancellation, more elapsed time or a
+green subset remains insufficient.
+
+Six approval sentinels remain literal `None`; four rejected artifacts remain
+unchanged until the independently verified source logic permits their final
+disposal. Clean exact terminal S, sole-child E and sole-child A remain required.
+M3 is not accepted, SCI-004/PERF-001 remain ROADMAP and closure C stays locked.
+Fresh independent reviews of this exact design candidate are pending.
+
+**Review verification — 2026-09-07.** Fresh independent reviewers
+`/root/e_lifecycle_physics` and `/root/d30_provenance_review` each returned exact
+`ACCEPT` against identical complete round-2 candidate bytes: memo
+`sha256:5bf13a1f4492bec7ff91d5bc26e91b17189b6bf301e18cd5254bf7c5a91eff42`,
+companion plan
+`sha256:a1d364417ec5287f03d475e14c50369030c119be33e75d36119e9542242dc3a6`,
+and complete parent-relative binary/full-index diff
+`sha256:ae704c7256671298755ab33303938c8a6ce5538326189c2a8eb06baae396dc14`.
+Both independently reconstructed the complete candidate against exact sole
+parent `a8a9f53943d7d964f475c376b6ce0dbb9b0157fc`. Their original review-text
+SHA-256 values are respectively
+`7458ded641dad55e19204a8aa544b7f0fe60e28f13d88a833c87f96978858a10` and
+`c27fd0e06218671c68aaecb68ad24bfea37d3d6afd7f32c74b28edc5240c5a0d`.
+The original round-1 physics ACCEPT and provenance REJECT remain retained;
+round 2 corrects only the unsupported timing rationale. Only this verification
+record and the companion verdict completion postdate the reviewed bytes under
+Section 13.7. This landing becomes current S/E/A design authority D34; it
+accepts the finite repair/measurement and optional verification scope only,
+not an implementation, observation or production phase.
+
+The following correction-#33 record is retained historically.
+
 **Bounded correction #33 candidate — 2026-09-07 (lossless inline certificate
 storage).** Assembling D32's complete four-family transition projections produced
 143,135,033 bytes of compact JSON before admission reviews or ordinary evidence
