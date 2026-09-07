@@ -60,7 +60,8 @@ APPROVED_SCI004_D_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 
 #: Separate source-era authorities; the historical R binding above stays D31.
 HISTORICAL_SOURCE_DESIGN_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
-SOURCE_DESIGN_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
+HISTORICAL_D33_SOURCE_DESIGN_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
+SOURCE_DESIGN_SHA = "90ef12e10c869b0928ad0afd51b9f7069729aa26"
 
 #: The globally clean programme tip ``G3`` (Section 13.2). Ancestry is
 #: inclusive, and this tip is the later of the two named dependency commits --
@@ -3025,7 +3026,7 @@ def test_detached_worktree_replay_at_r3_reproduces_the_same_bytes(
 
 
 def authenticate_source_design_bindings() -> str:
-    """Authenticate current D33 and historical D32 without changing R resolution."""
+    """Authenticate current D34 and historical D32/D33 without changing R resolution."""
     root = REPOSITORY_ROOT.resolve(strict=True)
     try:
         history_file: object = vars(phase_history).get("__file__")
@@ -3042,12 +3043,20 @@ def authenticate_source_design_bindings() -> str:
         raise DependencyCertificateError(
             "source design history origin is missing"
         ) from error
-    expected = (HISTORICAL_SOURCE_DESIGN_SHA, SOURCE_DESIGN_SHA)
+    expected = (
+        HISTORICAL_SOURCE_DESIGN_SHA,
+        HISTORICAL_D33_SOURCE_DESIGN_SHA,
+        SOURCE_DESIGN_SHA,
+    )
     if (
         not all(_is_lower_hex(value, width=40) for value in expected)
-        or len(set(expected)) != 2
+        or len(set(expected)) != 3
         or expected
-        != (phase_history.HISTORICAL_SOURCE_DESIGN_SHA, phase_history.SOURCE_DESIGN_SHA)
+        != (
+            phase_history.HISTORICAL_SOURCE_DESIGN_SHA,
+            phase_history.HISTORICAL_D33_SOURCE_DESIGN_SHA,
+            phase_history.SOURCE_DESIGN_SHA,
+        )
     ):
         raise DependencyCertificateError("source design loaded bindings differ")
     for design in expected:
@@ -3060,9 +3069,11 @@ def authenticate_source_design_bindings() -> str:
     # A second-parent-only join cannot supply current source authority.
     head = _peel_to_commit("HEAD")
     ancestry = _git("rev-list", "--first-parent", head).split()
-    if any(design not in ancestry for design in expected) or ancestry.index(
-        SOURCE_DESIGN_SHA
-    ) >= ancestry.index(HISTORICAL_SOURCE_DESIGN_SHA):
+    if any(design not in ancestry for design in expected) or not (
+        ancestry.index(expected[0])
+        > ancestry.index(expected[1])
+        > ancestry.index(expected[2])
+    ):
         raise DependencyCertificateError(
             "source designs are not ordered on HEAD first-parent history"
         )
@@ -3073,7 +3084,11 @@ def authenticate_source_design_bindings() -> str:
     "name,expected",
     [
         ("HISTORICAL_SOURCE_DESIGN_SHA", "bcd79b1d6268859368d77c3f94cef334b001cb37"),
-        ("SOURCE_DESIGN_SHA", "343ea0467420d452e9d728f0475167e74721e22f"),
+        (
+            "HISTORICAL_D33_SOURCE_DESIGN_SHA",
+            "343ea0467420d452e9d728f0475167e74721e22f",
+        ),
+        ("SOURCE_DESIGN_SHA", "90ef12e10c869b0928ad0afd51b9f7069729aa26"),
     ],
 )
 def test_source_design_binding_is_one_exact_literal(name: str, expected: str) -> None:
@@ -3118,6 +3133,11 @@ def source_design_objects(
         "HISTORICAL_SOURCE_DESIGN_SHA",
         phase_history.HISTORICAL_SOURCE_DESIGN_SHA,
     )
+    monkeypatch.setattr(
+        module,
+        "HISTORICAL_D33_SOURCE_DESIGN_SHA",
+        phase_history.HISTORICAL_D33_SOURCE_DESIGN_SHA,
+    )
     monkeypatch.setattr(module, "SOURCE_DESIGN_SHA", phase_history.SOURCE_DESIGN_SHA)
     # Origin is an explicit synthetic marker; all ancestry and bytes are Git objects.
     marker = root / "tools/sci004_phase3_history.py"
@@ -3134,6 +3154,8 @@ def source_design_objects(
     [
         None,
         "current_is_historical",
+        "stale_d33",
+        "d33_is_d32",
         "historical_is_current",
         "history_current",
         "joint_swap",
@@ -3153,6 +3175,14 @@ def test_source_design_bindings_reject_false_roles_and_authentication(
     module = sys.modules[__name__]
     if mutation == "current_is_historical":
         monkeypatch.setattr(module, "SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_DESIGN_SHA)
+    elif mutation == "stale_d33":
+        monkeypatch.setattr(
+            module, "SOURCE_DESIGN_SHA", HISTORICAL_D33_SOURCE_DESIGN_SHA
+        )
+    elif mutation == "d33_is_d32":
+        monkeypatch.setattr(
+            module, "HISTORICAL_D33_SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_DESIGN_SHA
+        )
     elif mutation == "historical_is_current":
         monkeypatch.setattr(module, "HISTORICAL_SOURCE_DESIGN_SHA", SOURCE_DESIGN_SHA)
     elif mutation == "history_current":
@@ -3169,13 +3199,13 @@ def test_source_design_bindings_reject_false_roles_and_authentication(
     elif mutation == "missing_origin":
         monkeypatch.setattr(phase_history, "__file__", str(root / "absent.py"))
     elif mutation in {"bad_blob", "bad_patch"}:
-        first, second = phase_history.SOURCE_DESIGN_EDGES
+        first, second, third = phase_history.SOURCE_DESIGN_EDGES
         bad = (
             replace(first, blobs=("0" * 64, first.blobs[1]))
             if mutation == "bad_blob"
             else replace(first, patch="0" * 64)
         )
-        monkeypatch.setattr(phase_history, "SOURCE_DESIGN_EDGES", (bad, second))
+        monkeypatch.setattr(phase_history, "SOURCE_DESIGN_EDGES", (bad, second, third))
     if mutation is None:
         assert authenticate_source_design_bindings() == SOURCE_DESIGN_SHA
     else:
@@ -3184,7 +3214,7 @@ def test_source_design_bindings_reject_false_roles_and_authentication(
 
 
 @pytest.mark.parametrize(
-    "attack", ["before_d33", "second_parent", "replacement", "graft"]
+    "attack", ["before_d33", "before_d34", "second_parent", "replacement", "graft"]
 )
 def test_source_design_bindings_require_original_first_parent_ancestry(
     source_design_objects: PhaseObjects,
@@ -3193,6 +3223,8 @@ def test_source_design_bindings_require_original_first_parent_ancestry(
     root, commit, base, _, _, _, _, terminal = source_design_objects
     if attack == "before_d33":
         bad = HISTORICAL_SOURCE_DESIGN_SHA
+    elif attack == "before_d34":
+        bad = HISTORICAL_D33_SOURCE_DESIGN_SHA
     else:
         bad = commit(
             base,

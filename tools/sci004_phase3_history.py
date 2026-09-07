@@ -23,7 +23,8 @@ OPERATIVE_DESIGN_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 # Historical R authority remains D31; source authority has separate exact edges.
 RED_DESIGN_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 HISTORICAL_SOURCE_DESIGN_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
-SOURCE_DESIGN_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
+HISTORICAL_D33_SOURCE_DESIGN_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
+SOURCE_DESIGN_SHA = "90ef12e10c869b0928ad0afd51b9f7069729aa26"
 DESIGN_SUCCESSOR_PARENT = "87b16ba16c8a4ab4ff8b9e6bf213c5ce45a41bfe"
 DESIGN_SUCCESSOR_BLOBS = (
     "4f5e61dfc03a983d0806c656e8785c656f84bc17f2c52e1fa1151639dcd16f33",
@@ -342,10 +343,15 @@ RED_PATHS = frozenset(
         "tests/unit/test_sci004_phase3_history.py",
     }
 )
+FRAME_PATH = "src/radiosim/core/mmode/frame.py"
+FRAME_TEST_PATH = "tests/unit/test_core/test_sci004_frame.py"
+WORKFLOW_PATH = ".github/workflows/ci.yml"
 SOURCE_PATHS = frozenset(
     {
         SOLVER_PATH,
         SNAPSHOT_FIXTURE_PATH,
+        FRAME_PATH,
+        FRAME_TEST_PATH,
         "src/radiosim/core/result.py",
         "tools/sci004_mmode_phase3_evidence.py",
         "tests/unit/test_sci004_phase3_evidence.py",
@@ -468,6 +474,25 @@ class SourceDesignEdge:
     reviewers: tuple[str, str]  # Exact original physics and provenance identities.
 
 
+D34_DESIGN_EDGE = SourceDesignEdge(
+    SOURCE_DESIGN_SHA,
+    "a8a9f53943d7d964f475c376b6ce0dbb9b0157fc",
+    34,
+    2,
+    (
+        "777b6f4513a5e060d8c9fc163290701101519a2cb1dc2c986268013059670d8e",
+        "36ebfbf38cf57bc5a82afb27bc5a588e40766be5162e386a7c1b8908b9e6e88d",
+    ),
+    "2f8af073ac8510b95b1e24d6a2abd87ed4a743a4835f23bde787b08103ce6b96",
+    (
+        "5bf13a1f4492bec7ff91d5bc26e91b17189b6bf301e18cd5254bf7c5a91eff42",
+        "a1d364417ec5287f03d475e14c50369030c119be33e75d36119e9542242dc3a6",
+        "ae704c7256671298755ab33303938c8a6ce5538326189c2a8eb06baae396dc14",
+    ),
+    ("/root/e_lifecycle_physics", "/root/d30_provenance_review"),
+)
+
+
 SOURCE_DESIGN_EDGES = (
     SourceDesignEdge(
         HISTORICAL_SOURCE_DESIGN_SHA,
@@ -487,7 +512,7 @@ SOURCE_DESIGN_EDGES = (
         ("/root/d30_physics_review", "/root/d30_provenance_review"),
     ),
     SourceDesignEdge(
-        SOURCE_DESIGN_SHA,
+        HISTORICAL_D33_SOURCE_DESIGN_SHA,
         "3b317218fa8239a230e208600f3bcb4bfc2af4b8",
         33,
         2,
@@ -503,26 +528,7 @@ SOURCE_DESIGN_EDGES = (
         ),
         ("/root/d30_physics_review", "/root/d30_provenance_review"),
     ),
-)
-
-# D34 is independently authenticatable here; active range bindings remain D33
-# until the separate range/grant and dependency/evidence integration lands.
-D34_DESIGN_EDGE = SourceDesignEdge(
-    "90ef12e10c869b0928ad0afd51b9f7069729aa26",
-    "a8a9f53943d7d964f475c376b6ce0dbb9b0157fc",
-    34,
-    2,
-    (
-        "777b6f4513a5e060d8c9fc163290701101519a2cb1dc2c986268013059670d8e",
-        "36ebfbf38cf57bc5a82afb27bc5a588e40766be5162e386a7c1b8908b9e6e88d",
-    ),
-    "2f8af073ac8510b95b1e24d6a2abd87ed4a743a4835f23bde787b08103ce6b96",
-    (
-        "5bf13a1f4492bec7ff91d5bc26e91b17189b6bf301e18cd5254bf7c5a91eff42",
-        "a1d364417ec5287f03d475e14c50369030c119be33e75d36119e9542242dc3a6",
-        "ae704c7256671298755ab33303938c8a6ce5538326189c2a8eb06baae396dc14",
-    ),
-    ("/root/e_lifecycle_physics", "/root/d30_provenance_review"),
+    D34_DESIGN_EDGE,
 )
 
 
@@ -539,11 +545,7 @@ def authenticate_source_design_successor(
     commit_sha: str, root: Path = REPOSITORY_ROOT
 ) -> None:
     """Authenticate a finalized D32/D33/D34 edge, without changing active ranges."""
-    matches = [
-        edge
-        for edge in (*SOURCE_DESIGN_EDGES, D34_DESIGN_EDGE)
-        if edge.sha == commit_sha
-    ]
+    matches = [edge for edge in SOURCE_DESIGN_EDGES if edge.sha == commit_sha]
     _require(len(matches) == 1, "unknown source design successor")
     edge = matches[0]
     _ = _exact_commit(root, commit_sha)
@@ -626,17 +628,21 @@ def require_design_successor(records: list[dict[str, Any]]) -> None:
 
 
 def require_source_design_successors(records: list[dict[str, Any]]) -> None:
-    """Require both authenticated S design edges, once each in D32/D33 order."""
-    expected = [HISTORICAL_SOURCE_DESIGN_SHA, SOURCE_DESIGN_SHA]
+    """Require the three authenticated S design edges once in D32/D33/D34 order."""
+    expected = [
+        HISTORICAL_SOURCE_DESIGN_SHA,
+        HISTORICAL_D33_SOURCE_DESIGN_SHA,
+        SOURCE_DESIGN_SHA,
+    ]
     _require(
-        len(set(expected)) == 2
+        len(set(expected)) == 3
         and [edge.sha for edge in SOURCE_DESIGN_EDGES] == expected,
         "source design authority bindings",
     )
     _require(
         [row["sha"] for row in records if row["role"] == "source-design-successor"]
         == expected,
-        "complete source requires exact D32 then D33 once",
+        "complete source requires exact D32 then D33 then D34 once",
     )
 
 
@@ -719,6 +725,30 @@ def _validate_bridge_delta(
     _require(before == after, "source bridge changes the preceding AST")
 
 
+def _require_d34_parent(root: Path, parent: str) -> None:
+    authenticate_source_design_successor(SOURCE_DESIGN_SHA, root)
+    _require(
+        SOURCE_DESIGN_SHA
+        in _git(root, "rev-list", "--first-parent", parent).decode().split(),
+        "D34 must precede its granted source changes on first-parent history",
+    )
+
+
+def _validate_frame_delta(
+    root: Path, parent: str, commit: str, *, cumulative: bool = False
+) -> None:
+    baseline = _git(root, "show", f"{SOURCE_DESIGN_SHA}:{FRAME_PATH}")
+    before = frame_partition_ast(
+        _git(root, "show", f"{parent}:{FRAME_PATH}"),
+        baseline,
+        False if cumulative else None,
+    )
+    after = frame_partition_ast(
+        _git(root, "show", f"{commit}:{FRAME_PATH}"), baseline, True
+    )
+    _require(before == after, "frame partition cumulative AST")
+
+
 def _phase_role(
     root: Path, phase: str, commit: str, parent: str, delta: dict[str, str]
 ) -> str:
@@ -741,7 +771,7 @@ def _phase_role(
         )
         return "red"
     _require(phase == "source", "unknown phase role")
-    if commit in {HISTORICAL_SOURCE_DESIGN_SHA, SOURCE_DESIGN_SHA}:
+    if commit in {edge.sha for edge in SOURCE_DESIGN_EDGES}:
         authenticate_source_design_successor(commit, root)
         return "source-design-successor"
     if paths <= DISPOSAL_PINS.keys():
@@ -752,12 +782,32 @@ def _phase_role(
                 "disposal predecessor bytes are not the rejected artifact",
             )
         return "disposal"
+    if paths == {WORKFLOW_PATH}:
+        _require(set(delta.values()) == {"M"}, "verification workflow modification")
+        _require_d34_parent(root, parent)
+        for revision in (SOURCE_DESIGN_SHA, parent, commit):
+            metadata = (
+                _git(root, "ls-tree", revision, "--", WORKFLOW_PATH).decode().split()
+            )
+            _require(
+                len(metadata) == 4 and metadata[:2] == ["100644", "blob"],
+                "verification workflow must retain the original 100644 blob mode",
+            )
+        validate_verification_workflow_bytes(
+            _git(root, "show", f"{parent}:{WORKFLOW_PATH}"),
+            _git(root, "show", f"{commit}:{WORKFLOW_PATH}"),
+        )
+        return "verification-workflow"
     _require(
         paths <= SOURCE_PATHS and set(delta.values()) == {"M"},
         "source role path/change-kind boundary",
     )
     for path in paths & {SOLVER_PATH, SNAPSHOT_FIXTURE_PATH}:
         _validate_bridge_delta(root, parent, commit, path)
+    if paths & {FRAME_PATH, FRAME_TEST_PATH}:
+        _require_d34_parent(root, parent)
+    if FRAME_PATH in paths:
+        _validate_frame_delta(root, parent, commit)
     return "source"
 
 
@@ -800,6 +850,25 @@ def describe_phase_range(
     previous = base
     records: list[dict[str, Any]] = []
     aggregate: set[str] = set()
+    regression_seen = False
+    if (
+        phase == "source"
+        and base != SOURCE_DESIGN_SHA
+        and SOURCE_DESIGN_SHA
+        in _git(root, "rev-list", "--first-parent", base).decode().split()
+    ):
+        # A suffix may start after the regression. Authenticate that prefix once,
+        # including sole parents, source roles and regular blobs. Recursion stops
+        # at the D34 base; a filename alone never establishes this prerequisite.
+        prefix = describe_phase_range(
+            SOURCE_DESIGN_SHA, base, "source", root=root, require_complete=False
+        )
+        regression_seen = any(
+            row["role"] == "source"
+            and FRAME_TEST_PATH in row["paths"]
+            and FRAME_PATH not in row["paths"]
+            for row in prefix["commits"]
+        )
     for commit in shas:
         parents = (
             _git(root, "rev-list", "--parents", "-n", "1", commit).decode().split()
@@ -818,6 +887,14 @@ def describe_phase_range(
                     and metadata[1] == "blob",
                     "phase files must be regular blobs",
                 )
+        if role == "source":
+            if FRAME_PATH in delta:
+                _require(
+                    regression_seen,
+                    "frame repair requires a separate prior post-D34 regression entry",
+                )
+            if FRAME_TEST_PATH in delta and FRAME_PATH not in delta:
+                regression_seen = True
         records.append(
             {
                 "sha": commit,
@@ -834,6 +911,8 @@ def describe_phase_range(
         if role not in {"status", "design-successor", "source-design-successor"}:
             aggregate.update(delta)
         previous = commit
+    workflows = [row for row in records if row["role"] == "verification-workflow"]
+    _require(len(workflows) <= 1, "verification workflow occurs at most once")
     if require_complete:
         if phase == "prerequisite":
             _require(
@@ -847,8 +926,17 @@ def describe_phase_range(
                 require_source_design_successors(records)
                 for path in (SOLVER_PATH, SNAPSHOT_FIXTURE_PATH):
                     _validate_bridge_delta(root, base, terminal, path, cumulative=True)
+                _validate_frame_delta(root, base, terminal, cumulative=True)
+                _require(
+                    not workflows or workflows[0]["sha"] != terminal,
+                    "verification workflow must precede complete source terminal",
+                )
             expected = (
-                RED_PATHS if phase == "red" else SOURCE_PATHS | DISPOSAL_PINS.keys()
+                RED_PATHS
+                if phase == "red"
+                else SOURCE_PATHS
+                | DISPOSAL_PINS.keys()
+                | ({WORKFLOW_PATH} if workflows else set[str]())
             )
             _require(
                 bool(shas) and frozenset(aggregate) == frozenset(expected),
@@ -872,7 +960,7 @@ def validate_phase_ranges(
     )
     _require(
         design_sha == SOURCE_DESIGN_SHA,
-        "phase_ranges operative design must be current D33",
+        "phase_ranges operative design must be current D34",
     )
     endpoints = (
         (DESIGN_SHA, PREREQUISITE_TIP_SHA),

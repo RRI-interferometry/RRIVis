@@ -316,6 +316,9 @@ def phase_objects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PhaseObjec
     initial = dict.fromkeys(history.SOURCE_PATHS, b"# before\n")
     initial[history.SOLVER_PATH] = SOLVER_BEFORE
     initial[history.SNAPSHOT_FIXTURE_PATH] = FIXTURE_BEFORE
+    frame, workflow = _d34_original_blobs()
+    initial[history.FRAME_PATH] = frame
+    initial[history.WORKFLOW_PATH] = workflow
     initial.update(dict.fromkeys(history.DESIGN_PATHS, b"old design\n"))
     initial.update(dict.fromkeys(history.DISPOSAL_PINS, b"rejected\n"))
     initial[history.STATUS_PATH] = b"initial status\n"
@@ -362,6 +365,7 @@ def phase_objects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PhaseObjec
         {
             history.SOLVER_PATH: SOLVER_AFTER,
             history.SNAPSHOT_FIXTURE_PATH: FIXTURE_AFTER,
+            history.FRAME_PATH: _d34_repaired_frame(frame),
         }
     )
     source_designs: list[history.SourceDesignEdge] = []
@@ -374,8 +378,14 @@ def phase_objects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PhaseObjec
         parent = created.sha
     monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", tuple(source_designs))
     monkeypatch.setattr(history, "HISTORICAL_SOURCE_DESIGN_SHA", source_designs[0].sha)
-    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[1].sha)
-    source = commit(parent, edits)
+    monkeypatch.setattr(
+        history, "HISTORICAL_D33_SOURCE_DESIGN_SHA", source_designs[1].sha
+    )
+    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[2].sha)
+    regression = commit(
+        parent, {history.FRAME_TEST_PATH: edits.pop(history.FRAME_TEST_PATH)}
+    )
+    source = commit(regression, edits)
     terminal = commit(source, dict.fromkeys(history.DISPOSAL_PINS))
     return (
         root,
@@ -423,6 +433,8 @@ def test_complete_ranges_join_git_objects_and_keep_status_and_disposal(phase_obj
     assert [row["role"] for row in document["source"]["commits"]] == [
         "source-design-successor",
         "source-design-successor",
+        "source-design-successor",
+        "source",
         "source",
         "disposal",
     ]
@@ -979,20 +991,16 @@ def test_complete_history_refuses_configured_default_diff_driver(
         _validate_document(expected, phase_objects)
 
 
-@pytest.mark.parametrize(
-    "edge", (*history.SOURCE_DESIGN_EDGES, history.D34_DESIGN_EDGE)
-)
+@pytest.mark.parametrize("edge", history.SOURCE_DESIGN_EDGES)
 def test_live_source_design_edges_authenticate(edge: history.SourceDesignEdge) -> None:
     history.authenticate_source_design_successor(edge.sha)
     assert history.RED_DESIGN_SHA == history.OPERATIVE_DESIGN_SHA
     assert tuple(item.sha for item in history.SOURCE_DESIGN_EDGES) == (
         history.HISTORICAL_SOURCE_DESIGN_SHA,
+        history.HISTORICAL_D33_SOURCE_DESIGN_SHA,
         history.SOURCE_DESIGN_SHA,
     )
-    assert history.SOURCE_DESIGN_SHA == "343ea0467420d452e9d728f0475167e74721e22f"
-    assert history.D34_DESIGN_EDGE.sha not in {
-        item.sha for item in history.SOURCE_DESIGN_EDGES
-    }
+    assert history.SOURCE_DESIGN_SHA == history.D34_DESIGN_EDGE.sha
     assert edge.reviewers == (
         "/root/e_lifecycle_physics"
         if edge.correction == 34
@@ -1007,9 +1015,7 @@ def test_source_design_authentication_rejects_other_identities(sha: str) -> None
         history.authenticate_source_design_successor(sha)
 
 
-@pytest.mark.parametrize(
-    "edge", (*history.SOURCE_DESIGN_EDGES, history.D34_DESIGN_EDGE)
-)
+@pytest.mark.parametrize("edge", history.SOURCE_DESIGN_EDGES)
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1150,8 +1156,21 @@ def test_source_design_real_objects_require_own_review(
             history.authenticate_source_design_successor(forged, root)
 
 
-@pytest.mark.parametrize("order", [(), (32,), (33,), (33, 32), (32, 33)])
-def test_complete_source_requires_both_designs_in_order(
+@pytest.mark.parametrize(
+    "order",
+    [
+        (),
+        (32,),
+        (33,),
+        (34,),
+        (33, 32),
+        (32, 33),
+        (32, 34, 33),
+        (34, 33, 32),
+        (32, 33, 34),
+    ],
+)
+def test_complete_source_requires_three_designs_in_order(
     phase_objects: PhaseObjects,
     monkeypatch: pytest.MonkeyPatch,
     order: tuple[int, ...],
@@ -1165,14 +1184,22 @@ def test_complete_source_requires_both_designs_in_order(
         edges[correction] = edge
         parent = edge.sha
     # Keep absent identities pinned too; their objects cannot be invented in S.
-    expected = tuple(edges.get(number, prototypes[number]) for number in (32, 33))
+    expected = tuple(edges.get(number, prototypes[number]) for number in (32, 33, 34))
     monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", expected)
     monkeypatch.setattr(history, "HISTORICAL_SOURCE_DESIGN_SHA", expected[0].sha)
-    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", expected[1].sha)
+    monkeypatch.setattr(history, "HISTORICAL_D33_SOURCE_DESIGN_SHA", expected[1].sha)
+    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", expected[2].sha)
     edits = {
         path: history_git(root, "show", f"{source}:{path}")
         for path in history.SOURCE_PATHS
     }
+    if 34 not in order:
+        _ = edits.pop(history.FRAME_PATH)
+        _ = edits.pop(history.FRAME_TEST_PATH)
+    if 34 in order:
+        parent = commit(
+            parent, {history.FRAME_TEST_PATH: edits.pop(history.FRAME_TEST_PATH)}
+        )
     tip = commit(commit(parent, edits), dict.fromkeys(history.DISPOSAL_PINS))
     partial = history.describe_phase_range(
         red, tip, "source", root=root, require_complete=False
@@ -1182,19 +1209,23 @@ def test_complete_source_requires_both_designs_in_order(
         for row in partial["commits"]
         if row["role"] == "source-design-successor"
     ] == [edges[number].sha for number in order]
-    if order == (32, 33):
+    if order == (32, 33, 34):
         assert history.describe_phase_range(red, tip, "source", root=root) == partial
     else:
-        with pytest.raises(history.HistoryError, match="exact D32 then D33 once"):
+        with pytest.raises(
+            history.HistoryError, match="exact D32 then D33 then D34 once"
+        ):
             _ = history.describe_phase_range(red, tip, "source", root=root)
 
 
-def test_complete_source_inventory_is_exactly_eleven_modifications_and_four_disposals(
+def test_complete_source_inventory_is_exactly_thirteen_modifications_and_four_disposals(
     phase_objects: PhaseObjects,
 ) -> None:
     expected = {
         history.SOLVER_PATH,
         history.SNAPSHOT_FIXTURE_PATH,
+        history.FRAME_PATH,
+        history.FRAME_TEST_PATH,
         "src/radiosim/core/result.py",
         "tools/sci004_mmode_phase3_evidence.py",
         "tests/unit/test_sci004_phase3_evidence.py",
@@ -1206,7 +1237,7 @@ def test_complete_source_inventory_is_exactly_eleven_modifications_and_four_disp
         "tests/unit/test_sci004_phase3_red_failures.py",
     }
     assert history.SOURCE_PATHS == expected
-    assert len(expected) == 11 and len(history.DISPOSAL_PINS) == 4
+    assert len(expected) == 13 and len(history.DISPOSAL_PINS) == 4
     document = _phase_document(phase_objects)
     _validate_document(document, phase_objects)
     aggregate = {
@@ -1231,6 +1262,10 @@ def test_complete_source_refuses_each_missing_modified_path(
         for path in history.SOURCE_PATHS
         if path != missing
     }
+    if history.FRAME_TEST_PATH in edits:
+        last_design = commit(
+            last_design, {history.FRAME_TEST_PATH: edits.pop(history.FRAME_TEST_PATH)}
+        )
     tip = commit(commit(last_design, edits), dict.fromkeys(history.DISPOSAL_PINS))
     with pytest.raises(history.HistoryError):
         _ = history.describe_phase_range(red, tip, "source", root=root)
@@ -1250,9 +1285,11 @@ def test_source_design_role_authenticates_before_excluding_paths(
         with pytest.raises(history.HistoryError, match="source role"):
             _ = history.describe_phase_range(red, tip, "source", root=root)
     elif mutation == "bad_pin":
-        first, second = history.SOURCE_DESIGN_EDGES
+        first, second, third = history.SOURCE_DESIGN_EDGES
         monkeypatch.setattr(
-            history, "SOURCE_DESIGN_EDGES", (replace(first, patch="0" * 64), second)
+            history,
+            "SOURCE_DESIGN_EDGES",
+            (replace(first, patch="0" * 64), second, third),
         )
         with pytest.raises(history.HistoryError, match="source design complete diff"):
             _ = history.describe_phase_range(red, terminal, "source", root=root)
@@ -1281,7 +1318,7 @@ def test_source_document_cannot_rebind_or_disguise_design_entries(
             history.OPERATIVE_DESIGN_SHA,
             history.HISTORICAL_SOURCE_DESIGN_SHA,
         ):
-            with pytest.raises(history.HistoryError, match="current D33"):
+            with pytest.raises(history.HistoryError, match="current D34"):
                 history.validate_phase_ranges(
                     document,
                     design_sha=design,
@@ -1294,33 +1331,20 @@ def test_source_document_cannot_rebind_or_disguise_design_entries(
         _validate_document(document, phase_objects)
 
 
-def test_live_pre_d34_prefix_preserves_early_s_and_designs() -> None:
+def test_live_partial_source_preserves_early_s_and_authenticates_current_designs() -> (
+    None
+):
     red = "567f9ac68730044fc8e887930d3531d794534412"
     first = "72a0a5c5ebd203b63e091342f3655ebf808bac4b"
     early = history.describe_phase_range(red, first, "source", require_complete=False)
     assert [row["role"] for row in early["commits"]] == ["source"]
-    # Additive edge authentication leaves the range at D33. The coordinated D34
-    # activation must restore the live-HEAD positive and require all three edges.
-    historical = history.describe_phase_range(
-        red, history.D34_DESIGN_EDGE.parent, "source", require_complete=False
-    )
-    history.require_source_design_successors(historical["commits"])
+    head = history_git(history.REPOSITORY_ROOT, "rev-parse", "HEAD").decode().strip()
+    current = history.describe_phase_range(red, head, "source", require_complete=False)
+    history.require_source_design_successors(current["commits"])
     assert history.OPERATIVE_DESIGN_SHA == history.RED_DESIGN_SHA
 
 
-def test_d34_edge_authentication_does_not_activate_its_source_range() -> None:
-    history.authenticate_source_design_successor(history.D34_DESIGN_EDGE.sha)
-    with pytest.raises(history.HistoryError, match="source role path/change-kind"):
-        _ = history.describe_phase_range(
-            "567f9ac68730044fc8e887930d3531d794534412",
-            history.D34_DESIGN_EDGE.sha,
-            "source",
-            require_complete=False,
-        )
-
-
-@pytest.fixture(scope="module")
-def d34_guard_blobs() -> tuple[bytes, bytes]:
+def _d34_original_blobs() -> tuple[bytes, bytes]:
     """Read original Git objects; never import or execute the frame module."""
     frame = history_git(
         history.REPOSITORY_ROOT,
@@ -1333,6 +1357,11 @@ def d34_guard_blobs() -> tuple[bytes, bytes]:
         "90ef12e10c869b0928ad0afd51b9f7069729aa26:.github/workflows/ci.yml",
     )
     return frame, workflow
+
+
+@pytest.fixture(scope="module")
+def d34_guard_blobs() -> tuple[bytes, bytes]:
+    return _d34_original_blobs()
 
 
 def _d34_repaired_frame(original: bytes) -> bytes:
@@ -1542,3 +1571,195 @@ def test_d34_frame_partition_preserves_existing_constant_and_other_function(
     assert old in repaired
     with pytest.raises(history.HistoryError, match="unapproved AST"):
         _ = history.frame_partition_ast(repaired.replace(old, new, 1), original, None)
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_d34_complete_source_records_optional_workflow(
+    phase_objects: PhaseObjects, present: bool
+) -> None:
+    root, commit, _, _, _, red, source, terminal = phase_objects
+    if present:
+        before = history_git(root, "show", f"{source}:{history.WORKFLOW_PATH}")
+        workflow = commit(
+            source,
+            {
+                history.WORKFLOW_PATH: before.replace(
+                    b"timeout-minutes: 45", b"timeout-minutes: 120", 1
+                )
+            },
+        )
+        partial = history.describe_phase_range(
+            red, workflow, "source", root=root, require_complete=False
+        )
+        assert partial["commits"][-1]["role"] == "verification-workflow"
+        terminal = commit(workflow, dict.fromkeys(history.DISPOSAL_PINS))
+    described = history.describe_phase_range(red, terminal, "source", root=root)
+    workflows = [
+        row for row in described["commits"] if row["role"] == "verification-workflow"
+    ]
+    assert len(workflows) == int(present)
+    aggregate = {
+        path
+        for row in described["commits"]
+        if row["role"] not in {"source-design-successor", "status"}
+        for path in row["paths"]
+    }
+    assert len(aggregate) == 17 + int(present)
+    assert history.WORKFLOW_PATH not in history.SOURCE_PATHS
+
+
+@pytest.mark.parametrize(
+    "path", [history.FRAME_PATH, history.FRAME_TEST_PATH, history.WORKFLOW_PATH]
+)
+def test_d34_new_path_grants_require_prior_design(
+    phase_objects: PhaseObjects, path: str
+) -> None:
+    root, commit, _, _, _, red, source, _ = phase_objects
+    raw = history_git(root, "show", f"{source}:{path}")
+    if path == history.WORKFLOW_PATH:
+        raw = raw.replace(b"timeout-minutes: 45", b"timeout-minutes: 120", 1)
+    before_design = history.HISTORICAL_D33_SOURCE_DESIGN_SHA
+    tip = commit(before_design, {path: raw})
+    with pytest.raises(history.HistoryError, match="D34 must precede"):
+        _ = history.describe_phase_range(
+            red, tip, "source", root=root, require_complete=False
+        )
+
+
+@pytest.mark.parametrize("revert", [False, True])
+def test_d34_range_rejects_intermediate_forbidden_frame_ast(
+    phase_objects: PhaseObjects, revert: bool
+) -> None:
+    root, commit, _, _, _, red, source, _ = phase_objects
+    original = history_git(root, "show", f"{source}:{history.FRAME_PATH}")
+    forbidden = original.replace(
+        b"SCAN_ROOT_RESIDUAL: Final[float] = 5e-12",
+        b"SCAN_ROOT_RESIDUAL: Final[float] = 6e-12",
+    )
+    assert forbidden != original
+    tip = commit(source, {history.FRAME_PATH: forbidden})
+    if revert:
+        tip = commit(tip, {history.FRAME_PATH: original})
+    with pytest.raises(history.HistoryError, match="unapproved AST"):
+        _ = history.describe_phase_range(
+            red, tip, "source", root=root, require_complete=False
+        )
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "wrong_value",
+        "extra_path",
+        "symlink",
+        "executable",
+        "merge",
+        "revert",
+        "terminal",
+        "disguised",
+    ],
+)
+def test_d34_workflow_range_rejects_invalid_entries(
+    phase_objects: PhaseObjects, attack: str
+) -> None:
+    root, commit, base, _, _, red, source, terminal = phase_objects
+    parent = terminal if attack == "terminal" else source
+    before = history_git(root, "show", f"{parent}:{history.WORKFLOW_PATH}")
+    after = before.replace(b"timeout-minutes: 45", b"timeout-minutes: 120", 1)
+    if attack == "wrong_value":
+        after = after.replace(b"timeout-minutes: 120", b"timeout-minutes: 119", 1)
+    edits = {history.WORKFLOW_PATH: after}
+    if attack == "extra_path":
+        edits[history.STATUS_PATH] = b"extra status\n"
+    tip = commit(
+        parent,
+        edits,
+        mode={"symlink": "120000", "executable": "100755"}.get(attack, "100644"),
+        extra_parent=base if attack == "merge" else None,
+    )
+    if attack == "revert":
+        tip = commit(tip, {history.WORKFLOW_PATH: before})
+    if attack == "disguised":
+        end = commit(tip, dict.fromkeys(history.DISPOSAL_PINS))
+        objects = (*phase_objects[:-1], end)
+        document = _phase_document(objects)
+        entry = next(
+            row
+            for row in document["source"]["commits"]
+            if row["role"] == "verification-workflow"
+        )
+        entry["role"] = "status"
+        with pytest.raises(history.HistoryError):
+            _validate_document(document, objects)
+    else:
+        with pytest.raises(history.HistoryError):
+            _ = history.describe_phase_range(
+                red, tip, "source", root=root, require_complete=attack == "terminal"
+            )
+
+
+@pytest.mark.parametrize(
+    "placement", ["absent", "same_commit", "separate", "before_design"]
+)
+def test_d34_frame_repair_requires_separate_regression(
+    phase_objects: PhaseObjects, placement: str
+) -> None:
+    root, commit, _, _, _, red, source, _ = phase_objects
+    parent = history.SOURCE_DESIGN_SHA
+    frame = history_git(root, "show", f"{source}:{history.FRAME_PATH}")
+    edits = {history.FRAME_PATH: frame}
+    if placement == "same_commit":
+        edits[history.FRAME_TEST_PATH] = b"# regression\n"
+    elif placement == "separate":
+        parent = commit(parent, {history.FRAME_TEST_PATH: b"# regression\n"})
+    elif placement == "before_design":
+        before = commit(
+            history.HISTORICAL_D33_SOURCE_DESIGN_SHA,
+            {history.FRAME_TEST_PATH: b"# regression\n"},
+        )
+        with pytest.raises(history.HistoryError, match="D34 must precede"):
+            _ = history.describe_phase_range(
+                red, before, "source", root=root, require_complete=False
+            )
+        return
+    tip = commit(parent, edits)
+    if placement == "separate":
+        # The full range and a supported suffix authenticate the predecessor.
+        for base in (red, parent):
+            result = history.describe_phase_range(
+                base, tip, "source", root=root, require_complete=False
+            )
+            assert result["commits"][-1]["sha"] == tip
+    else:
+        with pytest.raises(history.HistoryError, match="separate prior post-D34"):
+            _ = history.describe_phase_range(
+                red, tip, "source", root=root, require_complete=False
+            )
+
+
+@pytest.mark.parametrize("attack", ["symlink", "merge", "non_source"])
+def test_d34_seeded_regression_authenticates_its_source_prefix(
+    phase_objects: PhaseObjects, attack: str
+) -> None:
+    root, commit, base, _, _, _, source, _ = phase_objects
+    edits = {history.FRAME_TEST_PATH: b"# regression\n"}
+    if attack == "non_source":
+        edits["ungranted.txt"] = b"ungranted\n"
+    predecessor = commit(
+        history.SOURCE_DESIGN_SHA,
+        edits,
+        mode="120000" if attack == "symlink" else "100644",
+        extra_parent=base if attack == "merge" else None,
+    )
+    tip = commit(
+        predecessor,
+        {
+            history.FRAME_PATH: history_git(
+                root, "show", f"{source}:{history.FRAME_PATH}"
+            )
+        },
+    )
+    with pytest.raises(history.HistoryError):
+        _ = history.describe_phase_range(
+            predecessor, tip, "source", root=root, require_complete=False
+        )

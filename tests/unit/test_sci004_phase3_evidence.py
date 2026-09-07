@@ -122,7 +122,8 @@ FINGERPRINT_DESIGN_SHA = "ca3c37171aaaeec175b5ad72d324957762303853"
 ORIGINAL_FINGERPRINT_R3_SHA = "a65c53a46e84f63c163c5ad15fba8645df33d1d2"
 CURRENT_D31_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 HISTORICAL_SOURCE_D32_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
-CURRENT_SOURCE_D33_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
+HISTORICAL_SOURCE_D33_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
+CURRENT_SOURCE_D34_SHA = "90ef12e10c869b0928ad0afd51b9f7069729aa26"
 RANGE_ORIGIN_D30_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
 HISTORICAL_RED_RECORD_SHA256 = (
     "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
@@ -1668,7 +1669,7 @@ def test_the_design_sha_is_the_frozen_binding_not_a_memo_tip_search() -> None:
     module = _tool()
     frozen = module._frozen_binding("SOURCE_DESIGN_SHA")
     assert GIT_SHA.fullmatch(frozen)
-    assert frozen == CURRENT_SOURCE_D33_SHA
+    assert frozen == CURRENT_SOURCE_D34_SHA
     assert module._design_sha() == frozen
     source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
     assert '"--", "docs/development/sci004_mmode_design.md"' not in source, (
@@ -1691,11 +1692,11 @@ def test_the_frozen_design_binding_is_read_from_the_dependency_validator() -> No
 
 
 def test_current_and_historical_design_roles_are_exact_and_distinct() -> None:
-    """Corrections #31–33 separate the range origin, R, and source authorities."""
+    """Corrections #31–34 separate the range origin, R, and source authorities."""
     module = _tool()
     post_source = json.loads((REPOSITORY_ROOT / POST_SOURCE_RED_RECORD).read_bytes())
     fingerprint = json.loads((REPOSITORY_ROOT / FINGERPRINT_RED_RECORD).read_bytes())
-    assert module._design_sha() == CURRENT_SOURCE_D33_SHA
+    assert module._design_sha() == CURRENT_SOURCE_D34_SHA
     assert post_source["design_sha"] == POST_SOURCE_DESIGN_SHA
     assert fingerprint["design_sha"] == FINGERPRINT_DESIGN_SHA
     assert (
@@ -1792,7 +1793,7 @@ def test_terminal_r3_preserves_distinct_range_origin_and_operative_design(
         == CURRENT_D31_SHA
     )
     assert module._frozen_binding("D30_SHA") == RANGE_ORIGIN_D30_SHA
-    assert module._design_sha() == CURRENT_SOURCE_D33_SHA
+    assert module._design_sha() == CURRENT_SOURCE_D34_SHA
     terminal = "f" * 40
     monkeypatch.setattr(
         dependency,
@@ -1888,7 +1889,7 @@ def test_historical_design_mutation_or_current_d31_substitution_is_rejected(
         HISTORICAL_SOURCE_D32_SHA,
     ],
 )
-def test_a_historical_design_cannot_replace_the_current_d33_envelope_binding(
+def test_a_historical_design_cannot_replace_the_current_d34_envelope_binding(
     historical_design: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1900,7 +1901,7 @@ def test_a_historical_design_cannot_replace_the_current_d33_envelope_binding(
     document["red_failure_record"] = module._red_failure_record_reference(
         document["red_commit_sha"]
     )
-    with pytest.raises(module.EvidenceError, match="current frozen operative D33"):
+    with pytest.raises(module.EvidenceError, match="current frozen operative D34"):
         module.validate_evidence_artifact(document)
 
 
@@ -1910,7 +1911,7 @@ def test_a_design_sha_cannot_stand_in_for_red_commit_sha(
     module = _tool()
     _mock_red_binding_for_historical_checks(module, monkeypatch)
     document = _synthetic_document(module)
-    document["design_sha"] = CURRENT_SOURCE_D33_SHA
+    document["design_sha"] = CURRENT_SOURCE_D34_SHA
     document["red_commit_sha"] = CURRENT_D31_SHA
     document["red_failure_record"] = module._red_failure_record_reference(
         module._red_commit_sha()
@@ -2754,7 +2755,7 @@ def test_the_artifact_validator_authenticates_the_fresh_r3_and_both_inputs(
     _mock_red_binding_for_historical_checks(module, monkeypatch)
     document = _synthetic_document(module)
     red_commit = module._red_commit_sha()
-    document["design_sha"] = CURRENT_SOURCE_D33_SHA
+    document["design_sha"] = CURRENT_SOURCE_D34_SHA
     document["red_commit_sha"] = red_commit
     document["red_failure_record"] = module._red_failure_record_reference(red_commit)
     module.validate_evidence_artifact(document)
@@ -4863,6 +4864,7 @@ def ready_source_objects(
     from tests.unit import test_sci004_phase3_dependency as dependency
     from tests.unit.test_sci004_phase3_history import (
         PhaseObjects,
+        history_git,
         phase_objects,
         source_design_object,
     )
@@ -4875,10 +4877,10 @@ def ready_source_objects(
     blobs[TOOL] = f"SCI004_R3_TERMINAL_SHA = {red!r}\n" + blobs[TOOL]
     edits = {
         path: history._git(root, "show", f"{prior_source}:{path}")
-        for path in history.SOURCE_PATHS
+        for path in history.SOURCE_PATHS - {history.FRAME_PATH, history.FRAME_TEST_PATH}
     }
     edits.update({path: raw.encode() for path, raw in blobs.items()})
-    # First S retains its exact R parent before the two reviewed design edges.
+    # First S retains its exact R parent before the three reviewed design edges.
     first = commit(red, edits)
     source_designs: list[history.SourceDesignEdge] = []
     parent = first
@@ -4888,8 +4890,20 @@ def ready_source_objects(
         parent = created.sha
     monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", tuple(source_designs))
     monkeypatch.setattr(history, "HISTORICAL_SOURCE_DESIGN_SHA", source_designs[0].sha)
-    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[1].sha)
-    head = commit(parent, dict.fromkeys(history.DISPOSAL_PINS))
+    monkeypatch.setattr(
+        history, "HISTORICAL_D33_SOURCE_DESIGN_SHA", source_designs[1].sha
+    )
+    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[2].sha)
+    frame_edits = {
+        path: history_git(root, "show", f"{prior_source}:{path}")
+        for path in (history.FRAME_PATH, history.FRAME_TEST_PATH)
+    }
+    regression = commit(
+        parent, {history.FRAME_TEST_PATH: frame_edits[history.FRAME_TEST_PATH]}
+    )
+    repaired = commit(regression, {history.FRAME_PATH: frame_edits[history.FRAME_PATH]})
+    head = commit(repaired, dict.fromkeys(history.DISPOSAL_PINS))
+    edits.update(frame_edits)
     for path, content in edits.items():
         raw = content.decode()
         destination = root / path
@@ -6608,9 +6622,12 @@ def test_source_design_rejects_foreign_loaded_dependency(
     [
         ("SOURCE_DESIGN_SHA", CURRENT_D31_SHA),
         ("SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D32_SHA),
-        ("HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D33_SHA),
+        ("SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D33_SHA),
+        ("HISTORICAL_D33_SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D32_SHA),
+        ("HISTORICAL_D33_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D34_SHA),
+        ("HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D34_SHA),
         ("D30_SHA", CURRENT_D31_SHA),
-        ("APPROVED_SCI004_D_SHA", CURRENT_SOURCE_D33_SHA),
+        ("APPROVED_SCI004_D_SHA", CURRENT_SOURCE_D34_SHA),
         ("joint_source_roles", HISTORICAL_SOURCE_D32_SHA),
     ],
 )
@@ -6626,7 +6643,7 @@ def test_source_design_rejects_loaded_roles_different_from_disk(
         for peer in (dependency, history):
             monkeypatch.setattr(peer, "SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D32_SHA)
             monkeypatch.setattr(
-                peer, "HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D33_SHA
+                peer, "HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D34_SHA
             )
     else:
         monkeypatch.setattr(dependency, field, replacement)
@@ -6634,7 +6651,10 @@ def test_source_design_rejects_loaded_roles_different_from_disk(
         _ = module._design_sha()
 
 
-@pytest.mark.parametrize("result", [CURRENT_D31_SHA, HISTORICAL_SOURCE_D32_SHA, None])
+@pytest.mark.parametrize(
+    "result",
+    [CURRENT_D31_SHA, HISTORICAL_SOURCE_D32_SHA, HISTORICAL_SOURCE_D33_SHA, None],
+)
 def test_source_design_requires_exact_authenticator_return(
     monkeypatch: pytest.MonkeyPatch, result: str | None
 ) -> None:
@@ -6667,17 +6687,19 @@ def test_source_design_authentication_uses_hardened_dependency_path(
         raise AssertionError("current design must not use the evidence Git reader")
 
     monkeypatch.setattr(module, "_git", refuse_ambient)
-    assert module._design_sha() == CURRENT_SOURCE_D33_SHA
+    assert module._design_sha() == CURRENT_SOURCE_D34_SHA
     assert (
         history.DESIGN_SHA,
         history.RED_DESIGN_SHA,
         history.HISTORICAL_SOURCE_DESIGN_SHA,
+        history.HISTORICAL_D33_SOURCE_DESIGN_SHA,
         history.SOURCE_DESIGN_SHA,
     ) == (
         RANGE_ORIGIN_D30_SHA,
         CURRENT_D31_SHA,
         HISTORICAL_SOURCE_D32_SHA,
-        CURRENT_SOURCE_D33_SHA,
+        HISTORICAL_SOURCE_D33_SHA,
+        CURRENT_SOURCE_D34_SHA,
     )
     assert (
         len(
@@ -6685,10 +6707,11 @@ def test_source_design_authentication_uses_hardened_dependency_path(
                 dependency.D30_SHA,
                 dependency.APPROVED_SCI004_D_SHA,
                 dependency.HISTORICAL_SOURCE_DESIGN_SHA,
+                dependency.HISTORICAL_D33_SOURCE_DESIGN_SHA,
                 dependency.SOURCE_DESIGN_SHA,
             }
         )
-        == 4
+        == 5
     )
     tree = ast.parse(inspect.getsource(module._design_sha))
     assert not any(
