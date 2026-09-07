@@ -46,6 +46,7 @@ fixtures. No implementation is authored in another worktree.
 | A2 | D29 five-path candidate and original fingerprint R3 `a65c53a46e84f63c163c5ad15fba8645df33d1d2`; replacement-S3 overlaps two evidence paths | Integrate historical/current binding and oracle deltas by hunk; isolate exact historical imports; freeze terminal R | Exactly two expected failures and three controls at historical source; explicit source path, PYTHONNOUSERSITE=1 and verified radiosim.__file__; complete governed serial suite | Exact `567f9ac` replay and disjoint characterization partition pass; complete serial unit suite 7,618 passed, two existing platform skips; original 80 stopped-candidate hunks accounted for; primary source-hunk accounting advances with landed slices |
 | B1 | Failed CI at `cfc9b10`; frame certificate reports outside-slab horizon sign mismatches | Reproduce operational/frozen root/guard/slab issue with environment provenance; reviewed correction if contract changes; focused fix | Independent physics and numerical diagnosis; decisive regression with unchanged scientific budgets; serial and compatibility jobs | Repair pushed; 13 frame tests pass on both Python versions and all seven public integration tests pass on Python 3.12; final exact-SHA CI remains pending |
 | B2 | Failed CI reports SciPy intersphinx inventory ConnectTimeout | Inspect failed logs and current retrieval; bounded reliability fix if reproduced/justified | Clean warnings-as-errors Sphinx build; retain documentation validation | Fresh retrieval succeeded for all inventories; original CI ConnectTimeout remains an observed transient retrieval failure |
+| B3 | Section 12.1 requires frozen root bounds in the initial scan partition; committed scanner only checks the supplied list length | Reviewed finite successor grant, decisive boundary regression, exact-bound inclusion repair, fresh four-family measurements | Independent partition/evaluation checks with unchanged numerical budgets; distinguish measured cube changes from certificate changes; new admission relation requires review | Confirmed at `786413f`; all 10,240 retained frozen-bound occurrences per family are absent from the initial grid; full certificate conformity and observation admission remain blocked pending repair |
 | C1 | D25 production v2 contract, D31 runtime input anchor, D32 identity transitions and D33 lossless certificate storage; preserved draft has strict-schema and same-run-join defects | Account for every original hunk; corrected input manifests, runtime identity bridge, result records, evidence/schema, acceptance and hostile tests in coherent source commits | Path-independent reconstruction/relocation, semantic mutation and malformed-input rejection; exact nine-key production family and retained manifests; eleven modified paths plus four authenticated disposals under D32/D33 | First S, runtime bridge, validated result accessor and current-A topology pushed and independently reviewed; production-v2 factory pushed at a39ceff passes 450 evidence tests and produces the required records for all four actual public families; D32 and D33 designs are pushed; current D33 authority wiring is pushed; portable transition validation and observation admission remain pending; generation stays closed |
 | C2 | SCI-004 M3 Sections 10–14; four rejected-artifact deletions and six null sentinels | Complete replacement source range; authenticate disposal; generate new evidence from clean exact terminal source tip; separate E and A commits | HDF5/bounded reads, summary, UVFITS/MS read-back, full correlations/time/solver/provenance; all families; retained non-gating performance; fresh independent manual/numerical/schema acceptance | All six approval sentinels are committed literal None; four rejected artifacts remain unchanged; disposal follows completed source logic |
 | D1 | SCI-004 Sections 7/9/15; public solver currently rejects HEALPix/hybrid and non-scalar beams; accepted SCI-005 beam contracts remain authoritative | Reviewed successor public support contract; integrate point/HEALPix/hybrid full Stokes; stationary squint and applicable full-efield support through canonical BeamSystem/Jones | Public API and CLI tests; dense/sparse pixel measure, frequencies, tangent/receptor frames, component provenance; common direct oracle and two-tier predicates | Inventory underway; successor contract before implementation |
@@ -82,10 +83,15 @@ The separately frozen `retrospective-duplicate-intent-027-052-055.json`
 (SHA-256 `3d2aef754ed3d7936d770ab96ca115e50c6c977887498c68e6329718269a8c92`)
 authenticates three earlier duplicate intents: 052 and 053 corrected,
 054 retained. Together these records retain all 63 primary identities:
-23 intents complete (11 retained, 12 corrected), and 40 remain pending.
-Donors 027 and 055 remain partial: the third nested red reference, complete
-copy/source-relation tests, and consumer-side disjoint 29/6/2 inventory
-and passing-control checks are not yet complete. The 80 stopped-candidate dispositions
+23 intents complete (11 retained, 12 corrected), and 40 remain pending at that
+boundary. The separate `original-hunk-addendum-055-bef5750.json` (SHA-256
+`0cab6aad058833bf0084002b37cd318d3a439aef4589f23fa36038d44229201c`)
+records donor 055 corrected at `bef5750`, after `2461db4`: the explicit consumer
+29/6/2 inventories and ordered passing-control joins complete its remaining
+intent. Effective primary totals are now 24 complete (11 retained, 13 corrected)
+and 39 pending. Donor 027's third nested reference and complete copy/source-relation
+tests remain pending. All prior accounting bytes and 143 identities are preserved;
+new supporting tests receive no additional donor credit. The 80 stopped-candidate dispositions
 are unchanged from v2. Production-v2 commit `a39ceff` lands donors 001–006,
 058 and 059; b17f63a lands corrected donor 015 and ec94dc8 lands corrected donor
 034. Donor 057 remains pending as a
@@ -153,6 +159,9 @@ but its fingerprint-row schema did not. New tests receive separate accounting.
 | Acceptance tracked-file lifecycle | `9bb48823eaa1f4737c0e9a19da7b9ef8030352f1`, pushed and live remote verified | Both independent reviewers ACCEPT corrected round3; full 208 passed and six future-A skips, strict 54 unchanged. Original E HEAD and tracked bytes/types/modes/LFS materialization checked throughout publication; final raw check follows status and exact output inventory. Original filter-side-effect probe now rejects, and restoring old ordering fails the new regression. Round2 REJECT and separate withdrawal of its initial computational ACCEPT remain retained |
 | Characterization time reconstruction | `c8c90d22cba9f65ad1951e7444a0fa20e9f9eff5`, pushed and live remote verified | Both independent reviewers ACCEPT corrected round2; full E 857 passed and seven future-E skips, 27 focused tests pass, strict 367 unchanged. Exact time8 and temporal phase projection reconstructed with pinned offline IERS bytes; resource failures are typed and caller cache/config preserved. Original dual REJECT and 852-pass round1 retained. Complete phase/input and scientific-stream joins remain pending |
 | Evidence original-source HEAD lifecycle | `e997f97e7a37b83175c6a787dcef5e6a2e3aef96`, pushed and live remote verified | Both independent reviewers ACCEPT; full E 863 passed and seven future-E skips, 24 focused tests pass, strict 367 unchanged. Raw guard checks original HEAD before/after reading, and prepublication/final output checks retain the preflight source SHA. Native same-tree HEAD substitution rejects; removing final HEAD check fails the decisive regression. Scientific owners and schemas unchanged |
+| Nested frame manifest identities | `786413f2aa7bdcfc8f695b07aca48921359bf211`, pushed and live remote verified | Both independent reviewers ACCEPT and confirm equivalent full-index patch; 93 focused/related tests pass, strict 367 unchanged after retained five-diagnostic typing stop. Four exact nested manifest schemas, 17 constant rows, 32 retained endpoint manifest digests and 24 local joins verified. Geometry, source/environment authentication, ledgers, budgets, cascade and admission remain pending; additive helper is not wired into generation |
+| Retained red case inventories | `2461db48ee2bf9f1586e62c96c4062f231acf158`, pushed and live remote verified | Both independent boundary reviews ACCEPT; 56 focused tests pass, strict 367 unchanged. Fixed ordered 29/6/2 identities, outcomes, disjointness and fixture projections; original consumer unchanged in this additive slice. Literal inventory accounts for most of the 625 added lines |
+| Red command/control consumer joins | `bef57509f9031c63e14085fe25c3d713e20d0abf`, pushed and live remote verified | Both independent boundary reviews ACCEPT; 104 focused tests pass, strict 367 unchanged. Executable tool AST equals the independently accepted complete candidate after helper-name/documentation normalization; that candidate passed full E 1,016 tests with seven future-E skips in 329.13s. Original commands, ordered two-red/three-pass controls and six-key reference preserved; six retained direct partition tests pass separately. Incomplete development run and typing/format stops retained |
 | Frame regression | `1909829d828078fd36a905aa68cde50fcb4bfa16`, pushed and live remote verified | Two controlled expected-red assertions under each Python version: mismatch count 1, not 0; no collection/import failure |
 | Frame repair | `cfad247831629241842ffecd5f7aaa5b2084493c`, pushed and live remote verified | Both independent reviewers ACCEPT frozen full test/source patch `231f48c6d0d4bae419bb0cba0091813c928be40e3100713754c3a7c5904e00cb`; 13 frame tests pass in each environment; 7 public Python-3.12 integration tests pass in 741.40s; solver strict diagnostics remain 78 with no added diagnostic |
 | Ledger docs fix | `c245593df808e0a757925d5a02416b4608cd8661`, pushed and live remote verified | Fresh Sphinx build fetched all inventories; explicit ledger orphan declaration restored warnings-as-errors success |
@@ -245,3 +254,22 @@ The bounded repair at `e997f97` retains the preflight source SHA through
 publication and checks it before and after raw tracked authentication. Both
 independent implementation reviews accept that correction after the full
 863-pass/seven-skip evidence suite. No generated evidence has been accepted.
+
+Independent terminal-scan inspection at `786413f` confirmed a separate operative
+Section 12.1 violation: `frozen_root_bounds` is accepted and length-checked but
+its values never enter the initial partition. All four authenticated retained
+certificate/phase pairs contain 10,240 frozen-bound occurrences (5,133 distinct)
+absent from the source's 4,193-boundary initial grid, across 2,560 directions.
+Two source reviews found no later waiver; a separate exact-rational calculation
+reproduced the counts without importing the solver or rerunning a scan.
+The retained `d32-terminal-scan-feasibility/retained-boundary-comparison.json`
+hash is `c8549b5e84864898459d9ad85c4257c46690d34384df08a713efb8d7c683ac6c`;
+the independent root confirmation hashes to
+`99ebcfbc4902866da5bc09576d597a17d24b9944bce1a73041b7ab7d8d2e7a17`.
+This is an initial-partition comparison, not a new proof of the frozen roots.
+Full certificate conformity and observation admission cannot advance on these
+records. A prospective reviewed successor must permit the finite numerical
+repair and its regression, preserving historical D32/D33 evidence and all
+budgets. Actual four-family measurements must establish changed and unchanged
+quantities; the existing source-hash-only transition cannot cover a repaired
+partition. No cube change or equality is inferred from this diagnosis.
