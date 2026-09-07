@@ -1317,3 +1317,228 @@ def test_d34_edge_authentication_does_not_activate_its_source_range() -> None:
             "source",
             require_complete=False,
         )
+
+
+@pytest.fixture(scope="module")
+def d34_guard_blobs() -> tuple[bytes, bytes]:
+    """Read original Git objects; never import or execute the frame module."""
+    frame = history_git(
+        history.REPOSITORY_ROOT,
+        "show",
+        "a8a9f53943d7d964f475c376b6ce0dbb9b0157fc:src/radiosim/core/mmode/frame.py",
+    )
+    workflow = history_git(
+        history.REPOSITORY_ROOT,
+        "show",
+        "90ef12e10c869b0928ad0afd51b9f7069729aa26:.github/workflows/ci.yml",
+    )
+    return frame, workflow
+
+
+def _d34_repaired_frame(original: bytes) -> bytes:
+    """Independent literal fixture construction, not the production normalizer."""
+    prefix, scanner = original.split(b"def scan_operational_horizon(", 1)
+    scanner = scanner.replace(
+        b"    horizon_lo, horizon_hi = grid.horizon_domain\n",
+        b"""    if not isinstance(frozen_root_bounds, (list, tuple)):
+        raise ValueError("frozen root bounds must be a list or tuple")
+    for bounds in frozen_root_bounds:
+        if not isinstance(bounds, (list, tuple)):
+            raise ValueError("each frozen root-bound entry must be a list or tuple")
+        for bound in bounds:
+            if type(bound) is not Fraction:
+                raise ValueError("frozen root-bound endpoints must be exact Fractions")
+    horizon_lo, horizon_hi = grid.horizon_domain
+""",
+        1,
+    )
+    scanner = scanner.replace(
+        b"    shared = sorted(bound for bound in base",
+        b"    for bounds in frozen_root_bounds:\n        base.update(bounds)\n"
+        b"    shared = sorted(bound for bound in base",
+        1,
+    )
+    return prefix + b"def scan_operational_horizon(" + scanner
+
+
+@pytest.mark.parametrize("repaired", [False, True])
+@pytest.mark.parametrize("required", [None, False, True])
+def test_d34_frame_partition_exact_two_states(
+    d34_guard_blobs: tuple[bytes, bytes], repaired: bool, required: bool | None
+) -> None:
+    original, _ = d34_guard_blobs
+    candidate = _d34_repaired_frame(original) if repaired else original
+    if required is not None and repaired != required:
+        with pytest.raises(history.HistoryError, match="required repair presence"):
+            _ = history.frame_partition_ast(candidate, original, required)
+    else:
+        result = history.frame_partition_ast(candidate, original, required)
+        assert result == history.frame_partition_ast(original, original, False)
+        assert result == history.frame_partition_ast(
+            b"# formatting only\n" + candidate + b"\n", original, required
+        )
+
+
+@pytest.mark.parametrize(
+    "before,after",
+    [
+        (
+            b"    horizon_lo, horizon_hi =",
+            b"    arbitrary_call()\n    horizon_lo, horizon_hi =",
+        ),
+        (
+            b"    horizon_lo, horizon_hi =",
+            b"    return None\n    horizon_lo, horizon_hi =",
+        ),
+        (
+            b"    horizon_lo, horizon_hi =",
+            b"    import arbitrary_module\n    horizon_lo, horizon_hi =",
+        ),
+        (
+            b"    horizon_lo, horizon_hi =",
+            b"    def helper():\n        pass\n    horizon_lo, horizon_hi =",
+        ),
+        (b"with installed_iers_context():", b"with arbitrary_context():"),
+        (
+            b"matrix[position] = trajectory.at_common_turn(bound)",
+            b"matrix[position] = 0.0",
+        ),
+        (b"base.update(bounds)", b"base.update(map(float, bounds))"),
+        (b"base.update(bounds)", b"bounds.clear()"),
+        (b"base.update(bounds)", b"base.update(bounds)\n        arbitrary_call()"),
+        (b"horizon_lo <= bound <= horizon_hi", b"horizon_lo < bound < horizon_hi"),
+        (b"type(bound) is not Fraction", b"not isinstance(bound, Fraction)"),
+        (
+            b"isinstance(bounds, (list, tuple))",
+            b"isinstance(bounds, (list, tuple, str))",
+        ),
+        (
+            b'raise ValueError("frozen root bounds',
+            b'raise TypeError("frozen root bounds',
+        ),
+        (
+            b"one frozen root-bound list is required per direction",
+            b"changed cardinality",
+        ),
+        (b"direction_ids: Sequence[str]", b"direction_ids: Sequence[int]"),
+        (b"SCAN_DERIVATIVE_CEILING_PER_TURN * widths", b"0.0 * widths"),
+        (b"base.add(horizon_hi)", b"base.add(float(horizon_hi))"),
+        (b"    for bounds in frozen_root_bounds:\n        base.update(bounds)\n", b""),
+    ],
+)
+def test_d34_frame_partition_rejects_scanner_escape(
+    d34_guard_blobs: tuple[bytes, bytes], before: bytes, after: bytes
+) -> None:
+    original, _ = d34_guard_blobs
+    prefix, scanner = _d34_repaired_frame(original).split(
+        b"def scan_operational_horizon(", 1
+    )
+    assert before in scanner
+    candidate = (
+        prefix + b"def scan_operational_horizon(" + scanner.replace(before, after, 1)
+    )
+    with pytest.raises(history.HistoryError, match="unapproved AST"):
+        _ = history.frame_partition_ast(candidate, original, None)
+
+
+@pytest.mark.parametrize(
+    "suffix", [b"\ndef helper():\n    pass\n", b"\nNEW_CONSTANT = 1\n"]
+)
+def test_d34_frame_partition_preserves_whole_module(
+    d34_guard_blobs: tuple[bytes, bytes], suffix: bytes
+) -> None:
+    original, _ = d34_guard_blobs
+    with pytest.raises(history.HistoryError, match="unapproved AST"):
+        _ = history.frame_partition_ast(
+            _d34_repaired_frame(original) + suffix, original, True
+        )
+
+
+def test_d34_frame_partition_requires_pinned_baseline_and_valid_python(
+    d34_guard_blobs: tuple[bytes, bytes],
+) -> None:
+    original, _ = d34_guard_blobs
+    with pytest.raises(history.HistoryError, match="original blob"):
+        _ = history.frame_partition_ast(original, original + b"\n", None)
+    with pytest.raises(history.HistoryError, match="valid Python AST"):
+        _ = history.frame_partition_ast(b"def broken(", original, None)
+
+
+def test_d34_workflow_exact_raw_replacement(
+    d34_guard_blobs: tuple[bytes, bytes],
+) -> None:
+    _, before = d34_guard_blobs
+    after = before.replace(
+        b"    timeout-minutes: 45\n", b"    timeout-minutes: 120\n", 1
+    )
+    history.validate_verification_workflow_bytes(before, after)
+    assert (
+        after.replace(b"    timeout-minutes: 120\n", b"    timeout-minutes: 45\n", 1)
+        == before
+    )
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        (b"timeout-minutes: 120", b"timeout-minutes: 45"),
+        (b"timeout-minutes: 120", b"timeout-minutes: 119"),
+        (b"timeout-minutes: 120", b'timeout-minutes: "120"'),
+        (b"timeout-minutes: 120", b"timeout-minutes: 120\n    timeout-minutes: 120"),
+        (b"timeout-minutes: 30", b"timeout-minutes: 120"),
+        (b"runs-on: ubuntu-24.04", b"runs-on: ubuntu-latest"),
+        (b"contents: read", b"contents: write"),
+        (b"# CI-001", b"# changed"),
+        (b"\n", b"\r\n"),
+    ],
+)
+def test_d34_workflow_rejects_any_extra_bytes(
+    d34_guard_blobs: tuple[bytes, bytes], old: bytes, new: bytes
+) -> None:
+    _, before = d34_guard_blobs
+    allowed = before.replace(
+        b"    timeout-minutes: 45\n", b"    timeout-minutes: 120\n", 1
+    )
+    assert old in allowed
+    with pytest.raises(history.HistoryError, match="exact scalar replacement"):
+        history.validate_verification_workflow_bytes(
+            before, allowed.replace(old, new, 1)
+        )
+
+
+@pytest.mark.parametrize("mode", ["alternate", "reverse", "repeat"])
+def test_d34_workflow_rejects_unpinned_or_repeated_baseline(
+    d34_guard_blobs: tuple[bytes, bytes], mode: str
+) -> None:
+    _, original = d34_guard_blobs
+    allowed = original.replace(
+        b"    timeout-minutes: 45\n", b"    timeout-minutes: 120\n", 1
+    )
+    before = original + b"\n" if mode == "alternate" else allowed
+    after = before.replace(
+        b"    timeout-minutes: 45\n", b"    timeout-minutes: 120\n", 1
+    )
+    if mode == "reverse":
+        after = original
+    with pytest.raises(history.HistoryError, match="original blob"):
+        history.validate_verification_workflow_bytes(before, after)
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    [
+        (
+            b"SCAN_DERIVATIVE_CEILING_PER_TURN: Final[float] = 6.2895",
+            b"SCAN_DERIVATIVE_CEILING_PER_TURN: Final[float] = 6.3",
+        ),
+        (b"cosine = math.cos(theta)", b"cosine = math.sin(theta)"),
+    ],
+)
+def test_d34_frame_partition_preserves_existing_constant_and_other_function(
+    d34_guard_blobs: tuple[bytes, bytes], old: bytes, new: bytes
+) -> None:
+    original, _ = d34_guard_blobs
+    repaired = _d34_repaired_frame(original)
+    assert old in repaired
+    with pytest.raises(history.HistoryError, match="unapproved AST"):
+        _ = history.frame_partition_ast(repaired.replace(old, new, 1), original, None)

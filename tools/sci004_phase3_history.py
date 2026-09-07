@@ -909,3 +909,85 @@ def validate_phase_ranges(
         if phase == "red":
             require_design_successor(expected["commits"])
         _require(actual == expected, f"{phase} range differs from exact Git history")
+
+
+def frame_partition_ast(raw: bytes, baseline: bytes, required: bool | None) -> str:
+    """Normalize only D34's exact initial-partition repair; grant no source role."""
+    _require(
+        _sha256(baseline)
+        == "345762685533b63bb829c714085c54aac41611cbb5ddb9ada16ca4418d485454",
+        "frame partition original blob",
+    )
+    try:
+        original = ast.parse(baseline)
+        repaired = ast.parse(baseline)
+        candidate = ast.parse(raw)
+    except (SyntaxError, ValueError) as error:
+        raise HistoryError("frame partition requires valid Python AST") from error
+    owners = [
+        node
+        for node in repaired.body
+        if isinstance(node, ast.FunctionDef) and node.name == "scan_operational_horizon"
+    ]
+    _require(len(owners) == 1, "frame partition scanner identity")
+    owner = owners[0]
+    anchors = [
+        ast.dump(ast.parse(statement).body[0])
+        for statement in (
+            "horizon_lo, horizon_hi = grid.horizon_domain",
+            "shared = sorted(bound for bound in base if horizon_lo <= bound <= horizon_hi)",
+        )
+    ]
+    positions = [
+        [index for index, node in enumerate(owner.body) if ast.dump(node) == anchor]
+        for anchor in anchors
+    ]
+    _require(
+        all(len(matches) == 1 for matches in positions)
+        and positions[0][0] < positions[1][0],
+        "frame partition insertion anchors",
+    )
+    validation = ast.parse(
+        "if not isinstance(frozen_root_bounds, (list, tuple)):\n"
+        '    raise ValueError("frozen root bounds must be a list or tuple")\n'
+        "for bounds in frozen_root_bounds:\n"
+        "    if not isinstance(bounds, (list, tuple)):\n"
+        '        raise ValueError("each frozen root-bound entry must be a list or tuple")\n'
+        "    for bound in bounds:\n"
+        "        if type(bound) is not Fraction:\n"
+        '            raise ValueError("frozen root-bound endpoints must be exact Fractions")\n'
+    ).body
+    union = ast.parse(
+        "for bounds in frozen_root_bounds:\n    base.update(bounds)\n"
+    ).body
+    # Insert into the authenticated original, never erase a candidate prefix.
+    owner.body[positions[1][0] : positions[1][0]] = union
+    owner.body[positions[0][0] : positions[0][0]] = validation
+    original_ast, repaired_ast, candidate_ast = map(
+        ast.dump, (original, repaired, candidate)
+    )
+    _require(
+        candidate_ast in {original_ast, repaired_ast},
+        "frame partition changes unapproved AST",
+    )
+    _require(
+        required is None or (candidate_ast == repaired_ast) == required,
+        "frame partition required repair presence",
+    )
+    return original_ast
+
+
+def validate_verification_workflow_bytes(before: bytes, after: bytes) -> None:
+    """Check only D34's raw 45-to-120 change; ancestry/cardinality remain separate."""
+    _require(
+        _sha256(before)
+        == "d4242d56b85afb240a8545163a735359adbaf7b4f25dd665ec5b4e2564599f9e",
+        "verification workflow original blob",
+    )
+    old = b"    timeout-minutes: 45\n"
+    new = b"    timeout-minutes: 120\n"
+    _require(before.count(old) == 1, "verification workflow scalar cardinality")
+    _require(
+        after == before.replace(old, new, 1),
+        "verification workflow exact scalar replacement",
+    )
