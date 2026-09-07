@@ -382,6 +382,9 @@ def phase_objects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PhaseObjec
         history, "HISTORICAL_D33_SOURCE_DESIGN_SHA", source_designs[1].sha
     )
     monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[2].sha)
+    monkeypatch.setattr(
+        history, "HISTORICAL_D34_SOURCE_DESIGN_SHA", source_designs[2].sha
+    )
     regression = commit(
         parent, {history.FRAME_TEST_PATH: edits.pop(history.FRAME_TEST_PATH)}
     )
@@ -1015,7 +1018,9 @@ def test_source_design_authentication_rejects_other_identities(sha: str) -> None
         history.authenticate_source_design_successor(sha)
 
 
-@pytest.mark.parametrize("edge", history.SOURCE_DESIGN_EDGES)
+@pytest.mark.parametrize(
+    "edge", (*history.SOURCE_DESIGN_EDGES, history.D35_DESIGN_EDGE)
+)
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -1148,12 +1153,22 @@ def test_source_design_real_objects_require_own_review(
         spec = replace(spec, blobs=("0" * 64, spec.blobs[1]))
     elif mutation == "patch_pin":
         spec = replace(spec, patch="0" * 64)
-    monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", (spec,))
+    if edge.correction == 35:
+        monkeypatch.setattr(history, "D35_DESIGN_EDGE", spec)
+    else:
+        monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", (spec,))
+
+    def authenticate() -> None:
+        if edge.correction == 35:
+            history.authenticate_pending_d35(root)
+        else:
+            history.authenticate_source_design_successor(forged, root)
+
     if mutation is None:
-        history.authenticate_source_design_successor(forged, root)
+        authenticate()
     else:
         with pytest.raises(history.HistoryError):
-            history.authenticate_source_design_successor(forged, root)
+            authenticate()
 
 
 @pytest.mark.parametrize(
@@ -1763,3 +1778,55 @@ def test_d34_seeded_regression_authenticates_its_source_prefix(
         _ = history.describe_phase_range(
             predecessor, tip, "source", root=root, require_complete=False
         )
+
+
+def test_pending_d35_authentication_does_not_activate_source_authority() -> None:
+    """The real reviewed landing authenticates only through its pending entry."""
+    history.authenticate_pending_d35()
+    assert history.D35_DESIGN_EDGE.sha == "dd26e045897274f4b09de38ad4552904cc3c33ab"
+    assert history.HISTORICAL_D34_SOURCE_DESIGN_SHA == history.D34_DESIGN_EDGE.sha
+    assert history.SOURCE_DESIGN_SHA == history.HISTORICAL_D34_SOURCE_DESIGN_SHA
+    assert [edge.correction for edge in history.SOURCE_DESIGN_EDGES] == [32, 33, 34]
+    with pytest.raises(history.HistoryError, match="unknown source design successor"):
+        history.authenticate_source_design_successor(history.D35_DESIGN_EDGE.sha)
+    records = [
+        {"sha": edge.sha, "role": "source-design-successor"}
+        for edge in history.SOURCE_DESIGN_EDGES
+    ]
+    history.require_source_design_successors(records)
+    with pytest.raises(history.HistoryError, match="exact D32 then D33 then D34 once"):
+        history.require_source_design_successors(
+            [
+                *records,
+                {"sha": history.D35_DESIGN_EDGE.sha, "role": "source-design-successor"},
+            ]
+        )
+
+
+@pytest.mark.parametrize(
+    "path", [history.FRAME_PATH, history.FRAME_TEST_PATH, history.WORKFLOW_PATH]
+)
+def test_historical_d34_roles_ignore_current_authority_change(
+    phase_objects: PhaseObjects, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    """Changing current authority cannot move D34's baseline or prefix boundary."""
+    root, commit, _, _, _, _, source, _ = phase_objects
+    parent = history.HISTORICAL_D34_SOURCE_DESIGN_SHA
+    if path == history.FRAME_PATH:
+        parent = commit(parent, {history.FRAME_TEST_PATH: b"# owned D34 regression\n"})
+        raw = history_git(root, "show", f"{source}:{path}")
+    elif path == history.FRAME_TEST_PATH:
+        raw = b"# owned D34 regression\n"
+    else:
+        raw = history_git(root, "show", f"{parent}:{path}").replace(
+            b"timeout-minutes: 45", b"timeout-minutes: 120", 1
+        )
+    tip = commit(parent, {path: raw})
+    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", "f" * 40)
+    result = history.describe_phase_range(
+        parent, tip, "source", root=root, require_complete=False
+    )
+    assert result["commits"][-1]["sha"] == tip
+    assert result["commits"][-1]["role"] == (
+        "verification-workflow" if path == history.WORKFLOW_PATH else "source"
+    )

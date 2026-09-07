@@ -24,6 +24,7 @@ OPERATIVE_DESIGN_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 RED_DESIGN_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 HISTORICAL_SOURCE_DESIGN_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
 HISTORICAL_D33_SOURCE_DESIGN_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
+HISTORICAL_D34_SOURCE_DESIGN_SHA = "90ef12e10c869b0928ad0afd51b9f7069729aa26"
 SOURCE_DESIGN_SHA = "90ef12e10c869b0928ad0afd51b9f7069729aa26"
 DESIGN_SUCCESSOR_PARENT = "87b16ba16c8a4ab4ff8b9e6bf213c5ce45a41bfe"
 DESIGN_SUCCESSOR_BLOBS = (
@@ -475,7 +476,7 @@ class SourceDesignEdge:
 
 
 D34_DESIGN_EDGE = SourceDesignEdge(
-    SOURCE_DESIGN_SHA,
+    HISTORICAL_D34_SOURCE_DESIGN_SHA,
     "a8a9f53943d7d964f475c376b6ce0dbb9b0157fc",
     34,
     2,
@@ -490,6 +491,26 @@ D34_DESIGN_EDGE = SourceDesignEdge(
         "ae704c7256671298755ab33303938c8a6ce5538326189c2a8eb06baae396dc14",
     ),
     ("/root/e_lifecycle_physics", "/root/d30_provenance_review"),
+)
+
+
+# Authenticated separately for preparation; absent from active source roles.
+D35_DESIGN_EDGE = SourceDesignEdge(
+    "dd26e045897274f4b09de38ad4552904cc3c33ab",
+    "08549c2ed937ff18793c3dd43d4e60d0b91f6936",
+    35,
+    2,
+    (
+        "4d5cd13a86365f667c071f298335c917d75ca73ddfa41dc0aba63380edcd1962",
+        "050ea8b956729387a9544bcab0a66d53f00bdcb345dbff0c916003c3f85e88e0",
+    ),
+    "7cb81e126ff66a37914e26731a9e5e8c8e8050c540b6ed772c50d09f0b452832",
+    (
+        "d5559c58309ebcb5ca918310bdb364f5709aea000d8555d696382f717d4c4e48",
+        "eaef94843cef4e32492218e802607fd4f3de0505628cc90139b854ade1b9a5c5",
+        "9db88cbbcf09e827588ca2c489b6adb0538ffc515a51b7bc5da13312357f080f",
+    ),
+    ("/root/d30_physics_review", "/root/d30_provenance_review"),
 )
 
 
@@ -547,7 +568,17 @@ def authenticate_source_design_successor(
     """Authenticate a finalized D32/D33/D34 edge, without changing active ranges."""
     matches = [edge for edge in SOURCE_DESIGN_EDGES if edge.sha == commit_sha]
     _require(len(matches) == 1, "unknown source design successor")
-    edge = matches[0]
+    _authenticate_source_design_edge(matches[0], root)
+
+
+def authenticate_pending_d35(root: Path = REPOSITORY_ROOT) -> None:
+    """Authenticate the exact D35 landing without granting roles or activation."""
+    _authenticate_source_design_edge(D35_DESIGN_EDGE, root)
+
+
+def _authenticate_source_design_edge(edge: SourceDesignEdge, root: Path) -> None:
+    """Share all raw-object and own-review checks across declared edge callers."""
+    commit_sha = edge.sha
     _ = _exact_commit(root, commit_sha)
     _require(
         _git(root, "rev-list", "--parents", "-n", "1", commit_sha).decode().split()
@@ -726,9 +757,9 @@ def _validate_bridge_delta(
 
 
 def _require_d34_parent(root: Path, parent: str) -> None:
-    authenticate_source_design_successor(SOURCE_DESIGN_SHA, root)
+    authenticate_source_design_successor(HISTORICAL_D34_SOURCE_DESIGN_SHA, root)
     _require(
-        SOURCE_DESIGN_SHA
+        HISTORICAL_D34_SOURCE_DESIGN_SHA
         in _git(root, "rev-list", "--first-parent", parent).decode().split(),
         "D34 must precede its granted source changes on first-parent history",
     )
@@ -737,7 +768,7 @@ def _require_d34_parent(root: Path, parent: str) -> None:
 def _validate_frame_delta(
     root: Path, parent: str, commit: str, *, cumulative: bool = False
 ) -> None:
-    baseline = _git(root, "show", f"{SOURCE_DESIGN_SHA}:{FRAME_PATH}")
+    baseline = _git(root, "show", f"{HISTORICAL_D34_SOURCE_DESIGN_SHA}:{FRAME_PATH}")
     before = frame_partition_ast(
         _git(root, "show", f"{parent}:{FRAME_PATH}"),
         baseline,
@@ -785,7 +816,7 @@ def _phase_role(
     if paths == {WORKFLOW_PATH}:
         _require(set(delta.values()) == {"M"}, "verification workflow modification")
         _require_d34_parent(root, parent)
-        for revision in (SOURCE_DESIGN_SHA, parent, commit):
+        for revision in (HISTORICAL_D34_SOURCE_DESIGN_SHA, parent, commit):
             metadata = (
                 _git(root, "ls-tree", revision, "--", WORKFLOW_PATH).decode().split()
             )
@@ -853,15 +884,19 @@ def describe_phase_range(
     regression_seen = False
     if (
         phase == "source"
-        and base != SOURCE_DESIGN_SHA
-        and SOURCE_DESIGN_SHA
+        and base != HISTORICAL_D34_SOURCE_DESIGN_SHA
+        and HISTORICAL_D34_SOURCE_DESIGN_SHA
         in _git(root, "rev-list", "--first-parent", base).decode().split()
     ):
         # A suffix may start after the regression. Authenticate that prefix once,
         # including sole parents, source roles and regular blobs. Recursion stops
         # at the D34 base; a filename alone never establishes this prerequisite.
         prefix = describe_phase_range(
-            SOURCE_DESIGN_SHA, base, "source", root=root, require_complete=False
+            HISTORICAL_D34_SOURCE_DESIGN_SHA,
+            base,
+            "source",
+            root=root,
+            require_complete=False,
         )
         regression_seen = any(
             row["role"] == "source"
