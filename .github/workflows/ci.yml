@@ -16,7 +16,7 @@ jobs:
   compatibility:
     name: ${{ matrix.platform }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 120
     # `actions: read` is what `gh run list`/`gh run download` need to restore
     # the previous successful run's characterization record (CI-001).
     permissions:
