@@ -4167,3 +4167,144 @@ def test_source_readiness_binds_generator_family_inventory_and_rows(
     )
     with pytest.raises(module.EvidenceError, match="source contract"):
         module._require_source_schema_contract(FORTY)
+
+
+@pytest.fixture
+def synthetic_runtime_bridge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any, dict[str, Any], list[object], Any]:
+    """Isolate the public adapter copy seam; do not claim a numerical solve."""
+    from types import SimpleNamespace
+    from typing import cast
+
+    import numpy as np
+
+    from radiosim.backends.numpy_backend import NumPyBackend
+    from radiosim.core.mmode import solver
+    from radiosim.core.result import MModeSolverResultProvenance
+    from radiosim.simulator.base import SkySolveRequest
+    from tests.unit.test_io.test_standard_visibility import build_mmode_result
+
+    result = build_mmode_result(tmp_path)
+    assert isinstance(result.solver, MModeSolverResultProvenance)
+    snapshot = result.solver.snapshot
+    assert isinstance(snapshot, solver.MModeSolverSnapshot)
+    request = cast(
+        SkySolveRequest,
+        SimpleNamespace(
+            sky_representation="point_sources",
+            sky_model=SimpleNamespace(healpix=None),
+            beam_system=SimpleNamespace(
+                state=SimpleNamespace(resolved=SimpleNamespace(assignments=()))
+            ),
+            backend=NumPyBackend(),
+        ),
+    )
+    solved: dict[str, Any] = {
+        "gate": snapshot.direct_gate,
+        "grid": SimpleNamespace(sidereal_samples=snapshot.sidereal_samples),
+        "dimensions": SimpleNamespace(
+            lmax=snapshot.lmax,
+            mmax=snapshot.mmax,
+            quadrature_nside=snapshot.quadrature_nside,
+        ),
+        "certificate": SimpleNamespace(
+            certificate_sha256=snapshot.frame_certificate_sha256,
+            frozen_gauss128_cube_sha256=snapshot.frozen_gauss128_cube_sha256,
+            frozen_enclosure_error_cube_sha256=(
+                snapshot.frozen_enclosure_error_cube_sha256
+            ),
+        ),
+        "cube": result.visibilities.copy(),
+        "point_cirs": np.zeros((snapshot.component_element_counts[0], 3)),
+        "execution_path": snapshot.execution_path,
+        "tangent_polarization_frame": snapshot.tangent_polarization_frame,
+        "frame": SimpleNamespace(iers_table_sha256=snapshot.iers_table_sha256),
+        "input_identity_sha256": _digest("synthetic-pipeline-input"),
+    }
+    calls: list[object] = []
+
+    def pipeline(actual: object) -> dict[str, Any]:
+        assert actual is request
+        calls.append(actual)
+        return solved
+
+    monkeypatch.setattr(solver, "_mmode_pipeline", pipeline)
+    return solver, request, solved, calls, result
+
+
+@pytest.mark.parametrize("identity", [_digest("bridge-one"), _digest("bridge-two")])
+def test_runtime_bridge_copies_the_single_pipeline_identity(
+    synthetic_runtime_bridge: tuple[Any, Any, dict[str, Any], list[object], Any],
+    identity: str,
+) -> None:
+    """The adapter retains the pipeline identity without changing its cube."""
+    import numpy as np
+
+    solver, request, solved, calls, result = synthetic_runtime_bridge
+    solved["input_identity_sha256"] = identity
+    original_cube = solved["cube"].tobytes()
+    outcome = solver.solve_mmode(request)
+    snapshot = outcome.solver_record
+    assert calls == [request]
+    assert snapshot.input_identity_sha256 == identity
+    assert identity != result.solver.snapshot.input_identity_sha256
+    assert identity != result.scientific_sha256
+    assert solved["cube"].tobytes() == original_cube
+    assert np.asarray(outcome.receptor_visibilities).tobytes() == original_cube
+    assert snapshot.as_mapping() == result.solver.snapshot.as_mapping()
+    assert snapshot.solver_snapshot_sha256() == (
+        result.solver.snapshot.solver_snapshot_sha256()
+    )
+    solved["input_identity_sha256"] = _digest("later-pipeline-mutation")
+    assert snapshot.input_identity_sha256 == identity
+
+
+def test_runtime_bridge_does_not_invent_a_missing_pipeline_identity(
+    synthetic_runtime_bridge: tuple[Any, Any, dict[str, Any], list[object], Any],
+) -> None:
+    solver, request, solved, calls, _ = synthetic_runtime_bridge
+    del solved["input_identity_sha256"]
+    with pytest.raises(KeyError, match="input_identity_sha256"):
+        solver.solve_mmode(request)
+    assert calls == [request]
+
+
+def test_runtime_bridge_is_required_immutable_and_absent_from_serialization(
+    synthetic_runtime_bridge: tuple[Any, Any, dict[str, Any], list[object], Any],
+) -> None:
+    from dataclasses import MISSING, FrozenInstanceError, fields, replace
+
+    from radiosim.core.result import (
+        MMODE_SOLVER_SNAPSHOT_KEYS,
+        LoadedMModeSolverSnapshot,
+    )
+
+    solver, request, _, _, _ = synthetic_runtime_bridge
+    snapshot = solver.solve_mmode(request).solver_record
+    identity_field = next(
+        item for item in fields(snapshot) if item.name == "input_identity_sha256"
+    )
+    assert identity_field.type in (str, "str")
+    assert identity_field.default is MISSING
+    assert identity_field.default_factory is MISSING
+    with pytest.raises(FrozenInstanceError):
+        snapshot.input_identity_sha256 = _digest("reassignment")
+    prior_fields = {
+        item.name: getattr(snapshot, item.name)
+        for item in fields(snapshot)
+        if item.name != "input_identity_sha256"
+    }
+    with pytest.raises(TypeError, match="input_identity_sha256"):
+        solver.MModeSolverSnapshot(**prior_fields)
+    other = replace(snapshot, input_identity_sha256=_digest("foreign-runtime"))
+    assert other.input_identity_sha256 != snapshot.input_identity_sha256
+    assert len(snapshot.as_mapping()) == 20
+    assert tuple(snapshot.as_mapping()) == MMODE_SOLVER_SNAPSHOT_KEYS
+    assert "input_identity_sha256" not in snapshot.as_mapping()
+    assert other.as_mapping() == snapshot.as_mapping()
+    assert other.to_snapshot() == snapshot.to_snapshot()
+    assert _canonical(other.to_snapshot()) == _canonical(snapshot.to_snapshot())
+    assert other.solver_snapshot_sha256() == snapshot.solver_snapshot_sha256()
+    loaded = LoadedMModeSolverSnapshot(stored=snapshot.to_snapshot())
+    assert not hasattr(loaded, "input_identity_sha256")

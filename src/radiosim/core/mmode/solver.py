@@ -271,6 +271,8 @@ class MModeSolverSnapshot:
     direct_gate: DirectGateRecord
     frozen_gauss128_cube_sha256: str
     frozen_enclosure_error_cube_sha256: str
+    #: Same-run phase input identity retained only in the live solver record.
+    input_identity_sha256: str
     #: Either the exact six-key Section 5.1 object or the ``M1`` literal.
     tangent_polarization_frame: Any = MMODE_TANGENT_FRAME_M1
 
@@ -4264,6 +4266,7 @@ def solve_mmode(request: SkySolveRequest) -> SkySolveOutcome:
     point_cirs = solved["point_cirs"]
     execution_path = str(solved["execution_path"])
     snapshot = MModeSolverSnapshot(
+        input_identity_sha256=solved["input_identity_sha256"],
         tangent_polarization_frame=solved["tangent_polarization_frame"],
         sky_representation=str(request.sky_representation),
         execution_path=execution_path,

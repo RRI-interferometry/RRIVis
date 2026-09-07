@@ -1220,6 +1220,7 @@ def build_mmode_result(
                 receptor[:, baseline_index, :, 0, 1]
             )
     snapshot = MModeSolverSnapshot(
+        input_identity_sha256=_mmode_fixture_digest("input_identity"),
         sky_representation=sky_representation,
         execution_path="polarized",
         components=components,
