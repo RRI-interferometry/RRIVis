@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -1114,3 +1115,68 @@ def validate_verification_workflow_bytes(before: bytes, after: bytes) -> None:
         after == before.replace(old, new, 1),
         "verification workflow exact scalar replacement",
     )
+
+
+# Complete raw-module AST profiles, derived with each supported CPython minor.
+# O0: R567 without bridge; O1: reviewed predecessor with bridge; G1: reviewed
+# geometry repair with bridge. These utilities grant no history role or ancestry.
+D35_SOLVER_AST_PROFILES: dict[tuple[str, int, int], dict[str, str]] = {
+    ("cpython", 3, 11): {
+        "O0": "1678cc3597178f3bca4b4263bf336dc5ef88914af880027435f7974c65f5631e",
+        "O1": "35a0dcecffa20c303307e1fcbae8645dffd99f8b9d9d103709f8626f8364e59d",
+        "G1": "ca4f0bd6970f20f9182a7b7cd0b4f43b8a4c3bc8746fdf25677c1d090a96787a",
+    },
+    ("cpython", 3, 12): {
+        "O0": "412586d7e1020b033496c9860872aed99643e16966a90b66bdb7e142da48f374",
+        "O1": "bdcaa77a77350c770d0e5286b9209d8e24714d4d58a5656ea36ee2c4876086d2",
+        "G1": "1f082feb6c013615c2bd77bfbce6951a9373168edb8fe2396e98a4214fda894c",
+    },
+}
+
+
+def solver_geometry_state(raw: bytes) -> str:
+    """Identify an approved whole-module AST; do not authenticate its ancestry.
+
+    Serialization is UTF-8 of ast.dump(ast.parse(raw), annotate_fields=True,
+    include_attributes=False), with no indentation or AST normalization.
+    CPython 3.11 and 3.12 have distinct profiles; every other runtime rejects.
+    Raw comments/layout may differ; no statement or function is omitted.
+    """
+    runtime = (sys.implementation.name, *sys.version_info[:2])
+    _require(runtime in D35_SOLVER_AST_PROFILES, "geometry AST unsupported runtime")
+    _require(type(raw) is bytes, "geometry AST requires raw bytes")
+    try:
+        dumped = ast.dump(
+            ast.parse(raw), annotate_fields=True, include_attributes=False
+        ).encode("utf-8")
+    except (SyntaxError, ValueError, UnicodeError) as error:
+        raise HistoryError("geometry AST requires valid Python") from error
+    profile = D35_SOLVER_AST_PROFILES[runtime]
+    _require(
+        set(profile) == {"O0", "O1", "G1"} and len(set(profile.values())) == 3,
+        "geometry AST profile state inventory",
+    )
+    matches = [state for state, digest in profile.items() if digest == _sha256(dumped)]
+    _require(len(matches) == 1, "geometry AST unapproved whole-module state")
+    return matches[0]
+
+
+def validate_solver_geometry_transition(
+    before: bytes, after: bytes, *, cumulative: bool = False
+) -> tuple[str, str]:
+    """Check finite directed states only; callers still owe Git and D35 causality.
+
+    This utility is deliberately unwired. Cumulative means complete source,
+    whose only permitted endpoints are O0 and G1. Recognizing O1 as a valid
+    prefix never makes it a complete terminal. No repaired/bridge-absent G0
+    profile exists. Per-commit ancestry and every intermediate remain separate.
+    """
+    _require(type(cumulative) is bool, "geometry transition requires boolean mode")
+    states = (solver_geometry_state(before), solver_geometry_state(after))
+    allowed = (
+        {("O0", "G1")}
+        if cumulative
+        else {("O0", "O1"), ("O1", "O1"), ("O1", "G1"), ("G1", "G1")}
+    )
+    _require(states in allowed, "geometry transition forbidden directed states")
+    return states

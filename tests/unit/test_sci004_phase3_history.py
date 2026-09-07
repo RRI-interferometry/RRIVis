@@ -1830,3 +1830,130 @@ def test_historical_d34_roles_ignore_current_authority_change(
     assert result["commits"][-1]["role"] == (
         "verification-workflow" if path == history.WORKFLOW_PATH else "source"
     )
+
+
+@pytest.fixture
+def geometry_profiles(monkeypatch: pytest.MonkeyPatch) -> dict[str, bytes]:
+    """Independent tiny full modules exercise the guard, not solver physics."""
+    import ast
+    import sys
+
+    states = {
+        "O0": b"bridge = False\ngeometry = 'old'\n",
+        "O1": b"bridge = True\ngeometry = 'old'\n",
+        "G1": b"bridge = True\ngeometry = 'repaired'\n",
+    }
+    profile = {
+        name: sha256(
+            ast.dump(
+                ast.parse(raw), annotate_fields=True, include_attributes=False
+            ).encode()
+        ).hexdigest()
+        for name, raw in states.items()
+    }
+    monkeypatch.setattr(
+        history,
+        "D35_SOLVER_AST_PROFILES",
+        {(sys.implementation.name, *sys.version_info[:2]): profile},
+    )
+    return states
+
+
+@pytest.mark.parametrize("before", ["O0", "O1", "G1"])
+@pytest.mark.parametrize("after", ["O0", "O1", "G1"])
+@pytest.mark.parametrize("cumulative", [False, True])
+def test_geometry_guard_directed_states(
+    geometry_profiles: dict[str, bytes], before: str, after: str, cumulative: bool
+) -> None:
+    if cumulative:
+        permitted = before == "O0" and after == "G1"
+    else:
+        permitted = (
+            (before == "O0" and after == "O1")
+            or (before in {"O1", "G1"} and after == "G1")
+            or before == after == "O1"
+        )
+    arguments = (geometry_profiles[before], geometry_profiles[after])
+    if permitted:
+        assert history.validate_solver_geometry_transition(
+            *arguments, cumulative=cumulative
+        ) == (before, after)
+    else:
+        with pytest.raises(history.HistoryError, match="forbidden directed states"):
+            _ = history.validate_solver_geometry_transition(
+                *arguments, cumulative=cumulative
+            )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"bridge = False\ngeometry = 'repaired'\n",  # G0 is never authorized.
+        b"bridge = True\ngeometry = 'foreign'\n",
+        b"bridge = True\ngeometry = 'old'\nextra = 1\n",
+        b"bridge = True\ngeometry = 'old'\ndef helper(): return 1\n",
+    ],
+)
+def test_geometry_guard_rejects_complete_unknown_modules(
+    geometry_profiles: dict[str, bytes], raw: bytes
+) -> None:
+    with pytest.raises(history.HistoryError, match="unapproved whole-module state"):
+        _ = history.solver_geometry_state(raw)
+    # An approved eventual endpoint cannot conceal the unapproved middle state.
+    with pytest.raises(history.HistoryError, match="unapproved whole-module state"):
+        _ = history.validate_solver_geometry_transition(raw, geometry_profiles["G1"])
+
+
+@pytest.mark.parametrize("raw", [b"def broken(", b"\x00", b"\xff"])
+def test_geometry_guard_rejects_invalid_python(raw: bytes) -> None:
+    with pytest.raises(history.HistoryError, match="requires valid Python"):
+        _ = history.solver_geometry_state(raw)
+
+
+def test_geometry_guard_layout_runtime_and_mode_boundaries(
+    geometry_profiles: dict[str, bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (
+        history.solver_geometry_state(
+            b"# comments are not AST statements\n\n" + geometry_profiles["G1"]
+        )
+        == "G1"
+    )
+    with pytest.raises(history.HistoryError, match="requires boolean mode"):
+        _ = history.validate_solver_geometry_transition(
+            geometry_profiles["O0"], geometry_profiles["G1"], cumulative=cast(bool, 1)
+        )
+    monkeypatch.setattr(history.sys, "version_info", (3, 14, 0, "final", 0))
+    with pytest.raises(history.HistoryError, match="unsupported runtime"):
+        _ = history.solver_geometry_state(geometry_profiles["O1"])
+
+
+def test_geometry_guard_actual_prefix_and_observed_source() -> None:
+    """Committed old states stay valid prefixes; only repaired source can finish."""
+    old = history_git(
+        history.REPOSITORY_ROOT,
+        "show",
+        "567f9ac68730044fc8e887930d3531d794534412:" + history.SOLVER_PATH,
+    )
+    preceding = history_git(
+        history.REPOSITORY_ROOT,
+        "show",
+        history.D35_DESIGN_EDGE.sha + ":" + history.SOLVER_PATH,
+    )
+    assert history.solver_geometry_state(old) == "O0"
+    assert history.solver_geometry_state(preceding) == "O1"
+    assert history.validate_solver_geometry_transition(old, preceding) == ("O0", "O1")
+    with pytest.raises(history.HistoryError, match="forbidden directed states"):
+        _ = history.validate_solver_geometry_transition(old, preceding, cumulative=True)
+    observed = (history.REPOSITORY_ROOT / history.SOLVER_PATH).read_bytes()
+    state = history.solver_geometry_state(observed)
+    assert state in {"O1", "G1"}
+    if state == "G1":
+        assert history.validate_solver_geometry_transition(
+            old, observed, cumulative=True
+        ) == ("O0", "G1")
+    else:
+        with pytest.raises(history.HistoryError, match="forbidden directed states"):
+            _ = history.validate_solver_geometry_transition(
+                old, observed, cumulative=True
+            )
