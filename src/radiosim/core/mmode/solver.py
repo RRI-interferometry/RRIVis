@@ -1457,6 +1457,7 @@ def build_frame_certificate(
         directions=directions,
         frozen=frozen,
         operational_roots=scan.roots,
+        operational_scan=scan,
         beam_peak_ceiling=beam_peak_ceiling,
         input_identity_sha256=input_identity_sha256,
         enclosure_manifest_sha256=enclosure_sha256,
@@ -2541,6 +2542,299 @@ def _mask_bits(mask_hex: str, count: int) -> list[bool]:
     return [bool((value >> (count - 1 - index)) & 1) for index in range(count)]
 
 
+def _classify_operational_direct_piece(
+    *,
+    scan: Any,
+    witness_owner: _operational_directions,
+    direction_index: int,
+    lower: Fraction,
+    upper: Fraction,
+) -> str:
+    """Classify an open piece using a successful scan and a separate witness.
+
+    The private caller supplies the actual same-run scan, not a caller-authored
+    root list. Its complete census certifies no unaccounted root in the open
+    piece; the interior witness supplies its sign, not the root-free proof.
+    Independent certificate admission still authenticates the terminal cover.
+    No method on the live scan evaluator is invoked here.
+    """
+    from radiosim.core.mmode.frame import OperationalHorizonScan
+    from radiosim.core.mmode.time import installed_iers, installed_iers_context
+
+    if not isinstance(scan, OperationalHorizonScan):
+        raise ValueError("direct classification requires the successful scan")
+    live = scan.evaluator
+    owner_attributes = vars(witness_owner)
+    if (
+        type(witness_owner) is not _operational_directions
+        or witness_owner is live
+        or owner_attributes["_frame"] is not live._frame
+        or type(direction_index) is not int
+        or not 0 <= direction_index < len(scan.roots)
+        or type(lower) is not Fraction
+        or type(upper) is not Fraction
+        or not live._grid.horizon_domain[0]
+        <= lower
+        < upper
+        <= live._grid.horizon_domain[1]
+        or scan.iers_table_sha256 != live._frame.iers_table_sha256
+        or installed_iers().table_sha256 != scan.iers_table_sha256
+        or not np.array_equal(live._coords.ra.rad, owner_attributes["_coords"].ra.rad)
+        or not np.array_equal(live._coords.dec.rad, owner_attributes["_coords"].dec.rad)
+        or not all(
+            float(left.to_value("m")) == float(right.to_value("m"))
+            for left, right in zip(
+                live._site.geocentric, owner_attributes["_site"].geocentric, strict=True
+            )
+        )
+        or len(scan.summary_rows) != len(scan.roots)
+    ):
+        raise ValueError("direct classification operational owner mismatch")
+    # Authenticate all bounded projections before any classification return.
+    from radiosim.core.mmode.frame import (
+        SCAN_PROBE_OFFSET_TURN,
+        SCAN_ROOT_RESIDUAL,
+        SCAN_ROW_FIELDS,
+    )
+
+    if any(
+        set(entry)
+        != {
+            "direction_id",
+            "terminal_cell_count",
+            "boundary_evaluation_count",
+            "crossing_count",
+            "min_ceiling_margin_f64be",
+        }
+        or any(
+            type(entry[name]) is not int or entry[name] < 0
+            for name in (
+                "terminal_cell_count",
+                "boundary_evaluation_count",
+                "crossing_count",
+            )
+        )
+        or not math.isfinite(decode_f64be(entry["min_ceiling_margin_f64be"]))
+        or decode_f64be(entry["min_ceiling_margin_f64be"]) < 0.0
+        for entry in scan.summary_rows
+    ):
+        raise ValueError("direct classification invalid summary projection")
+    identifiers = [entry["direction_id"] for entry in scan.summary_rows]
+    if (
+        len(set(identifiers)) != len(identifiers)
+        or any(entry["direction_id"] not in identifiers for entry in scan.crossing_rows)
+        or type(scan.guard_count) is not int
+        or scan.guard_count
+        != sum(
+            entry["classification"] == "guard_interval" for entry in scan.crossing_rows
+        )
+        or sum(entry["terminal_cell_count"] for entry in scan.summary_rows)
+        != scan.isolation_interval_count
+        or sum(entry["boundary_evaluation_count"] for entry in scan.summary_rows)
+        != scan.evaluation_count
+    ):
+        raise ValueError("direct classification inconsistent scan counts/identifiers")
+    direction_id = identifiers[direction_index]
+    rows = [row for row in scan.crossing_rows if row["direction_id"] == direction_id]
+    summary = scan.summary_rows[direction_index]
+    roots = scan.roots[direction_index]
+    horizon_lo, horizon_hi = live._grid.horizon_domain
+    if any(
+        type(summary[name]) is not int or summary[name] < 0
+        for name in (
+            "crossing_count",
+            "terminal_cell_count",
+            "boundary_evaluation_count",
+        )
+    ) or summary["crossing_count"] != sum(
+        row["classification"] != "guard_interval" for row in rows
+    ):
+        raise ValueError("direct classification scan projection is incomplete")
+    previous_hi, previous_index = horizon_lo, -1
+    events: list[dict[str, Any]] = []
+    guards: list[dict[str, Any]] = []
+    for row in rows:
+        if set(row) != set(SCAN_ROW_FIELDS):
+            raise ValueError("direct classification invalid projection schema")
+        lo, hi = Fraction(row["turn_lo"]), Fraction(row["turn_hi"])
+        kind = row["classification"]
+        if (
+            row["turn_lo"] != canonical_rational(lo)
+            or row["turn_hi"] != canonical_rational(hi)
+            or not horizon_lo <= lo <= hi <= horizon_hi
+            or lo < previous_hi
+            or type(row["cell_index"]) is not int
+            or not previous_index < row["cell_index"] < summary["terminal_cell_count"]
+            or kind
+            not in {"scan_crossing", "excluded_upper_endpoint", "guard_interval"}
+            or row["ceiling_margin_f64be"] != f64be(0.0)
+        ):
+            raise ValueError("direct classification invalid projection domain/order")
+        previous_hi, previous_index = hi, row["cell_index"]
+        left, right = decode_f64be(row["f_lo_f64be"]), decode_f64be(row["f_hi_f64be"])
+        if not math.isfinite(left) or not math.isfinite(right):
+            raise ValueError("direct classification nonfinite endpoints")
+        item = {"row": row, "lo": lo, "hi": hi, "left": left, "right": right}
+        if kind == "guard_interval":
+            if (
+                not lo < hi
+                or hi - lo > SCAN_PROBE_OFFSET_TURN
+                or any(
+                    row[name] is not None
+                    for name in (
+                        "root_turn_lo",
+                        "root_turn_hi",
+                        "root_orientation",
+                        "root_residual_f64be",
+                    )
+                )
+                or type(row["left_sign"]) is not int
+                or type(row["right_sign"]) is not int
+                or row["left_sign"] != (int(left > 0) - int(left < 0))
+                or row["right_sign"] != (int(right > 0) - int(right < 0))
+            ):
+                raise ValueError("direct classification invalid guard projection")
+            guards.append(item)
+        else:
+            orientation = row["root_orientation"]
+            residual = decode_f64be(row["root_residual_f64be"])
+            signs = (-1, 1) if orientation == "rising" else (1, -1)
+            if (
+                orientation not in {"rising", "setting"}
+                or row["root_turn_lo"] != row["turn_lo"]
+                or row["root_turn_hi"] != row["turn_hi"]
+                or (row["left_sign"], row["right_sign"]) != signs
+                or type(row["left_sign"]) is not int
+                or type(row["right_sign"]) is not int
+                or not math.isfinite(residual)
+                or not 0 <= residual <= SCAN_ROOT_RESIDUAL
+                or (left != 0 and (1 if left > 0 else -1) != signs[0])
+                or (right != 0 and (1 if right > 0 else -1) != signs[1])
+                or (kind == "excluded_upper_endpoint") != (hi == horizon_hi)
+            ):
+                raise ValueError(
+                    "direct classification invalid crossing/excluded projection"
+                )
+            events.append(item)
+    if len({(event["lo"], event["hi"]) for event in events}) != len(events):
+        raise ValueError("direct classification duplicate crossing projection")
+    if any(
+        left["row"]["right_sign"] != right["row"]["left_sign"]
+        for left, right in zip(events, events[1:], strict=False)
+    ):
+        raise ValueError("direct classification contradictory adjacent crossings")
+    crossings = [
+        event for event in events if event["row"]["classification"] == "scan_crossing"
+    ]
+    if len(crossings) != len(roots):
+        raise ValueError("direct classification scan projection is incomplete")
+    used_guards: set[int] = set()
+    excluded_spans: list[tuple[Fraction, Fraction]] = []
+    root_position = 0
+    for event in events:
+        row, lo, hi = event["row"], event["lo"], event["hi"]
+        flanks: list[Fraction] = []
+        for side in ("left", "right"):
+            matches = [
+                (index, guard)
+                for index, guard in enumerate(guards)
+                if (guard["hi"] == lo if side == "left" else guard["lo"] == hi)
+            ]
+            if len(matches) > 1:
+                raise ValueError("direct classification duplicate guard flank")
+            if matches:
+                index, guard = matches[0]
+                if index in used_guards:
+                    raise ValueError("direct classification multiply owned guard")
+                used_guards.add(index)
+                if (
+                    guard["row"]["f_hi_f64be"] != row["f_lo_f64be"]
+                    if side == "left"
+                    else guard["row"]["f_lo_f64be"] != row["f_hi_f64be"]
+                ):
+                    raise ValueError("direct classification guard endpoint mismatch")
+                outer_value = guard["left"] if side == "left" else guard["right"]
+                expected_sign = (
+                    row["left_sign"] if side == "left" else row["right_sign"]
+                )
+                if outer_value != 0 and (1 if outer_value > 0 else -1) != expected_sign:
+                    raise ValueError("direct classification guard orientation mismatch")
+                flanks.append(guard["lo"] if side == "left" else guard["hi"])
+            else:
+                flanks.append(lo if side == "left" else hi)
+        if row["classification"] == "scan_crossing":
+            root = roots[root_position]
+            root_position += 1
+            if (
+                type(root.turn_lo) is not Fraction
+                or type(root.turn_hi) is not Fraction
+                or (
+                    root.guard_turn_lo is not None
+                    and type(root.guard_turn_lo) is not Fraction
+                )
+                or (
+                    root.guard_turn_hi is not None
+                    and type(root.guard_turn_hi) is not Fraction
+                )
+                or (root.turn_lo, root.turn_hi, root.orientation, f64be(root.residual))
+                != (lo, hi, row["root_orientation"], row["root_residual_f64be"])
+                or root.ambiguous_span != tuple(flanks)
+                or (
+                    root.guard_turn_lo is not None
+                    and not root.guard_turn_lo < root.turn_lo
+                )
+                or (
+                    root.guard_turn_hi is not None
+                    and not root.turn_hi < root.guard_turn_hi
+                )
+            ):
+                raise ValueError("direct classification root/guard/residual mismatch")
+        else:
+            excluded_spans.append((flanks[0], flanks[1]))
+    if len(used_guards) != len(guards):
+        raise ValueError("direct classification orphan guard interval")
+    for root in roots:
+        span_lo, span_hi = root.ambiguous_span
+        if lower < root.turn_lo < upper or lower < root.turn_hi < upper:
+            raise ValueError("direct classification piece omits a root bound")
+        if (
+            span_lo < upper
+            and lower < span_hi
+            and not span_lo <= lower < upper <= span_hi
+        ):
+            raise ValueError("direct classification piece omits a guard bound")
+    if any(lo < upper and lower < hi for lo, hi in excluded_spans):
+        raise ValueError(
+            "direct classification positive excluded ambiguity is unpartitioned"
+        )
+    if _inside_enclosure(roots, lower, upper):
+        return "root_enclosure"
+    # Only adjacent crossings constrain a gap; remote crossings alternate.
+    left_events = [event for event in events if event["hi"] <= lower]
+    right_events = [event for event in events if event["lo"] >= upper]
+    constraints: set[int] = set()
+    if left_events:
+        constraints.add(left_events[-1]["row"]["right_sign"])
+    if right_events:
+        constraints.add(right_events[0]["row"]["left_sign"])
+    if len(constraints) > 1:
+        raise ValueError("direct classification contradictory adjacent crossings")
+    with installed_iers_context():
+        triad = np.asarray(
+            witness_owner.at_pairs([direction_index], [(lower + upper) / 2])
+        )
+    if triad.shape != (1, 3) or not bool(np.all(np.isfinite(triad))):
+        raise ValueError("direct classification invalid operational witness")
+    value = float(triad[0, 2])
+    if value == 0.0:
+        raise ValueError("direct classification zero witness in root-free open piece")
+    if constraints and (1 if value > 0.0 else -1) not in constraints:
+        raise ValueError(
+            "direct classification witness contradicts crossing orientation"
+        )
+    return "smooth_above" if value > 0.0 else "smooth_below"
+
+
 def _direct_cubes(
     *,
     grid: CanonicalEraGrid,
@@ -2549,6 +2843,7 @@ def _direct_cubes(
     directions: Sequence[LedgerDirection],
     frozen: Sequence[FrozenHorizonTrajectory],
     operational_roots: Sequence[tuple[HorizonRootEnclosure, ...]],
+    operational_scan: Any,
     beam_peak_ceiling: float,
     input_identity_sha256: str,
     enclosure_manifest_sha256: str,
@@ -2569,7 +2864,39 @@ def _direct_cubes(
     a Stokes-``I`` sky evaluates precisely the arithmetic it did before the
     polarized fields existed.
     """
+    from radiosim.core.mmode.frame import OperationalHorizonScan
+    from radiosim.core.mmode.time import installed_iers, installed_iers_context
     from radiosim.core.polarization import stokes_to_shaw_fields
+
+    if not isinstance(operational_scan, OperationalHorizonScan):
+        raise ValueError("direct cubes require the successful operational scan")
+    live = operational_scan.evaluator
+    if (
+        live._frame is not frame
+        or live._grid is not grid
+        or context.frame is not frame
+        or operational_roots is not operational_scan.roots
+        or len(directions) != len(operational_roots)
+        or len(directions) != len(frozen)
+        or [row.direction_id for row in directions]
+        != [row["direction_id"] for row in operational_scan.summary_rows]
+        or operational_scan.iers_table_sha256 != frame.iers_table_sha256
+        or installed_iers().table_sha256 != frame.iers_table_sha256
+    ):
+        raise ValueError("direct cubes operational scan ownership mismatch")
+    witness_owner: Any = _operational_directions(frame, directions)
+    if (
+        not np.array_equal(live._coords.ra.rad, witness_owner._coords.ra.rad)
+        or not np.array_equal(live._coords.dec.rad, witness_owner._coords.dec.rad)
+        or not all(
+            float(left.to_value("m")) == float(right.to_value("m"))
+            for left, right in zip(
+                live._site.geocentric, witness_owner._site.geocentric, strict=True
+            )
+        )
+    ):
+        raise ValueError("direct cubes operational direction/site ownership mismatch")
+    scan_state = (live.evaluations, tuple(live.per_direction))
 
     samples = grid.sidereal_samples
     shape = (samples, context.n_baselines, context.n_frequencies, 4)
@@ -2646,35 +2973,57 @@ def _direct_cubes(
                 if piece_hi <= piece_lo:
                     continue
                 frozen_class = _classify_piece(frozen[index], piece_lo, piece_hi)
-                # Outside every enclosure of both models the two integrands
-                # coincide -- Section 12.1's sign census proves it -- so the
-                # operational class differs only inside an operational root.
-                operational_class = (
-                    "root_enclosure"
-                    if _inside_enclosure(operational_roots[index], piece_lo, piece_hi)
-                    else frozen_class
+                operational_class = _classify_operational_direct_piece(
+                    scan=operational_scan,
+                    witness_owner=witness_owner,
+                    direction_index=index,
+                    lower=piece_lo,
+                    upper=piece_hi,
                 )
-                radius = ceiling * float((piece_hi - piece_lo) / width)
+                if not math.isfinite(ceiling) or ceiling < 0.0:
+                    raise ValueError(
+                        "direct error ceiling must be finite and nonnegative"
+                    )
+                radius = _round_up_fraction(
+                    Fraction(ceiling) * ((piece_hi - piece_lo) / width)
+                )
+                if not math.isfinite(radius):
+                    raise ValueError("direct piece radius is not finite")
                 half = (piece_hi - piece_lo) / 2
                 middle = (piece_hi + piece_lo) / 2
 
-                integrands: dict[int, np.ndarray] = {}
+                integrands: dict[str, dict[int, np.ndarray]] = {
+                    "frozen": {},
+                    "operational": {},
+                }
                 applied: dict[int, np.ndarray] = {}
                 turn_arrays: dict[int, np.ndarray] = {}
-                if "smooth_above" in (frozen_class, operational_class):
+                for model, classification in (
+                    ("frozen", frozen_class),
+                    ("operational", operational_class),
+                ):
+                    if classification != "smooth_above":
+                        continue
                     for order, nodes, weights in orders:
                         turns = np.asarray(
                             [float(middle) + float(half) * node for node in nodes],
                             dtype=np.float64,
                         )
-                        enu = np.stack(
-                            [
-                                frozen_enu_at_phase(
-                                    frame, row.cirs_direction[None, :], turn * TAU
-                                )[0]
-                                for turn in turns
-                            ]
-                        )
+                        if model == "frozen":
+                            enu = np.stack(
+                                [
+                                    frozen_enu_at_phase(
+                                        frame, row.cirs_direction[None, :], turn * TAU
+                                    )[0]
+                                    for turn in turns
+                                ]
+                            )
+                        else:
+                            with installed_iers_context():
+                                enu = witness_owner.at_pairs(
+                                    [index] * len(turns),
+                                    [Fraction(float(turn)) for turn in turns],
+                                )
                         kernels = section6_kernel(
                             context, enu, stokes_fields=components
                         )
@@ -2683,7 +3032,7 @@ def _direct_cubes(
                             integrand = integrand + (
                                 kernels[name] * payloads[name][None, None, :, None]
                             )
-                        integrands[order] = integrand
+                        integrands[model][order] = integrand
                         applied[order] = weights * float(half) / float(width)
                         turn_arrays[order] = turns
 
@@ -2694,14 +3043,29 @@ def _direct_cubes(
                     if classification == "root_enclosure":
                         for frequency in range(context.n_frequencies):
                             if active[frequency]:
-                                errors[error_cube][sample_index, :, frequency, :] += (
-                                    radius
-                                )
+                                for baseline in range(context.n_baselines):
+                                    for correlation in range(4):
+                                        cell = (
+                                            sample_index,
+                                            baseline,
+                                            frequency,
+                                            correlation,
+                                        )
+                                        previous = float(errors[error_cube][cell])
+                                        updated = _round_up_fraction(
+                                            Fraction(previous) + Fraction(radius)
+                                        )
+                                        if not math.isfinite(updated):
+                                            raise ValueError(
+                                                "direct error accumulation is not finite"
+                                            )
+                                        errors[error_cube][cell] = updated
                     elif classification == "smooth_above":
                         for order, _nodes, _weights in orders:
                             name = ("F" if model == "frozen" else "O") + str(order)
                             contribution = (
-                                integrands[order] * applied[order][:, None, None, None]
+                                integrands[model][order]
+                                * applied[order][:, None, None, None]
                             )
                             cubes[name][sample_index] += np.sum(contribution, axis=0)
 
@@ -2747,6 +3111,8 @@ def _direct_cubes(
                                 )
                             )
                 piece_index += 1
+    if (live.evaluations, tuple(live.per_direction)) != scan_state:
+        raise ValueError("direct evaluation changed the live operational scan state")
     ordered.sort(key=lambda entry: entry[0])
     split_rows = [entry[1] for entry in ordered]
     return {
@@ -2793,7 +3159,7 @@ def _direct_split_row(
     payload_active: bool,
     frozen_class: str,
     operational_class: str,
-    integrands: Mapping[int, np.ndarray],
+    integrands: Mapping[str, Mapping[int, np.ndarray]],
     applied: Mapping[int, np.ndarray],
     turn_arrays: Mapping[int, np.ndarray],
     ceiling: float,
@@ -2838,7 +3204,7 @@ def _direct_split_row(
             if evaluated:
                 turns = turn_arrays[order]
                 weights = applied[order]
-                values = integrands[order][
+                values = integrands[model][order][
                     :, baseline_index, frequency_index, correlation_index
                 ]
                 total = complex(np.sum(values * weights))
@@ -2922,7 +3288,7 @@ def _piece_cuts(
             if lower < bound < upper:
                 cuts.add(bound)
     for root in operational_roots:
-        for bound in root.ambiguous_span:
+        for bound in (root.turn_lo, root.turn_hi, *root.ambiguous_span):
             if lower < bound < upper:
                 cuts.add(bound)
     return tuple(sorted(cuts))

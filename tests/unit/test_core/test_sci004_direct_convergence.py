@@ -515,6 +515,7 @@ def _d36_direct_case(
     frozen_below: bool = False,
     operational_east: float = 0.0,
     intensity: float = 2.0,
+    public_operational: bool = False,
 ) -> tuple[dict[str, Any], list[Any]]:
     """Inject owned geometry/payload only; execute real kernels and reductions.
 
@@ -524,11 +525,11 @@ def _d36_direct_case(
     """
     from fractions import Fraction
     from importlib import import_module
-    from types import SimpleNamespace
 
     solver: Any = import_module("radiosim.core.mmode.solver")
 
     class Grid:
+        horizon_domain = (Fraction(-1, 98), Fraction(97, 98))
         sidereal_samples = 49
         canonical_era_grid_sha256 = "0" * 64
 
@@ -555,9 +556,8 @@ def _d36_direct_case(
 
     calls: list[Any] = []
 
-    class Operational:
-        def __init__(self, _frame: Any, _directions: Any):
-            pass
+    class Operational(solver._operational_directions):
+        pass
 
         def at_pairs(self, indices: Any, turns: Any) -> np.ndarray:
             calls.append((tuple(indices), tuple(turns)))
@@ -570,14 +570,42 @@ def _d36_direct_case(
                     1.0 if Fraction(turn) > operational_sign_root else -1.0
                     for turn in turns
                 ]
+            elif any(operational_roots):
+                for position, (index, turn) in enumerate(
+                    zip(indices, turns, strict=True)
+                ):
+                    roots = operational_roots[index]
+                    if roots:
+                        previous = [root for root in roots if root.turn_hi <= turn]
+                        following = [root for root in roots if turn <= root.turn_lo]
+                        if previous:
+                            result[position, 2] = (
+                                1.0 if previous[-1].orientation == "rising" else -1.0
+                            )
+                        elif following:
+                            result[position, 2] = (
+                                -1.0 if following[0].orientation == "rising" else 1.0
+                            )
             return result
 
     def frozen_enu(_frame: Any, cirs: np.ndarray, _phase: float) -> np.ndarray:
         return np.tile([0.0, 0.0, 1.0], (len(cirs), 1))
 
     monkeypatch.setattr(solver, "frozen_enu_at_phase", frozen_enu)
-    monkeypatch.setattr(solver, "_operational_directions", Operational)
-    frame = SimpleNamespace()
+    if not public_operational:
+        monkeypatch.setattr(solver, "_operational_directions", Operational)
+    from radiosim.core.mmode.frame import (
+        OperationalHorizonScan,
+        build_frozen_frame,
+    )
+
+    frame: Any = build_frozen_frame(
+        start_time="2020-01-01T00:00:00",
+        longitude_deg=0.0,
+        latitude_deg=-30.0,
+        height_m=0.0,
+    )
+    grid = Grid()
     context = solver.KernelContext(
         frame=frame,
         beam_system=Beam(),
@@ -597,24 +625,140 @@ def _d36_direct_case(
             transfer_nside=0,
             cirs_direction=np.array([0.0, 0.0, 1.0]),
             icrs_ra_rad=0.0,
-            icrs_dec_rad=0.0,
+            icrs_dec_rad=-math.pi / 2 if public_operational else 0.0,
             active_frequency_mask=(intensity != 0.0,),
             resolved_stokes_iau=np.array([[intensity, 0.0, 0.0, 0.0]]),
             integration_weight=1.0,
         )
         for index in range(len(frozen_roots))
     )
-    result = solver._direct_cubes(
-        grid=Grid(),
-        frame=frame,
-        context=context,
-        directions=directions,
-        frozen=tuple(Frozen(roots) for roots in frozen_roots),
-        operational_roots=operational_roots,
-        beam_peak_ceiling=1.0,
-        input_identity_sha256="1" * 64,
-        enclosure_manifest_sha256="2" * 64,
+    # Construct a controlled successful-scan-shaped owner, not a real census.
+    # Actual scan correctness is tested separately; no missing argument is red.
+    frame_module: Any = import_module("radiosim.core.mmode.frame")
+    live: Any = frame_module._OperationalTrajectory(
+        frame,
+        grid,
+        [row.icrs_ra_rad for row in directions],
+        [row.icrs_dec_rad for row in directions],
     )
+    live.evaluations = 7 * len(directions)
+    live.per_direction = [7] * len(directions)
+
+    def forbidden_live(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("direct evaluation called the live scanner")
+
+    live.at_pairs = forbidden_live
+    live.at_common_turn = forbidden_live
+    import struct
+
+    def hex64(value: float) -> str:
+        return struct.pack(">d", value).hex()
+
+    def rational(value: Fraction) -> str:
+        return f"{value.numerator}/{value.denominator}"
+
+    crossings: list[dict[str, Any]] = []
+    for direction, roots in zip(directions, operational_roots, strict=True):
+        projected: list[dict[str, Any]] = []
+        for root in roots:
+            signs = (-1, 1) if root.orientation == "rising" else (1, -1)
+            projected.append(
+                {
+                    "direction_id": direction.direction_id,
+                    "classification": "scan_crossing",
+                    "turn_lo": rational(root.turn_lo),
+                    "turn_hi": rational(root.turn_hi),
+                    "root_turn_lo": rational(root.turn_lo),
+                    "root_turn_hi": rational(root.turn_hi),
+                    "root_orientation": root.orientation,
+                    "root_residual_f64be": hex64(root.residual),
+                    "f_lo_f64be": hex64(0.0),
+                    "f_hi_f64be": hex64(0.0),
+                    "ceiling_margin_f64be": hex64(0.0),
+                    "left_sign": signs[0],
+                    "right_sign": signs[1],
+                }
+            )
+            for lower, upper, before, after in (
+                (root.ambiguous_span[0], root.turn_lo, float(signs[0]), 0.0),
+                (root.turn_hi, root.ambiguous_span[1], 0.0, float(signs[1])),
+            ):
+                if lower == upper:
+                    continue
+                projected.append(
+                    {
+                        "direction_id": direction.direction_id,
+                        "classification": "guard_interval",
+                        "turn_lo": rational(lower),
+                        "turn_hi": rational(upper),
+                        "root_turn_lo": None,
+                        "root_turn_hi": None,
+                        "root_orientation": None,
+                        "root_residual_f64be": None,
+                        "f_lo_f64be": hex64(before),
+                        "f_hi_f64be": hex64(after),
+                        "ceiling_margin_f64be": hex64(0.0),
+                        "left_sign": int(before > 0) - int(before < 0),
+                        "right_sign": int(after > 0) - int(after < 0),
+                    }
+                )
+        projected.sort(key=lambda row: Fraction(row["turn_lo"]))
+        for index, row in enumerate(projected):
+            crossings.append({**row, "cell_index": index})
+    scan = OperationalHorizonScan(
+        crossing_rows=tuple(crossings),
+        summary_rows=tuple(
+            {
+                "direction_id": row.direction_id,
+                "crossing_count": len(roots),
+                "terminal_cell_count": 49,
+                "boundary_evaluation_count": 7,
+                "min_ceiling_margin_f64be": hex64(0.0),
+            }
+            for row, roots in zip(directions, operational_roots, strict=True)
+        ),
+        ledger_sha256="3" * 64,
+        roots=operational_roots,
+        centre_values=np.ones((49, len(directions))),
+        evaluator=live,
+        guard_count=sum(row["classification"] == "guard_interval" for row in crossings),
+        evaluation_count=live.evaluations,
+        isolation_interval_count=49 * len(directions),
+        astropy_version="synthetic-control",
+        erfa_version="synthetic-control",
+        iers_table_sha256=frame.iers_table_sha256,
+    )
+    state = (live.evaluations, tuple(live.per_direction), scan.manifest())
+    preimages: list[Any] = []
+    original_digest = solver.object_digest
+
+    def capture_preimage(domain: str, value: Any) -> str:
+        if domain in {
+            "radiosim.mmode-direct-piece-cell.v1",
+            "radiosim.mmode-direct-piece-error.v1",
+        }:
+            preimages.append((domain, value))
+        return original_digest(domain, value)
+
+    monkeypatch.setattr(solver, "object_digest", capture_preimage)
+    arguments: dict[str, Any] = {
+        "grid": grid,
+        "frame": frame,
+        "context": context,
+        "directions": directions,
+        "frozen": tuple(Frozen(roots) for roots in frozen_roots),
+        "operational_roots": operational_roots,
+        "operational_scan": scan,
+        "beam_peak_ceiling": 1.0,
+        "input_identity_sha256": "1" * 64,
+        "enclosure_manifest_sha256": "2" * 64,
+    }
+    result = solver._direct_cubes(**arguments)
+    assert (live.evaluations, tuple(live.per_direction), scan.manifest()) == state
+    result["_d36_preimages"] = preimages
+    result["_d36_arguments"] = arguments
+    result["_d36_scan"] = scan
+    result["_d36_witness"] = solver._operational_directions(frame, directions)
     return result, calls
 
 
@@ -775,3 +919,597 @@ def test_d36_identity_fringe_and_zero_error_control(monkeypatch: Any) -> None:
         assert not np.any(result[key][..., (1, 2)])
     assert not np.any(result["EF"])
     assert not np.any(result["EO"])
+
+
+def test_d36_adapter_owned_open_pieces_and_rejections(monkeypatch: Any) -> None:
+    """A singleton endpoint does not extend ambiguity into either open piece."""
+    from dataclasses import replace
+    from fractions import Fraction
+    from importlib import import_module
+
+    import pytest
+
+    solver: Any = import_module("radiosim.core.mmode.solver")
+    root = Fraction(1, 4)
+    result, _ = _d36_direct_case(
+        monkeypatch,
+        operational_roots=((_d36_root(root, root),),),
+        operational_sign_root=root,
+    )
+    scan, witness = result["_d36_scan"], result["_d36_witness"]
+    classify = solver._classify_operational_direct_piece
+    arguments = {"scan": scan, "witness_owner": witness, "direction_index": 0}
+    before = (scan.evaluator.evaluations, tuple(scan.evaluator.per_direction))
+    assert (
+        classify(**arguments, lower=root - Fraction(1, 1000), upper=root)
+        == "smooth_below"
+    )
+    assert (
+        classify(**arguments, lower=root, upper=root + Fraction(1, 1000))
+        == "smooth_above"
+    )
+    with pytest.raises(ValueError, match="omits a root bound"):
+        classify(
+            **arguments, lower=root - Fraction(1, 1000), upper=root + Fraction(1, 1000)
+        )
+    for invalid in (
+        replace(scan, crossing_rows=()),
+        replace(scan, iers_table_sha256="f" * 64),
+        replace(scan, summary_rows=()),
+    ):
+        with pytest.raises(ValueError, match="owner mismatch|projection is incomplete"):
+            classify(
+                **{**arguments, "scan": invalid},
+                lower=root,
+                upper=root + Fraction(1, 1000),
+            )
+    with pytest.raises(ValueError, match="owner mismatch"):
+        classify(
+            **{**arguments, "witness_owner": scan.evaluator},
+            lower=root,
+            upper=root + Fraction(1, 1000),
+        )
+    with pytest.raises(ValueError, match="successful scan"):
+        classify(
+            **{**arguments, "scan": object()},
+            lower=root,
+            upper=root + Fraction(1, 1000),
+        )
+    assert (scan.evaluator.evaluations, tuple(scan.evaluator.per_direction)) == before
+
+
+def test_d36_all_model_arrays_join_independent_serialized_preimages(
+    monkeypatch: Any,
+) -> None:
+    """Rebuild the cell digests and all four reductions from serialized operands."""
+    import hashlib
+    import json
+    import struct
+
+    epsilon = 1e-6
+    result, _ = _d36_direct_case(monkeypatch, operational_east=epsilon)
+    cubes = {key: np.zeros_like(result[key]) for key in ("F64", "F128", "O64", "O128")}
+    node_buffers: dict[tuple[str, int, int], np.ndarray] = {}
+    rows = result["split_rows"]
+    lookup = {
+        (r["sample_index"], r["correlation_index"], r["piece_index"]): r for r in rows
+    }
+    for domain, value in result["_d36_preimages"]:
+        raw = json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode()
+        digest = hashlib.sha256(
+            domain.encode() + b"\0" + struct.pack(">Q", len(raw)) + raw
+        ).hexdigest()
+        row = lookup[
+            value["sample_index"], value["correlation_index"], value["piece_index"]
+        ]
+        model = value["model"]
+        if domain.endswith("error.v1"):
+            assert row[f"{model}_enclosure_error_preimage_sha256"] == digest
+            assert value["enclosure_error_f64be"] == "0000000000000000"
+            continue
+        order = value["gauss_order"]
+        assert row[f"{model}_gauss{order}_contribution_sha256"] == digest
+
+        def decode(h: str) -> float:
+            return struct.unpack(">d", bytes.fromhex(h))[0]
+
+        parts = [decode(h) for h in value["integrand_reim_f64be"]]
+        samples = np.array(parts[::2]) + 1j * np.array(parts[1::2])
+        expected = (
+            0j
+            if value["correlation_index"] in (1, 2)
+            else (
+                complex(
+                    math.cos(-math.tau * 20 * epsilon),
+                    math.sin(-math.tau * 20 * epsilon),
+                )
+                if model == "operational"
+                else 1 + 0j
+            )
+        )
+        np.testing.assert_allclose(samples, expected, rtol=0, atol=1e-15)
+        weights = np.array([decode(h) for h in value["weights_f64be"]])
+        contribution = complex(np.sum(samples * weights))
+        assert (
+            struct.pack(">d", contribution.real).hex()
+            == value["contribution_real_f64be"]
+        )
+        assert (
+            struct.pack(">d", contribution.imag).hex()
+            == value["contribution_imag_f64be"]
+        )
+        key = ("F" if model == "frozen" else "O") + str(order)
+        group = (key, value["sample_index"], value["piece_index"])
+        buffer = node_buffers.setdefault(
+            group, np.zeros((order, 1, 1, 4), dtype=np.complex128)
+        )
+        buffer[:, 0, 0, value["correlation_index"]] = samples * weights
+    # Preserve the existing vector-axis reduction separately from the recorded
+    # scalar per-cell sum: NumPy may choose different addition groupings.
+    for (key, sample, _piece), buffer in node_buffers.items():
+        cubes[key][sample] += np.sum(buffer, axis=0)
+    for key, cube in cubes.items():
+        np.testing.assert_array_equal(cube, result[key])
+    assert not np.any(result["EF"]) and not np.any(result["EO"])
+
+
+def test_d36_public_astropy_operational_nodes_own_direct_preimages(
+    monkeypatch: Any,
+) -> None:
+    """Public AltAz at the retained UT1 nodes supplies O's real fringe."""
+    import struct
+    from fractions import Fraction
+    from importlib import import_module
+
+    u: Any = import_module("astropy.units")
+    coordinates: Any = import_module("astropy.coordinates")
+    time: Any = import_module("astropy.time")
+
+    from radiosim.core.mmode.time import (
+        ERA_RATE_TURNS_PER_UT1_DAY,
+        installed_iers_context,
+    )
+
+    result, _ = _d36_direct_case(monkeypatch, public_operational=True)
+    frame = result["_d36_scan"].evaluator._frame
+    rows = [
+        v
+        for d, v in result["_d36_preimages"]
+        if d.endswith("cell.v1")
+        and v["model"] == "operational"
+        and v["sample_index"] == 0
+        and v["correlation_index"] == 0
+    ]
+    assert {v["gauss_order"] for v in rows} == {64, 128}
+    for row in rows:
+        turns = [Fraction(v) for v in row["node_turns"]]
+        jd1, jd2 = frame.ut1_two_part
+        times = time.Time(
+            np.full(len(turns), float(jd1)),
+            [float(Fraction(jd2) + v / ERA_RATE_TURNS_PER_UT1_DAY) for v in turns],
+            format="jd",
+            scale="ut1",
+        )
+        site = coordinates.EarthLocation.from_geodetic(0 * u.deg, -30 * u.deg, 0 * u.m)
+        with installed_iers_context():
+            horizontal = coordinates.SkyCoord(
+                ra=np.zeros(len(turns)) * u.rad,
+                dec=np.full(len(turns), -math.pi / 2) * u.rad,
+                frame="icrs",
+            ).transform_to(coordinates.AltAz(obstime=times, location=site, pressure=0))
+        east = np.cos(horizontal.alt.rad) * np.sin(horizontal.az.rad)
+        expected = np.exp(-1j * math.tau * 20 * east)
+        parts = [
+            struct.unpack(">d", bytes.fromhex(v))[0]
+            for v in row["integrand_reim_f64be"]
+        ]
+        actual = np.array(parts[::2]) + 1j * np.array(parts[1::2])
+        np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-14)
+        assert np.max(np.abs(actual - 1)) > 1e-4
+    assert np.max(np.abs(result["O128"] - result["F128"])) > 1e-4
+    assert result["_d36_scan"].evaluator.evaluations == 7
+
+
+def test_d36_adapter_guard_interiors_and_excluded_upper_endpoint(
+    monkeypatch: Any,
+) -> None:
+    from dataclasses import replace
+    from fractions import Fraction
+    from importlib import import_module
+
+    import pytest
+
+    solver: Any = import_module("radiosim.core.mmode.solver")
+    root = Fraction(1, 4)
+    step = Fraction(1, 2**48)
+    enclosure = _d36_root(
+        root, root + step, guard_turn_lo=root - step, guard_turn_hi=root + 2 * step
+    )
+    result, _ = _d36_direct_case(monkeypatch, operational_roots=((enclosure,),))
+    scan, witness = result["_d36_scan"], result["_d36_witness"]
+    classify = solver._classify_operational_direct_piece
+    args = {"scan": scan, "witness_owner": witness, "direction_index": 0}
+    for lo, hi in (
+        (root - step, root),
+        (root, root + step),
+        (root + step, root + 2 * step),
+    ):
+        assert classify(**args, lower=lo, upper=hi) == "root_enclosure"
+    assert (
+        classify(**args, lower=root + 2 * step, upper=root + 3 * step) == "smooth_above"
+    )
+    with pytest.raises(ValueError, match="omits a guard bound"):
+        classify(**args, lower=root - 2 * step, upper=root)
+    endpoint = scan.evaluator._grid.horizon_domain[1]
+    endpoint_text = f"{endpoint.numerator}/{endpoint.denominator}"
+    excluded = {
+        **next(
+            row
+            for row in scan.crossing_rows
+            if row["classification"] == "scan_crossing"
+        ),
+        "classification": "excluded_upper_endpoint",
+        "cell_index": 48,
+        "turn_lo": endpoint_text,
+        "turn_hi": endpoint_text,
+        "root_turn_lo": endpoint_text,
+        "root_turn_hi": endpoint_text,
+        "root_orientation": "setting",
+        "left_sign": 1,
+        "right_sign": -1,
+    }
+    amended = replace(
+        scan,
+        crossing_rows=(*scan.crossing_rows, excluded),
+        summary_rows=({**scan.summary_rows[0], "crossing_count": 2},),
+    )
+    assert (
+        classify(**{**args, "scan": amended}, lower=endpoint - step, upper=endpoint)
+        == "smooth_above"
+    )
+    wrong = replace(
+        amended,
+        crossing_rows=(
+            *scan.crossing_rows,
+            {**excluded, "root_turn_hi": str(endpoint - step)},
+        ),
+    )
+    with pytest.raises(ValueError, match="invalid crossing/excluded projection"):
+        classify(**{**args, "scan": wrong}, lower=endpoint - step, upper=endpoint)
+    original = witness.at_pairs
+
+    def zero_witness(indices: Any, turns: Any) -> np.ndarray:
+        return np.zeros((len(turns), 3))
+
+    monkeypatch.setattr(witness, "at_pairs", zero_witness)
+    with pytest.raises(ValueError, match="zero witness"):
+        classify(**args, lower=root + 2 * step, upper=root + 3 * step)
+    monkeypatch.setattr(witness, "at_pairs", original)
+
+
+def test_d36_direct_rejects_foreign_owners_before_nodes(monkeypatch: Any) -> None:
+    from dataclasses import replace
+    from importlib import import_module
+
+    import pytest
+
+    solver: Any = import_module("radiosim.core.mmode.solver")
+    result, calls = _d36_direct_case(monkeypatch)
+    arguments = result["_d36_arguments"]
+    scan = result["_d36_scan"]
+    before = (
+        len(calls),
+        scan.evaluator.evaluations,
+        tuple(scan.evaluator.per_direction),
+    )
+    changes = (
+        {"frame": replace(arguments["frame"])},
+        {"grid": type(arguments["grid"])()},
+        {"operational_roots": tuple(root for root in scan.roots)},
+        {"operational_scan": replace(scan, iers_table_sha256="f" * 64)},
+        {"directions": (replace(arguments["directions"][0], direction_id="other"),)},
+        {"directions": (replace(arguments["directions"][0], icrs_ra_rad=0.01),)},
+    )
+    for change in changes:
+        with pytest.raises(ValueError, match="ownership mismatch"):
+            solver._direct_cubes(**{**arguments, **change})
+        assert (
+            len(calls),
+            scan.evaluator.evaluations,
+            tuple(scan.evaluator.per_direction),
+        ) == before
+
+
+def test_d36_complete_projection_refuses_rehashed_local_contradictions(
+    monkeypatch: Any,
+) -> None:
+    import struct
+    from dataclasses import replace
+    from fractions import Fraction
+    from importlib import import_module
+
+    import pytest
+
+    solver: Any = import_module("radiosim.core.mmode.solver")
+    lower, step = Fraction(1, 4), Fraction(1, 2**48)
+    root = _d36_root(
+        lower, lower + step, guard_turn_lo=lower - step, guard_turn_hi=lower + 2 * step
+    )
+    result, _ = _d36_direct_case(monkeypatch, operational_roots=((root,),))
+    scan, witness = result["_d36_scan"], result["_d36_witness"]
+    classify = solver._classify_operational_direct_piece
+    args = {
+        "witness_owner": witness,
+        "direction_index": 0,
+        "lower": lower,
+        "upper": lower + step,
+    }
+    assert classify(scan=scan, **args) == "root_enclosure"
+    rows = list(scan.crossing_rows)
+    assert [row["classification"] for row in rows] == [
+        "guard_interval",
+        "scan_crossing",
+        "guard_interval",
+    ]
+
+    def text(v: Fraction) -> str:
+        return f"{v.numerator}/{v.denominator}"
+
+    shifted = ({**rows[0], "turn_lo": text(lower - 2 * step)}, *rows[1:])
+    endpoint = (
+        {**rows[0], "f_hi_f64be": struct.pack(">d", 2**-50).hex(), "right_sign": 1},
+        *rows[1:],
+    )
+    residual = (
+        rows[0],
+        {**rows[1], "root_residual_f64be": struct.pack(">d", 2**-50).hex()},
+        rows[2],
+    )
+    orphan = {
+        **rows[2],
+        "cell_index": 3,
+        "turn_lo": "3/4",
+        "turn_hi": text(Fraction(3, 4) + step),
+    }
+    invalid_excluded = {**rows[1], "classification": "excluded_upper_endpoint"}
+    variants = (
+        (
+            replace(scan, crossing_rows=(rows[1],), guard_count=0),
+            "root/guard/residual mismatch",
+        ),
+        (replace(scan, crossing_rows=shifted), "root/guard/residual mismatch"),
+        (replace(scan, crossing_rows=endpoint), "guard endpoint mismatch"),
+        (replace(scan, crossing_rows=residual), "root/guard/residual mismatch"),
+        (
+            replace(scan, crossing_rows=(rows[0], invalid_excluded, rows[2])),
+            "invalid crossing/excluded projection",
+        ),
+        (replace(scan, guard_count=0), "inconsistent scan counts"),
+        (
+            replace(scan, crossing_rows=(*rows, orphan), guard_count=3),
+            "orphan guard interval",
+        ),
+        (
+            replace(
+                scan,
+                crossing_rows=(rows[0], {**rows[0], "cell_index": 1}, *rows[1:]),
+                guard_count=3,
+            ),
+            "projection domain/order",
+        ),
+        (
+            replace(
+                scan, summary_rows=({**scan.summary_rows[0], "crossing_count": 2},)
+            ),
+            "projection is incomplete",
+        ),
+        (
+            replace(scan, roots=((replace(root, orientation="setting"),),)),
+            "root/guard/residual mismatch",
+        ),
+    )
+    variants += (
+        (
+            replace(scan, roots=((replace(root, turn_lo=float(root.turn_lo)),),)),
+            "root/guard/residual mismatch",
+        ),
+        (
+            replace(
+                scan, crossing_rows=({**rows[0], "direction_id": "foreign"}, *rows[1:])
+            ),
+            "inconsistent scan counts/identifiers",
+        ),
+    )
+    for invalid, message in variants:
+        with pytest.raises(ValueError, match=message):
+            classify(scan=invalid, **args)
+    assert scan.evaluator.evaluations == 7
+
+
+def test_d36_orientation_constrains_separate_witness_for_both_crossings(
+    monkeypatch: Any,
+) -> None:
+    from dataclasses import replace
+    from fractions import Fraction
+    from importlib import import_module
+
+    import pytest
+
+    solver: Any = import_module("radiosim.core.mmode.solver")
+    turn = Fraction(1, 4)
+    for orientation, before_sign in (("rising", -1), ("setting", 1)):
+        root = replace(_d36_root(turn, turn), orientation=orientation)
+        result, _ = _d36_direct_case(monkeypatch, operational_roots=((root,),))
+        scan, witness = result["_d36_scan"], result["_d36_witness"]
+        classify = solver._classify_operational_direct_piece
+        for lo, hi, expected in (
+            (turn - Fraction(1, 1000), turn, before_sign),
+            (turn, turn + Fraction(1, 1000), -before_sign),
+        ):
+            args = {
+                "scan": scan,
+                "witness_owner": witness,
+                "direction_index": 0,
+                "lower": lo,
+                "upper": hi,
+            }
+            assert classify(**args) == (
+                "smooth_above" if expected > 0 else "smooth_below"
+            )
+            original = witness.at_pairs
+
+            def contrary(indices: Any, turns: Any, sign: int = -expected) -> np.ndarray:
+                return np.tile([0.0, 0.0, float(sign)], (len(turns), 1))
+
+            monkeypatch.setattr(witness, "at_pairs", contrary)
+            with pytest.raises(
+                ValueError, match="witness contradicts crossing orientation"
+            ):
+                classify(**args)
+            monkeypatch.setattr(witness, "at_pairs", original)
+        assert scan.evaluator.evaluations == 7
+
+
+def test_d36_finite_excluded_ambiguity_refuses_without_ungranted_cuts(
+    monkeypatch: Any,
+) -> None:
+    import struct
+    from dataclasses import replace
+    from fractions import Fraction
+    from importlib import import_module
+
+    import pytest
+
+    solver: Any = import_module("radiosim.core.mmode.solver")
+    result, _ = _d36_direct_case(monkeypatch)
+    scan, witness = result["_d36_scan"], result["_d36_witness"]
+    endpoint = scan.evaluator._grid.horizon_domain[1]
+    step = Fraction(1, 2**48)
+
+    def text(v: Fraction) -> str:
+        return f"{v.numerator}/{v.denominator}"
+
+    zero = struct.pack(">d", 0.0).hex()
+    event = {
+        "direction_id": "point:0:0",
+        "cell_index": 48,
+        "turn_lo": text(endpoint),
+        "turn_hi": text(endpoint),
+        "classification": "excluded_upper_endpoint",
+        "f_lo_f64be": zero,
+        "f_hi_f64be": zero,
+        "ceiling_margin_f64be": zero,
+        "left_sign": 1,
+        "right_sign": -1,
+        "root_turn_lo": text(endpoint),
+        "root_turn_hi": text(endpoint),
+        "root_orientation": "setting",
+        "root_residual_f64be": zero,
+    }
+    amended = replace(
+        scan,
+        crossing_rows=(event,),
+        summary_rows=({**scan.summary_rows[0], "crossing_count": 1},),
+    )
+    args = {
+        "witness_owner": witness,
+        "direction_index": 0,
+        "lower": endpoint - 2 * step,
+        "upper": endpoint,
+    }
+    assert (
+        solver._classify_operational_direct_piece(scan=amended, **args)
+        == "smooth_above"
+    )
+    finite_event = {
+        **event,
+        "turn_lo": text(endpoint - step),
+        "root_turn_lo": text(endpoint - step),
+    }
+    finite = replace(amended, crossing_rows=(finite_event,))
+    with pytest.raises(
+        ValueError, match="positive excluded ambiguity is unpartitioned"
+    ):
+        solver._classify_operational_direct_piece(scan=finite, **args)
+    guard = {
+        **finite_event,
+        "cell_index": 47,
+        "turn_lo": text(endpoint - 2 * step),
+        "turn_hi": text(endpoint - step),
+        "classification": "guard_interval",
+        "left_sign": 1,
+        "right_sign": 0,
+        "f_lo_f64be": struct.pack(">d", 1.0).hex(),
+        "root_turn_lo": None,
+        "root_turn_hi": None,
+        "root_orientation": None,
+        "root_residual_f64be": None,
+    }
+    guarded = replace(finite, crossing_rows=(guard, finite_event), guard_count=1)
+    with pytest.raises(
+        ValueError, match="positive excluded ambiguity is unpartitioned"
+    ):
+        solver._classify_operational_direct_piece(scan=guarded, **args)
+    assert (
+        solver._classify_operational_direct_piece(
+            scan=guarded,
+            **{**args, "lower": endpoint - 3 * step, "upper": endpoint - 2 * step},
+        )
+        == "smooth_above"
+    )
+
+
+def test_d36_middle_enclosure_in_alternating_three_event_census(
+    monkeypatch: Any,
+) -> None:
+    """Gap signs may differ across an enclosure that contains a setting event."""
+    from dataclasses import replace
+    from fractions import Fraction
+    from importlib import import_module
+
+    solver: Any = import_module("radiosim.core.mmode.solver")
+    width = Fraction(1, 2**49)
+    roots = tuple(
+        replace(_d36_root(turn, turn + width), orientation=orientation)
+        for turn, orientation in (
+            (Fraction(1, 4), "rising"),
+            (Fraction(1, 2), "setting"),
+            (Fraction(3, 4), "rising"),
+        )
+    )
+    result, _ = _d36_direct_case(monkeypatch, operational_roots=(roots,))
+    scan, witness = result["_d36_scan"], result["_d36_witness"]
+    middle = roots[1]
+    projected = _d36_rows(result, middle.turn_lo, middle.turn_hi)
+    assert len(projected) == 1
+    assert projected[0]["operational_piece_class"] == "root_enclosure"
+    assert projected[0]["operational_gauss128_node_count"] == 0
+    state = (
+        scan.evaluator.evaluations,
+        tuple(scan.evaluator.per_direction),
+        scan.manifest(),
+    )
+
+    def forbidden_witness(indices: Any, turns: Any) -> np.ndarray:
+        raise AssertionError(
+            "an authenticated ambiguous piece must not use a gap witness"
+        )
+
+    monkeypatch.setattr(witness, "at_pairs", forbidden_witness)
+    assert (
+        solver._classify_operational_direct_piece(
+            scan=scan,
+            witness_owner=witness,
+            direction_index=0,
+            lower=middle.turn_lo,
+            upper=middle.turn_hi,
+        )
+        == "root_enclosure"
+    )
+    assert (
+        scan.evaluator.evaluations,
+        tuple(scan.evaluator.per_direction),
+        scan.manifest(),
+    ) == state
