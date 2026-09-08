@@ -403,3 +403,194 @@ def test_missing_settlement_is_refused(tmp_path: Path) -> None:
     events = _events(tmp_path)
     assert not any(row["event"] == "start" for row in events)
     assert any(row["event"] == "attempted_configuration" for row in events)
+
+
+def _partition_tool() -> Any:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("partition_kernel", TOOL)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_real_collection_uses_observed_file_and_parameter_order(tmp_path: Path) -> None:
+    kernel = _partition_tool()
+    _ = (tmp_path / "pyproject.toml").write_text(
+        '[tool.pytest.ini_options]\nmarkers=["slow: excluded"]\n'
+    )
+    observer = """import hashlib, inspect, json, os, pathlib, pytest, sys
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_sessionfinish(session, exitstatus):
+ yield
+ manager=session.config.pluginmanager
+ assert manager.get_name(manager) == str(id(manager))
+ rows=[]
+ for name,plugin in manager.list_name_plugin():
+  owner=plugin if inspect.ismodule(plugin) else type(plugin)
+  try:
+   source=inspect.getsourcefile(owner)
+  except TypeError:
+   source=None
+  identity={"module":getattr(owner,"__module__",getattr(owner,"__name__",None)),
+   "class":None if inspect.ismodule(plugin) else type(plugin).__qualname__,
+   "source":source,"sha256":hashlib.sha256(pathlib.Path(source).read_bytes()).hexdigest() if source else None}
+  if plugin is manager:
+   assert source is not None
+   identity["registration"]="self-registered-plugin-manager"
+  else:
+   identity["registration"]=name
+  rows.append({"raw_name":name,"manager":plugin is manager,"identity":identity})
+ record={"nodes":[item.nodeid for item in session.items],"exit":int(exitstatus),
+  "args":session.config.args,"options":vars(session.config.option),
+  "raw_plugins":rows,"plugins":sorted((r["identity"] for r in rows),key=lambda r:json.dumps(r,sort_keys=True)),
+  "distributions":sorted((d.project_name,d.version) for _,d in manager.list_plugin_distinfo()),
+  "executable":sys.executable,"pytest":pytest.__version__}
+ with pathlib.Path(os.environ["PARTITION_TEST_RECORD"]).open("x") as stream:
+  json.dump(record,stream,default=str)
+"""
+    _ = (tmp_path / "conftest.py").write_text(observer)
+    body = """import pytest
+@pytest.mark.parametrize("value", [0,1], ids=["p0","p1"])
+def test_parameter(value):
+ raise AssertionError("BODY_EXECUTED")
+@pytest.fixture(params=[0,1], ids=["f0","f1"])
+def value(request):
+ return request.param
+def test_fixture(value):
+ raise AssertionError("BODY_EXECUTED")
+@pytest.mark.skip(reason="retained member")
+def test_skipped():
+ raise AssertionError("BODY_EXECUTED")
+@pytest.mark.slow
+def test_slow():
+ raise AssertionError("BODY_EXECUTED")
+"""
+    for name in ("test_a.py", "test_b.py", "test_c.py"):
+        _ = (tmp_path / name).write_text(body)
+    records: list[dict[str, Any]] = []
+
+    def collect(selection: tuple[str, ...]) -> tuple[str, ...]:
+        args = [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-m",
+            "not slow",
+            *selection,
+        ]
+        record_path = tmp_path / f"observation-{len(records)}.json"
+        env = os.environ.copy()
+        env["PARTITION_TEST_RECORD"] = str(record_path)
+        run = subprocess.run(
+            args, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=30
+        )
+        _ = record_path.with_suffix(".stdout").write_text(run.stdout)
+        _ = record_path.with_suffix(".stderr").write_text(run.stderr)
+        assert run.returncode == 0, run.stdout + run.stderr
+        record = cast(dict[str, Any], json.loads(record_path.read_text()))
+        records.append(record)
+        assert record["exit"] == 0
+        assert "BODY_EXECUTED" not in run.stdout + run.stderr
+        return tuple(record["nodes"])
+
+    baseline = collect((".",))
+    selected, empty = kernel._ordered_files(
+        baseline, ("test_b.py", "test_a.py"), ("test_a.py", "test_b.py", "test_c.py")
+    )
+    assert selected == ("test_a.py", "test_b.py") and empty == ()
+    actual = collect(selected)
+    assert actual == tuple(n for n in baseline if n.partition("::")[0] in selected)
+    assert any("[p0]" in n for n in actual) and any("[f1]" in n for n in actual)
+    assert any("test_skipped" in n for n in actual)
+    assert not any("test_slow" in n for n in actual)
+    assert records[0]["plugins"] == records[1]["plugins"]
+    assert records[0]["distributions"] == records[1]["distributions"]
+
+
+def _partition_case() -> tuple[
+    Any, tuple[str, ...], tuple[str, ...], dict[str, tuple[str, ...]]
+]:
+    kernel = _partition_tool()
+    roster = tuple(p for paths in kernel.PARTITION_FILES.values() for p in paths) + (
+        "tests/unit/test_ci_non_slow_partition.py",
+    )
+    baseline = (
+        roster[0] + "::test_example[p::0]",
+        roster[0] + "::test_example[p::1]",
+    ) + tuple(p + "::test_example[p::0]" for p in roster[1:])
+    groups = {
+        g: tuple(n for n in baseline if n.partition("::")[0] in paths)
+        for g, paths in kernel.PARTITION_FILES.items()
+    }
+    groups["general"] = (baseline[-1],)
+    return kernel, roster, baseline, groups
+
+
+def test_partition_exact_cover_and_empty_tree_order() -> None:
+    kernel, roster, baseline, groups = _partition_case()
+    before = groups.copy()
+    result = kernel.prove_partition(baseline, groups, roster)
+    assert groups == before
+    assert result["general"][0][0] == "tests"
+    assert len(result) == 6
+    history = kernel.PARTITION_FILES["history"]
+    selected, empty = kernel._ordered_files((), history, tuple(reversed(roster)))
+    assert selected == empty == tuple(reversed(history))
+    all_empty = dict.fromkeys(groups, ())
+    assert len(kernel.prove_partition((), all_empty, roster)) == 6
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "reorder",
+        "missing",
+        "extra",
+        "duplicate",
+        "foreign",
+        "group",
+        "missing-owner",
+        "duplicate-roster",
+        "wrong-membership",
+    ],
+)
+def test_partition_refuses_changed_observations(mutation: str) -> None:
+    kernel, roster, baseline, groups = _partition_case()
+    if mutation == "reorder":
+        groups["history"] = (
+            groups["history"][1],
+            groups["history"][0],
+            *groups["history"][2:],
+        )
+    elif mutation == "missing":
+        groups["history"] = groups["history"][:-1]
+    elif mutation == "extra":
+        groups["history"] += (roster[0] + "::test_extra",)
+    elif mutation == "duplicate":
+        baseline += (baseline[0],)
+    elif mutation == "foreign":
+        groups["general"] = ("tests/unit/foreign.py::test_x",)
+    elif mutation == "group":
+        groups["unknown"] = ()
+    elif mutation == "missing-owner":
+        roster = roster[1:]
+    elif mutation == "duplicate-roster":
+        roster += (roster[0],)
+    else:
+        groups["general"] += groups["history"]
+    before = groups.copy()
+    with pytest.raises(ValueError):
+        _ = kernel.prove_partition(baseline, groups, roster)
+    assert groups == before
+
+
+def test_partition_requires_an_owner_even_with_zero_selected_nodes() -> None:
+    kernel, roster, _, groups = _partition_case()
+    empty_groups = dict.fromkeys(groups, ())
+    assert len(kernel.prove_partition((), empty_groups, roster)) == 6
+    missing_owner = roster[1:]
+    with pytest.raises(ValueError, match="missing or duplicate required owner"):
+        _ = kernel.prove_partition((), empty_groups, missing_owner)

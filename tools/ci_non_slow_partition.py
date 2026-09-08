@@ -297,3 +297,103 @@ class _Diagnostic:
     def pytest_sessionfinish(self, session: pytest.Session, exitstatus: int) -> None:
         self._owners()
         self._emit("session_end", exitstatus=exitstatus)
+
+
+# Membership only: actual baseline first occurrence determines each file argv.
+PARTITION_FILES = {
+    "history": (
+        "tests/unit/test_sci004_phase3_history.py",
+        "tests/unit/test_sci004_phase3_dependency.py",
+    ),
+    "evidence": ("tests/unit/test_sci004_phase3_evidence.py",),
+    "red-replay": ("tests/unit/test_sci004_phase3_red_failures.py",),
+    "public-integration": ("tests/integration/test_sci004_mmode.py",),
+    "public-characterization": ("tests/characterization/test_sci004_mmode.py",),
+}
+
+
+def _node_owners(nodes: tuple[str, ...], roster: tuple[str, ...]) -> tuple[str, ...]:
+    """Validate supplied observations without authenticating their transport."""
+    if len(set(roster)) != len(roster) or any(
+        not isinstance(cast(object, path), str)
+        or not path.endswith(".py")
+        or "\\" in path
+        or any(part in ("", ".", "..") for part in path.split("/"))
+        for path in roster
+    ):
+        raise ValueError("invalid or duplicate source roster")
+    if any(not isinstance(cast(object, node), str) for node in nodes):
+        raise ValueError("node IDs must be strings")
+    if len(set(nodes)) != len(nodes):
+        raise ValueError("duplicate node ID")
+    owners = tuple(node.partition("::")[0] for node in nodes)
+    if any(owner not in roster for owner in owners):
+        raise ValueError("unknown node owner")
+    return owners
+
+
+def _ordered_files(
+    baseline: tuple[str, ...], members: tuple[str, ...], roster: tuple[str, ...]
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Derive argv from raw baseline order, then zero-node files in tree order."""
+    owners = _node_owners(baseline, roster)
+    if len(set(members)) != len(members) or any(p not in roster for p in members):
+        raise ValueError("invalid membership catalog")
+    represented = tuple(dict.fromkeys(owner for owner in owners if owner in members))
+    empty = tuple(
+        path for path in roster if path in members and path not in represented
+    )
+    return represented + empty, empty
+
+
+def _partition_selections(
+    baseline: tuple[str, ...], roster: tuple[str, ...]
+) -> dict[str, tuple[tuple[str, ...], tuple[str, ...]]]:
+    """Build closed selections; supplied roster/source provenance is not proved here."""
+    _ = _node_owners(baseline, roster)
+    dedicated = tuple(path for paths in PARTITION_FILES.values() for path in paths)
+    if len(set(dedicated)) != len(dedicated) or any(p not in roster for p in dedicated):
+        raise ValueError("missing or duplicate required owner")
+    selections = {
+        group: _ordered_files(baseline, members, roster)
+        for group, members in PARTITION_FILES.items()
+    }
+    general = tuple(path for path in roster if path not in dedicated)
+    _, empty = _ordered_files(baseline, general, roster)
+    selections["general"] = (
+        ("tests", *("--ignore=" + path for path in dedicated)),
+        empty,
+    )
+    return selections
+
+
+def prove_partition(
+    baseline: tuple[str, ...],
+    observed: dict[str, tuple[str, ...]],
+    roster: tuple[str, ...],
+) -> dict[str, tuple[tuple[str, ...], tuple[str, ...]]]:
+    """Prove exact raw ordered coverage; do not normalize or repair observations."""
+    selections = _partition_selections(baseline, roster)
+    if set(observed) != set(selections):
+        raise ValueError("partition requires exactly the six groups")
+    baseline_owners = _node_owners(baseline, roster)
+    dedicated = tuple(path for paths in PARTITION_FILES.values() for path in paths)
+    all_nodes: list[str] = []
+    for group, nodes in observed.items():
+        _ = _node_owners(nodes, roster)
+        members = (
+            tuple(path for path in roster if path not in dedicated)
+            if group == "general"
+            else PARTITION_FILES[group]
+        )
+        expected = tuple(
+            node
+            for node, owner in zip(baseline, baseline_owners, strict=True)
+            if owner in members
+        )
+        if nodes != expected:
+            raise ValueError(f"ordered partition mismatch: {group}")
+        all_nodes.extend(nodes)
+    if len(set(all_nodes)) != len(all_nodes) or set(all_nodes) != set(baseline):
+        raise ValueError("partition is not a disjoint exact cover")
+    return selections
