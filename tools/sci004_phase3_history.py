@@ -26,7 +26,8 @@ RED_DESIGN_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 HISTORICAL_SOURCE_DESIGN_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
 HISTORICAL_D33_SOURCE_DESIGN_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
 HISTORICAL_D34_SOURCE_DESIGN_SHA = "90ef12e10c869b0928ad0afd51b9f7069729aa26"
-SOURCE_DESIGN_SHA = "dd26e045897274f4b09de38ad4552904cc3c33ab"
+HISTORICAL_D35_SOURCE_DESIGN_SHA = "dd26e045897274f4b09de38ad4552904cc3c33ab"
+SOURCE_DESIGN_SHA = "7752f046637a903e594396d9ca947888107c6137"
 DESIGN_SUCCESSOR_PARENT = "87b16ba16c8a4ab4ff8b9e6bf213c5ce45a41bfe"
 DESIGN_SUCCESSOR_BLOBS = (
     "4f5e61dfc03a983d0806c656e8785c656f84bc17f2c52e1fa1151639dcd16f33",
@@ -41,6 +42,7 @@ DESIGN_SUCCESSOR_REVIEW_PINS = (
     "f9d2257ef156cec2b7872eec45dd55c0dd3b69555bf4cdec3e8c00b00e818de9",
 )
 SOLVER_PATH = "src/radiosim/core/mmode/solver.py"
+DIRECT_TEST_PATH = "tests/unit/test_core/test_sci004_direct_convergence.py"
 SNAPSHOT_FIXTURE_PATH = "tests/unit/test_io/test_standard_visibility.py"
 PREREQUISITE_TIP_SHA = "cfad247831629241842ffecd5f7aaa5b2084493c"
 REVIEW_RECOVERY_PATH = "docs/development/sci004_review_recovery.json"
@@ -348,7 +350,7 @@ RED_PATHS = frozenset(
 FRAME_PATH = "src/radiosim/core/mmode/frame.py"
 FRAME_TEST_PATH = "tests/unit/test_core/test_sci004_frame.py"
 WORKFLOW_PATH = ".github/workflows/ci.yml"
-SOURCE_PATHS = frozenset(
+HISTORICAL_D35_SOURCE_PATHS = frozenset(
     {
         SOLVER_PATH,
         SNAPSHOT_FIXTURE_PATH,
@@ -365,6 +367,7 @@ SOURCE_PATHS = frozenset(
         "tests/unit/test_sci004_phase3_red_failures.py",
     }
 )
+SOURCE_PATHS = HISTORICAL_D35_SOURCE_PATHS | {DIRECT_TEST_PATH}
 DISPOSAL_PINS = {
     "docs/development/sci004_mmode_phase3_acceptance.json": "283fb5264f5ecd86aed1300ae504b85946cf1f4d36b1c4c09bc92bb4f269421d",
     "docs/development/sci004_mmode_phase3_evidence.json": "600b51ac4d70778ee2d3bdf7b8842b83ba77dc34d541784ad1ad7d8e5be5f8ae",
@@ -515,6 +518,29 @@ D35_DESIGN_EDGE = SourceDesignEdge(
 )
 
 
+D36_DESIGN_EDGE = SourceDesignEdge(
+    SOURCE_DESIGN_SHA,
+    "272b56d60d65940a8005619cccd40f4a5ec32c2c",
+    36,
+    2,
+    (
+        "0541e570e79bf6a64956738dabbd3952444906136fcd36b76593697a455e6b94",
+        "e2db66b91989ea9b904e7ab16215b6e7ebe05036eace219c6015f43da77a4c45",
+    ),
+    "9df426be500d895033f738164f605bbe0dd6c01b18bbc36b555d57ca62d3cb09",
+    (
+        "c26a5bc142cc0f225887c8d85b76aa399157918c4591ae3dc62ec7cf42b6732f",
+        "ea1f54ff83fc5379e64dca55852687717526270e8bf1960c3dab85018823e1e5",
+        "d98a17a73cd7d18c5bb82730f0b94990501070ef13b1d93c67c26a6258321df3",
+    ),
+    ("/root/d30_physics_review", "/root/d30_provenance_review"),
+)
+D36_REVIEW_REPORTS = (
+    "b0d0cf350e93cd7a634c4c532053a8f896b8e7bf90466cace25328348cdbb560",
+    "b2b8057b6aec08c8464e52db2fdb191f7891975ac20099e67f270e4e467ea245",
+)
+
+
 SOURCE_DESIGN_EDGES = (
     SourceDesignEdge(
         HISTORICAL_SOURCE_DESIGN_SHA,
@@ -552,6 +578,7 @@ SOURCE_DESIGN_EDGES = (
     ),
     D34_DESIGN_EDGE,
     D35_DESIGN_EDGE,
+    D36_DESIGN_EDGE,
 )
 
 
@@ -567,10 +594,13 @@ def _source_design_header(text: str, label: str, correction: int) -> str:
 def authenticate_source_design_successor(
     commit_sha: str, root: Path = REPOSITORY_ROOT
 ) -> None:
-    """Authenticate a finalized D32/D33/D34/D35 edge, without changing active ranges."""
+    """Authenticate a finalized D32/D33/D34/D35/D36 edge, without changing active ranges."""
     matches = [edge for edge in SOURCE_DESIGN_EDGES if edge.sha == commit_sha]
     _require(len(matches) == 1, "unknown source design successor")
-    _authenticate_source_design_edge(matches[0], root)
+    if matches[0].correction == 36:
+        _authenticate_d36_design_edge(matches[0], root)
+    else:
+        _authenticate_source_design_edge(matches[0], root)
 
 
 def authenticate_pending_d35(root: Path = REPOSITORY_ROOT) -> None:
@@ -651,6 +681,62 @@ def _authenticate_source_design_edge(edge: SourceDesignEdge, root: Path) -> None
     )
 
 
+def _authenticate_d36_design_edge(edge: SourceDesignEdge, root: Path) -> None:
+    """Authenticate D36's actual inline review record, without changing old grammar."""
+    _require(edge.correction == 36 and edge.round_number == 2, "D36 edge version")
+    commit = _exact_commit(root, edge.sha)
+    _require(
+        _git(root, "rev-list", "--parents", "-n", "1", commit).decode().split()
+        == [commit, edge.parent],
+        "D36 design sole parent",
+    )
+    _require(
+        _commit_delta(root, edge.parent, commit) == dict.fromkeys(DESIGN_PATHS, "M"),
+        "D36 design exact paths/change kinds",
+    )
+    texts: list[str] = []
+    for path, pin in zip(DESIGN_PATHS, edge.blobs, strict=True):
+        metadata = _git(root, "ls-tree", commit, "--", path).decode().split()
+        _require(
+            len(metadata) == 4
+            and metadata[:2] == ["100644", "blob"]
+            and metadata[3] == path,
+            "D36 design regular blob",
+        )
+        raw = _git(root, "show", f"{commit}:{path}")
+        _require(_sha256(raw) == pin, "D36 design landed blob")
+        texts.append(raw.decode("utf-8"))
+    patch = _git(root, "diff", "--binary", "--full-index", edge.parent, commit, "--")
+    _require(_sha256(patch) == edge.patch, "D36 design complete diff")
+    companion = _source_design_header(texts[0], "Current continuation", 36)
+    header = _source_design_header(texts[1], "Bounded correction", 36)
+    added = "\n".join(
+        line[1:]
+        for line in patch.decode().splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    )
+    required = (
+        *edge.review_pins,
+        *edge.reviewers,
+        *D36_REVIEW_REPORTS,
+        "e3153a4b69be55caa020fd28aeb53a4589a2544a9751ece3e52ae49b8eea5336",
+    )
+    _require(
+        len(set(required)) == len(required)
+        and not set(edge.review_pins) & {*edge.blobs, edge.patch}
+        and all(value in header and value in added for value in required),
+        "D36 original own-header review pins",
+    )
+    _require(
+        "The original round2 reviews both returned **ACCEPT** against identical"
+        in header
+        and "complete two-document bytes" in header
+        and "both returned ACCEPT against the identical complete" in companion
+        and all(value in companion for value in edge.reviewers),
+        "D36 own-header verdicts",
+    )
+
+
 def require_design_successor(records: list[dict[str, Any]]) -> None:
     """Require D31 once in an already Git-authenticated current red inventory."""
     rows = [row for row in records if row["role"] == "design-successor"]
@@ -660,23 +746,29 @@ def require_design_successor(records: list[dict[str, Any]]) -> None:
     )
 
 
-def require_source_design_successors(records: list[dict[str, Any]]) -> None:
-    """Require the four authenticated S design edges once in D32/D33/D34/D35 order."""
+def require_source_design_successors(
+    records: list[dict[str, Any]], *, historical_d35: bool = False
+) -> None:
+    """Require current five edges, or the explicit historical D35 four-edge range."""
+    _require(type(historical_d35) is bool, "source design context type")
     expected = [
         HISTORICAL_SOURCE_DESIGN_SHA,
         HISTORICAL_D33_SOURCE_DESIGN_SHA,
         HISTORICAL_D34_SOURCE_DESIGN_SHA,
+        HISTORICAL_D35_SOURCE_DESIGN_SHA,
         SOURCE_DESIGN_SHA,
     ]
     _require(
-        len(set(expected)) == 4
+        len(set(expected)) == 5
         and [edge.sha for edge in SOURCE_DESIGN_EDGES] == expected,
         "source design authority bindings",
     )
+    required = expected[:-1] if historical_d35 else expected
     _require(
         [row["sha"] for row in records if row["role"] == "source-design-successor"]
-        == expected,
-        "complete source requires exact D32 then D33 then D34 then D35 once",
+        == required,
+        "complete source requires exact D32 then D33 then D34 then D35"
+        + (" once" if historical_d35 else " then D36 once"),
     )
 
 
@@ -811,16 +903,77 @@ def authenticate_d35_causal_regression(root: Path, parent: str) -> None:
     )
 
 
+D36_CAUSAL_REGRESSION_SHA = "216afb1cd581c0301cd8f70754a909fd87e0d4f1"
+D36_CAUSAL_REGRESSION_BLOB = (
+    "ee2ab26722fbe7406e7bf46b4c80b2b91c35019136276c2dac2164ba5a061696"
+)
+D36_CAUSAL_REGRESSION_PATCH = (
+    "95c15708f8176ffebfed7fb290c20ac01dfbc196958f035edb24b4b75b556dc2"
+)
+
+
+def authenticate_d36_causal_regression(root: Path, parent: str) -> None:
+    """Require the genuine separate causal commit on the repair parent's history."""
+    design = D36_DESIGN_EDGE.sha
+    authenticate_source_design_successor(design, root)
+    causal = _exact_commit(root, D36_CAUSAL_REGRESSION_SHA)
+    _require(
+        _git(root, "rev-list", "--parents", "-n", "1", causal).decode().split()
+        == [causal, design],
+        "D36 causal regression exact sole parent",
+    )
+    _require(
+        _commit_delta(root, design, causal) == {DIRECT_TEST_PATH: "M"},
+        "D36 causal regression exact path/change kind",
+    )
+    for revision in (design, causal):
+        metadata = (
+            _git(root, "ls-tree", revision, "--", DIRECT_TEST_PATH).decode().split()
+        )
+        _require(
+            len(metadata) == 4
+            and metadata[:2] == ["100644", "blob"]
+            and metadata[3] == DIRECT_TEST_PATH,
+            "D36 causal regression exact regular mode",
+        )
+    _require(
+        _sha256(_git(root, "show", f"{causal}:{DIRECT_TEST_PATH}"))
+        == D36_CAUSAL_REGRESSION_BLOB,
+        "D36 causal regression raw test blob",
+    )
+    _require(
+        _sha256(_git(root, "diff", "--binary", "--full-index", design, causal, "--"))
+        == D36_CAUSAL_REGRESSION_PATCH,
+        "D36 causal regression complete patch",
+    )
+    ancestry = _git(root, "rev-list", "--first-parent", parent).decode().split()
+    _require(
+        causal in ancestry
+        and design in ancestry
+        and ancestry.index(causal) < ancestry.index(design),
+        "D36 causal regression must precede repair on first-parent history",
+    )
+
+
 def _validate_solver_delta(
-    root: Path, parent: str, commit: str, *, cumulative: bool = False
+    root: Path,
+    parent: str,
+    commit: str,
+    *,
+    cumulative: bool = False,
+    historical_d35: bool = False,
 ) -> None:
     """Compose the original bridge predicates with exact directed geometry states."""
     before = _git(root, "show", f"{parent}:{SOLVER_PATH}")
     after = _git(root, "show", f"{commit}:{SOLVER_PATH}")
     _ = _bridge_ast(before, SOLVER_PATH, False if cumulative else None)
     _ = _bridge_ast(after, SOLVER_PATH, True)
-    old, new = validate_solver_geometry_transition(before, after, cumulative=cumulative)
-    if new == "G1":
+    old, new = (
+        validate_solver_geometry_transition(before, after, cumulative=cumulative)
+        if historical_d35
+        else validate_solver_direct_transition(before, after, cumulative=cumulative)
+    )
+    if new in {"G1", "D1"}:
         repair_parent = parent
         if cumulative:
             parents = (
@@ -829,6 +982,8 @@ def _validate_solver_delta(
             _require(len(parents) == 2, "complete source terminal sole parent")
             repair_parent = parents[1]
         authenticate_d35_causal_regression(root, repair_parent)
+        if new == "D1":
+            authenticate_d36_causal_regression(root, repair_parent)
     elif old in {"O0", "O1"}:
         _validate_bridge_delta(root, parent, commit, SOLVER_PATH, cumulative=cumulative)
 
@@ -910,6 +1065,13 @@ def _phase_role(
         paths <= SOURCE_PATHS and set(delta.values()) == {"M"},
         "source role path/change-kind boundary",
     )
+    if DIRECT_TEST_PATH in paths:
+        authenticate_source_design_successor(D36_DESIGN_EDGE.sha, root)
+        _require(
+            D36_DESIGN_EDGE.sha
+            in _git(root, "rev-list", "--first-parent", parent).decode().split(),
+            "D36 must precede direct test changes",
+        )
     if SOLVER_PATH in paths:
         _validate_solver_delta(root, parent, commit)
     if SNAPSHOT_FIXTURE_PATH in paths:
@@ -928,6 +1090,7 @@ def describe_phase_range(
     *,
     root: Path = REPOSITORY_ROOT,
     require_complete: bool = True,
+    historical_d35: bool = False,
 ) -> dict[str, Any]:
     """Recompute an exclusive-base/inclusive-tip first-parent phase range.
 
@@ -939,6 +1102,10 @@ def describe_phase_range(
     of the composing validators and independent reviews.
     """
     _require(phase in {"prerequisite", "red", "source"}, "unknown phase")
+    _require(
+        type(historical_d35) is bool and (not historical_d35 or phase == "source"),
+        "historical D35 source context",
+    )
     base = _exact_commit(root, base_sha)
     terminal = _exact_commit(root, terminal_sha)
     shas = (
@@ -957,6 +1124,13 @@ def describe_phase_range(
         (not shas and base == terminal) or (bool(shas) and shas[-1] == terminal),
         "phase terminal is not on the declared ancestry path",
     )
+    if historical_d35:
+        authenticate_source_design_successor(HISTORICAL_D35_SOURCE_DESIGN_SHA, root)
+        ancestry = _git(root, "rev-list", "--first-parent", terminal).decode().split()
+        _require(
+            D36_DESIGN_EDGE.sha not in ancestry,
+            "historical D35 terminal must precede D36",
+        )
     previous = base
     records: list[dict[str, Any]] = []
     aggregate: set[str] = set()
@@ -1037,8 +1211,10 @@ def describe_phase_range(
             )
         else:
             if phase == "source":
-                require_source_design_successors(records)
-                _validate_solver_delta(root, base, terminal, cumulative=True)
+                require_source_design_successors(records, historical_d35=historical_d35)
+                _validate_solver_delta(
+                    root, base, terminal, cumulative=True, historical_d35=historical_d35
+                )
                 _validate_bridge_delta(
                     root, base, terminal, SNAPSHOT_FIXTURE_PATH, cumulative=True
                 )
@@ -1050,7 +1226,7 @@ def describe_phase_range(
             expected = (
                 RED_PATHS
                 if phase == "red"
-                else SOURCE_PATHS
+                else (HISTORICAL_D35_SOURCE_PATHS if historical_d35 else SOURCE_PATHS)
                 | DISPOSAL_PINS.keys()
                 | ({WORKFLOW_PATH} if workflows else set[str]())
             )
@@ -1076,7 +1252,7 @@ def validate_phase_ranges(
     )
     _require(
         design_sha == SOURCE_DESIGN_SHA,
-        "phase_ranges operative design must be current D35",
+        "phase_ranges operative design must be current D36",
     )
     endpoints = (
         (DESIGN_SHA, PREREQUISITE_TIP_SHA),
@@ -1259,4 +1435,67 @@ def validate_solver_geometry_transition(
         else {("O0", "O1"), ("O1", "O1"), ("O1", "G1"), ("G1", "G1")}
     )
     _require(states in allowed, "geometry transition forbidden directed states")
+    return states
+
+
+D36_SOLVER_AST_PROFILES = {
+    (
+        "cpython",
+        3,
+        11,
+    ): "e563e428da2eceee08aa28e008da093e5b6a2bcf033e852add1f92d60f278ade",
+    (
+        "cpython",
+        3,
+        12,
+    ): "95f285c8ac157050e8535d1ab6cf8f79e400f3fb43051fa6236654d173f5162e",
+}
+
+
+def solver_direct_state(raw: bytes) -> str:
+    """Recognize only original D35 states or the reviewed complete D36 module."""
+    runtime = (sys.implementation.name, *sys.version_info[:2])
+    _require(runtime in D36_SOLVER_AST_PROFILES, "direct AST unsupported runtime")
+    _require(type(raw) is bytes, "direct AST requires raw bytes")
+    try:
+        dumped = ast.dump(
+            ast.parse(raw), annotate_fields=True, include_attributes=False
+        ).encode("utf-8")
+    except (SyntaxError, ValueError, UnicodeError) as error:
+        raise HistoryError("direct AST requires valid Python") from error
+    pin = D36_SOLVER_AST_PROFILES[runtime]
+    _require(runtime in D35_SOLVER_AST_PROFILES, "direct AST inherited runtime")
+    inherited = D35_SOLVER_AST_PROFILES[runtime]
+    _require(
+        set(inherited) == {"O0", "O1", "G1"} and len(set(inherited.values())) == 3,
+        "direct AST inherited profile state inventory",
+    )
+    _require(
+        pin not in inherited.values(),
+        "direct AST distinct profile",
+    )
+    if _sha256(dumped) == pin:
+        return "D1"
+    return solver_geometry_state(raw)
+
+
+def validate_solver_direct_transition(
+    before: bytes, after: bytes, *, cumulative: bool = False
+) -> tuple[str, str]:
+    """Current completion requires D1; historical G1 completion remains separate."""
+    _require(type(cumulative) is bool, "direct transition requires boolean mode")
+    states = (solver_direct_state(before), solver_direct_state(after))
+    allowed = (
+        {("O0", "D1")}
+        if cumulative
+        else {
+            ("O0", "O1"),
+            ("O1", "O1"),
+            ("O1", "G1"),
+            ("G1", "G1"),
+            ("G1", "D1"),
+            ("D1", "D1"),
+        }
+    )
+    _require(states in allowed, "direct transition forbidden directed states")
     return states

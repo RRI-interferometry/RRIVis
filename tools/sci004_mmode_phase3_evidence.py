@@ -3422,7 +3422,7 @@ def _frozen_binding(name: str) -> str:
 
 
 def _design_sha() -> str:
-    """Authenticate the disk-bound D35 source authority through its exact edges."""
+    """Authenticate the disk-bound D36 source authority through its exact edges."""
     if str(REPOSITORY_ROOT) not in sys.path:
         sys.path.insert(0, str(REPOSITORY_ROOT))
     from tests.unit import test_sci004_phase3_dependency as dependency
@@ -3451,12 +3451,13 @@ def _design_sha() -> str:
             "HISTORICAL_SOURCE_DESIGN_SHA",
             "HISTORICAL_D33_SOURCE_DESIGN_SHA",
             "HISTORICAL_D34_SOURCE_DESIGN_SHA",
+            "HISTORICAL_D35_SOURCE_DESIGN_SHA",
             "SOURCE_DESIGN_SHA",
         )
     )
     if (
         any(re.fullmatch(r"[0-9a-f]{40}", value) is None for value in frozen)
-        or len(set(frozen)) != 6
+        or len(set(frozen)) != 7
         or frozen
         != (
             dependency.D30_SHA,
@@ -3464,6 +3465,7 @@ def _design_sha() -> str:
             dependency.HISTORICAL_SOURCE_DESIGN_SHA,
             dependency.HISTORICAL_D33_SOURCE_DESIGN_SHA,
             dependency.HISTORICAL_D34_SOURCE_DESIGN_SHA,
+            dependency.HISTORICAL_D35_SOURCE_DESIGN_SHA,
             dependency.SOURCE_DESIGN_SHA,
         )
     ):
@@ -3474,9 +3476,9 @@ def _design_sha() -> str:
         raise EvidenceError(
             PREFLIGHT, f"source design does not authenticate: {error}"
         ) from error
-    if authenticated != frozen[5]:
+    if authenticated != frozen[6]:
         raise EvidenceError(PREFLIGHT, "source authentication returned another design")
-    return frozen[5]
+    return frozen[6]
 
 
 def _commit_parents(commit: str) -> tuple[str, ...]:
@@ -4445,7 +4447,7 @@ def validate_evidence_artifact(document: Any) -> dict[str, Any]:
     _require(
         envelope["design_sha"] == _design_sha(),
         DIGEST,
-        "design_sha must name the current frozen operative D35 binding",
+        "design_sha must name the current frozen operative D36 binding",
     )
     red_commit = _red_commit_sha()
     _require(

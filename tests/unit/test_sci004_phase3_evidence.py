@@ -126,7 +126,8 @@ CURRENT_D31_SHA = "f2e5edbcc97450262482672bb322cf926622b208"
 HISTORICAL_SOURCE_D32_SHA = "bcd79b1d6268859368d77c3f94cef334b001cb37"
 HISTORICAL_SOURCE_D33_SHA = "343ea0467420d452e9d728f0475167e74721e22f"
 HISTORICAL_SOURCE_D34_SHA = "90ef12e10c869b0928ad0afd51b9f7069729aa26"
-CURRENT_SOURCE_D35_SHA = "dd26e045897274f4b09de38ad4552904cc3c33ab"
+HISTORICAL_SOURCE_D35_SHA = "dd26e045897274f4b09de38ad4552904cc3c33ab"
+CURRENT_SOURCE_D36_SHA = "7752f046637a903e594396d9ca947888107c6137"
 RANGE_ORIGIN_D30_SHA = "d3ddb10ae01ab450f5337d06c9588ce8144cf1e5"
 HISTORICAL_RED_RECORD_SHA256 = (
     "486705a8d5e51c08f972c91aeae60f0a0bfeef5480b622515282295a6a3cde05"
@@ -1672,7 +1673,7 @@ def test_the_design_sha_is_the_frozen_binding_not_a_memo_tip_search() -> None:
     module = _tool()
     frozen = module._frozen_binding("SOURCE_DESIGN_SHA")
     assert GIT_SHA.fullmatch(frozen)
-    assert frozen == CURRENT_SOURCE_D35_SHA
+    assert frozen == CURRENT_SOURCE_D36_SHA
     assert module._design_sha() == frozen
     source = (REPOSITORY_ROOT / TOOL).read_text(encoding="utf-8")
     assert '"--", "docs/development/sci004_mmode_design.md"' not in source, (
@@ -1699,7 +1700,7 @@ def test_current_and_historical_design_roles_are_exact_and_distinct() -> None:
     module = _tool()
     post_source = json.loads((REPOSITORY_ROOT / POST_SOURCE_RED_RECORD).read_bytes())
     fingerprint = json.loads((REPOSITORY_ROOT / FINGERPRINT_RED_RECORD).read_bytes())
-    assert module._design_sha() == CURRENT_SOURCE_D35_SHA
+    assert module._design_sha() == CURRENT_SOURCE_D36_SHA
     assert post_source["design_sha"] == POST_SOURCE_DESIGN_SHA
     assert fingerprint["design_sha"] == FINGERPRINT_DESIGN_SHA
     assert (
@@ -1796,7 +1797,7 @@ def test_terminal_r3_preserves_distinct_range_origin_and_operative_design(
         == CURRENT_D31_SHA
     )
     assert module._frozen_binding("D30_SHA") == RANGE_ORIGIN_D30_SHA
-    assert module._design_sha() == CURRENT_SOURCE_D35_SHA
+    assert module._design_sha() == CURRENT_SOURCE_D36_SHA
     terminal = "f" * 40
     monkeypatch.setattr(
         dependency,
@@ -1904,7 +1905,7 @@ def test_a_historical_design_cannot_replace_the_current_d34_envelope_binding(
     document["red_failure_record"] = module._red_failure_record_reference(
         document["red_commit_sha"]
     )
-    with pytest.raises(module.EvidenceError, match="current frozen operative D35"):
+    with pytest.raises(module.EvidenceError, match="current frozen operative D36"):
         module.validate_evidence_artifact(document)
 
 
@@ -1914,7 +1915,7 @@ def test_a_design_sha_cannot_stand_in_for_red_commit_sha(
     module = _tool()
     _mock_red_binding_for_historical_checks(module, monkeypatch)
     document = _synthetic_document(module)
-    document["design_sha"] = CURRENT_SOURCE_D35_SHA
+    document["design_sha"] = CURRENT_SOURCE_D36_SHA
     document["red_commit_sha"] = CURRENT_D31_SHA
     document["red_failure_record"] = module._red_failure_record_reference(
         module._red_commit_sha()
@@ -2758,7 +2759,7 @@ def test_the_artifact_validator_authenticates_the_fresh_r3_and_both_inputs(
     _mock_red_binding_for_historical_checks(module, monkeypatch)
     document = _synthetic_document(module)
     red_commit = module._red_commit_sha()
-    document["design_sha"] = CURRENT_SOURCE_D35_SHA
+    document["design_sha"] = CURRENT_SOURCE_D36_SHA
     document["red_commit_sha"] = red_commit
     document["red_failure_record"] = module._red_failure_record_reference(red_commit)
     module.validate_evidence_artifact(document)
@@ -4867,9 +4868,11 @@ def ready_source_objects(
     from tests.unit import test_sci004_phase3_dependency as dependency
     from tests.unit.test_sci004_phase3_history import (
         SOLVER_AFTER,
+        SOLVER_DIRECT,
         SOLVER_REPAIRED,
         PhaseObjects,
         bind_causal_regression,
+        bind_direct_causal_regression,
         history_git,
         phase_objects,
         source_design_object,
@@ -4883,44 +4886,59 @@ def ready_source_objects(
     blobs[TOOL] = f"SCI004_R3_TERMINAL_SHA = {red!r}\n" + blobs[TOOL]
     edits = {
         path: history._git(root, "show", f"{prior_source}:{path}")
-        for path in history.SOURCE_PATHS - {history.FRAME_PATH, history.FRAME_TEST_PATH}
+        for path in history.SOURCE_PATHS
+        - {history.FRAME_PATH, history.FRAME_TEST_PATH, history.DIRECT_TEST_PATH}
     }
     edits.update({path: raw.encode() for path, raw in blobs.items()})
     # First S retains its exact R parent before the four reviewed design edges.
     edits[history.SOLVER_PATH] = SOLVER_AFTER
     first = commit(red, edits)
     source_designs: list[history.SourceDesignEdge] = []
+    frame_edits = {
+        path: history_git(root, "show", f"{prior_source}:{path}")
+        for path in (history.FRAME_PATH, history.FRAME_TEST_PATH)
+    }
     parent = first
     for edge in history.SOURCE_DESIGN_EDGES:
         created = source_design_object(root, commit, parent, edge)
         source_designs.append(created)
         parent = created.sha
+        if edge.correction == 35:
+            monkeypatch.setattr(history, "D35_DESIGN_EDGE", created)
+            regression = commit(
+                parent, {history.FRAME_TEST_PATH: frame_edits[history.FRAME_TEST_PATH]}
+            )
+            bind_causal_regression(root, regression, monkeypatch)
+            parent = commit(
+                regression,
+                {
+                    history.FRAME_PATH: frame_edits[history.FRAME_PATH],
+                    history.SOLVER_PATH: SOLVER_REPAIRED,
+                },
+            )
+        elif edge.correction == 36:
+            monkeypatch.setattr(history, "D36_DESIGN_EDGE", created)
+            direct_raw = history_git(
+                root, "show", f"{prior_source}:{history.DIRECT_TEST_PATH}"
+            )
+            parent = commit(parent, {history.DIRECT_TEST_PATH: direct_raw})
+            bind_direct_causal_regression(root, parent, monkeypatch)
+            edits[history.DIRECT_TEST_PATH] = direct_raw
     monkeypatch.setattr(history, "SOURCE_DESIGN_EDGES", tuple(source_designs))
-    monkeypatch.setattr(history, "HISTORICAL_SOURCE_DESIGN_SHA", source_designs[0].sha)
-    monkeypatch.setattr(
-        history, "HISTORICAL_D33_SOURCE_DESIGN_SHA", source_designs[1].sha
-    )
-    monkeypatch.setattr(
-        history, "HISTORICAL_D34_SOURCE_DESIGN_SHA", source_designs[2].sha
-    )
-    monkeypatch.setattr(history, "D35_DESIGN_EDGE", source_designs[3])
-    monkeypatch.setattr(history, "SOURCE_DESIGN_SHA", source_designs[3].sha)
-    frame_edits = {
-        path: history_git(root, "show", f"{prior_source}:{path}")
-        for path in (history.FRAME_PATH, history.FRAME_TEST_PATH)
-    }
-    regression = commit(
-        parent, {history.FRAME_TEST_PATH: frame_edits[history.FRAME_TEST_PATH]}
-    )
-    bind_causal_regression(root, regression, monkeypatch)
-    repaired = commit(
-        regression,
-        {
-            history.FRAME_PATH: frame_edits[history.FRAME_PATH],
-            history.SOLVER_PATH: SOLVER_REPAIRED,
-        },
-    )
-    edits[history.SOLVER_PATH] = SOLVER_REPAIRED
+    for name, edge in zip(
+        (
+            "HISTORICAL_SOURCE_DESIGN_SHA",
+            "HISTORICAL_D33_SOURCE_DESIGN_SHA",
+            "HISTORICAL_D34_SOURCE_DESIGN_SHA",
+            "HISTORICAL_D35_SOURCE_DESIGN_SHA",
+            "SOURCE_DESIGN_SHA",
+        ),
+        source_designs,
+        strict=True,
+    ):
+        monkeypatch.setattr(history, name, edge.sha)
+    repaired = commit(parent, {history.SOLVER_PATH: SOLVER_DIRECT})
+    edits[history.SOLVER_PATH] = SOLVER_DIRECT
     head = commit(repaired, dict.fromkeys(history.DISPOSAL_PINS))
     edits.update(frame_edits)
     for path, content in edits.items():
@@ -6643,12 +6661,14 @@ def test_source_design_rejects_foreign_loaded_dependency(
         ("SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D32_SHA),
         ("SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D33_SHA),
         ("SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D34_SHA),
-        ("HISTORICAL_D34_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D35_SHA),
+        ("SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D35_SHA),
+        ("HISTORICAL_D35_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D36_SHA),
+        ("HISTORICAL_D34_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D36_SHA),
         ("HISTORICAL_D33_SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D32_SHA),
-        ("HISTORICAL_D33_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D35_SHA),
-        ("HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D35_SHA),
+        ("HISTORICAL_D33_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D36_SHA),
+        ("HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D36_SHA),
         ("D30_SHA", CURRENT_D31_SHA),
-        ("APPROVED_SCI004_D_SHA", CURRENT_SOURCE_D35_SHA),
+        ("APPROVED_SCI004_D_SHA", CURRENT_SOURCE_D36_SHA),
         ("joint_source_roles", HISTORICAL_SOURCE_D32_SHA),
     ],
 )
@@ -6664,7 +6684,7 @@ def test_source_design_rejects_loaded_roles_different_from_disk(
         for peer in (dependency, history):
             monkeypatch.setattr(peer, "SOURCE_DESIGN_SHA", HISTORICAL_SOURCE_D32_SHA)
             monkeypatch.setattr(
-                peer, "HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D35_SHA
+                peer, "HISTORICAL_SOURCE_DESIGN_SHA", CURRENT_SOURCE_D36_SHA
             )
     else:
         monkeypatch.setattr(dependency, field, replacement)
@@ -6679,6 +6699,7 @@ def test_source_design_rejects_loaded_roles_different_from_disk(
         HISTORICAL_SOURCE_D32_SHA,
         HISTORICAL_SOURCE_D33_SHA,
         HISTORICAL_SOURCE_D34_SHA,
+        HISTORICAL_SOURCE_D35_SHA,
         None,
     ],
 )
@@ -6714,13 +6735,14 @@ def test_source_design_authentication_uses_hardened_dependency_path(
         raise AssertionError("current design must not use the evidence Git reader")
 
     monkeypatch.setattr(module, "_git", refuse_ambient)
-    assert module._design_sha() == CURRENT_SOURCE_D35_SHA
+    assert module._design_sha() == CURRENT_SOURCE_D36_SHA
     assert (
         history.DESIGN_SHA,
         history.RED_DESIGN_SHA,
         history.HISTORICAL_SOURCE_DESIGN_SHA,
         history.HISTORICAL_D33_SOURCE_DESIGN_SHA,
         history.HISTORICAL_D34_SOURCE_DESIGN_SHA,
+        history.HISTORICAL_D35_SOURCE_DESIGN_SHA,
         history.SOURCE_DESIGN_SHA,
     ) == (
         RANGE_ORIGIN_D30_SHA,
@@ -6728,7 +6750,8 @@ def test_source_design_authentication_uses_hardened_dependency_path(
         HISTORICAL_SOURCE_D32_SHA,
         HISTORICAL_SOURCE_D33_SHA,
         HISTORICAL_SOURCE_D34_SHA,
-        CURRENT_SOURCE_D35_SHA,
+        HISTORICAL_SOURCE_D35_SHA,
+        CURRENT_SOURCE_D36_SHA,
     )
     assert (
         len(
@@ -6738,10 +6761,11 @@ def test_source_design_authentication_uses_hardened_dependency_path(
                 dependency.HISTORICAL_SOURCE_DESIGN_SHA,
                 dependency.HISTORICAL_D33_SOURCE_DESIGN_SHA,
                 dependency.HISTORICAL_D34_SOURCE_DESIGN_SHA,
+                dependency.HISTORICAL_D35_SOURCE_DESIGN_SHA,
                 dependency.SOURCE_DESIGN_SHA,
             }
         )
-        == 6
+        == 7
     )
     tree = ast.parse(inspect.getsource(module._design_sha))
     assert not any(
