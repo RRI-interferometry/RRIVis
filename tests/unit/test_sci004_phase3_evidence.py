@@ -9420,6 +9420,11 @@ def test_characterization_instrument_public_owners(
     assert selection.to_snapshot() == fixture["selection"]
     assert _instrument_projection_content(characterization_projection) == fixture
     phase = characterization_projection["value"]["phase_input_identity_manifest"]
+    module._validate_characterization_instrument_selection(
+        phase,
+        {"instrument": instrument, "selection": selection.to_snapshot()},
+        "public instrument/selection",
+    )
     location = instrument["location"]
     earth = earth_location.from_geodetic(
         location["longitude_deg"] * u.deg,
@@ -10181,3 +10186,255 @@ def test_characterization_rows_container_and_cardinality(
     with pytest.raises(module.EvidenceError) as caught:
         module.validate_characterization_instrument_rows(phase, **kwargs)
     assert caught.value.prefix == getattr(module, prefix)
+
+
+def _instrument_projection_rehash(
+    case: dict[str, Any], content: dict[str, Any], *, fingerprint: bool = True
+) -> None:
+    """Refresh every claimed projection while preserving the actual mutation."""
+    if fingerprint:
+        content["instrument"]["instrument_sha256"] = _instrument_projection_fingerprint(
+            content["instrument"]
+        )
+    for tag, value in content.items():
+        _projection_segment(
+            case["common_segments"],
+            tag,
+            json.dumps(
+                value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            ).encode(),
+        )
+    phase = case["value"]["phase_input_identity_manifest"]
+    phase["site_sha256"] = _object_digest(
+        "radiosim.mmode-site.v1", phase["site_manifest"]
+    )
+    for key in ("site_manifest", "antenna_rows", "baseline_rows"):
+        case["value"]["instrument_manifest"][key] = copy.deepcopy(phase[key])
+    _projection_rehash(case)
+
+
+@pytest.mark.parametrize("family", SECTION_11_FAMILIES)
+@pytest.mark.usefixtures("qualified_characterization_runtime")
+def test_characterization_instrument_four_family_join(
+    characterization_projection: dict[str, Any], family: str
+) -> None:
+    case = _receptor_family_projection(characterization_projection, family)
+    scientific = _instrument_projection_content(case)
+    phase = case["value"]["phase_input_identity_manifest"]
+    before = repr(case)
+    _tool()._validate_characterization_instrument_selection(
+        phase, scientific, "instrument/selection"
+    )
+    assert _tool().validate_characterization_input_projection(**case) == case["value"]
+    assert repr(case) == before
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "foreign_site",
+        "original_xyz",
+        "phase_longitude",
+        "phase_height",
+        "phase_xyz",
+        "offset_plus_site",
+        "reverse_baseline",
+        "swap_axes",
+        "phase_index_bool",
+        "endpoint_bool",
+        "endpoint_order",
+        "projection_hash",
+        "dj_hash",
+        "extra_preimage",
+        "missing_preimage",
+        "foreign_enu",
+        "foreign_diameter",
+        "selection",
+        "criteria",
+    ],
+)
+@pytest.mark.usefixtures("qualified_characterization_runtime")
+def test_characterization_instrument_rehashed_physical_joins(
+    characterization_projection: dict[str, Any], mutation: str
+) -> None:
+    case = copy.deepcopy(characterization_projection)
+    content = _instrument_projection_content(case)
+    instrument = content["instrument"]
+    phase = case["value"]["phase_input_identity_manifest"]
+    unchanged = repr((phase, content))
+    fingerprint = True
+    if mutation == "foreign_site":
+        instrument["location"]["longitude_deg"] = 22.4
+    elif mutation == "original_xyz":
+        instrument["location"]["itrs_xyz_m"][0] = math.nextafter(
+            instrument["location"]["itrs_xyz_m"][0], math.inf
+        )
+    elif mutation in ("phase_longitude", "phase_height", "phase_xyz"):
+        site = phase["site_manifest"]
+        key = {
+            "phase_longitude": "longitude_deg_f64be",
+            "phase_height": "height_m_f64be",
+            "phase_xyz": "itrs_xyz_m_f64be",
+        }[mutation]
+        if mutation == "phase_xyz":
+            word = site[key][0]
+            site[key][0] = struct.pack(
+                ">d",
+                math.nextafter(struct.unpack(">d", bytes.fromhex(word))[0], math.inf),
+            ).hex()
+        else:
+            site[key] = struct.pack(
+                ">d",
+                math.nextafter(
+                    struct.unpack(">d", bytes.fromhex(site[key]))[0], math.inf
+                ),
+            ).hex()
+    elif mutation == "offset_plus_site":
+        phase["antenna_rows"][0]["itrs_xyz_m_f64be"] = list(
+            phase["site_manifest"]["itrs_xyz_m_f64be"]
+        )
+    elif mutation in ("reverse_baseline", "swap_axes"):
+        row = phase["baseline_rows"][1]["itrs_vector_m_f64be"]
+        if mutation == "swap_axes":
+            row[0], row[1] = row[1], row[0]
+        else:
+            row[:] = [
+                struct.pack(">d", -struct.unpack(">d", bytes.fromhex(word))[0]).hex()
+                for word in row
+            ]
+    elif mutation == "phase_index_bool":
+        phase["antenna_rows"][0]["antenna_index"] = False
+    elif mutation == "endpoint_bool":
+        phase["baseline_rows"][0]["antenna1_index"] = False
+    elif mutation == "endpoint_order":
+        phase["baseline_rows"][1]["antenna1_index"] = 1
+    elif mutation in (
+        "projection_hash",
+        "dj_hash",
+        "extra_preimage",
+        "missing_preimage",
+    ):
+        fingerprint = False
+        bad = {
+            key: value
+            for key, value in instrument.items()
+            if key != "instrument_sha256"
+        }
+        if mutation == "extra_preimage":
+            bad["extra"] = "transport"
+        elif mutation == "missing_preimage":
+            del bad["source"]
+        instrument["instrument_sha256"] = (
+            case["value"]["instrument_sha256"]
+            if mutation == "dj_hash"
+            else hashlib.sha256(
+                json.dumps(bad, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+        )
+    elif mutation == "foreign_enu":
+        instrument["antennas"][1]["position_enu_m"][0] = 5.0
+    elif mutation == "foreign_diameter":
+        instrument["antennas"][1]["diameter_m"] = 3.0
+    elif mutation == "selection":
+        content["selection"]["selected_ids"] = [[0, 0], [1, 1], [0, 1]]
+    else:
+        content["selection"]["criteria"]["length_ranges_m"] = [[0.0, 5.0]]
+    assert repr((phase, content)) != unchanged
+    _instrument_projection_rehash(case, content, fingerprint=fingerprint)
+    before = repr(case)
+    module = _tool()
+    with pytest.raises(module.EvidenceError) as direct:
+        module._validate_characterization_instrument_selection(
+            phase, content, "instrument/selection"
+        )
+    assert direct.value.prefix == (
+        module.SCHEMA
+        if mutation in ("phase_index_bool", "endpoint_bool")
+        else module.DIGEST
+    )
+    with pytest.raises(module.EvidenceError) as full:
+        module.validate_characterization_input_projection(**case)
+    assert full.value.prefix == direct.value.prefix
+    assert "instrument/selection" in full.value.detail or mutation == "phase_index_bool"
+    assert repr(case) == before
+
+
+def test_characterization_instrument_key_order_and_arithmetic_limit(
+    characterization_projection: dict[str, Any],
+) -> None:
+    case = copy.deepcopy(characterization_projection)
+    content = _instrument_projection_content(case)
+    content["instrument"] = dict(reversed(tuple(content["instrument"].items())))
+    for index, row in enumerate(content["instrument"]["antennas"]):
+        content["instrument"]["antennas"][index] = dict(reversed(tuple(row.items())))
+    _instrument_projection_rehash(case, content)
+    phase = case["value"]["phase_input_identity_manifest"]
+    _tool()._validate_characterization_instrument_selection(
+        phase, content, "instrument/selection"
+    )
+    # ANT0 is zero, so subtracting rounded ITRS positions is identical here.
+    # Do not advertise it as a killed mutant for this finite admitted geometry.
+    first, second = [row["itrs_xyz_m_f64be"] for row in phase["antenna_rows"]]
+    subtracted = [
+        struct.pack(
+            ">d",
+            struct.unpack(">d", bytes.fromhex(b))[0]
+            - struct.unpack(">d", bytes.fromhex(a))[0],
+        ).hex()
+        for a, b in zip(first, second, strict=True)
+    ]
+    assert subtracted == phase["baseline_rows"][1]["itrs_vector_m_f64be"]
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "fingerprint",
+        "site_digest",
+        "site_word",
+        "offset_word",
+        "site_schema",
+        "selection_schema",
+    ],
+)
+def test_characterization_instrument_exact_strings_and_schemas(
+    characterization_projection: dict[str, Any], target: str
+) -> None:
+    class StringSubclass(str):
+        pass
+
+    content = _instrument_projection_content(characterization_projection)
+    phase = copy.deepcopy(
+        characterization_projection["value"]["phase_input_identity_manifest"]
+    )
+    if target == "fingerprint":
+        content["instrument"]["instrument_sha256"] = StringSubclass(
+            content["instrument"]["instrument_sha256"]
+        )
+    elif target == "site_digest":
+        phase["site_sha256"] = StringSubclass(phase["site_sha256"])
+    elif target == "site_word":
+        phase["site_manifest"]["height_m_f64be"] = StringSubclass(
+            phase["site_manifest"]["height_m_f64be"]
+        )
+    elif target == "offset_word":
+        phase["antenna_rows"][0]["itrs_xyz_m_f64be"][0] = StringSubclass(
+            phase["antenna_rows"][0]["itrs_xyz_m_f64be"][0]
+        )
+    elif target == "site_schema":
+        phase["site_manifest"]["schema_version"] = "foreign"
+        phase["site_sha256"] = _object_digest(
+            "radiosim.mmode-site.v1", phase["site_manifest"]
+        )
+    else:
+        content["selection"]["schema_version"] = "foreign"
+    module = _tool()
+    with pytest.raises(module.EvidenceError) as caught:
+        module._validate_characterization_instrument_selection(
+            phase, content, "instrument/selection"
+        )
+    assert caught.value.prefix == module.SCHEMA
+    assert (
+        "string required" in caught.value.detail
+        or "schema differs" in caught.value.detail
+    )

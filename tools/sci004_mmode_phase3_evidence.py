@@ -5187,6 +5187,41 @@ def validate_characterization_instrument_rows(
             )
 
 
+def _validate_characterization_instrument_selection(
+    phase: dict[str, Any], scientific: dict[str, Any], label: str
+) -> None:
+    """Join instrument, site, selection and phase offsets in producer order."""
+    import numpy as np
+
+    coordinates, original_xyz, antennas, positions = (
+        validate_characterization_instrument(scientific, label)
+    )
+    longitude, latitude = validate_characterization_site(
+        phase, coordinates, original_xyz, label
+    )
+    lon, lat = math.radians(longitude), math.radians(latitude)
+    triad = np.asarray(
+        (
+            (-math.sin(lon), math.cos(lon), 0.0),
+            (
+                -math.sin(lat) * math.cos(lon),
+                -math.sin(lat) * math.sin(lon),
+                math.cos(lat),
+            ),
+            (
+                math.cos(lat) * math.cos(lon),
+                math.cos(lat) * math.sin(lon),
+                math.sin(lat),
+            ),
+        ),
+        dtype=np.float64,
+    )
+    ids = validate_characterization_selection(scientific, label)
+    validate_characterization_instrument_rows(
+        phase, antennas, positions, ids, triad, label
+    )
+
+
 def validate_characterization_input_projection(
     value: Any,
     digest: Any,
@@ -5203,9 +5238,9 @@ def validate_characterization_input_projection(
 
     This additive utility does not admit evidence or authenticate Git bytes.
     Receptor rows join their decoded scientific owner and antenna identities.
-    Nested site/baseline geometry, beam/sky/direction semantics,
-    transfer grids, convention preimages and frame ownership remain deferred.
-    Remaining scientific instrument/selection/beam semantics are deferred.
+    Instrument, site, offsets and selection join their fixed scientific owners.
+    Beam/sky/direction semantics, transfer grids, convention preimages and frame
+    ownership remain deferred.
     """
     obj = _input_projection_object
     manifest = _require_keys(obj(value, label), _SOURCE_CONTRACT_KEYS["input"], label)
@@ -5424,6 +5459,9 @@ def validate_characterization_input_projection(
     )
     _validate_characterization_receptors(
         phase, scientific, manifest["polarization_basis"], label + " receptors"
+    )
+    _validate_characterization_instrument_selection(
+        phase, scientific, label + " instrument/selection"
     )
     time = validate_characterization_time_manifest(time_manifest, time_digest, phase)
     for key, role in (
