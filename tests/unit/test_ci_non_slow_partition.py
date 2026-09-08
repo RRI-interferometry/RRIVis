@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -594,3 +595,115 @@ def test_partition_requires_an_owner_even_with_zero_selected_nodes() -> None:
     missing_owner = roster[1:]
     with pytest.raises(ValueError, match="missing or duplicate required owner"):
         _ = kernel.prove_partition((), empty_groups, missing_owner)
+
+
+def _request_document() -> dict[str, Any]:
+    return {
+        "schema": "radiosim-ci-collection-request-v1",
+        "nonce": "a" * 32,
+        "index": 0,
+        "role": "baseline",
+        "root": "/synthetic/checkout",
+        "commit": "b" * 40,
+        "source_manifest_sha256": "c" * 64,
+        "argv": ["-n", "auto", "--collect-only", "-m", "not slow", "tests"],
+    }
+
+
+def test_request_raw_identity_preserves_whitespace_and_key_order() -> None:
+    kernel = _partition_tool()
+    document = _request_document()
+    raw = (
+        json.dumps(
+            document,
+            sort_keys=True,
+            ensure_ascii=True,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode()
+    alternate = json.dumps(dict(reversed(tuple(document.items()))), indent=2).encode()
+    expected = hashlib.sha256(raw).hexdigest()
+    decoded, digest = kernel.parse_collection_request(raw, expected_sha256=expected)
+    other_decoded, other_digest = kernel.parse_collection_request(alternate)
+    assert decoded == other_decoded == document
+    assert digest == expected and other_digest == hashlib.sha256(alternate).hexdigest()
+    assert digest != other_digest
+    with pytest.raises(ValueError, match="raw request digest mismatch"):
+        _ = kernel.parse_collection_request(alternate, expected_sha256=expected)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("request_sha256", "d" * 64),
+        ("index", True),
+        ("index", 1.0),
+        ("index", -1),
+        ("index", 7),
+        ("role", "general"),
+        ("schema", "other"),
+        ("nonce", "A" * 32),
+        ("commit", "b" * 39),
+        ("source_manifest_sha256", "not-a-hash"),
+        ("root", "relative"),
+        ("root", 1),
+        ("argv", "tests"),
+        ("argv", ["tests", 1]),
+    ],
+)
+def test_request_refuses_schema_and_role_mutations(key: str, value: Any) -> None:
+    document = _request_document()
+    document[key] = value
+    with pytest.raises(ValueError):
+        _ = _partition_tool().parse_collection_request(json.dumps(document).encode())
+
+
+def test_request_refuses_missing_key_and_duplicate_key() -> None:
+    document = _request_document()
+    del document["commit"]
+    with pytest.raises(ValueError, match="exactly the eight schema keys"):
+        _ = _partition_tool().parse_collection_request(json.dumps(document).encode())
+    raw = json.dumps(_request_document()).encode()
+    duplicate = raw[:-1] + b', "index":0}'
+    with pytest.raises(ValueError, match="duplicate request key"):
+        _ = _partition_tool().parse_collection_request(duplicate)
+
+
+@pytest.mark.parametrize("token", [b"NaN", b"Infinity", b"-Infinity", b"1e999"])
+def test_request_refuses_nonfinite_numbers(token: bytes) -> None:
+    raw = (
+        json.dumps(_request_document())
+        .encode()
+        .replace(b'"index": 0', b'"index": ' + token)
+    )
+    with pytest.raises(ValueError, match="not an integer"):
+        _ = _partition_tool().parse_collection_request(raw)
+
+
+@pytest.mark.parametrize("raw", [b"\xff", b"{", b"null", b"[]"])
+def test_request_refuses_nonobject_and_malformed_utf8(raw: bytes) -> None:
+    with pytest.raises(ValueError):
+        _ = _partition_tool().parse_collection_request(raw)
+
+
+@pytest.mark.parametrize(
+    "role,index",
+    [
+        ("baseline", 0),
+        ("general", 1),
+        ("history", 2),
+        ("evidence", 3),
+        ("red-replay", 4),
+        ("public-integration", 5),
+        ("public-characterization", 6),
+    ],
+)
+def test_request_accepts_exact_role_index_pairs(role: str, index: int) -> None:
+    document = _request_document()
+    document.update(role=role, index=index)
+    parsed, _ = _partition_tool().parse_collection_request(
+        json.dumps(document).encode()
+    )
+    assert parsed == document

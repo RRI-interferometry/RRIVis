@@ -397,3 +397,86 @@ def prove_partition(
     if len(set(all_nodes)) != len(all_nodes) or set(all_nodes) != set(baseline):
         raise ValueError("partition is not a disjoint exact cover")
     return selections
+
+
+def _request_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate request key: {key}")
+        result[key] = value
+    return result
+
+
+def _request_noninteger(value: str) -> Any:
+    raise ValueError(f"request numeric token is not an integer: {value}")
+
+
+def parse_collection_request(
+    raw: bytes, *, expected_sha256: str | None = None
+) -> tuple[dict[str, Any], str]:
+    """Validate request shape and raw identity; source/argv authority is separate."""
+    if not isinstance(cast(object, raw), bytes):
+        raise ValueError("request must be raw bytes")
+    digest = hashlib.sha256(raw).hexdigest()
+    if expected_sha256 is not None and digest != expected_sha256:
+        raise ValueError("raw request digest mismatch")
+    try:
+        request = json.loads(
+            raw.decode("utf-8", errors="strict"),
+            object_pairs_hook=_request_pairs,
+            parse_constant=_request_noninteger,
+            parse_float=_request_noninteger,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("request is not UTF-8 JSON") from error
+    keys = {
+        "schema",
+        "nonce",
+        "index",
+        "role",
+        "root",
+        "commit",
+        "source_manifest_sha256",
+        "argv",
+    }
+    if not isinstance(request, dict) or set(cast(dict[str, Any], request)) != keys:
+        raise ValueError("request must have exactly the eight schema keys")
+    request = cast(dict[str, Any], request)
+    if request["schema"] != "radiosim-ci-collection-request-v1":
+        raise ValueError("unknown request schema")
+    for field, length in (
+        ("nonce", 32),
+        ("commit", 40),
+        ("source_manifest_sha256", 64),
+    ):
+        value = request[field]
+        if (
+            not isinstance(value, str)
+            or len(value) != length
+            or any(c not in "0123456789abcdef" for c in value)
+        ):
+            raise ValueError(f"invalid request {field}")
+    roles = (
+        "baseline",
+        "general",
+        "history",
+        "evidence",
+        "red-replay",
+        "public-integration",
+        "public-characterization",
+    )
+    index = request["index"]
+    if type(index) is not int or not 0 <= index < len(roles):
+        raise ValueError("invalid request index")
+    if request["role"] != roles[index]:
+        raise ValueError("request role/index mismatch")
+    root = request["root"]
+    if not isinstance(root, str) or not Path(root).is_absolute():
+        raise ValueError("request root must be an absolute path string")
+    argv = request["argv"]
+    if not isinstance(argv, list) or any(
+        not isinstance(arg, str) for arg in cast(list[Any], argv)
+    ):
+        raise ValueError("request argv must be an array of strings")
+    return request, digest
