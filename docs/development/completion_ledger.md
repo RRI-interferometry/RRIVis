@@ -407,12 +407,12 @@ The numerical candidate manifest is
 Both commits reproduce their complete reviewed patches, and the checkout was
 clean after the geometry commit. These outcomes do not complete terminal S or M3.
 
-Remaining C1 source validators cover decoded owner joins, instrument/beam
-semantics, sky/direction/transfer and convention/frame checks, then the coupled
-schema cutover. D36 public gates and fresh clean-source capture are complete;
+C1 instrument composition is now connected to the input validator; beam,
+sky/direction/transfer and convention/frame checks, then the coupled schema cutover,
+remain open. D36 public gates and fresh clean-source capture are complete;
 conformity and a further reviewed numerical admission relation remain open.
-The accepted bounded profile-reader plan is entering implementation with synthetic
-controls; it has not acquired actual capture profiles or supplied numerical proof.
+The bounded profile reader remains in source/construction preparation; it has not
+acquired actual capture profiles or supplied numerical proof.
 No whole original donor is retired by these scheduling decisions.
 
 Read-only F1 diagnosis confirmed two catalog defects for later scoped repair:
@@ -477,11 +477,26 @@ limits. Backend-parity and quality jobs passed. Both Linux runtimes reported the
 two production-v2 preimage tests FAILED before timeout; their missing terminal
 tracebacks leave the cause unresolved. The incomplete macOS logs do not establish
 full-suite success. The original diagnosis remains in
-`ci-c023-34180339931/round1/report.md`. At the latest root observation for
-`74830bc5f30330a3bbf4124f33ef467447cf1f7c`, CI run
+`ci-c023-34180339931/round1/report.md`. The recorded pending observation for
+`74830bc5f30330a3bbf4124f33ef467447cf1f7c` run
 [34192091050](https://github.com/RRI-interferometry/RadioSim/actions/runs/34192091050)
-was pending; this entry records that observation, not a terminal result or a fresh
-CI query. Complete CI remains open.
+remains historical; no terminal result for that run is inferred here.
+
+The serial diagnostic reporter `c0be678e362570d10d44e29c28885119d947f2d0`
+and workflow `ec46f3fa536b35a02f41d3aa7981beb535eae463` initially refused both
+Linux jobs before test bodies with `collection configuration drift: ini` (JUnit
+zero tests). Lifecycle correction `c238b15e6cc8dc2a64b3cd7d7ee075d5ca788b7c`
+passed 29 synthetic cases on each runtime. Actual run
+[34196892621](https://github.com/RRI-interferometry/RadioSim/actions/runs/34196892621)
+then executed both selected nodes without infrastructure refusal: Python 3.11
+failed both with `InvalidResultError: invalid characterization result antennas`;
+Python 3.12 passed both. The second 3.11 failure received that antenna error before
+its expected identity refusal. Complete raw failures, settled configuration and
+source authentication are retained under
+`ci-serial-diagnostic-execution/{ec46f3f,c238b15}/round1/`. Per-row versus batched
+coordinate arithmetic is an investigation hypothesis, not a confirmed cause or
+repair. These diagnostics neither explain the missing original c023 tracebacks
+nor establish complete CI success; complete CI remains open.
 
 ## Subsequent bounded implementation and evidence checkpoints
 
@@ -496,10 +511,9 @@ change no fixed proposed capacity term. Detailed schema owners are bound to the
 exact retained inventory. This does not establish a generic hostile parser, reader
 source-fit, applied profile/capacity, payload acquisition or scientific admission.
 
-C1 instrument checkpoints are committed in the following sequence. These are
-independently reviewed bounded increments; the helpers remain unwired from the
-input validator, and later selection/rows/composition, beam and coupled schema
-work remains open.
+C1 instrument checkpoints are committed in the following sequence. Checkpoint 8
+composes the reviewed primitives and connects instrument validation to the input
+validator. Other C1 owners and the coupled schema work remain open.
 
 | Checkpoint | Commit | Bounded result |
 | --- | --- | --- |
@@ -508,24 +522,54 @@ work remains open.
 | 3 | `d1239bffcdc2abed1752e44db60e09dbb59756b5` | Ordered antenna identity, ENU, diameter and provenance primitive; 58 focused cases pass per runtime. |
 | 4 | `74830bc5f30330a3bbf4124f33ef467447cf1f7c` | Outer instrument closure and original fingerprint primitive; 33 focused cases pass per runtime, retaining later geodesy obligations. |
 | 5 | `59450dc83146fd6ea487afdb95a25e16fe43b385` | Exact original and rebuilt phase-site reconstruction; 34 focused cases pass per runtime. |
+| 6 | `cc54a2c192bb6cb642be1429def1155c85da42f2` | Exact selection criteria, counts and ordered native baseline IDs; 32 focused cases pass per runtime. |
+| 7 | `31305712742844678985636e4f3c1eb79ba9d91b` | Phase rows and original batched ENU rotations, with independent public-owner joins; 20 focused cases pass per runtime. |
+| 8 | `5ac4a23594647be81f3c31347fb74eb3deb486fd` | Complete instrument composition and input-validator connection; 469 selected cases pass per runtime. |
 
-The corresponding `c1-instrument-checkpoint{1,2,3,4,5}/round1/root-commit.json`
+The corresponding `c1-instrument-checkpoint{1,2,3,4,5,6,7,8}/round1/root-commit.json`
 records bind reviewed patches, commit outcomes and preserved ambient changes.
-Scoped strict diagnostics remain the same 367; focused green controls do not
-constitute a full E gate, completed C1, or observation admission.
+Scoped strict diagnostics remain the same 367. Checkpoint 8 retains exact
+reference predicate composition; 15 literal test variants are explicitly qualified
+as predicate-equivalent coverage, not verbatim case replay. Its 469-case gates do
+not constitute a full E gate, completed C1, or observation admission.
 
 The private, unwired native payload codec is committed at
 `5ed697ffdfe86efd57c349f0384c6adddfe669a6`. Identity tests at
 `ac08dd3262e9b3e87926584cafde4b1d937d83a4`, constructor-aware layout tests at
 `52faa0e49340024950ea73113f91d975cfaa086f`, and hostile-input tests at
-`47a6b4843c437fe8dc7b6d814f79176295cd87ca` extend its finite coverage. The final
+`47a6b4843c437fe8dc7b6d814f79176295cd87ca` extend its finite coverage. That checkpoint's
 focused module passes 57 cases on each runtime with zero scoped strict diagnostics.
 These controls distinguish stored values, signed zero, aliases, order and endian
 representations, and reject invalid owned metadata. They do not wire loaders,
 materialize maps, establish physical equivalence or grant public M4 support.
-Scratch/chunk instrumentation and its construction qualification remain separate.
-The exact records reside under `m4-native-value-binding-code/round2/` and
-`m4-native-binding-{identities,layout,hostile}/round1/`.
+Test-only scratch instrumentation `be541fb1c62575a7fd8e4fbf867e2c7826cee9fb`
+extends that module to 59 passing cases per runtime. Transparent iterator/hash
+observers establish finite traversal and conservative parent-capacity accounting
+for the declared sparse/dense fixtures; they do not prove hidden native allocation,
+all layouts or RSS. Exact records reside under
+`m4-native-value-binding-code/round2/` and
+`m4-native-binding-{identities,layout,hostile,scratch}/round1/`.
+
+The private canonical stored-native identity helper
+`39c1f2f92f8e8d760fff2a88b16363b42750e052` adds a twelve-field record, fixed stored
+operation and immutable byte sidecars. Three focused cases pass per runtime,
+including independent-oracle coverage, with zero scoped strict diagnostics. It
+certifies no earlier conversion history and changes no public owner or loader.
+Test-only `e58613b3a3b142f9ab96bfb85261f11285db8e04` extends the module to 18
+passing cases per runtime, covering corrupted records/sidecars, stale backing
+aliases and null/zero/empty domains. Exact-type and bounded Q/U iteration controls
+remain open. Scope and commit records are retained in
+`m4-native-identity-materialization-code/round1/` and
+`m4-native-identity-hostile-tests/round1/`.
+
+D35 reader construction remains source preparation. The original discovery and
+call-transport qualification stops remain in
+`d35-profile-reader-construction-preparation/`. The subsequent 96-file/runtime
+allowance is solely a finite source-discovery grant (2 MiB/file, 32 MiB/runtime),
+not construction execution or a proof of W=1280. The prepared four-slot amendment
+and allocation-source work have not produced a qualified aggregate lifetime bound;
+raw496 and complete pair caps remain unchanged. The 148-case construction roster
+has not run, and no actual capture profile has been acquired by this reader.
 
 FITPACK execution is accepted only for four finite public-constructor observations
 and four Python pre-native refusals across the two recorded environments. Maximum
