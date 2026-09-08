@@ -167,6 +167,46 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  linux-preimage-diagnostic:
+    name: Linux production-v2 preimage / Python ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: "3.11"
+            environment: default
+          - python: "3.12"
+            environment: py312
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          pixi-version: v0.72.2
+          environments: ${{ matrix.environment }}
+          locked: true
+          cache: true
+      - name: Run both existing preimage tests with full failure details
+        run: |
+          mkdir -p output/ci-preimage
+          pixi run --environment ${{ matrix.environment }} -- python -m pytest \
+            -p no:xdist -p tools.ci_non_slow_partition -vv --tb=long \
+            --ci-diagnostic-output=output/ci-preimage \
+            --junit-xml=output/ci-preimage/results.xml \
+            tests/unit/test_sci004_phase3_evidence.py::test_production_v2_retains_the_complete_owned_input_preimage \
+            tests/unit/test_sci004_phase3_evidence.py::test_production_v2_rejects_a_rehashed_foreign_phase_against_unchanged_result
+      - name: Preserve targeted diagnostic results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-preimage-py${{ matrix.python }}
+          path: output/ci-preimage/
+          if-no-files-found: warn
+          retention-days: 30
+
   backend-parity:
     name: NumPy/JAX-CPU backend parity
     runs-on: ubuntu-24.04
