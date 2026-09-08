@@ -9871,3 +9871,127 @@ def test_characterization_site_schema_and_digest(
         module.validate_characterization_site(phase, coordinates, xyz, "site")
     assert caught.value.prefix == getattr(module, prefix)
     assert detail in caught.value.detail
+
+
+def test_characterization_selection_fixed_order_and_ownership() -> None:
+    module = _tool()
+    case = _instrument_projection_fixture()
+    before = copy.deepcopy(case)
+    result = module.validate_characterization_selection(case, "selection")
+    assert result == [[0, 0], [0, 1], [1, 1]]
+    assert result is case["selection"]["selected_ids"]
+    assert case == before
+
+
+@pytest.mark.parametrize("target", ["selection", "criteria"])
+@pytest.mark.parametrize("operation", ["missing", "extra"])
+def test_characterization_selection_closed_objects(target: str, operation: str) -> None:
+    module = _tool()
+    template = _instrument_projection_fixture()
+    original = template["selection"]
+    keys = list(original if target == "selection" else original["criteria"])
+    for key in keys:
+        case = copy.deepcopy(template)
+        obj = case["selection"]
+        if target == "criteria":
+            obj = obj["criteria"]
+        if operation == "missing":
+            del obj[key]
+        else:
+            obj["extra_" + key] = copy.deepcopy(obj[key])
+        before = copy.deepcopy(case)
+        with pytest.raises(module.EvidenceError) as caught:
+            module.validate_characterization_selection(case, "selection")
+        assert caught.value.prefix == module.SCHEMA
+        assert "must have exactly" in caught.value.detail
+        assert case == before
+
+
+@pytest.mark.parametrize(
+    "field,value,prefix",
+    [
+        ("correlations", False, "SCHEMA"),
+        ("correlations", "cross", "DIGEST"),
+        ("length_mode", 0, "SCHEMA"),
+        ("length_mode", "range", "DIGEST"),
+        ("length_tolerance_m", 0, "SCHEMA"),
+        ("length_tolerance_m", False, "SCHEMA"),
+        ("length_tolerance_m", 0.0, "DIGEST"),
+        ("length_targets_m", (), "SCHEMA"),
+        ("length_targets_m", [4.0], "DIGEST"),
+        ("length_ranges_m", (), "SCHEMA"),
+        ("length_ranges_m", [[0.0, 5.0]], "DIGEST"),
+        ("azimuth_ranges_deg", (), "SCHEMA"),
+        ("azimuth_ranges_deg", [[0.0, 360.0]], "DIGEST"),
+    ],
+)
+def test_characterization_selection_criteria_refusals(
+    field: str, value: Any, prefix: str
+) -> None:
+    module = _tool()
+    case = _instrument_projection_fixture()
+    case["selection"]["criteria"][field] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_selection(case, "selection")
+    assert caught.value.prefix == getattr(module, prefix)
+    assert "criteria" in caught.value.detail
+
+
+@pytest.mark.parametrize(
+    "value,prefix", [(False, "SCHEMA"), (3.0, "SCHEMA"), (-1, "DIGEST")]
+)
+def test_characterization_selection_each_count(value: Any, prefix: str) -> None:
+    module = _tool()
+    template = _instrument_projection_fixture()
+    for field in (
+        "generated_count",
+        "after_correlation_count",
+        "after_length_count",
+        "after_azimuth_count",
+        "azimuth_exempt_auto_count",
+    ):
+        case = copy.deepcopy(template)
+        case["selection"][field] = value
+        with pytest.raises(module.EvidenceError) as caught:
+            module.validate_characterization_selection(case, "selection")
+        assert caught.value.prefix == getattr(module, prefix)
+        assert "selection count" in caught.value.detail
+
+
+@pytest.mark.parametrize(
+    "value,prefix,detail",
+    [
+        ((), "SCHEMA", "IDs list"),
+        ([(0, 0), [0, 1], [1, 1]], "SCHEMA", "ID types"),
+        ([[0], [0, 1], [1, 1]], "SCHEMA", "ID types"),
+        ([[False, 0], [0, 1], [1, 1]], "SCHEMA", "ID types"),
+        ([[0, 0], [0.0, 1], [1, 1]], "SCHEMA", "ID types"),
+        ([], "DIGEST", "fixed selected IDs"),
+        ([[0, 0], [1, 1], [0, 1]], "DIGEST", "fixed selected IDs"),
+        ([[0, 0], [0, 1], [0, 1]], "DIGEST", "fixed selected IDs"),
+        ([[0, 0], [1, 0], [1, 1]], "DIGEST", "fixed selected IDs"),
+    ],
+)
+def test_characterization_selection_id_refusals(
+    value: Any, prefix: str, detail: str
+) -> None:
+    module = _tool()
+    case = _instrument_projection_fixture()
+    case["selection"]["selected_ids"] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_selection(case, "selection")
+    assert caught.value.prefix == getattr(module, prefix)
+    assert detail in caught.value.detail
+
+
+@pytest.mark.parametrize(
+    "value,detail", [(0, "schema type"), ("foreign", "schema differs")]
+)
+def test_characterization_selection_schema(value: Any, detail: str) -> None:
+    module = _tool()
+    case = _instrument_projection_fixture()
+    case["selection"]["schema_version"] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_selection(case, "selection")
+    assert caught.value.prefix == module.SCHEMA
+    assert detail in caught.value.detail

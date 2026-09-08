@@ -5000,6 +5000,101 @@ def validate_characterization_site(
     return longitude, latitude
 
 
+def validate_characterization_selection(
+    scientific: dict[str, Any], label: str
+) -> list[list[int]]:
+    """Validate fixed all-correlations criteria, counts and ordered baseline IDs."""
+    obj = _input_projection_object
+    selection = _require_keys(
+        obj(scientific["selection"], label),
+        (
+            "schema_version",
+            "criteria",
+            "generated_count",
+            "after_correlation_count",
+            "after_length_count",
+            "after_azimuth_count",
+            "azimuth_exempt_auto_count",
+            "selected_ids",
+        ),
+        label + " selection",
+    )
+    _require(
+        type(selection["schema_version"]) is str,
+        SCHEMA,
+        label + ": selection schema type",
+    )
+    _require(
+        selection["schema_version"] == "radiosim.baseline-selection.v1",
+        SCHEMA,
+        label + ": selection schema differs",
+    )
+    criteria = _require_keys(
+        obj(selection["criteria"], label),
+        (
+            "correlations",
+            "length_mode",
+            "length_targets_m",
+            "length_tolerance_m",
+            "length_ranges_m",
+            "azimuth_ranges_deg",
+        ),
+        label + " criteria",
+    )
+    _require(
+        type(criteria["correlations"]) is str
+        and (criteria["length_mode"] is None or type(criteria["length_mode"]) is str)
+        and (
+            criteria["length_tolerance_m"] is None
+            or type(criteria["length_tolerance_m"]) is float
+        ),
+        SCHEMA,
+        label + ": criteria scalar types",
+    )
+    for key in ("length_targets_m", "length_ranges_m", "azimuth_ranges_deg"):
+        _require(type(criteria[key]) is list, SCHEMA, label + ": criteria list type")
+    _require(
+        criteria
+        == {
+            "correlations": "all",
+            "length_mode": None,
+            "length_targets_m": [],
+            "length_tolerance_m": None,
+            "length_ranges_m": [],
+            "azimuth_ranges_deg": [],
+        },
+        DIGEST,
+        label + ": fixed criteria differs",
+    )
+    for key in (
+        "generated_count",
+        "after_correlation_count",
+        "after_length_count",
+        "after_azimuth_count",
+        "azimuth_exempt_auto_count",
+    ):
+        _require(type(selection[key]) is int, SCHEMA, label + ": selection count type")
+        _require(
+            selection[key] == (0 if key == "azimuth_exempt_auto_count" else 3),
+            DIGEST,
+            label + ": selection count differs",
+        )
+    ids = selection["selected_ids"]
+    _require(type(ids) is list, SCHEMA, label + ": selected IDs list")
+    for pair in ids:
+        _require(
+            type(pair) is list
+            and len(pair) == 2
+            and all(type(number) is int for number in pair),
+            SCHEMA,
+            label + ": selected ID types",
+        )
+    _require(
+        ids == [[0, 0], [0, 1], [1, 1]], DIGEST, label + ": fixed selected IDs differ"
+    )
+    return cast(list[list[int]], ids)
+
+
 def validate_characterization_input_projection(
     value: Any,
     digest: Any,
