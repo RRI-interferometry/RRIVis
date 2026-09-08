@@ -46,13 +46,13 @@ fixtures. No implementation is authored in another worktree.
 | A2 | D29 five-path candidate and original fingerprint R3 `a65c53a46e84f63c163c5ad15fba8645df33d1d2`; replacement-S3 overlaps two evidence paths | Integrate historical/current binding and oracle deltas by hunk; isolate exact historical imports; freeze terminal R | Exactly two expected failures and three controls at historical source; explicit source path, PYTHONNOUSERSITE=1 and verified radiosim.__file__; complete governed serial suite | Exact `567f9ac` replay and disjoint characterization partition pass; complete serial unit suite 7,618 passed, two existing platform skips; original 80 stopped-candidate hunks accounted for; primary source-hunk accounting advances with landed slices |
 | B1 | Failed CI at `cfc9b10`; frame certificate reports outside-slab horizon sign mismatches | Reproduce operational/frozen root/guard/slab issue with environment provenance; reviewed correction if contract changes; focused fix | Independent physics and numerical diagnosis; decisive regression with unchanged scientific budgets; serial and compatibility jobs | Repair pushed; 13 frame tests pass on both Python versions and all seven public integration tests pass on Python 3.12; final exact-SHA CI remains pending |
 | B2 | Failed CI reports SciPy intersphinx inventory ConnectTimeout | Inspect failed logs and current retrieval; bounded reliability fix if reproduced/justified | Clean warnings-as-errors Sphinx build; retain documentation validation | Fresh retrieval succeeded for all inventories; original CI ConnectTimeout remains an observed transient retrieval failure |
-| B3 | Section 12.1 requires frozen root bounds in the initial scan partition; the scanner at `786413f` omitted them and only checked the supplied list length | Reviewed finite successor grant, decisive boundary regression, exact-bound inclusion repair, fresh four-family measurements | Independent partition/evaluation checks with unchanged numerical budgets; distinguish measured cube changes from certificate changes; new admission relation requires review | Confirmed at `786413f`; D34 is reviewed and pushed at `90ef12e`, with exact edge authentication at `3563fa7`; guarded activation is pushed at `505ef3d` and the optional workflow entry at `a18aa60`; separate regression is pushed at `b032580` and the bounded numerical repair at `aa933c2`; 35 frame cases pass on both Python versions and all seven public integration tests pass; clean four-family measurements completed at `e7623fb`, with independent exact initial-union and centre-projection checks; all four terminal structures and historical scan reconstructions are verified, with scalar separately postvalidated after its preserved driver failure; B4 source correction is pushed; corrected measurements, certificate conformity and observation admission remain pending |
-| B4 | Independent D34 comparison found that `_pair_roots` returns radians which the certificate labels as turns and converts again; 1,280 root-pair rows per family also violate frozen-bound order | Prospective reviewed solver/history grant; exact direction-owned slab unions, one outward radian conversion, canonical owned indices and independent semantic checks | Nonzero causal unit, overlap, seam and order regressions; unchanged budgets; fresh clean-source captures and numerical admission | Source defect and four-family arithmetic independently confirmed; corrected statistic is 0.004604447903486282 rad versus recorded 0.028930599414858853, under the unchanged 0.1024-rad limit; D35 reviewed and pushed at `dd26e04`; causal regression pushed at `5790241` retains five intended failures and one passing control; historical D34/pending D35 preparation pushed at `368821d` passes 161 affected history cases; strict guard pushed at `083fa84`, atomic D35 activation at `af8d595` and the reviewed numerical repair at `cf67c0b`; 109 frame cases pass on each supported Python version; public numerical gates, fresh captures, conformity and admission remain pending; historical captures remain unchanged |
-| B5 | Sections 4.2/12.1 require independent operational direct kernels/classes, outward error arithmetic and all root/guard partition boundaries; five source defects are confirmed | Reviewed D36 scope; separate causal controls, exact source/guard activation, corrected model, partition and error semantics | Independent model-owner and displaced-root controls; exact-rational radius/accumulation and guarded-partition witnesses; unchanged budgets; both runtimes, fresh captures and complete conformity before admission | D36 design pushed at `7752f04`; causal regression pushed at `216afb1` retains six intended semantic failures and three passing controls on each Python version with same-process import/source proof; production repair and executable activation remain pending; actual four-family impact remains unmeasured |
-| C1 | D25 production v2 contract, D31 runtime input anchor, D32 identity transitions and D33 lossless certificate storage; preserved draft has strict-schema and same-run-join defects | Account for every original hunk; corrected input manifests, runtime identity bridge, result records, evidence/schema, acceptance and hostile tests in coherent source commits | Path-independent reconstruction/relocation, semantic mutation and malformed-input rejection; exact nine-key production family and retained manifests; D34 authorizes thirteen modified paths plus four authenticated disposals, and one optional exact workflow path; guarded activation and the workflow entry are implemented | First S, runtime bridge, validated result accessor and current-A topology pushed and independently reviewed; production-v2 factory pushed at a39ceff passes 450 evidence tests and produces the required records for all four actual public families; D32 and D33 designs are pushed; D35 at `dd26e04` is executable current authority through `af8d595`; D34 remains explicit historical frame/workflow authority and D33 retains its historical role; input14/phase26 outer projections and source/time/scientific-buffer joins pushed at `96e6b40`; receptor native-float, angle, family and ordered antenna joins pushed at `4b93e7a`; remaining nested physical semantics, portable transition validation and observation admission remain pending; generation stays closed |
+| B3 | Section 12.1 requires frozen root bounds in the initial scan partition; the scanner at `786413f` omitted them and only checked the supplied list length | Reviewed finite successor grant, decisive boundary regression, exact-bound inclusion repair, fresh four-family measurements | Independent partition/evaluation checks with unchanged numerical budgets; distinguish measured cube changes from certificate changes; new admission relation requires review | Confirmed at `786413f`; D34 is reviewed and pushed at `90ef12e`, with exact edge authentication at `3563fa7`; guarded activation is pushed at `505ef3d` and the optional workflow entry at `a18aa60`; separate regression is pushed at `b032580` and the bounded numerical repair at `aa933c2`; 35 frame cases pass on both Python versions and all seven public integration tests pass; clean four-family measurements completed at `e7623fb`, with independent exact initial-union and centre-projection checks; all four terminal structures and historical scan reconstructions are verified, with scalar separately postvalidated after its preserved driver failure; B4 source correction was subsequently pushed; the D36 successor in B5 now records completed public gates/capture, while certificate conformity and observation admission remain pending |
+| B4 | Independent D34 comparison found that `_pair_roots` returns radians which the certificate labels as turns and converts again; 1,280 root-pair rows per family also violate frozen-bound order | Prospective reviewed solver/history grant; exact direction-owned slab unions, one outward radian conversion, canonical owned indices and independent semantic checks | Nonzero causal unit, overlap, seam and order regressions; unchanged budgets; fresh clean-source captures and numerical admission | Source defect and four-family arithmetic independently confirmed; corrected statistic is 0.004604447903486282 rad versus recorded 0.028930599414858853, under the unchanged 0.1024-rad limit; D35 reviewed and pushed at `dd26e04`; causal regression pushed at `5790241` retains five intended failures and one passing control; historical D34/pending D35 preparation pushed at `368821d` passes 161 affected history cases; strict guard pushed at `083fa84`, atomic D35 activation at `af8d595` and the reviewed numerical repair at `cf67c0b`; 109 frame cases pass on each supported Python version; public gates and fresh capture were pending at this D35 boundary and are now recorded under successor B5; conformity/admission remain pending and historical captures remain unchanged |
+| B5 | Sections 4.2/12.1 require independent operational direct kernels/classes, outward error arithmetic and all root/guard partition boundaries; five source defects are confirmed | Reviewed D36 scope; separate causal controls, exact source/guard activation, corrected model, partition and error semantics | Independent model-owner and displaced-root controls; exact-rational radius/accumulation and guarded-partition witnesses; unchanged budgets; both runtimes, fresh captures and complete conformity before admission | D36 design and separate causal regression are pushed at `7752f04` and `216afb1`; activation is pushed at `e33fb26` and numerical repair at `c023036`; all four public integration/characterization gates pass across Python 3.11 and 3.12; fresh four-family capture completed at clean `c023036`, with 901 artifacts independently byte-authenticated; terminal semantic/numerical conformity and observation admission remain pending |
+| C1 | D25 production v2 contract, D31 runtime input anchor, D32 identity transitions and D33 lossless certificate storage; preserved draft has strict-schema and same-run-join defects | Account for every original hunk; corrected input manifests, runtime identity bridge, result records, evidence/schema, acceptance and hostile tests in coherent source commits | Path-independent reconstruction/relocation, semantic mutation and malformed-input rejection; exact nine-key production family and retained manifests; D34 authorizes thirteen modified paths plus four authenticated disposals, and one optional exact workflow path; guarded activation and the workflow entry are implemented | First S, runtime bridge, validated result accessor and current-A topology pushed and independently reviewed; production-v2 factory pushed at a39ceff passes 450 evidence tests and produces the required records for all four actual public families; D32 and D33 designs are pushed; D36 at `7752f04` is executable current authority through `e33fb26`; D35, D34 and D33 retain their authenticated historical roles; input14/phase26 outer projections and source/time/scientific-buffer joins pushed at `96e6b40`; receptor native-float, angle, family and ordered antenna joins pushed at `4b93e7a`; remaining nested physical semantics, portable transition validation and observation admission remain pending; generation stays closed |
 | C2 | SCI-004 M3 Sections 10–14; four rejected-artifact deletions and six null sentinels | Complete replacement source range; authenticate disposal; generate new evidence from clean exact terminal source tip; separate E and A commits | HDF5/bounded reads, summary, UVFITS/MS read-back, full correlations/time/solver/provenance; all families; retained non-gating performance; fresh independent manual/numerical/schema acceptance | All six approval sentinels are committed literal None; four rejected artifacts remain unchanged; disposal follows completed source logic |
-| D1 | SCI-004 Sections 7/9/15; public solver currently rejects HEALPix/hybrid and non-scalar beams; accepted SCI-005 beam contracts remain authoritative | Reviewed successor public support contract; integrate point/HEALPix/hybrid full Stokes; stationary squint and applicable full-efield support through canonical BeamSystem/Jones | Public API and CLI tests; dense/sparse pixel measure, frequencies, tangent/receptor frames, component provenance; common direct oracle and two-tier predicates | Inventory underway; successor contract before implementation |
-| D2 | SCI-004 Section 9 defers public backend routing; current dense public path is NumPy | Route dense contraction/synthesis through requested backend; enforce real precision/x64; stream budgeted transfer blocks; implement canonical worker scheduling | Public NumPy/JAX/Dask parity, precision rejection, allocation-before-budget rejection, scheduling instrumentation and worker invariance; independent computational review | Pending D1 contract |
+| D1 | SCI-004 Sections 7/9/15; public solver currently rejects HEALPix/hybrid and non-scalar beams; accepted SCI-005 beam contracts remain authoritative | Reviewed successor public support contract; integrate point/HEALPix/hybrid full Stokes; stationary squint and applicable full-efield support through canonical BeamSystem/Jones | Public API and CLI tests; dense/sparse pixel measure, frequencies, tangent/receptor frames, component provenance; common direct oracle and two-tier predicates | Independent prerequisite decisions accepted for common direct/native basis, native conventions, beam domains, finite enclosures, operational enclosure and provider layout; interval translation, remaining native allocation qualification and source grants remain open; no public capability acceptance |
+| D2 | SCI-004 Section 9 defers public backend routing; current dense public path is NumPy | Route dense contraction/synthesis through requested backend; enforce real precision/x64; stream budgeted transfer blocks; implement canonical worker scheduling | Public NumPy/JAX/Dask parity, precision rejection, allocation-before-budget rejection, scheduling instrumentation and worker invariance; independent computational review | Execution decisions round3 and provider layout round2 independently accepted for block lifetimes, worker assembly, casts and bounded planning/evidence metadata; remaining provider allocation qualifications and source grant stay pending; current public dense path remains NumPy |
 | E | PERF-001 accepted CPU mitigations/readiness; accelerator measurements require an authorized compatible host | Inspect available resources; strict preflight; complete workload matrix and authentic device-memory/timing record if hardware is available | Exact clean source/locked environment, real device and synchronized complex128; independent accelerator acceptance; timing is non-gating | Three accessible NRAO GPU nodes report driver 555.42.06, below the required 580; another node was busy and the Ubuntu host timed out; compatible-host access requested while software work continues; PERF-001 remains ROADMAP with no accepted accelerator-performance record |
 | F1 | Live public support must agree with README/CLAUDE, docs, exports/configs/examples and register | Reconcile actual final support, breaking changes and actionable errors; audit first-party TODOs; use authoritative coverage masks only | Public examples/script/notebook, docs scans, packaging/export checks; preserve unknown survey coverage and permanent non-goals | Pending capability work |
 | F2 | Pyright is a strict diagnostic debt ceiling; audit reported 2,983 errors under 4,600 | Establish current report; fix relevant changed-code debt; ratchet verified reductions | No new changed-code errors, no raised ceiling or broad silencing; report actual total | Original draft: 2,983 errors; parked baseline: 2,958; focused new history tool has zero errors and evidence-tool diagnostic set is unchanged; final ratchet pending |
@@ -189,7 +189,7 @@ gate stops acceptance of its affected phase; diagnosis and authorized repair
 continue within this programme. Cancelled CI jobs and selected passing subsets
 cannot establish final closure.
 
-## Current follow-ups after direct conformance regressions
+## Historical boundary after direct conformance regressions
 
 The test-only IERS correction is pushed at `272b56d`. Its explicit function-scoped
 fixture authenticates the two exact locked test resources and restores the same
@@ -204,8 +204,9 @@ D36 is reviewed and pushed at `7752f04`, with independent own-header and actual
 parent checks. The original exported patch and actual Git patch differ only in
 hunk context placement; both reconstruct identical reviewed documents. The
 failed equality check and uncredited build are preserved; the subsequent strict
-documentation build passed. D35 remains executable authority until the separate
-atomic D36 activation. Original D35 geometry and scientific limits are preserved.
+documentation build passed. D35 remained executable authority until the separate
+atomic D36 activation, since completed at `e33fb26`. Original D35 geometry and
+scientific limits are preserved.
 
 The separate causal commit `216afb1` adds six real-owner assertion controls for
 five defects: operational fringe ownership, two model-classification cases,
@@ -217,13 +218,13 @@ not repaired production or a measured failure of any actual-family bound.
 Evidence is under external `d36-causal-candidate/round1/`, including its original
 classifier stop and separately authenticated `origin-supplement/`.
 
-New captures remain held until the reviewed source repair and activation gates
-pass. The structural full-row terminal traversal has independent dual acceptance
+At that boundary, new captures were held until the reviewed source repair and
+activation gates passed; the D36 measured boundary below records their completion. The structural full-row terminal traversal has independent dual acceptance
 and bounded synthetic tests; independent numerical predicates and admission
 remain incomplete. Instrument/selection semantics have a reviewed finite plan,
 with implementation pending and beam semantics still separate.
 
-## Current source verification stop
+## Historical production-v2 verification stop at a39ceff
 
 The committed production-v2 implementation at `a39ceff` (external
 `s3-production-v2/round3/`, patch
@@ -406,12 +407,13 @@ The numerical candidate manifest is
 Both commits reproduce their complete reviewed patches, and the checkout was
 clean after the geometry commit. These outcomes do not complete terminal S or M3.
 
-Remaining C1 source validators will precede selection of the fresh capture tip
-where feasible: receptor rows and decoded owner joins, instrument/beam semantics,
-sky/direction/transfer and convention/frame checks, then the coupled schema
-cutover. D35 still requires public numerical gates and new clean four-family
-captures before conformity and a further reviewed numerical admission relation.
-No whole original donor is retired by this scheduling decision.
+Remaining C1 source validators cover decoded owner joins, instrument/beam
+semantics, sky/direction/transfer and convention/frame checks, then the coupled
+schema cutover. D36 public gates and fresh clean-source capture are complete;
+conformity and a further reviewed numerical admission relation remain open.
+The accepted bounded profile-reader plan is entering implementation with synthetic
+controls; it has not acquired actual capture profiles or supplied numerical proof.
+No whole original donor is retired by these scheduling decisions.
 
 Read-only F1 diagnosis confirmed two catalog defects for later scoped repair:
 MALS DR1 combines spectral windows with different actual frequencies while the
@@ -424,3 +426,50 @@ suspected MALS/LoTSS coordinate alias discrepancy. The official LoTSS DR2 MOC
 omits blanked bad-facet regions, so it does not establish an exact footprint;
 unknown coverage remains unchanged. Retained schemas and review records reside
 in `f1-release-footprint-research/` and `f1-gleam-flux-research/`.
+
+
+## D36 measured boundary and current prerequisites
+
+Activation `e33fb26fdff39e2b3f103c8d46f132da11fcbdc7` and numerical repair
+`c023036ca70871ab901471dc204f36a4d89b6c4f` are pushed. The activation passed
+all six serial history/dependency/evidence gates; the numerical candidate passed
+17 focused cases on each supported runtime. The subsequent public gates passed
+seven integration cases and one characterization case on each runtime, with no
+skips. The complete public-gate authentication is
+`d36-public-gates/c023036/root-complete-auth.json`, SHA-256
+`269b8a51c7ee9d006a56632da3ec65449889b4c04c428f570a3297936f018a7d`.
+
+The existing capture process completed once, without retry, for all four families
+at clean `c023036`. Its final record declares completion with no original failure
+or final errors, and explicitly withholds admission. Independent streaming hashes
+matched all 901 listed artifacts (7,442,685,965 bytes), exact inventory, source and
+helper identities, unchanged environment records and preloaded import identities.
+The root record is
+`d36-measurement-driver/execution-round1/root-finished-capture-auth.json`, SHA-256
+`d51f61effbd8f47b00ac826aebcb13133b5a604ae1b734970649d57efaf258da`.
+This checks byte integrity and retained metadata joins; it does not independently
+decode numerical payloads or prove terminal conformity. Historical captures and
+failed attempts remain unchanged. Source, capture, admission and M3 acceptance
+remain separate outcomes.
+
+The M4 prerequisite review records are external under the recovery root:
+
+- Native/direct basis round2: `m4-public-support-decisions/round2/`.
+- Native convention/materialization round1: `m4-native-conventions/round1/`;
+  root disposition SHA-256
+  `da3d22130ab4fb644247ac833d405b15dff666ed6b57fa321ec737ce0d0db041`.
+- Beam domains and enclosures: `m4-beam-domain-decisions/round1/` and
+  `m4-beam-enclosure-plan/round1/`.
+- Execution decisions: `m4-execution-decisions/round3/`.
+- Operational enclosure: `m4-operational-enclosure-plan/round1/`; root disposition
+  `6118c8408ad855e69fe9b8c792c99facfca8c57e8b5fef6604966e50ecb74d97`.
+- Provider layout: `m4-provider-layout-plan/round2/`; root disposition
+  `0d0af8158cc113a5037e3793cf8b3f5c935695cec730c815b6805bc3ada82ac5`.
+
+These are independently reviewed prospective decisions, not implemented public
+support or numerical qualification. Operational whole-cell bounds, exact native
+materialization codecs, provider internal allocations, source grants and actual
+public scientific tests remain required. The exact-`c023036` CI run
+[34180339931](https://github.com/RRI-interferometry/RadioSim/actions/runs/34180339931)
+has successful backend-parity and lint/metadata/types/docs jobs; six compatibility
+jobs were still running at this status boundary. Final complete CI remains open.
