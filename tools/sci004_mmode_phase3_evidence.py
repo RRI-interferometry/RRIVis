@@ -4728,6 +4728,87 @@ def characterization_instrument_vector(value: Any, label: str) -> list[float]:
     ]
 
 
+def validate_characterization_antennas(
+    instrument: dict[str, Any], label: str
+) -> tuple[list[Any], list[list[float]]]:
+    """Validate fixed antenna rows; the caller owns outer instrument closure."""
+    obj = _input_projection_object
+    _require(type(instrument["antennas"]) is list, SCHEMA, label + ": antenna list")
+    antennas = cast(list[Any], instrument["antennas"])
+    _require(len(antennas) == 2, DIGEST, label + ": fixed antenna cardinality")
+    positions: list[list[float]] = []
+    for index, item in enumerate(antennas):
+        row = _require_keys(
+            obj(item, label),
+            (
+                "number",
+                "name",
+                "position_enu_m",
+                "diameter_m",
+                "mount_type",
+                "beam_id",
+                "provenance",
+            ),
+            label + " antenna",
+        )
+        _require(
+            type(row["number"]) is int
+            and type(row["beam_id"]) is int
+            and type(row["name"]) is str,
+            SCHEMA,
+            label + ": antenna identity types",
+        )
+        _require(
+            row["mount_type"] is None or type(row["mount_type"]) is str,
+            SCHEMA,
+            label + ": mount type",
+        )
+        _require(
+            row["number"] == index
+            and row["name"] == f"ANT{index}"
+            and row["beam_id"] == 0
+            and row["mount_type"] is None,
+            DIGEST,
+            label + ": fixed antenna identity or mount differs",
+        )
+        position = characterization_instrument_vector(
+            row["position_enu_m"], label + " ENU"
+        )
+        diameter = _characterization_instrument_float(
+            row["diameter_m"], label + " diameter"
+        )
+        _require(diameter > 0.0, SCHEMA, label + ": positive diameter required")
+        _require(
+            position == [4.0 * index, 0.0, 0.0] and diameter == 2.5,
+            DIGEST,
+            label + ": fixed ENU or diameter differs",
+        )
+        positions.append(position)
+        provenance = _require_keys(
+            obj(row["provenance"], label),
+            (
+                "identity_source",
+                "position_source",
+                "diameter_source",
+                "mount_source",
+                "beam_id_source",
+            ),
+            label + " antenna provenance",
+        )
+        for key, value in provenance.items():
+            _require(
+                type(value) is str or (key == "mount_source" and value is None),
+                SCHEMA,
+                label + ": antenna provenance type",
+            )
+            _require(
+                value == (None if key == "mount_source" else "layout_file"),
+                DIGEST,
+                label + ": antenna provenance differs",
+            )
+    return antennas, positions
+
+
 def validate_characterization_input_projection(
     value: Any,
     digest: Any,

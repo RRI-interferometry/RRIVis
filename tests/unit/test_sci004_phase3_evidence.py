@@ -9520,3 +9520,115 @@ def test_characterization_instrument_vector_refuses_each_component(
     with pytest.raises(module.EvidenceError) as caught:
         module.characterization_instrument_vector(values, "vector")
     assert str(caught.value) == module.SCHEMA + f": vector[{index}]: " + detail
+
+
+def test_characterization_antennas_fixed_rows_and_copy() -> None:
+    module = _tool()
+    instrument = _instrument_projection_fixture()["instrument"]
+    before = copy.deepcopy(instrument)
+    antennas, positions = module.validate_characterization_antennas(instrument, "rows")
+    assert antennas is instrument["antennas"]
+    assert positions == [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]]
+    assert positions[0] is not antennas[0]["position_enu_m"]
+    assert positions[1] is not antennas[1]["position_enu_m"]
+    assert instrument == before
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize("target", ["antenna", "provenance"])
+@pytest.mark.parametrize("operation", ["missing", "extra"])
+def test_characterization_antennas_closed_rows(
+    index: int, target: str, operation: str
+) -> None:
+    module = _tool()
+    template = _instrument_projection_fixture()["instrument"]
+    row = template["antennas"][index]
+    keys = list(row if target == "antenna" else row["provenance"])
+    for key in keys:
+        instrument = copy.deepcopy(template)
+        obj = instrument["antennas"][index]
+        if target == "provenance":
+            obj = obj["provenance"]
+        if operation == "missing":
+            del obj[key]
+        else:
+            obj["extra_" + key] = copy.deepcopy(obj[key])
+        before = copy.deepcopy(instrument)
+        with pytest.raises(module.EvidenceError) as caught:
+            module.validate_characterization_antennas(instrument, "rows")
+        assert caught.value.prefix == module.SCHEMA
+        assert "must have exactly" in caught.value.detail
+        assert instrument == before
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize(
+    "field,value,prefix,detail",
+    [
+        ("number", False, "SCHEMA", "identity types"),
+        ("number", 2, "DIGEST", "fixed antenna identity"),
+        ("name", 0, "SCHEMA", "identity types"),
+        ("name", "FOREIGN", "DIGEST", "fixed antenna identity"),
+        ("beam_id", False, "SCHEMA", "identity types"),
+        ("beam_id", 0.0, "SCHEMA", "identity types"),
+        ("beam_id", 1, "DIGEST", "fixed antenna identity"),
+        ("mount_type", 0, "SCHEMA", "mount type"),
+        ("mount_type", "fixed", "DIGEST", "fixed antenna identity"),
+        ("position_enu_m", (0.0, 0.0, 0.0), "SCHEMA", "vector list"),
+        ("position_enu_m", [0.0, 0.0], "SCHEMA", "vector length"),
+        ("position_enu_m", [-0.0, 0.0, 0.0], "SCHEMA", "positive zero"),
+        ("position_enu_m", [0, 0.0, 0.0], "SCHEMA", "exact float"),
+        ("position_enu_m", [8.0, 0.0, 0.0], "DIGEST", "fixed ENU"),
+        ("diameter_m", True, "SCHEMA", "exact float"),
+        ("diameter_m", -0.0, "SCHEMA", "positive zero"),
+        ("diameter_m", 0.0, "SCHEMA", "positive diameter"),
+        ("diameter_m", -1.0, "SCHEMA", "positive diameter"),
+        ("diameter_m", 3.0, "DIGEST", "fixed ENU or diameter"),
+    ],
+)
+def test_characterization_antennas_field_refusals(
+    index: int, field: str, value: Any, prefix: str, detail: str
+) -> None:
+    module = _tool()
+    instrument = _instrument_projection_fixture()["instrument"]
+    instrument["antennas"][index][field] = value
+    instrument["instrument_sha256"] = _instrument_projection_fingerprint(instrument)
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_antennas(instrument, "rows")
+    assert caught.value.prefix == getattr(module, prefix)
+    assert detail in caught.value.detail
+
+
+@pytest.mark.parametrize("index", [0, 1])
+@pytest.mark.parametrize("value,prefix", [(False, "SCHEMA"), ("foreign", "DIGEST")])
+def test_characterization_antennas_each_provenance(index: int, value: Any, prefix: str):
+    module = _tool()
+    template = _instrument_projection_fixture()["instrument"]
+    for key in template["antennas"][index]["provenance"]:
+        instrument = copy.deepcopy(template)
+        instrument["antennas"][index]["provenance"][key] = value
+        instrument["instrument_sha256"] = _instrument_projection_fingerprint(instrument)
+        with pytest.raises(module.EvidenceError) as caught:
+            module.validate_characterization_antennas(instrument, "rows")
+        assert caught.value.prefix == getattr(module, prefix)
+        assert "antenna provenance" in caught.value.detail
+
+
+@pytest.mark.parametrize("length", [0, 1, 3])
+def test_characterization_antennas_cardinality(length: int) -> None:
+    module = _tool()
+    instrument = _instrument_projection_fixture()["instrument"]
+    instrument["antennas"] = [instrument["antennas"][0]] * length
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_antennas(instrument, "rows")
+    assert caught.value.prefix == module.DIGEST
+    assert "fixed antenna cardinality" in caught.value.detail
+
+
+@pytest.mark.parametrize("value", [None, {}, (), True])
+def test_characterization_antennas_container(value: Any) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_antennas({"antennas": value}, "rows")
+    assert caught.value.prefix == module.SCHEMA
+    assert caught.value.detail == "rows: antenna list"
