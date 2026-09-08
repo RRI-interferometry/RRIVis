@@ -1063,14 +1063,19 @@ def _characterization_geometry(
         ("antenna_index", "name", "itrs_xyz_m_f64be"),
         field_name="antennas",
     )
+    positions_itrs = (
+        np.asarray(
+            [antenna.position_enu_m for antenna in result.instrument.antennas],
+            dtype=np.float64,
+        )
+        @ triad
+    )
     expected_antennas = [
         {
             "antenna_index": index,
             "name": antenna.id.name,
             "itrs_xyz_m_f64be": [
-                f64be(float(value))
-                for value in np.asarray(antenna.position_enu_m, dtype=np.float64)
-                @ triad
+                f64be(float(value)) for value in positions_itrs[index]
             ],
         }
         for index, antenna in enumerate(result.instrument.antennas)
@@ -1085,14 +1090,19 @@ def _characterization_geometry(
         antenna.id.number: index
         for index, antenna in enumerate(result.instrument.antennas)
     }
+    vectors_itrs = (
+        np.asarray(
+            [row.vector_enu_m for row in result.selection.baselines], dtype=np.float64
+        )
+        @ triad
+    )
     expected_baselines = [
         {
             "baseline_index": index,
             "antenna1_index": by_number[row.ant1.number],
             "antenna2_index": by_number[row.ant2.number],
             "itrs_vector_m_f64be": [
-                f64be(float(value))
-                for value in np.asarray(row.vector_enu_m, dtype=np.float64) @ triad
+                f64be(float(value)) for value in vectors_itrs[index]
             ],
         }
         for index, row in enumerate(result.selection.baselines)

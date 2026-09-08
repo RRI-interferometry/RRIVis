@@ -10438,3 +10438,178 @@ def test_characterization_instrument_exact_strings_and_schemas(
         "string required" in caught.value.detail
         or "schema differs" in caught.value.detail
     )
+
+
+@pytest.fixture
+def result_geometry_operands(
+    genuine_phase_synthetic_result: tuple[Any, dict[str, Any]],
+) -> tuple[Any, dict[str, Any], Any, Any, Any]:
+    """Construct expected operands independently from public immutable owners."""
+    from importlib import import_module
+
+    import numpy as np
+
+    result, original = genuine_phase_synthetic_result
+    u: Any = import_module("astropy.units")
+    earth_location: Any = import_module("astropy.coordinates").EarthLocation
+    location = result.instrument.location
+    earth = earth_location.from_geodetic(
+        location.longitude_deg * u.deg,
+        location.latitude_deg * u.deg,
+        location.height_m * u.m,
+    )
+    lon = math.radians(float(earth.lon.to_value(u.deg)))
+    lat = math.radians(float(earth.lat.to_value(u.deg)))
+    triad = np.asarray(
+        [
+            [-math.sin(lon), math.cos(lon), 0.0],
+            [
+                -math.sin(lat) * math.cos(lon),
+                -math.sin(lat) * math.sin(lon),
+                math.cos(lat),
+            ],
+            [
+                math.cos(lat) * math.cos(lon),
+                math.cos(lat) * math.sin(lon),
+                math.sin(lat),
+            ],
+        ],
+        dtype=np.float64,
+    )
+    positions = np.asarray(
+        [row.position_enu_m for row in result.instrument.antennas], dtype=np.float64
+    )
+    vectors = np.asarray(
+        [row.vector_enu_m for row in result.selection.baselines], dtype=np.float64
+    )
+    assert positions.tolist() == [[0.0, 0.0, 0.0], [17.0, -4.0, 2.0], [-8.0, 29.0, 5.0]]
+    assert vectors.tolist() == [
+        [0.0, 0.0, 0.0],
+        [17.0, -4.0, 2.0],
+        [-8.0, 29.0, 5.0],
+        [0.0, 0.0, 0.0],
+        [-25.0, 33.0, 3.0],
+        [0.0, 0.0, 0.0],
+    ]
+    return result, copy.deepcopy(original), positions, vectors, triad
+
+
+class _ResultGeometryProducts:
+    """Intercept actual @ operands through a result-module-local NumPy proxy."""
+
+    def __init__(self, positions: Any, vectors: Any, triad: Any, baseline_only: bool):
+        import numpy as np
+
+        self.numpy: Any = np
+        self.positions, self.vectors, self.triad = positions, vectors, triad
+        self.baseline_only = baseline_only
+        self.antenna_reference = np.asarray([row @ triad for row in positions])
+        self.antenna_rows_seen = 0
+        self.triad_seen = False
+        self.baseline_done = False
+        self.calls: list[tuple[int, ...]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.numpy, name)
+
+    def asarray(self, value: Any, *, dtype: Any) -> Any:
+        assert dtype is self.numpy.float64
+        array = self.numpy.asarray(value, dtype=dtype)
+        if not self.triad_seen:
+            assert array.shape == (3, 3)
+            assert array.tobytes() == self.triad.tobytes()
+            self.triad_seen = True
+            return array
+        owner = self
+
+        class Operand:
+            def __matmul__(self, right: Any) -> Any:
+                return owner.multiply(array, right)
+
+        return Operand()
+
+    def multiply(self, array: Any, right: Any) -> Any:
+        assert right.dtype == self.numpy.dtype("float64")
+        assert right.shape == (3, 3) and right.tobytes() == self.triad.tobytes()
+        self.calls.append(tuple(array.shape))
+        if self.antenna_rows_seen < len(self.positions):
+            if self.baseline_only and array.ndim == 1:
+                index = self.antenna_rows_seen
+                assert array.tobytes() == self.positions[index].tobytes()
+                self.antenna_rows_seen += 1
+                return self.antenna_reference[index]
+            assert array.shape == self.positions.shape, (
+                "required complete antenna matrix"
+            )
+            assert array.tobytes() == self.positions.tobytes()
+            self.antenna_rows_seen = len(self.positions)
+            # This targeted geometry-only control lets either old antenna shape
+            # finish before requiring a full baseline product. It is no record.
+            if self.baseline_only:
+                return self.antenna_reference.copy()
+        else:
+            assert not self.baseline_done
+            assert array.shape == self.vectors.shape, (
+                "required complete baseline matrix"
+            )
+            assert array.tobytes() == self.vectors.tobytes()
+            self.baseline_done = True
+        return array @ right
+
+
+@pytest.mark.parametrize("baseline_only", [False, True], ids=["complete", "baseline"])
+def test_result_geometry_uses_complete_producer_matrices(
+    result_geometry_operands: tuple[Any, dict[str, Any], Any, Any, Any],
+    monkeypatch: pytest.MonkeyPatch,
+    baseline_only: bool,
+) -> None:
+    from importlib import import_module
+
+    module: Any = import_module("radiosim.core.result")
+    result, phase, positions, vectors, triad = result_geometry_operands
+    probe = _ResultGeometryProducts(positions, vectors, triad, baseline_only)
+    if baseline_only:
+        for row, reference in zip(
+            phase["antenna_rows"], probe.antenna_reference, strict=True
+        ):
+            row["itrs_xyz_m_f64be"] = [
+                struct.pack(">d", float(x)).hex() for x in reference
+            ]
+    before = copy.deepcopy(phase)
+    numpy_owner = module.np
+    with monkeypatch.context() as scoped:
+        scoped.setattr(module, "np", probe)
+        module._characterization_geometry(phase, result)
+    assert module.np is numpy_owner
+    assert probe.calls == [(3, 3), (6, 3)]
+    assert probe.antenna_rows_seen == 3 and probe.baseline_done
+    assert phase == before
+
+
+@pytest.mark.parametrize(
+    "role,key,detail",
+    [
+        ("antenna_rows", "itrs_xyz_m_f64be", "result antennas"),
+        ("baseline_rows", "itrs_vector_m_f64be", "result baselines"),
+    ],
+)
+def test_result_geometry_refuses_one_changed_coordinate_word(
+    result_geometry_operands: tuple[Any, dict[str, Any], Any, Any, Any],
+    role: str,
+    key: str,
+    detail: str,
+) -> None:
+    from importlib import import_module
+
+    module: Any = import_module("radiosim.core.result")
+    result, phase, _, _, _ = result_geometry_operands
+    # Call the geometry owner directly: neither row has an adjacent digest to
+    # go stale, and this synthetic phase is never passed off as a live record.
+    value = struct.unpack(">d", bytes.fromhex(phase[role][1][key][0]))[0]
+    phase[role][1][key][0] = struct.pack(">d", math.nextafter(value, math.inf)).hex()
+    before = copy.deepcopy(phase)
+    with pytest.raises(
+        module.InvalidResultError, match="^invalid characterization " + detail + "$"
+    ):
+        module._characterization_geometry(phase, result)
+    assert phase == before
