@@ -567,3 +567,275 @@ def test_invalid_runtime_owner_and_conversion_context_refuse() -> None:
         )
     with pytest.raises(ValueError, match="owners"):
         _ = bind_healpix_payload(owner, brightness_conversion=cast(BC, "planck"))
+
+
+@pytest.mark.parametrize("dense", [False, True])
+def test_actual_chunk_and_observable_scratch_envelope(
+    dense: bool, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sys
+    import weakref
+    from types import CodeType, FrameType
+    from typing import Literal, cast
+
+    from numpy.typing import NDArray
+
+    from radiosim.core.sky.containers import _polarization_payload as codec
+
+    limit = 65_536
+    n = 196_608 if dense else limit + 3
+    channels = 1 if dense else 2
+    backing = np.arange(channels * n, dtype=np.float64).reshape(channels, n)
+    owner = HealpixData(
+        nside=128,
+        frequencies=np.arange(1, channels + 1, dtype=np.float64),
+        hpx_inds=None if dense else np.arange(n, dtype=np.int64),
+        maps=backing if dense else np.asfortranarray(backing),
+        q_maps=None if dense else np.ones((channels, n), dtype=np.float32),
+    )
+    expected = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+    Array = NDArray[np.generic]
+
+    def span(array: Array) -> tuple[int, int]:
+        offset = sum(
+            (size - 1) * stride
+            for size, stride in zip(array.shape, array.strides, strict=True)
+        )
+        return array.ctypes.data, array.ctypes.data + offset + array.dtype.itemsize
+
+    owners: list[tuple[int, int]] = []
+    for array in (owner.maps, owner.q_maps, owner.frequencies, owner.hpx_inds):
+        if array is not None:
+            while isinstance(array.base, np.ndarray):
+                array = array.base
+            owners.append(span(array))
+    live: dict[
+        int, tuple[weakref.ReferenceType[Array], int | None, tuple[int, int] | None]
+    ] = {}
+    parents: dict[int, int] = {}
+    large_parents: set[int] = set()
+    active_parent: int | None = None
+    peak = 0
+    peak_views = 0
+    short_parent_retained = False
+    closed_parent_retained = False
+    max_required_closed = 0
+    max_charged_closed = 0
+    in_consume = False
+    consume_index = -1
+    descriptor_index = -1
+    element_counts = [0] * 6
+    stream_hashes = [hashlib.sha256() for _ in range(6)]
+    chunks_seen = 0
+    masks_seen = 0
+    payload_updates = 0
+    dense_intervals: list[tuple[int, int]] = []
+    original_nditer, original_arange = np.nditer, np.arange
+    original_any, original_all, original_sha = np.any, np.all, hashlib.sha256
+    consume_code = next(
+        c
+        for c in codec.bind_healpix_payload.__code__.co_consts
+        if isinstance(c, CodeType) and c.co_name == "consume"
+    )
+
+    def measure(extra_bytes: int = 0) -> None:
+        nonlocal peak, peak_views, short_parent_retained, closed_parent_retained
+        nonlocal max_required_closed, max_charged_closed
+        intervals: list[tuple[int, int]] = []
+        required_parents: set[int] = set()
+        parent_view_bytes: dict[int, int] = {}
+        retained_parents: set[int] = set()
+        for identity, (reference, parent, extent) in list(live.items()):
+            array = reference()
+            if array is None:
+                del live[identity]
+                continue
+            if parent is not None:
+                retained_parents.add(parent)
+                parent_view_bytes[parent] = max(
+                    parent_view_bytes.get(parent, 0), array.nbytes
+                )
+                if parent in large_parents and array.nbytes < parents[parent]:
+                    short_parent_retained = True
+                    closed_parent_retained |= active_parent is None
+                    if active_parent is None:
+                        required_parents.add(parent)
+            elif extent is not None:
+                intervals.append(extent)
+        intervals.sort()
+        total, right = 0, -1
+        for start, end in intervals:
+            total += max(0, end - max(start, right))
+            right = max(right, end)
+        peak_views = max(peak_views, total)
+        if active_parent is not None:
+            retained_parents.add(active_parent)
+        # Each unexposed C parent gets its full configured reserve, never a tail span.
+        reserve = sum(parents[parent] for parent in retained_parents)
+        required = sum(parents[parent] for parent in required_parents)
+        assert all(
+            parent_view_bytes[parent] <= parents[parent] for parent in parent_view_bytes
+        )
+        assert reserve >= required, "retained parent capacity undercharged"
+        if required:
+            max_required_closed = max(max_required_closed, required)
+            max_charged_closed = max(max_charged_closed, reserve)
+        peak = max(peak, total + reserve + extra_bytes)
+
+    def observe(array: Array) -> None:
+        root = array
+        while isinstance(root.base, np.ndarray):
+            root = root.base
+        parent: int | None = None
+        extent: tuple[int, int] | None = None
+        if isinstance(cast(object, root.base), original_nditer):
+            parent = id(root.base)
+            assert parent in parents, "unregistered iterator parent"
+        else:
+            assert root.base is None, "unresolved storage parent"
+            lo, hi = span(root)
+            if not any(start <= lo and hi <= end for start, end in owners):
+                extent = (lo, hi)
+        live[id(array)] = (weakref.ref(array), parent, extent)
+        measure()
+
+    def profile(frame: FrameType, event: str, arg: object) -> None:
+        nonlocal chunks_seen, in_consume, consume_index
+        if frame.f_code is consume_code and event == "return":
+            in_consume = False
+        if event == "call" and frame.f_code is consume_code:
+            in_consume = True
+            consume_index = int(frame.f_locals["index"])
+            assert consume_index == descriptor_index
+            block = cast(Array, frame.f_locals["block"])
+            assert block.size <= limit
+            chunks_seen += 1
+            element_counts[consume_index] += block.size
+            observe(block)
+
+    def iterator(
+        array: Array,
+        *,
+        flags: list[Literal["external_loop", "buffered", "zerosize_ok"]],
+        op_flags: list[list[Literal["readonly"]]],
+        order: Literal["C"],
+        buffersize: int,
+    ) -> np.nditer:
+        nonlocal active_parent
+        assert buffersize == limit
+        result = original_nditer(
+            array, flags=flags, op_flags=op_flags, order=order, buffersize=buffersize
+        )
+        active_parent = id(result)
+        parents[active_parent] = buffersize * array.dtype.itemsize
+        if array.size > buffersize:
+            large_parents.add(active_parent)
+        measure()
+        return result
+
+    def arange(start: int, stop: int, *, dtype: str) -> Array:
+        assert dtype == "<i8" and 0 < stop - start <= limit
+        result = original_arange(start, stop, dtype=dtype)
+        dense_intervals.append((start, stop))
+        observe(result)
+        return result
+
+    def mask_any(array: Array) -> np.bool_:
+        nonlocal masks_seen
+        assert array.dtype == np.dtype(bool) and array.size <= limit
+        masks_seen += 1
+        observe(array)
+        return original_any(array)
+
+    def mask_all(array: Array) -> np.bool_:
+        nonlocal masks_seen
+        assert array.dtype == np.dtype(bool) and array.size <= limit
+        masks_seen += 1
+        observe(array)
+        return original_all(array)
+
+    class Hash:
+        def __init__(self, data: bytes) -> None:
+            self.original = original_sha(data)
+
+        def update(self, data: bytes) -> None:
+            nonlocal payload_updates, active_parent, descriptor_index
+            if in_consume:
+                assert len(data) <= limit * 8
+                payload_updates += 1
+                stream_hashes[consume_index].update(data)
+                measure(len(data))
+            else:
+                descriptor_index += 1
+                expected_size = [
+                    channels * 8,
+                    n * 8,
+                    channels * n * 8,
+                    0 if dense else channels * n * 4,
+                    0,
+                    0,
+                ][descriptor_index]
+                assert data == struct.pack("<Q", expected_size)
+                active_parent = (
+                    None  # Previous context exited before next frame header.
+                )
+                measure()
+            self.original.update(data)
+
+        def hexdigest(self) -> str:
+            return self.original.hexdigest()
+
+    def forbidden_pixels(instance: HealpixData) -> None:
+        raise AssertionError("dense pixel_indices property must not allocate")
+
+    previous = sys.getprofile()
+    with monkeypatch.context() as patch:
+        patch.setattr(np, "nditer", iterator)
+        patch.setattr(np, "arange", arange)
+        patch.setattr(np, "any", mask_any)
+        patch.setattr(np, "all", mask_all)
+        patch.setattr(hashlib, "sha256", Hash)
+        patch.setattr(HealpixData, "pixel_indices", property(forbidden_pixels))
+        try:
+            sys.setprofile(profile)
+            actual = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+        finally:
+            sys.setprofile(previous)
+    assert actual == expected
+    assert chunks_seen == payload_updates
+    expected_counts = [channels, n, channels * n, 0 if dense else channels * n, 0, 0]
+    assert element_counts == expected_counts and descriptor_index == 5
+    for index, count in enumerate(expected_counts):
+        literal = original_sha()
+        for position in range(count):
+            value = position + 1 if index == 0 else 1 if index == 3 else position
+            literal.update(
+                struct.pack("<q" if index == 1 else "<f" if index == 3 else "<d", value)
+            )
+        assert stream_hashes[index].hexdigest() == literal.hexdigest()
+    assert masks_seen > chunks_seen
+    if not dense:
+        assert short_parent_retained and closed_parent_retained
+        assert max_required_closed >= limit * 8
+        assert max_charged_closed >= max_required_closed
+    assert dense_intervals == (
+        [(0, limit), (limit, 2 * limit), (2 * limit, 3 * limit)] if dense else []
+    )
+    # Finite visible storage + conservative iterator capacity, not total RSS.
+    assert peak <= 27 * limit
+    with capsys.disabled():
+        print(
+            json.dumps(
+                {
+                    "dense": dense,
+                    "tracked_conservative_peak": peak,
+                    "required_closed_parent_capacity": max_required_closed,
+                    "charged_closed_parent_capacity": max_charged_closed,
+                    "exposed_scratch_peak": peak_views,
+                    "chunks": chunks_seen,
+                    "masks": masks_seen,
+                    "short_parent_retained": short_parent_retained,
+                    "closed_parent_retained": closed_parent_retained,
+                }
+            )
+        )
