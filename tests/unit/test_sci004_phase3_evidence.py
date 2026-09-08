@@ -8474,6 +8474,119 @@ def test_evidence_raw_checkout_rechecks_source_head_after_reading_blobs(
     assert _git("rev-parse", "HEAD").strip() == replacement
 
 
+def _instrument_projection_fingerprint(instrument: dict[str, Any]) -> str:
+    """Test-owned original JSON nesting, distinct from the phase D/J digest."""
+    location = instrument["location"]
+    payload = {
+        "schema_version": instrument["schema_version"],
+        "name": instrument["name"],
+        "location": {
+            **{
+                key: location[key]
+                for key in (
+                    "longitude_deg",
+                    "latitude_deg",
+                    "height_m",
+                    "itrs_xyz_m",
+                    "source",
+                )
+            },
+            "provenance": {"location_source": location["location_source"]},
+        },
+        "antennas": instrument["antennas"],
+        "provenance": {
+            "telescope_name_source": instrument["source"]["telescope_name_source"]
+        },
+    }
+    return hashlib.sha256(
+        json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
+
+
+def _instrument_projection_fixture() -> dict[str, Any]:
+    """Literal family instrument plus public original geodetic resolution."""
+    from importlib import import_module
+
+    u: Any = import_module("astropy.units")
+    earth_location: Any = import_module("astropy.coordinates").EarthLocation
+
+    earth = earth_location.from_geodetic(21.4, -30.7, 1000.0)
+    instrument: dict[str, Any] = {
+        "schema_version": "radiosim.instrument.v1",
+        "instrument_sha256": "",
+        "name": "SCI-004 M3 family array",
+        "source": {"telescope_name_source": "explicit_config"},
+        "location": {
+            "longitude_deg": float(earth.lon.to_value(u.deg)),
+            "latitude_deg": float(earth.lat.to_value(u.deg)),
+            "height_m": float(earth.height.to_value(u.m)),
+            "itrs_xyz_m": [
+                float(item.to_value(u.m)) for item in (earth.x, earth.y, earth.z)
+            ],
+            "source": "explicit_config",
+            "location_source": "explicit_config",
+        },
+        "antennas": [
+            {
+                "number": index,
+                "name": f"ANT{index}",
+                "position_enu_m": [float(index * 4), 0.0, 0.0],
+                "diameter_m": 2.5,
+                "mount_type": None,
+                "beam_id": 0,
+                "provenance": {
+                    "identity_source": "layout_file",
+                    "position_source": "layout_file",
+                    "diameter_source": "layout_file",
+                    "mount_source": None,
+                    "beam_id_source": "layout_file",
+                },
+            }
+            for index in range(2)
+        ],
+    }
+    instrument["instrument_sha256"] = _instrument_projection_fingerprint(instrument)
+    selection: dict[str, Any] = {
+        "schema_version": "radiosim.baseline-selection.v1",
+        "criteria": {
+            "correlations": "all",
+            "length_mode": None,
+            "length_targets_m": [],
+            "length_tolerance_m": None,
+            "length_ranges_m": [],
+            "azimuth_ranges_deg": [],
+        },
+        "generated_count": 3,
+        "after_correlation_count": 3,
+        "after_length_count": 3,
+        "after_azimuth_count": 3,
+        "azimuth_exempt_auto_count": 0,
+        "selected_ids": [[0, 0], [0, 1], [1, 1]],
+    }
+    return {"instrument": instrument, "selection": selection}
+
+
+def _instrument_projection_content(case: dict[str, Any]) -> dict[str, Any]:
+    return {
+        tag: json.loads(
+            bytes.fromhex(
+                next(
+                    row["payload_hex"]
+                    for row in case["common_segments"]
+                    if row["tag"] == tag
+                )
+            )
+        )
+        for tag in ("instrument", "selection")
+    }
+
+
 @pytest.fixture(scope="module")
 def characterization_projection(
     prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
@@ -8546,15 +8659,7 @@ def characterization_projection(
     # Independently assemble the two known family antenna identities and native
     # feed angles. The carried runtime hash is synthetic, not a reduced preimage.
     for tag, content in (
-        (
-            "instrument",
-            {
-                "antennas": [
-                    {"number": 0, "name": "ANT0"},
-                    {"number": 1, "name": "ANT1"},
-                ]
-            },
-        ),
+        *_instrument_projection_fixture().items(),
         (
             "receptor",
             {
@@ -9255,3 +9360,55 @@ def test_characterization_runtime_qualification_refuses_unknown_identity(
         _ = _qualify_characterization_iers(version, payload, phase_digest)
     assert str(caught.value).splitlines()[0] == reason
     assert module._CHARACTERIZATION_IERS_SHA256 == _PRODUCTION_CHARACTERIZATION_IERS
+
+
+def test_characterization_instrument_public_owners(
+    characterization_projection: dict[str, Any], tmp_path: Path
+) -> None:
+    """Join the enriched scientific fixture to actual public resolved owners."""
+    from radiosim.api.simulator import Simulator
+    from radiosim.core.baseline_resolution import (
+        generate_resolved_baselines,
+        select_resolved_baselines,
+    )
+    from radiosim.io.instrument_config import BaselineSelectionConfig
+
+    module = _tool()
+    simulator = Simulator.from_mapping(
+        module._family_mapping(tmp_path, "mmode_point_stokes_i"), base_dir=tmp_path
+    )
+    request = simulator.build_solve_request()
+    assert request.mmode is not None
+    snapshot = simulator.instrument.to_snapshot()
+    selection = select_resolved_baselines(
+        generate_resolved_baselines(simulator.instrument),
+        instrument=simulator.instrument,
+        config=BaselineSelectionConfig(correlations="all"),
+    )
+    assert selection.baselines == simulator.baselines
+    fixture = _instrument_projection_fixture()
+    template = fixture["instrument"]
+    instrument = {
+        key: copy.deepcopy(snapshot[key])
+        for key in ("schema_version", "name", "instrument_sha256")
+    }
+    instrument["source"] = {key: snapshot["source"][key] for key in template["source"]}
+    instrument["location"] = {
+        key: snapshot["location"][key] for key in template["location"]
+    }
+    instrument["antennas"] = [
+        {
+            **{key: row[key] for key in template["antennas"][0] if key != "provenance"},
+            "provenance": {
+                key: row["provenance"][key]
+                for key in template["antennas"][0]["provenance"]
+            },
+        }
+        for row in snapshot["antennas"]
+    ]
+    assert instrument == template
+    assert (
+        _instrument_projection_fingerprint(instrument) == snapshot["instrument_sha256"]
+    )
+    assert selection.to_snapshot() == fixture["selection"]
+    assert _instrument_projection_content(characterization_projection) == fixture
