@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -53,7 +53,9 @@ def _case(
     (tmp_path / "src/radiosim").mkdir(parents=True)
     _ = (tmp_path / "src/radiosim/__init__.py").write_text("VALUE = 1\n")
     (tmp_path / "tests/unit").mkdir(parents=True)
-    _ = (tmp_path / "pytest.ini").write_text("[pytest]\n")
+    _ = (tmp_path / "pyproject.toml").write_text(
+        '[tool.pytest.ini_options]\nmarkers=["synthetic: infrastructure control"]\n'
+    )
     _ = (tmp_path / "conftest.py").write_text(conftest)
     owner = "tests/unit/test_sci004_phase3_evidence.py"
     _ = (tmp_path / owner).write_text(body)
@@ -300,3 +302,104 @@ def test_both_readers_reject_malformed_complete_record(tmp_path: Path) -> None:
         _ = _poll_events(tmp_path)
     with pytest.raises(json.JSONDecodeError):
         _ = _events(tmp_path)
+
+
+def test_toml_configuration_settles_after_core_and_late_hooks(tmp_path: Path) -> None:
+    conftest = 'import pytest\n@pytest.hookimpl(trylast=True)\ndef pytest_configure(config):\n config.addinivalue_line("markers", "late: synthetic")\n'
+    result = _run(
+        tmp_path, "\n".join(f"def {name}():\n pass" for name in NAMES), conftest
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    events = _events(tmp_path)
+    initial = cast(dict[str, Any], events[0]["snapshot"])
+    settled_event = next(
+        row for row in events if row["event"] == "settled_configuration"
+    )
+    settled = cast(dict[str, Any], settled_event["snapshot"])
+    assert initial["ini"]["markers"] == ["synthetic: infrastructure control"]
+    assert "late: synthetic" in settled["ini"]["markers"]
+    assert any(mark.startswith("parametrize(") for mark in settled["ini"]["markers"])
+    assert (
+        cast(dict[str, Any], settled_event["ini_delta"])["markers"]["initial"]
+        == initial["ini"]["markers"]
+    )
+    assert len([row for row in events if row["event"] == "end"]) == 2
+
+
+@pytest.mark.parametrize("phase", ["collection", "runtime"])
+def test_actual_ini_drift_retains_attempt_before_refusal(
+    tmp_path: Path, phase: str
+) -> None:
+    conftest = ""
+    body = "\n".join(f"def {name}():\n pass" for name in NAMES)
+    if phase == "collection":
+        conftest = 'def pytest_collection_modifyitems(config):\n config.inicfg["markers"].append("changed: collection")\n'
+    else:
+        body = f'def {NAMES[0]}(request):\n request.config.inicfg["markers"].append("changed: runtime")\ndef {NAMES[1]}():\n assert False, "SECOND_BODY"\n'
+    result = _run(tmp_path, body, conftest)
+    assert result.returncode == 3, result.stdout + result.stderr
+    events = _events(tmp_path)
+    failure = next(
+        i for i, row in enumerate(events) if row["event"] == "infrastructure_failure"
+    )
+    attempted = next(
+        row
+        for row in reversed(events[:failure])
+        if row["event"] == "attempted_configuration"
+    )
+    assert "ini" in cast(list[str], attempted["changed_fields"])
+    assert (
+        "changed: " + phase
+        in cast(dict[str, Any], attempted["snapshot"])["ini"]["markers"]
+    )
+    settled = next(row for row in events if row["event"] == "settled_configuration")
+    assert (
+        "changed: " + phase
+        not in cast(dict[str, Any], settled["snapshot"])["ini"]["markers"]
+    )
+    assert "SECOND_BODY" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "mutation, reason",
+    [
+        ("config.option.maxfail = 1", "initial configuration drift: options"),
+        ("config.args.reverse()", "initial configuration drift: args"),
+        (
+            'p=Path("tools/ci_non_slow_partition.py"); p.write_text(p.read_text()+"\\n# changed")',
+            "initialized file identity drift",
+        ),
+    ],
+)
+def test_initial_identity_survives_settlement(
+    tmp_path: Path, mutation: str, reason: str
+) -> None:
+    conftest = (
+        "import pytest\nfrom pathlib import Path\n@pytest.hookimpl(trylast=True)\ndef pytest_configure(config):\n "
+        + mutation
+        + "\n"
+    )
+    result = _run(
+        tmp_path,
+        "\n".join(f"def {name}():\n assert False, 'BODY_EXECUTED'" for name in NAMES),
+        conftest,
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert reason in result.stderr
+    events = _events(tmp_path)
+    assert any(row["event"] == "settled_configuration" for row in events)
+    assert not any(row["event"] == "start" for row in events)
+
+
+def test_missing_settlement_is_refused(tmp_path: Path) -> None:
+    conftest = 'def pytest_collection_modifyitems(config):\n config.pluginmanager.get_plugin("ci-diagnostic").settled = False\n'
+    result = _run(
+        tmp_path,
+        "\n".join(f"def {name}():\n assert False, 'BODY_EXECUTED'" for name in NAMES),
+        conftest,
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "missing settled configuration" in result.stderr
+    events = _events(tmp_path)
+    assert not any(row["event"] == "start" for row in events)
+    assert any(row["event"] == "attempted_configuration" for row in events)

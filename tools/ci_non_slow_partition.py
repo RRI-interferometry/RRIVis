@@ -44,6 +44,7 @@ class _Diagnostic:
         self.root = Path(__file__).resolve().parents[1]
         self.sequence = 0
         self.session: pytest.Session | None = None
+        self.settled = False
         self.started: list[str] = []
         self.origins: dict[str, str] = {}
         output.mkdir(parents=True, exist_ok=True)
@@ -187,19 +188,7 @@ class _Diagnostic:
             not_loaded=not observed,
         )
 
-    @pytest.hookimpl(trylast=True)
-    def pytest_collection_finish(self, session: pytest.Session) -> None:
-        self.session = session
-        actual = tuple(item.nodeid for item in session.items)
-        self._emit("collection", nodeids=actual)
-        self._require(actual == DIAGNOSTIC_IDS, "diagnostic collection differs")
-        self._owners()
-        current = self._configuration()
-        for field in ("commit", "root", "args", "options", "ini"):
-            self._require(
-                current[field] == self.configuration[field],
-                f"collection configuration drift: {field}",
-            )
+    def _check_initialized_files(self, current: dict[str, Any]) -> None:
         initial_files = cast(dict[str, str], self.configuration["files"])
         current_files = cast(dict[str, str], current["files"])
         self._require(
@@ -209,10 +198,67 @@ class _Diagnostic:
             ),
             "initialized file identity drift",
         )
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_sessionstart(self, session: pytest.Session) -> None:
+        current = self._configuration()
+        initial_ini = cast(dict[str, Any], self.configuration["ini"])
+        settled_ini = cast(dict[str, Any], current["ini"])
+        delta = {
+            key: {
+                "initial_present": key in initial_ini,
+                "initial": initial_ini.get(key),
+                "settled_present": key in settled_ini,
+                "settled": settled_ini.get(key),
+            }
+            for key in sorted(initial_ini.keys() | settled_ini.keys())
+            if key not in initial_ini
+            or key not in settled_ini
+            or initial_ini[key] != settled_ini[key]
+        }
+        self._emit("settled_configuration", snapshot=current, ini_delta=delta)
+        for field in ("commit", "root", "args", "options"):
+            self._require(
+                current[field] == self.configuration[field],
+                f"initial configuration drift: {field}",
+            )
+        self._check_initialized_files(current)
+        self._owners()
+        self.configuration = current
+        self.settled = True
+
+    def _attempted_configuration(self, phase: str) -> dict[str, Any]:
+        current = self._configuration()
+        self._emit(
+            "attempted_configuration",
+            phase=phase,
+            snapshot=current,
+            changed_fields=sorted(
+                key for key in current if current[key] != self.configuration[key]
+            ),
+        )
+        return current
+
+    @pytest.hookimpl(trylast=True)
+    def pytest_collection_finish(self, session: pytest.Session) -> None:
+        current = self._attempted_configuration("collection")
+        self._require(self.settled, "missing settled configuration")
+        self.session = session
+        actual = tuple(item.nodeid for item in session.items)
+        self._emit("collection", nodeids=actual)
+        self._require(actual == DIAGNOSTIC_IDS, "diagnostic collection differs")
+        self._owners()
+        for field in ("commit", "root", "args", "options", "ini"):
+            self._require(
+                current[field] == self.configuration[field],
+                f"collection configuration drift: {field}",
+            )
+        self._check_initialized_files(current)
         self.configuration = current
         self._emit("execution_configuration", snapshot=self.configuration)
 
     def pytest_runtest_logstart(self, nodeid: str) -> None:
+        current = self._attempted_configuration("start")
         session = self.session
         self._require(session is not None, "missing diagnostic collection")
         assert session is not None
@@ -226,9 +272,7 @@ class _Diagnostic:
             "incoming diagnostic node differs",
         )
         self.started.append(nodeid)
-        self._require(
-            self._configuration() == self.configuration, "configuration drift"
-        )
+        self._require(current == self.configuration, "configuration drift")
         self._owners()
         self._emit("start", nodeid=nodeid, worker="serial")
 
@@ -245,9 +289,8 @@ class _Diagnostic:
         )
 
     def pytest_runtest_logfinish(self, nodeid: str) -> None:
-        self._require(
-            self._configuration() == self.configuration, "configuration drift"
-        )
+        current = self._attempted_configuration("end")
+        self._require(current == self.configuration, "configuration drift")
         self._owners()
         self._emit("end", nodeid=nodeid, worker="serial")
 
