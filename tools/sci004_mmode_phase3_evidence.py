@@ -5095,6 +5095,98 @@ def validate_characterization_selection(
     return cast(list[list[int]], ids)
 
 
+def validate_characterization_instrument_rows(
+    phase: dict[str, Any],
+    antennas: list[Any],
+    positions: list[list[float]],
+    ids: list[list[int]],
+    triad: Any,
+    label: str,
+) -> None:
+    """Join phase rows to validated ENU facts, selection and float64 triad."""
+    import numpy as np
+
+    obj = _input_projection_object
+    baseline_enu = [
+        [0.0] * 3,
+        [
+            float(second - first)
+            for first, second in zip(positions[0], positions[1], strict=True)
+        ],
+        [0.0] * 3,
+    ]
+    by_number = {row["number"]: index for index, row in enumerate(antennas)}
+    for role, vectors, vector_key, row_keys in (
+        (
+            "antenna_rows",
+            positions,
+            "itrs_xyz_m_f64be",
+            ("antenna_index", "name", "itrs_xyz_m_f64be"),
+        ),
+        (
+            "baseline_rows",
+            baseline_enu,
+            "itrs_vector_m_f64be",
+            (
+                "baseline_index",
+                "antenna1_index",
+                "antenna2_index",
+                "itrs_vector_m_f64be",
+            ),
+        ),
+    ):
+        rows = phase[role]
+        _require(type(rows) is list, SCHEMA, label + ": phase row list")
+        _require(len(rows) == len(vectors), DIGEST, label + ": phase row cardinality")
+        rotated = np.asarray(vectors, dtype=np.float64) @ triad
+        for index, item in enumerate(rows):
+            row = _require_keys(obj(item, label), row_keys, label + " " + role)
+            index_key = "antenna_index" if role == "antenna_rows" else "baseline_index"
+            _require(type(row[index_key]) is int, SCHEMA, label + ": phase index type")
+            _require(row[index_key] == index, DIGEST, label + ": phase index differs")
+            if role == "antenna_rows":
+                _require(
+                    type(row["name"]) is str,
+                    SCHEMA,
+                    label + ": phase antenna name type",
+                )
+                _require(
+                    row["name"] == antennas[index]["name"],
+                    DIGEST,
+                    label + ": phase antenna name differs",
+                )
+            else:
+                for key, number in zip(
+                    ("antenna1_index", "antenna2_index"), ids[index], strict=True
+                ):
+                    _require(
+                        type(row[key]) is int, SCHEMA, label + ": phase endpoint type"
+                    )
+                    _require(
+                        row[key] == by_number[number],
+                        DIGEST,
+                        label + ": phase selected endpoint differs",
+                    )
+            vector = row[vector_key]
+            _require(
+                type(vector) is list and len(vector) == 3,
+                SCHEMA,
+                label + ": phase vector list",
+            )
+            for word in vector:
+                _require(
+                    type(word) is str,
+                    SCHEMA,
+                    label + ": phase vector word string required",
+                )
+                _ = _characterization_time_f64(word, label + " phase vector")
+            _require(
+                vector == [f64be(float(number)) for number in rotated[index]],
+                DIGEST,
+                label + ": rotated " + role + " differs",
+            )
+
+
 def validate_characterization_input_projection(
     value: Any,
     digest: Any,

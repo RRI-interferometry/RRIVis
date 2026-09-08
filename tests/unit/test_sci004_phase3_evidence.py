@@ -9366,6 +9366,13 @@ def test_characterization_instrument_public_owners(
     characterization_projection: dict[str, Any], tmp_path: Path
 ) -> None:
     """Join the enriched scientific fixture to actual public resolved owners."""
+    from importlib import import_module
+
+    import numpy as np
+
+    u: Any = import_module("astropy.units")
+    earth_location: Any = import_module("astropy.coordinates").EarthLocation
+
     from radiosim.api.simulator import Simulator
     from radiosim.core.baseline_resolution import (
         generate_resolved_baselines,
@@ -9412,6 +9419,53 @@ def test_characterization_instrument_public_owners(
     )
     assert selection.to_snapshot() == fixture["selection"]
     assert _instrument_projection_content(characterization_projection) == fixture
+    phase = characterization_projection["value"]["phase_input_identity_manifest"]
+    location = instrument["location"]
+    earth = earth_location.from_geodetic(
+        location["longitude_deg"] * u.deg,
+        location["latitude_deg"] * u.deg,
+        location["height_m"] * u.m,
+    )
+    lon, lat = (
+        math.radians(float(earth.lon.to_value(u.deg))),
+        math.radians(float(earth.lat.to_value(u.deg))),
+    )
+    triad = np.asarray(
+        (
+            (-math.sin(lon), math.cos(lon), 0.0),
+            (
+                -math.sin(lat) * math.cos(lon),
+                -math.sin(lat) * math.sin(lon),
+                math.cos(lat),
+            ),
+            (
+                math.cos(lat) * math.cos(lon),
+                math.cos(lat) * math.sin(lon),
+                math.sin(lat),
+            ),
+        ),
+        dtype=np.float64,
+    )
+    for vectors, rows, key in (
+        (
+            [row.position_enu_m for row in simulator.antennas],
+            phase["antenna_rows"],
+            "itrs_xyz_m_f64be",
+        ),
+        (
+            [row.vector_enu_m for row in simulator.baselines],
+            phase["baseline_rows"],
+            "itrs_vector_m_f64be",
+        ),
+    ):
+        batched = np.asarray(vectors, dtype=np.float64) @ triad
+        per_row = np.asarray(
+            [np.asarray(row, dtype=np.float64) @ triad for row in vectors]
+        )
+        assert batched.tobytes() == per_row.tobytes()
+        assert [
+            [struct.pack(">d", float(x)).hex() for x in row] for row in batched
+        ] == [row[key] for row in rows]
 
 
 @pytest.mark.parametrize("value", [0.0, 1.0, -1.0, 1e-300, 1e300])
@@ -9995,3 +10049,135 @@ def test_characterization_selection_schema(value: Any, detail: str) -> None:
         module.validate_characterization_selection(case, "selection")
     assert caught.value.prefix == module.SCHEMA
     assert detail in caught.value.detail
+
+
+@pytest.fixture
+def characterization_rows_case(
+    characterization_site_case: tuple[Any, dict[str, Any], list[float], list[float]],
+) -> tuple[Any, dict[str, Any], dict[str, Any]]:
+    from importlib import import_module
+
+    import numpy as np
+
+    module, phase, coordinates, _ = characterization_site_case
+    earth_location: Any = import_module("astropy.coordinates").EarthLocation
+    earth = earth_location.from_geodetic(*coordinates)
+    lon, lat = math.radians(float(earth.lon.deg)), math.radians(float(earth.lat.deg))
+    triad = np.asarray(
+        (
+            (-math.sin(lon), math.cos(lon), 0.0),
+            (
+                -math.sin(lat) * math.cos(lon),
+                -math.sin(lat) * math.sin(lon),
+                math.cos(lat),
+            ),
+            (
+                math.cos(lat) * math.cos(lon),
+                math.cos(lat) * math.sin(lon),
+                math.sin(lat),
+            ),
+        ),
+        dtype=np.float64,
+    )
+    case = _instrument_projection_fixture()
+    return (
+        module,
+        phase,
+        {
+            "antennas": case["instrument"]["antennas"],
+            "positions": [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]],
+            "ids": case["selection"]["selected_ids"],
+            "triad": triad,
+            "label": "rows",
+        },
+    )
+
+
+def test_characterization_rows_public_success(
+    characterization_rows_case: tuple[Any, dict[str, Any], dict[str, Any]],
+) -> None:
+    module, phase, kwargs = characterization_rows_case
+    before = copy.deepcopy(phase)
+    assert module.validate_characterization_instrument_rows(phase, **kwargs) is None
+    assert phase == before
+    # ANT0 is zero: subtracting rotated offsets may coincide here, not a decisive mutant.
+    assert kwargs["positions"][0] == [0.0, 0.0, 0.0]
+
+
+@pytest.mark.parametrize("role", ["antenna_rows", "baseline_rows"])
+@pytest.mark.parametrize("operation", ["missing", "extra"])
+def test_characterization_rows_closed_objects(
+    characterization_rows_case: tuple[Any, dict[str, Any], dict[str, Any]],
+    role: str,
+    operation: str,
+) -> None:
+    module, original, kwargs = characterization_rows_case
+    for index, row in enumerate(original[role]):
+        for key in row:
+            phase = copy.deepcopy(original)
+            obj = phase[role][index]
+            if operation == "missing":
+                del obj[key]
+            else:
+                obj["extra_" + key] = copy.deepcopy(obj[key])
+            with pytest.raises(module.EvidenceError) as caught:
+                module.validate_characterization_instrument_rows(phase, **kwargs)
+            assert caught.value.prefix == module.SCHEMA
+            assert "must have exactly" in caught.value.detail
+
+
+@pytest.mark.parametrize("role", ["antenna_rows", "baseline_rows"])
+@pytest.mark.parametrize("value,prefix", [(False, "SCHEMA"), (8, "DIGEST")])
+def test_characterization_rows_all_identity_fields(
+    characterization_rows_case: tuple[Any, dict[str, Any], dict[str, Any]],
+    role: str,
+    value: Any,
+    prefix: str,
+) -> None:
+    module, original, kwargs = characterization_rows_case
+    for index, row in enumerate(original[role]):
+        for key in (k for k in row if k.endswith("index") or k == "name"):
+            phase = copy.deepcopy(original)
+            phase[role][index][key] = (
+                "foreign" if key == "name" and prefix == "DIGEST" else value
+            )
+            with pytest.raises(module.EvidenceError) as caught:
+                module.validate_characterization_instrument_rows(phase, **kwargs)
+            assert caught.value.prefix == getattr(module, prefix)
+
+
+@pytest.mark.parametrize("role", ["antenna_rows", "baseline_rows"])
+@pytest.mark.parametrize(
+    "value,prefix",
+    [(0, "SCHEMA"), ("7ff0000000000000", "SCHEMA"), ("3ff0000000000000", "DIGEST")],
+)
+def test_characterization_rows_each_vector_word(
+    characterization_rows_case: tuple[Any, dict[str, Any], dict[str, Any]],
+    role: str,
+    value: Any,
+    prefix: str,
+) -> None:
+    module, original, kwargs = characterization_rows_case
+    key = "itrs_xyz_m_f64be" if role == "antenna_rows" else "itrs_vector_m_f64be"
+    for index in range(len(original[role])):
+        for component in range(3):
+            phase = copy.deepcopy(original)
+            phase[role][index][key][component] = value
+            with pytest.raises(module.EvidenceError) as caught:
+                module.validate_characterization_instrument_rows(phase, **kwargs)
+            assert caught.value.prefix == getattr(module, prefix)
+
+
+@pytest.mark.parametrize("role", ["antenna_rows", "baseline_rows"])
+@pytest.mark.parametrize("value,prefix", [((), "SCHEMA"), ([], "DIGEST")])
+def test_characterization_rows_container_and_cardinality(
+    characterization_rows_case: tuple[Any, dict[str, Any], dict[str, Any]],
+    role: str,
+    value: Any,
+    prefix: str,
+) -> None:
+    module, phase, kwargs = characterization_rows_case
+    phase[role] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_instrument_rows(phase, **kwargs)
+    assert caught.value.prefix == getattr(module, prefix)
