@@ -4704,6 +4704,30 @@ def _validate_characterization_receptors(
         )
 
 
+def _characterization_instrument_float(value: Any, label: str) -> float:
+    """Require a normalized native binary64 instrument value without coercion."""
+    _require(type(value) is float, SCHEMA, label + ": exact float required")
+    number = cast(float, value)
+    _require(math.isfinite(number), SCHEMA, label + ": finite float required")
+    _require(
+        number != 0.0 or struct.pack(">d", number) == bytes(8),
+        SCHEMA,
+        label + ": positive zero required",
+    )
+    return number
+
+
+def characterization_instrument_vector(value: Any, label: str) -> list[float]:
+    """Require an exact three-element list of normalized instrument floats."""
+    _require(type(value) is list, SCHEMA, label + ": exact vector list required")
+    values = cast(list[Any], value)
+    _require(len(values) == 3, SCHEMA, label + ": vector length must be three")
+    return [
+        _characterization_instrument_float(item, f"{label}[{index}]")
+        for index, item in enumerate(values)
+    ]
+
+
 def validate_characterization_input_projection(
     value: Any,
     digest: Any,

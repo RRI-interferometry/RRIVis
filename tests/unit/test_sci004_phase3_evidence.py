@@ -9412,3 +9412,111 @@ def test_characterization_instrument_public_owners(
     )
     assert selection.to_snapshot() == fixture["selection"]
     assert _instrument_projection_content(characterization_projection) == fixture
+
+
+@pytest.mark.parametrize("value", [0.0, 1.0, -1.0, 1e-300, 1e300])
+def test_characterization_instrument_float_preserves_native_bits(value: float) -> None:
+    module = _tool()
+    result = module._characterization_instrument_float(value, "scalar")
+    assert type(result) is float
+    assert struct.pack(">d", result) == struct.pack(">d", value)
+
+
+@pytest.mark.parametrize(
+    ("value", "detail"),
+    [
+        (True, "exact float required"),
+        (False, "exact float required"),
+        (0, "exact float required"),
+        (1, "exact float required"),
+        ("1.0", "exact float required"),
+        (None, "exact float required"),
+        (float("nan"), "finite float required"),
+        (float("inf"), "finite float required"),
+        (-float("inf"), "finite float required"),
+        (-0.0, "positive zero required"),
+    ],
+)
+def test_characterization_instrument_float_refuses_typed_values(
+    value: Any, detail: str
+) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError) as caught:
+        module._characterization_instrument_float(value, "scalar")
+    assert str(caught.value) == module.SCHEMA + ": scalar: " + detail
+
+
+def test_characterization_instrument_float_refuses_float_subclass() -> None:
+    class DerivedFloat(float):
+        pass
+
+    module = _tool()
+    with pytest.raises(module.EvidenceError) as caught:
+        module._characterization_instrument_float(DerivedFloat(1.0), "scalar")
+    assert str(caught.value) == module.SCHEMA + ": scalar: exact float required"
+
+
+def test_characterization_instrument_vector_copies_without_changing_bits() -> None:
+    from typing import cast
+
+    module = _tool()
+    values = [0.0, -1e-300, 1e300]
+    before = struct.pack(">3d", *values)
+    result = module.characterization_instrument_vector(values, "vector")
+    assert type(result) is list
+    result = cast(list[float], result)
+    assert result is not values
+    assert all(type(item) is float for item in result)
+    assert struct.pack(">3d", *result) == before
+    assert struct.pack(">3d", *values) == before
+    result[0] = 1.0
+    assert struct.pack(">3d", *values) == before
+
+
+@pytest.mark.parametrize("value", [None, True, (0.0, 1.0, 2.0), "abc", {}])
+def test_characterization_instrument_vector_refuses_container(value: Any) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError) as caught:
+        module.characterization_instrument_vector(value, "vector")
+    assert str(caught.value) == module.SCHEMA + ": vector: exact vector list required"
+
+
+def test_characterization_instrument_vector_refuses_list_subclass() -> None:
+    class DerivedList(list[float]):
+        pass
+
+    module = _tool()
+    with pytest.raises(module.EvidenceError) as caught:
+        module.characterization_instrument_vector(DerivedList([0.0] * 3), "vector")
+    assert str(caught.value) == module.SCHEMA + ": vector: exact vector list required"
+
+
+@pytest.mark.parametrize("length", [0, 1, 2, 4])
+def test_characterization_instrument_vector_refuses_length(length: int) -> None:
+    module = _tool()
+    with pytest.raises(module.EvidenceError) as caught:
+        module.characterization_instrument_vector([0.0] * length, "vector")
+    assert str(caught.value) == module.SCHEMA + ": vector: vector length must be three"
+
+
+@pytest.mark.parametrize("index", [0, 1, 2])
+@pytest.mark.parametrize(
+    ("value", "detail"),
+    [
+        (False, "exact float required"),
+        (1, "exact float required"),
+        (float("nan"), "finite float required"),
+        (float("inf"), "finite float required"),
+        (-float("inf"), "finite float required"),
+        (-0.0, "positive zero required"),
+    ],
+)
+def test_characterization_instrument_vector_refuses_each_component(
+    index: int, value: Any, detail: str
+) -> None:
+    module = _tool()
+    values = [0.0, 1.0, 2.0]
+    values[index] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.characterization_instrument_vector(values, "vector")
+    assert str(caught.value) == module.SCHEMA + f": vector[{index}]: " + detail
