@@ -25,6 +25,11 @@ from .point import (
     TangentPolarizationFrame,
     empty_source_arrays,
 )
+from .polarization_materialization import (
+    PolarizationMaterialization,
+    PolarizationMaterializationEvidence,
+    PolarizationOperation,
+)
 from .provenance import SkyProvenance
 
 __all__ = [
@@ -32,6 +37,9 @@ __all__ = [
     "DEFAULT_COVERAGE_FOOTPRINT_NSIDE",
     "HealpixData",
     "MonopoleConvention",
+    "PolarizationOperation",
+    "PolarizationMaterialization",
+    "PolarizationMaterializationEvidence",
     "PointMetadata",
     "PointMorphology",
     "PointPolarization",

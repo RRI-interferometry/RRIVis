@@ -1147,3 +1147,21 @@ Two conventions are worth stating explicitly because they are easy to conflate:
 result bytes and fingerprints are unchanged, and `SCI-004` remains `ROADMAP`:
 the production phases are separately gated and no phase of this work closes the
 row or adds a fingerprint, speed or accelerator claim.
+
+
+## Typed polarization materialization evidence
+
+`radiosim.core.sky.containers` exposes `PolarizationOperation`,
+`PolarizationMaterialization` and `PolarizationMaterializationEvidence`.
+The private canonical native identity factory now returns the named evidence
+object in place of `_NativeIdentityReceipt`. Its new `brightness_conversion`
+field holds the exact enclosing `BrightnessConversion` enum. Consumers verify
+that context against the actual owner; a plain string is not an enum substitute.
+
+The twelve scientific record fields, four operation fields and serialized
+preimages are unchanged. The context is an additional evidence field, not a
+new serialized record field. The former private class names have no aliases.
+Constructing a record or evidence object does not prove a conversion occurred;
+the actual-value consumer still validates it. This type extraction does not
+attach evidence to `HealpixData`, normalize a loader output or enable new
+m-mode inputs.

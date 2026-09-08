@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import struct
-from dataclasses import dataclass
 from typing import Literal, cast
 
 import numpy as np
@@ -15,63 +14,11 @@ from ._polarization_payload import bind_healpix_payload
 from .constants import BrightnessConversion
 from .healpix import HealpixData
 from .point import TangentPolarizationFrame
-
-
-@dataclass(frozen=True, slots=True)
-class _IdentityOperation:
-    kind: str
-    input_sha256: str
-    output_sha256: str
-    parameters_sha256: str
-
-    def as_mapping(self) -> dict[str, str]:
-        return {
-            "kind": self.kind,
-            "input_sha256": self.input_sha256,
-            "output_sha256": self.output_sha256,
-            "parameters_sha256": self.parameters_sha256,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class _Materialization:
-    schema_version: str
-    component_kind: str
-    source_profile: str
-    declaration_origin: str
-    declaration_digest: str
-    source_frame: str
-    output_frame: str
-    input_payload_sha256: str
-    output_payload_sha256: str
-    operations: tuple[_IdentityOperation, ...]
-    parent_materialization_ids: tuple[str, ...]
-    materialization_id: str
-
-    def as_mapping(self) -> dict[str, object]:
-        return {
-            "schema_version": self.schema_version,
-            "component_kind": self.component_kind,
-            "source_profile": self.source_profile,
-            "declaration_origin": self.declaration_origin,
-            "declaration_digest": self.declaration_digest,
-            "source_frame": self.source_frame,
-            "output_frame": self.output_frame,
-            "input_payload_sha256": self.input_payload_sha256,
-            "output_payload_sha256": self.output_payload_sha256,
-            "operations": [operation.as_mapping() for operation in self.operations],
-            "parent_materialization_ids": list(self.parent_materialization_ids),
-            "materialization_id": self.materialization_id,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class _NativeIdentityReceipt:
-    record: _Materialization
-    tangent_frame: TangentPolarizationFrame | None
-    declaration_json: bytes
-    identity_parameters_json: bytes
-    payload_metadata_json: bytes
+from .polarization_materialization import (
+    PolarizationMaterialization,
+    PolarizationMaterializationEvidence,
+    PolarizationOperation,
+)
 
 
 def _json(value: object) -> bytes:
@@ -107,7 +54,7 @@ def complete_native_identity(
     brightness_conversion: BrightnessConversion,
     source_profile: Literal["radiosim_ne_iau_v1"],
     tangent_frame: TangentPolarizationFrame | None,
-) -> _NativeIdentityReceipt:
+) -> PolarizationMaterializationEvidence:
     """Complete one declared identity on exclusively owned, already stored words.
 
     All payload finiteness checks precede the bounded Q/U pass. No original
@@ -155,7 +102,7 @@ def complete_native_identity(
             ).hexdigest(),
         }
     )
-    operation = _IdentityOperation(
+    operation = PolarizationOperation(
         "identity",
         payload.payload_sha256,
         payload.payload_sha256,
@@ -183,7 +130,7 @@ def complete_native_identity(
         + struct.pack("<Q", len(encoded))
         + encoded
     ).hexdigest()
-    record = _Materialization(
+    record = PolarizationMaterialization(
         "radiosim.polarization-materialization.v1",
         "healpix",
         source_profile,
@@ -197,8 +144,13 @@ def complete_native_identity(
         (),
         identity,
     )
-    return _NativeIdentityReceipt(
-        record, tangent_frame, declaration, parameters, payload.metadata_json
+    return PolarizationMaterializationEvidence(
+        record,
+        tangent_frame,
+        declaration,
+        parameters,
+        payload.metadata_json,
+        brightness_conversion,
     )
 
 
@@ -208,15 +160,20 @@ def require_native_identity(
     brightness_conversion: BrightnessConversion,
     source_profile: Literal["radiosim_ne_iau_v1"],
     tangent_frame: TangentPolarizationFrame | None,
-    expected: _NativeIdentityReceipt,
+    expected: PolarizationMaterializationEvidence,
 ) -> None:
     """Rebuild from actual values/declaration, refusing stale or altered receipts."""
-    if not isinstance(
-        cast(object, expected), _NativeIdentityReceipt
-    ) or expected != complete_native_identity(
-        owner,
-        brightness_conversion=brightness_conversion,
-        source_profile=source_profile,
-        tangent_frame=tangent_frame,
+    if (
+        not isinstance(cast(object, expected), PolarizationMaterializationEvidence)
+        or type(cast(object, expected.brightness_conversion))
+        is not BrightnessConversion
+        or expected.brightness_conversion is not brightness_conversion
+        or expected
+        != complete_native_identity(
+            owner,
+            brightness_conversion=brightness_conversion,
+            source_profile=source_profile,
+            tangent_frame=tangent_frame,
+        )
     ):
         raise ValueError("native identity materialization mismatch")

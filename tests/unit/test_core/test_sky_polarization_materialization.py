@@ -559,3 +559,43 @@ def test_identity_preserves_all_actual_arrays_on_success_and_refusal() -> None:
         if array is not None
     ]
     assert all(alias.flags.writeable for alias in aliases)
+
+
+def test_public_materialization_evidence_joins_explicit_context() -> None:
+    from radiosim.core.sky.containers import (
+        PolarizationMaterialization,
+        PolarizationMaterializationEvidence,
+        PolarizationOperation,
+    )
+
+    owner = _identity_owner()
+    frame = TangentPolarizationFrame.canonical("icrs")
+    receipt = complete_native_identity(
+        owner,
+        brightness_conversion=BC.PLANCK,
+        source_profile="radiosim_ne_iau_v1",
+        tangent_frame=frame,
+    )
+    assert type(cast(object, receipt)) is PolarizationMaterializationEvidence
+    assert type(cast(object, receipt.record)) is PolarizationMaterialization
+    assert type(cast(object, receipt.record.operations[0])) is PolarizationOperation
+    assert receipt.brightness_conversion is BC.PLANCK
+    for context in (BC.RAYLEIGH_JEANS, cast(BC, "planck")):
+        altered = replace(receipt, brightness_conversion=context)
+        assert altered.record == receipt.record
+        assert altered.payload_metadata_json == receipt.payload_metadata_json
+        with pytest.raises(ValueError, match="materialization mismatch"):
+            require_native_identity(
+                owner,
+                brightness_conversion=BC.PLANCK,
+                source_profile="radiosim_ne_iau_v1",
+                tangent_frame=frame,
+                expected=altered,
+            )
+    require_native_identity(
+        owner,
+        brightness_conversion=BC.PLANCK,
+        source_profile="radiosim_ne_iau_v1",
+        tangent_frame=frame,
+        expected=receipt,
+    )
