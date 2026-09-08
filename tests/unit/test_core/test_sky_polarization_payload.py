@@ -268,3 +268,120 @@ def test_constructor_owned_metadata_and_pixel_order_bind(change: str) -> None:
         assert dict(zip(original.hpx_inds, original.maps[0], strict=True)) == dict(
             zip(changed.hpx_inds, changed.maps[0], strict=True)
         )
+
+
+def test_constructor_preserves_layouts_with_equal_logical_words() -> None:
+    logical = np.array([[1.0, -0.0, 3.0], [4.0, 5.0, 6.0]], dtype="<f8")
+    backing = np.empty((2, 6), dtype="<f8")
+    backing[:, ::2] = logical
+    inputs = (logical.copy(), np.asfortranarray(logical), backing[:, ::2])
+    digests: list[str] = []
+    for index, values in enumerate(inputs):
+        owner = HealpixData(
+            nside=1,
+            frequencies=np.array([2.0, 1.0]),
+            hpx_inds=np.array([8, 1, 4]),
+            maps=values,
+        )
+        assert np.shares_memory(owner.maps, values)
+        assert owner.maps.dtype.str == "<f8"
+        assert owner.maps.strides == values.strides
+        assert not owner.maps.flags.writeable
+        if index == 0:
+            assert owner.maps.flags.c_contiguous
+        elif index == 1:
+            assert owner.maps.flags.f_contiguous and not owner.maps.flags.c_contiguous
+        else:
+            assert (
+                not owner.maps.flags.c_contiguous and not owner.maps.flags.f_contiguous
+            )
+        assert owner.maps.tobytes(order="C") == struct.pack(
+            "<6d", 1.0, -0.0, 3.0, 4.0, 5.0, 6.0
+        )
+        digests.append(
+            bind_healpix_payload(owner, brightness_conversion=BC.PLANCK).payload_sha256
+        )
+    assert len(set(digests)) == 1
+
+
+def test_actual_endian_and_width_words_have_distinct_identity() -> None:
+    hashes: list[str] = []
+    for dtype, format_code in (
+        ("<f4", "<ff"),
+        (">f4", ">ff"),
+        ("<f8", "<dd"),
+        (">f8", ">dd"),
+    ):
+        values = np.array([[1.0, -0.0]], dtype=dtype)
+        owner = HealpixData(
+            nside=1,
+            frequencies=np.array([1.0], dtype=">f8"),
+            hpx_inds=np.array([0, 1], dtype=">i8"),
+            maps=values,
+        )
+        # Map words survive construction; channels/IDs normalize to native widths.
+        assert owner.maps.dtype.str == dtype and np.shares_memory(values, owner.maps)
+        assert owner.frequencies.dtype == np.dtype(np.float64)
+        assert owner.hpx_inds is not None and owner.hpx_inds.dtype == np.dtype(np.int64)
+        assert owner.maps.tobytes() == struct.pack(format_code, 1.0, -0.0)
+        assert owner.frequencies.tobytes() == struct.pack("<d", 1.0)
+        assert owner.hpx_inds.tobytes() == struct.pack("<qq", 0, 1)
+        binding = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+        descriptor = json.loads(binding.metadata_json)["arrays"][2]
+        assert descriptor["dtype"] == dtype
+        hashes.append(binding.payload_sha256)
+    assert len(set(hashes)) == 4
+
+
+def test_dense_and_explicit_canonical_ids_have_equal_binding() -> None:
+    maps = np.arange(12, dtype=np.float64).reshape(1, 12)
+    dense = HealpixData(nside=1, frequencies=np.array([1.0]), maps=maps.copy())
+    explicit = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        maps=maps.copy(),
+        hpx_inds=np.arange(12, dtype=np.int64),
+    )
+    assert dense.hpx_inds is None
+    assert explicit.hpx_inds is not None
+    assert explicit.hpx_inds.tobytes() == struct.pack("<12q", *range(12))
+    assert (
+        dense.maps.tobytes()
+        == explicit.maps.tobytes()
+        == struct.pack("<12d", *range(12))
+    )
+    assert bind_healpix_payload(
+        dense, brightness_conversion=BC.PLANCK
+    ) == bind_healpix_payload(explicit, brightness_conversion=BC.PLANCK)
+
+
+def test_paired_channel_permutation_preserves_values_not_identity() -> None:
+    first = HealpixData(
+        nside=1,
+        frequencies=np.array([2.0, 1.0]),
+        hpx_inds=np.array([4]),
+        maps=np.array([[3.0], [5.0]]),
+        q_maps=np.array([[7.0], [11.0]]),
+    )
+    second = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0, 2.0]),
+        hpx_inds=np.array([4]),
+        maps=np.array([[5.0], [3.0]]),
+        q_maps=np.array([[11.0], [7.0]]),
+    )
+    assert first.frequencies.tobytes() == struct.pack("<dd", 2.0, 1.0)
+    assert second.frequencies.tobytes() == struct.pack("<dd", 1.0, 2.0)
+    assert first.q_maps is not None and second.q_maps is not None
+    assert dict(zip(first.frequencies, first.maps[:, 0], strict=True)) == dict(
+        zip(second.frequencies, second.maps[:, 0], strict=True)
+    )
+    assert dict(zip(first.frequencies, first.q_maps[:, 0], strict=True)) == dict(
+        zip(second.frequencies, second.q_maps[:, 0], strict=True)
+    )
+    a = bind_healpix_payload(first, brightness_conversion=BC.PLANCK)
+    b = bind_healpix_payload(second, brightness_conversion=BC.PLANCK)
+    assert a.metadata_json == b.metadata_json
+    assert a.payload_sha256 != b.payload_sha256
+    with pytest.raises(ValueError, match="binding mismatch"):
+        require_healpix_binding(second, brightness_conversion=BC.PLANCK, expected=a)
