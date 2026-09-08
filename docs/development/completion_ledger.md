@@ -466,10 +466,73 @@ The M4 prerequisite review records are external under the recovery root:
 - Provider layout: `m4-provider-layout-plan/round2/`; root disposition
   `0d0af8158cc113a5037e3793cf8b3f5c935695cec730c815b6805bc3ada82ac5`.
 
-These are independently reviewed prospective decisions, not implemented public
-support or numerical qualification. Operational whole-cell bounds, exact native
-materialization codecs, provider internal allocations, source grants and actual
-public scientific tests remain required. The exact-`c023036` CI run
+These prospective decisions do not establish implemented public support or
+numerical qualification. The bounded codec and finite FITPACK work recorded below
+advance individual prerequisites; operational whole-cell bounds, provider internal
+allocations, source grants and actual public scientific tests remain required.
+The exact-`c023036` CI run
 [34180339931](https://github.com/RRI-interferometry/RadioSim/actions/runs/34180339931)
-has successful backend-parity and lint/metadata/types/docs jobs; six compatibility
-jobs were still running at this status boundary. Final complete CI remains open.
+ended with all six compatibility jobs cancelled after their explicit two-hour
+limits. Backend-parity and quality jobs passed. Both Linux runtimes reported the
+two production-v2 preimage tests FAILED before timeout; their missing terminal
+tracebacks leave the cause unresolved. The incomplete macOS logs do not establish
+full-suite success. The original diagnosis remains in
+`ci-c023-34180339931/round1/report.md`. At the latest root observation for
+`74830bc5f30330a3bbf4124f33ef467447cf1f7c`, CI run
+[34192091050](https://github.com/RRI-interferometry/RadioSim/actions/runs/34192091050)
+was pending; this entry records that observation, not a terminal result or a fresh
+CI query. Complete CI remains open.
+
+## Subsequent bounded implementation and evidence checkpoints
+
+The D36 table builder has independent acceptance for the pure, unwired fixed
+registration declaration and arithmetic from authenticated derived records.
+`d36-profile-registration/table-builder-round1/root-disposition.json` binds the
+54-artifact manifest `91aaacb768667d4b7d251870e66148175543b225d5fc88ef0281821de2594af7`.
+Both runtimes reproduce 148 historical formula controls and identical declarations;
+36 synthetic controls pass on each. The completed four-certificate census observes
+85-bit numerator/denominator maxima, which fit the unchanged 256-bit domain and
+change no fixed proposed capacity term. Detailed schema owners are bound to the
+exact retained inventory. This does not establish a generic hostile parser, reader
+source-fit, applied profile/capacity, payload acquisition or scientific admission.
+
+C1 instrument checkpoints are committed in the following sequence. These are
+independently reviewed bounded increments; the helpers remain unwired from the
+input validator, and later selection/rows/composition, beam and coupled schema
+work remains open.
+
+| Checkpoint | Commit | Bounded result |
+| --- | --- | --- |
+| 1 | `09e2b6f38863f5dbe721b75067854cb437fe1b90` | Test-only independent instrument/selection fixture and public-owner joins; 218 selected cases pass per runtime. |
+| 2 | `272a2afa4978644ddc1f72f7d81cd38beebaae1c` | Exact native binary64 scalar/vector primitives; 45 focused cases pass per runtime. |
+| 3 | `d1239bffcdc2abed1752e44db60e09dbb59756b5` | Ordered antenna identity, ENU, diameter and provenance primitive; 58 focused cases pass per runtime. |
+| 4 | `74830bc5f30330a3bbf4124f33ef467447cf1f7c` | Outer instrument closure and original fingerprint primitive; 33 focused cases pass per runtime, retaining later geodesy obligations. |
+| 5 | `59450dc83146fd6ea487afdb95a25e16fe43b385` | Exact original and rebuilt phase-site reconstruction; 34 focused cases pass per runtime. |
+
+The corresponding `c1-instrument-checkpoint{1,2,3,4,5}/round1/root-commit.json`
+records bind reviewed patches, commit outcomes and preserved ambient changes.
+Scoped strict diagnostics remain the same 367; focused green controls do not
+constitute a full E gate, completed C1, or observation admission.
+
+The private, unwired native payload codec is committed at
+`5ed697ffdfe86efd57c349f0384c6adddfe669a6`. Identity tests at
+`ac08dd3262e9b3e87926584cafde4b1d937d83a4`, constructor-aware layout tests at
+`52faa0e49340024950ea73113f91d975cfaa086f`, and hostile-input tests at
+`47a6b4843c437fe8dc7b6d814f79176295cd87ca` extend its finite coverage. The final
+focused module passes 57 cases on each runtime with zero scoped strict diagnostics.
+These controls distinguish stored values, signed zero, aliases, order and endian
+representations, and reject invalid owned metadata. They do not wire loaders,
+materialize maps, establish physical equivalence or grant public M4 support.
+Scratch/chunk instrumentation and its construction qualification remain separate.
+The exact records reside under `m4-native-value-binding-code/round2/` and
+`m4-native-binding-{identities,layout,hostile}/round1/`.
+
+FITPACK execution is accepted only for four finite public-constructor observations
+and four Python pre-native refusals across the two recorded environments. Maximum
+input z size was 70 elements; returned base payload sizes were 96 and 744 bytes in
+each runtime. `m4-fitpack-native-execution/round1/root-disposition.json` binds
+manifest `5251316c4e7d53f0a91f5fc2ddc5c857c35ed5b258d1bd1e76c11e07a1cc5449`.
+The original RECORD nonjoins remain preserved. This supplies neither an all-size
+workspace/ABI/allocator/RSS proof nor numerical enclosure, production grant or M4
+admission. No historical paragraph, failed attempt or original identity above is
+reclassified by these later bounded outcomes.
