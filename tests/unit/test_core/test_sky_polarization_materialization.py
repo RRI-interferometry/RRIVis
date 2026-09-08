@@ -4,7 +4,7 @@ import hashlib
 import json
 import struct
 from dataclasses import replace
-from typing import Literal, cast
+from typing import Literal, TypeVar, cast
 
 import numpy as np
 import pytest
@@ -424,3 +424,138 @@ def test_native_identity_accepts_null_zero_and_empty() -> None:
             source_profile="radiosim_ne_iau_v1",
             tangent_frame=None,
         )
+
+
+def test_identity_requires_exact_profile_and_frame_string_types() -> None:
+    class DeclaredString(str):
+        pass
+
+    owner = _identity_owner()
+    frame = TangentPolarizationFrame.canonical("icrs")
+    with pytest.raises(ValueError, match="explicit canonical source profile"):
+        _ = complete_native_identity(
+            owner,
+            brightness_conversion=BC.PLANCK,
+            source_profile=cast(
+                Literal["radiosim_ne_iau_v1"], DeclaredString("radiosim_ne_iau_v1")
+            ),
+            tangent_frame=frame,
+        )
+    for invalid in (DeclaredString("north_east"), 7):
+        altered = TangentPolarizationFrame.canonical("icrs")
+        object.__setattr__(altered, "axes", invalid)
+        with pytest.raises(ValueError, match="literals must be exact strings"):
+            _ = complete_native_identity(
+                owner,
+                brightness_conversion=BC.PLANCK,
+                source_profile="radiosim_ne_iau_v1",
+                tangent_frame=altered,
+            )
+
+
+_BoundaryValue = TypeVar("_BoundaryValue")
+
+
+def _boundary_value(reference: _BoundaryValue, value: object) -> _BoundaryValue:
+    del reference
+    return cast(_BoundaryValue, value)
+
+
+def test_identity_consumer_refuses_nonreceipt() -> None:
+    owner = _identity_owner()
+    frame = TangentPolarizationFrame.canonical("icrs")
+    receipt = complete_native_identity(
+        owner,
+        brightness_conversion=BC.PLANCK,
+        source_profile="radiosim_ne_iau_v1",
+        tangent_frame=frame,
+    )
+    # Explicit runtime-boundary corruption, without importing a private receipt type.
+    with pytest.raises(ValueError, match="materialization mismatch"):
+        require_native_identity(
+            owner,
+            brightness_conversion=BC.PLANCK,
+            source_profile="radiosim_ne_iau_v1",
+            tangent_frame=frame,
+            expected=_boundary_value(receipt, object()),
+        )
+
+
+def test_identity_preserves_all_actual_arrays_on_success_and_refusal() -> None:
+    arrays = [np.array([[value]], dtype=np.float64) for value in (2.0, 1.0, 0.0, 0.5)]
+    aliases = [array.view() for array in arrays]
+    owner = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.array([4]),
+        maps=arrays[0],
+        q_maps=arrays[1],
+        u_maps=arrays[2],
+        v_maps=arrays[3],
+    )
+    actual = (
+        owner.frequencies,
+        owner.hpx_inds,
+        owner.maps,
+        owner.q_maps,
+        owner.u_maps,
+        owner.v_maps,
+    )
+    assert all(array is not None for array in actual)
+    for alias, array in zip(aliases, actual[2:], strict=True):
+        assert array is not None and np.shares_memory(alias, array)
+        assert alias.flags.writeable and not array.flags.writeable
+    before = [
+        (
+            id(array),
+            array.dtype.str,
+            array.shape,
+            array.strides,
+            str(array.flags),
+            array.tobytes(),
+        )
+        for array in actual
+        if array is not None
+    ]
+    frame = TangentPolarizationFrame.canonical("icrs")
+    receipt = complete_native_identity(
+        owner,
+        brightness_conversion=BC.PLANCK,
+        source_profile="radiosim_ne_iau_v1",
+        tangent_frame=frame,
+    )
+    require_native_identity(
+        owner,
+        brightness_conversion=BC.PLANCK,
+        source_profile="radiosim_ne_iau_v1",
+        tangent_frame=frame,
+        expected=receipt,
+    )
+    with pytest.raises(ValueError, match="requires an explicit"):
+        _ = complete_native_identity(
+            owner,
+            brightness_conversion=BC.PLANCK,
+            source_profile="radiosim_ne_iau_v1",
+            tangent_frame=None,
+        )
+    after = (
+        owner.frequencies,
+        owner.hpx_inds,
+        owner.maps,
+        owner.q_maps,
+        owner.u_maps,
+        owner.v_maps,
+    )
+    assert before == [
+        (
+            id(array),
+            array.dtype.str,
+            array.shape,
+            array.strides,
+            str(array.flags),
+            array.tobytes(),
+        )
+        for array in after
+        if array is not None
+    ]
+    assert all(alias.flags.writeable for alias in aliases)
