@@ -4909,6 +4909,97 @@ def validate_characterization_instrument(
     return coordinates, original_xyz, antennas, positions
 
 
+def validate_characterization_site(
+    phase: dict[str, Any],
+    coordinates: list[float],
+    original_xyz: list[float],
+    label: str,
+) -> tuple[float, float]:
+    """Join normalized instrument coordinates to original and phase site owners."""
+    from importlib import import_module
+
+    u: Any = import_module("astropy.units")
+    earth_location: Any = import_module("astropy.coordinates").EarthLocation
+    obj = _input_projection_object
+    original = earth_location.from_geodetic(21.4, -30.7, 1000.0)
+    resolved = [
+        float(original.lon.to_value(u.deg)),
+        float(original.lat.to_value(u.deg)),
+        float(original.height.to_value(u.m)),
+    ]
+    if not -180.0 <= resolved[0] < 180.0:
+        resolved[0] = (resolved[0] + 180.0) % 360.0 - 180.0
+    resolved.extend(
+        float(item.to_value(u.m)) for item in (original.x, original.y, original.z)
+    )
+    resolved = [0.0 if item == 0.0 else item for item in resolved]
+    _require(
+        [f64be(item) for item in [*coordinates, *original_xyz]]
+        == [f64be(item) for item in resolved],
+        DIGEST,
+        label + ": original geodetic resolution differs",
+    )
+    earth = earth_location.from_geodetic(
+        coordinates[0] * u.deg, coordinates[1] * u.deg, coordinates[2] * u.m
+    )
+    longitude = float(earth.lon.to_value(u.deg))
+    latitude = float(earth.lat.to_value(u.deg))
+    height = float(earth.height.to_value(u.m))
+    rebuilt = earth_location.from_geodetic(
+        longitude * u.deg, latitude * u.deg, height * u.m
+    )
+    site = _require_keys(
+        obj(phase["site_manifest"], label),
+        (
+            "schema_version",
+            "longitude_deg_f64be",
+            "latitude_deg_f64be",
+            "height_m_f64be",
+            "itrs_xyz_m_f64be",
+        ),
+        label + " site",
+    )
+    _require(type(site["schema_version"]) is str, SCHEMA, label + ": site schema type")
+    _require(
+        site["schema_version"] == "radiosim.mmode-site.v1",
+        SCHEMA,
+        label + ": site schema differs",
+    )
+    words = site["itrs_xyz_m_f64be"]
+    _require(type(words) is list and len(words) == 3, SCHEMA, label + ": site XYZ list")
+    for word in [
+        site["longitude_deg_f64be"],
+        site["latitude_deg_f64be"],
+        site["height_m_f64be"],
+        *words,
+    ]:
+        _require(type(word) is str, SCHEMA, label + ": site word string required")
+        _ = _characterization_time_f64(word, label + " site")
+    expected_site = {
+        "schema_version": "radiosim.mmode-site.v1",
+        "longitude_deg_f64be": f64be(longitude),
+        "latitude_deg_f64be": f64be(latitude),
+        "height_m_f64be": f64be(height),
+        "itrs_xyz_m_f64be": [
+            f64be(float(item.to_value(u.m)))
+            for item in (rebuilt.x, rebuilt.y, rebuilt.z)
+        ],
+    }
+    _require(site == expected_site, DIGEST, label + ": phase site differs")
+    _require(
+        type(phase["site_sha256"]) is str,
+        SCHEMA,
+        label + ": site digest string required",
+    )
+    _ = _require_hex(phase["site_sha256"], 64, label + " site digest")
+    _require(
+        phase["site_sha256"] == object_digest("radiosim.mmode-site.v1", site),
+        DIGEST,
+        label + ": site digest differs",
+    )
+    return longitude, latitude
+
+
 def validate_characterization_input_projection(
     value: Any,
     digest: Any,

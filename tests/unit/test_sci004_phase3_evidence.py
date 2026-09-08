@@ -9743,3 +9743,131 @@ def test_characterization_instrument_outer_antenna_precedes_fingerprint() -> Non
         module.validate_characterization_instrument(case, "outer")
     assert caught.value.prefix == module.SCHEMA
     assert "antenna identity types" in caught.value.detail
+
+
+@pytest.fixture
+def characterization_site_case(
+    prepared_characterization_time: tuple[Any, dict[str, Any], dict[str, Any]],
+) -> tuple[Any, dict[str, Any], list[float], list[float]]:
+    """Use actual public phase preparation and separately resolved instrument facts."""
+    module, _, phase = prepared_characterization_time
+    location = _instrument_projection_fixture()["instrument"]["location"]
+    coordinates = [
+        location[key] for key in ("longitude_deg", "latitude_deg", "height_m")
+    ]
+    return module, copy.deepcopy(phase), coordinates, location["itrs_xyz_m"]
+
+
+def test_characterization_site_public_two_stage(
+    characterization_site_case: tuple[Any, dict[str, Any], list[float], list[float]],
+) -> None:
+    from importlib import import_module
+
+    module, phase, coordinates, xyz = characterization_site_case
+    before = copy.deepcopy((phase, coordinates, xyz))
+    u: Any = import_module("astropy.units")
+    earth_location: Any = import_module("astropy.coordinates").EarthLocation
+    earth = earth_location.from_geodetic(*coordinates)
+    expected = (float(earth.lon.to_value(u.deg)), float(earth.lat.to_value(u.deg)))
+    result = module.validate_characterization_site(phase, coordinates, xyz, "site")
+    assert tuple(struct.pack(">d", item) for item in result) == tuple(
+        struct.pack(">d", item) for item in expected
+    )
+    assert (phase, coordinates, xyz) == before
+    # Original single-stage XYZ is not the owner's rebuilt phase-site XYZ.
+    assert [struct.pack(">d", item).hex() for item in xyz] != phase["site_manifest"][
+        "itrs_xyz_m_f64be"
+    ]
+    phase["site_manifest"]["itrs_xyz_m_f64be"] = [
+        struct.pack(">d", item).hex() for item in xyz
+    ]
+    phase["site_sha256"] = module.object_digest(
+        "radiosim.mmode-site.v1", phase["site_manifest"]
+    )
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_site(phase, coordinates, xyz, "site")
+    assert caught.value.prefix == module.DIGEST
+    assert caught.value.detail == "site: phase site differs"
+
+
+@pytest.mark.parametrize("index", range(6))
+def test_characterization_site_original_one_ulp(
+    characterization_site_case: tuple[Any, dict[str, Any], list[float], list[float]],
+    index: int,
+) -> None:
+    module, phase, coordinates, xyz = characterization_site_case
+    values = coordinates if index < 3 else xyz
+    values[index % 3] = math.nextafter(values[index % 3], math.inf)
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_site(phase, coordinates, xyz, "site")
+    assert caught.value.prefix == module.DIGEST
+    assert caught.value.detail == "site: original geodetic resolution differs"
+
+
+@pytest.mark.parametrize("operation", ["missing", "extra"])
+def test_characterization_site_closed_manifest(
+    characterization_site_case: tuple[Any, dict[str, Any], list[float], list[float]],
+    operation: str,
+) -> None:
+    module, original, coordinates, xyz = characterization_site_case
+    for key in original["site_manifest"]:
+        phase = copy.deepcopy(original)
+        site = phase["site_manifest"]
+        if operation == "missing":
+            del site[key]
+        else:
+            site["extra_" + key] = copy.deepcopy(site[key])
+        phase["site_sha256"] = module.object_digest("radiosim.mmode-site.v1", site)
+        with pytest.raises(module.EvidenceError) as caught:
+            module.validate_characterization_site(phase, coordinates, xyz, "site")
+        assert caught.value.prefix == module.SCHEMA
+        assert "must have exactly" in caught.value.detail
+
+
+@pytest.mark.parametrize("index", range(6))
+@pytest.mark.parametrize("value", [0, "000000000000000", "7ff0000000000000"])
+def test_characterization_site_word_refusals(
+    characterization_site_case: tuple[Any, dict[str, Any], list[float], list[float]],
+    index: int,
+    value: Any,
+) -> None:
+    module, phase, coordinates, xyz = characterization_site_case
+    site = phase["site_manifest"]
+    if index < 3:
+        site[("longitude_deg_f64be", "latitude_deg_f64be", "height_m_f64be")[index]] = (
+            value
+        )
+    else:
+        site["itrs_xyz_m_f64be"][index - 3] = value
+    phase["site_sha256"] = module.object_digest("radiosim.mmode-site.v1", site)
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_site(phase, coordinates, xyz, "site")
+    assert caught.value.prefix == module.SCHEMA
+
+
+@pytest.mark.parametrize(
+    "target,value,prefix,detail",
+    [
+        ("schema_version", 0, "SCHEMA", "site schema type"),
+        ("schema_version", "foreign", "SCHEMA", "site schema differs"),
+        ("itrs_xyz_m_f64be", (), "SCHEMA", "site XYZ list"),
+        ("itrs_xyz_m_f64be", [], "SCHEMA", "site XYZ list"),
+        ("site_sha256", 0, "SCHEMA", "site digest string"),
+        ("site_sha256", "a" * 63, "SCHEMA", "hex"),
+        ("site_sha256", "0" * 64, "DIGEST", "site digest differs"),
+    ],
+)
+def test_characterization_site_schema_and_digest(
+    characterization_site_case: tuple[Any, dict[str, Any], list[float], list[float]],
+    target: str,
+    value: Any,
+    prefix: str,
+    detail: str,
+) -> None:
+    module, phase, coordinates, xyz = characterization_site_case
+    owner = phase if target == "site_sha256" else phase["site_manifest"]
+    owner[target] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_site(phase, coordinates, xyz, "site")
+    assert caught.value.prefix == getattr(module, prefix)
+    assert detail in caught.value.detail
