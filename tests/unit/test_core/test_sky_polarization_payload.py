@@ -385,3 +385,185 @@ def test_paired_channel_permutation_preserves_values_not_identity() -> None:
     assert a.payload_sha256 != b.payload_sha256
     with pytest.raises(ValueError, match="binding mismatch"):
         require_healpix_binding(second, brightness_conversion=BC.PLANCK, expected=a)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "frame",
+        "ordering",
+        "I_unit",
+        "absent_Q_unit",
+        "I_conversion",
+        "Q_conversion",
+        "I_rank",
+        "Q_shape",
+        "frequency_shape",
+        "frequency_dtype",
+        "ID_shape",
+        "ID_dtype",
+        "ID_negative",
+        "ID_upper",
+        "I_integer",
+        "U_complex",
+        "V_object",
+    ],
+)
+def test_corrupt_real_owner_fields_refuse(case: str) -> None:
+    owner = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.array([0]),
+        maps=np.zeros((1, 1)),
+    )
+    field: str
+    value: object
+    if case in (
+        "frame",
+        "ordering",
+        "I_unit",
+        "absent_Q_unit",
+        "I_conversion",
+        "Q_conversion",
+    ):
+        field = {
+            "frame": "coordinate_frame",
+            "ordering": "ordering",
+            "I_unit": "i_unit",
+            "absent_Q_unit": "q_unit",
+            "I_conversion": "i_brightness_conversion",
+            "Q_conversion": "q_brightness_conversion",
+        }[case]
+        value = "unsupported"
+    else:
+        field = {
+            "I_rank": "maps",
+            "Q_shape": "q_maps",
+            "frequency_shape": "frequencies",
+            "frequency_dtype": "frequencies",
+            "ID_shape": "hpx_inds",
+            "ID_dtype": "hpx_inds",
+            "ID_negative": "hpx_inds",
+            "ID_upper": "hpx_inds",
+            "I_integer": "maps",
+            "U_complex": "u_maps",
+            "V_object": "v_maps",
+        }[case]
+        if case == "I_rank":
+            array = np.zeros(1)
+        elif case == "Q_shape":
+            array = np.zeros((1, 2))
+        elif case == "frequency_shape":
+            array = np.ones(2)
+        elif case == "frequency_dtype":
+            array = np.ones(1, dtype=np.float32)
+        elif case == "ID_shape":
+            array = np.zeros((1, 1), dtype=np.int64)
+        elif case == "ID_dtype":
+            array = np.zeros(1, dtype=np.uint64)
+        elif case in ("ID_negative", "ID_upper"):
+            array = np.array([-1 if case == "ID_negative" else 12], dtype=np.int64)
+        elif case == "I_integer":
+            array = np.zeros((1, 1), dtype=np.int64)
+        elif case == "U_complex":
+            array = np.zeros((1, 1), dtype=np.complex128)
+        else:
+            array = np.zeros((1, 1), dtype=object)
+        array.flags.writeable = False
+        value = array
+    object.__setattr__(owner, field, value)
+    with pytest.raises(ValueError):
+        _ = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -1.0, 0.0])
+def test_corrupt_frequency_domain_refuses(value: float) -> None:
+    owner = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.array([0]),
+        maps=np.zeros((1, 1)),
+    )
+    frequencies = np.array([value])
+    frequencies.flags.writeable = False
+    object.__setattr__(owner, "frequencies", frequencies)
+    with pytest.raises(ValueError, match="nonfinite|nonpositive"):
+        _ = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+
+
+@pytest.mark.parametrize("component", ["maps", "q_maps", "u_maps", "v_maps"])
+def test_each_nonfinite_component_refuses_on_zero_signal(component: str) -> None:
+    owner = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.array([0]),
+        maps=np.zeros((1, 1)),
+    )
+    values = np.array([[np.nan]])
+    values.flags.writeable = False
+    object.__setattr__(owner, component, values)
+    with pytest.raises(ValueError, match="nonfinite"):
+        _ = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+
+
+def test_constructor_float16_and_absent_nonkelvin_are_private_refusals() -> None:
+    half = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.array([0]),
+        maps=np.zeros((1, 1), dtype=np.float16),
+    )
+    assert half.maps.dtype == np.dtype(np.float16)
+    with pytest.raises(ValueError, match="unsupported dtype"):
+        _ = bind_healpix_payload(half, brightness_conversion=BC.PLANCK)
+    absent = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.array([0]),
+        maps=np.zeros((1, 1)),
+        q_unit="Jy/sr",
+    )
+    assert absent.q_maps is None and absent.q_unit == "Jy/sr"
+    with pytest.raises(ValueError, match="including absent"):
+        _ = bind_healpix_payload(absent, brightness_conversion=BC.PLANCK)
+
+
+@pytest.mark.parametrize("field", ["maps", "frequencies", "hpx_inds", "q_maps"])
+def test_writable_array_owner_refuses(field: str) -> None:
+    owner = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.array([0]),
+        maps=np.zeros((1, 1)),
+        q_maps=np.zeros((1, 1)),
+    )
+    array = {
+        "maps": owner.maps,
+        "frequencies": owner.frequencies,
+        "hpx_inds": owner.hpx_inds,
+        "q_maps": owner.q_maps,
+    }[field]
+    assert array is not None
+    array.flags.writeable = True
+    try:
+        with pytest.raises(ValueError, match="writeable"):
+            _ = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+    finally:
+        array.flags.writeable = False
+
+
+def test_invalid_runtime_owner_and_conversion_context_refuse() -> None:
+    from typing import cast
+
+    owner = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.array([0]),
+        maps=np.zeros((1, 1)),
+    )
+    with pytest.raises(ValueError, match="owners"):
+        _ = bind_healpix_payload(
+            cast(HealpixData, object()), brightness_conversion=BC.PLANCK
+        )
+    with pytest.raises(ValueError, match="owners"):
+        _ = bind_healpix_payload(owner, brightness_conversion=cast(BC, "planck"))
