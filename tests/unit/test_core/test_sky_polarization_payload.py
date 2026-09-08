@@ -173,3 +173,98 @@ def test_uint64_aggregate_boundary_without_payload() -> None:
     assert codec.preimage_length(0, sizes) == 2**64 - 1
     with pytest.raises(ValueError, match="uint64"):
         _ = codec.preimage_length(1, sizes)
+
+
+def test_alias_mutation_invalidates_readonly_owner_binding() -> None:
+    backing = np.array([[1.0, 2.0]])
+    owner = HealpixData(
+        nside=1,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.array([4, 8]),
+        maps=backing.view(),
+    )
+    assert np.shares_memory(backing, owner.maps)
+    assert not owner.maps.flags.writeable and backing.flags.writeable
+    before = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+    require_healpix_binding(owner, brightness_conversion=BC.PLANCK, expected=before)
+    backing[0, 1] = 3.0
+    assert owner.maps[0, 1] == 3.0 and not owner.maps.flags.writeable
+    with pytest.raises(ValueError, match="binding mismatch"):
+        require_healpix_binding(owner, brightness_conversion=BC.PLANCK, expected=before)
+    after = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+    assert after.metadata_json == before.metadata_json
+    assert after.payload_sha256 != before.payload_sha256
+    require_healpix_binding(owner, brightness_conversion=BC.PLANCK, expected=after)
+
+
+@pytest.mark.parametrize("component", ["Q", "U", "V"])
+def test_component_absence_zero_and_signed_zero_have_distinct_identity(
+    component: str,
+) -> None:
+    hashes: list[str] = []
+    metadata: list[bytes] = []
+    counts: list[int] = []
+    for value in (None, 0.0, -0.0):
+        values = None if value is None else np.array([[value]], dtype=np.float64)
+        owner = HealpixData(
+            nside=1,
+            frequencies=np.array([1.0]),
+            hpx_inds=np.array([0]),
+            maps=np.ones((1, 1)),
+            q_maps=values if component == "Q" else None,
+            u_maps=values if component == "U" else None,
+            v_maps=values if component == "V" else None,
+        )
+        record = bind_healpix_payload(owner, brightness_conversion=BC.PLANCK)
+        hashes.append(record.payload_sha256)
+        metadata.append(record.metadata_json)
+        counts.append(record.preimage_byte_count)
+        descriptor = json.loads(record.metadata_json)["arrays"][
+            ["Q", "U", "V"].index(component) + 3
+        ]
+        assert descriptor["present"] is (value is not None)
+        assert descriptor["byte_count"] == (0 if value is None else 8)
+        if values is not None:
+            assert values.tobytes() == struct.pack("<d", value)
+    assert len(set(hashes)) == 3
+    assert metadata[1] == metadata[2]
+    assert counts[1] == counts[2]
+
+
+@pytest.mark.parametrize(
+    "change",
+    ["frame", "ordering", "ids", "rows", "paired", "map_conversion", "sky_conversion"],
+)
+def test_constructor_owned_metadata_and_pixel_order_bind(change: str) -> None:
+    original = HealpixData(
+        nside=1,
+        frequencies=np.array([2.0, 1.0]),
+        hpx_inds=np.array([7, 3]),
+        maps=np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64),
+    )
+    permutation = change in ("rows", "paired")
+    changed = HealpixData(
+        nside=1,
+        frequencies=np.array([2.0, 1.0]),
+        hpx_inds=np.array([3, 7] if change in ("ids", "paired") else [7, 3]),
+        maps=np.array(
+            [[2.0, 1.0], [4.0, 3.0]] if permutation else [[1.0, 2.0], [3.0, 4.0]]
+        ),
+        coordinate_frame="galactic" if change == "frame" else "icrs",
+        ordering="nest" if change == "ordering" else "ring",
+        i_brightness_conversion="planck" if change == "map_conversion" else None,
+    )
+    context = BC.RAYLEIGH_JEANS if change == "sky_conversion" else BC.PLANCK
+    before = bind_healpix_payload(original, brightness_conversion=BC.PLANCK)
+    after = bind_healpix_payload(changed, brightness_conversion=context)
+    assert after.payload_sha256 != before.payload_sha256
+    with pytest.raises(ValueError, match="binding mismatch"):
+        require_healpix_binding(changed, brightness_conversion=context, expected=before)
+    if change in ("ids", "rows", "paired"):
+        assert after.metadata_json == before.metadata_json
+    if change == "paired":
+        # Same physical per-ID tensor, different retained row order: identity differs.
+        assert original.hpx_inds is not None and changed.hpx_inds is not None
+        assert dict(zip(original.hpx_inds, original.maps[0], strict=True)) == dict(
+            zip(changed.hpx_inds, changed.maps[0], strict=True)
+        )
