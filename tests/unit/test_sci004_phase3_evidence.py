@@ -9632,3 +9632,114 @@ def test_characterization_antennas_container(value: Any) -> None:
         module.validate_characterization_antennas({"antennas": value}, "rows")
     assert caught.value.prefix == module.SCHEMA
     assert caught.value.detail == "rows: antenna list"
+
+
+def test_characterization_instrument_outer_fixed_and_partial_site() -> None:
+    module = _tool()
+    case = _instrument_projection_fixture()
+    before = copy.deepcopy(case)
+    coordinates, xyz, antennas, positions = module.validate_characterization_instrument(
+        case, "outer"
+    )
+    location = case["instrument"]["location"]
+    assert coordinates == [
+        location[k] for k in ("longitude_deg", "latitude_deg", "height_m")
+    ]
+    assert xyz == location["itrs_xyz_m"]
+    assert antennas is case["instrument"]["antennas"]
+    assert positions == [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]]
+    assert case == before
+    location["height_m"] += 1.0
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_instrument(case, "outer")
+    assert caught.value.detail == "outer: original fingerprint differs"
+    case["instrument"]["instrument_sha256"] = _instrument_projection_fingerprint(
+        case["instrument"]
+    )
+    # Site reconstruction is a later owner; this primitive checks its own preimage.
+    assert (
+        module.validate_characterization_instrument(case, "outer")[0][2]
+        == location["height_m"]
+    )
+
+
+@pytest.mark.parametrize("target", ["instrument", "source", "location"])
+@pytest.mark.parametrize("operation", ["missing", "extra"])
+def test_characterization_instrument_outer_closed_objects(
+    target: str, operation: str
+) -> None:
+    module = _tool()
+    template = _instrument_projection_fixture()
+    original = template["instrument"]
+    keys = list(original if target == "instrument" else original[target])
+    for key in keys:
+        case = copy.deepcopy(template)
+        obj = case["instrument"]
+        if target != "instrument":
+            obj = obj[target]
+        if operation == "missing":
+            del obj[key]
+        else:
+            obj["extra_" + key] = copy.deepcopy(obj[key])
+        before = copy.deepcopy(case)
+        with pytest.raises(module.EvidenceError) as caught:
+            module.validate_characterization_instrument(case, "outer")
+        assert caught.value.prefix == module.SCHEMA
+        assert "must have exactly" in caught.value.detail
+        assert case == before
+
+
+@pytest.mark.parametrize(
+    "path,value,prefix,detail",
+    [
+        (("schema_version",), "foreign", "SCHEMA", "schema version differs"),
+        (("schema_version",), 1, "SCHEMA", "string required"),
+        (("name",), "foreign", "DIGEST", "name differs"),
+        (("name",), None, "SCHEMA", "string required"),
+        (("source", "telescope_name_source"), "foreign", "DIGEST", "name source"),
+        (("source", "telescope_name_source"), False, "SCHEMA", "string required"),
+        (("location", "source"), "foreign", "DIGEST", "location source"),
+        (("location", "location_source"), "foreign", "DIGEST", "location provenance"),
+        (("location", "source"), 0, "SCHEMA", "string required"),
+        (("location", "location_source"), None, "SCHEMA", "string required"),
+        (("instrument_sha256",), 0, "SCHEMA", "fingerprint string"),
+        (("instrument_sha256",), "0" * 63, "SCHEMA", "hex"),
+        (("instrument_sha256",), "A" * 64, "SCHEMA", "hex"),
+        (("instrument_sha256",), "0" * 64, "DIGEST", "original fingerprint differs"),
+        (("location", "longitude_deg"), 21, "SCHEMA", "exact float"),
+        (("location", "latitude_deg"), True, "SCHEMA", "exact float"),
+        (("location", "height_m"), 1000, "SCHEMA", "exact float"),
+        (("location", "longitude_deg"), -0.0, "SCHEMA", "positive zero"),
+        (("location", "longitude_deg"), 180.0, "SCHEMA", "geodetic range"),
+        (("location", "longitude_deg"), -181.0, "SCHEMA", "geodetic range"),
+        (("location", "latitude_deg"), 91.0, "SCHEMA", "geodetic range"),
+        (("location", "itrs_xyz_m"), (0.0, 0.0, 0.0), "SCHEMA", "vector list"),
+        (("location", "itrs_xyz_m"), [0, 0.0, 0.0], "SCHEMA", "exact float"),
+        (("location", "itrs_xyz_m"), [0.0, 0.0], "SCHEMA", "vector length"),
+        (("location", "height_m"), float("inf"), "SCHEMA", "finite float"),
+    ],
+)
+def test_characterization_instrument_outer_refusals(
+    path: tuple[str, ...], value: Any, prefix: str, detail: str
+) -> None:
+    module = _tool()
+    case = _instrument_projection_fixture()
+    obj = case["instrument"]
+    for key in path[:-1]:
+        obj = obj[key]
+    obj[path[-1]] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_instrument(case, "outer")
+    assert caught.value.prefix == getattr(module, prefix)
+    assert detail in caught.value.detail
+
+
+def test_characterization_instrument_outer_antenna_precedes_fingerprint() -> None:
+    module = _tool()
+    case = _instrument_projection_fixture()
+    case["instrument"]["antennas"][0]["number"] = False
+    case["instrument"]["instrument_sha256"] = "0" * 64
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_instrument(case, "outer")
+    assert caught.value.prefix == module.SCHEMA
+    assert "antenna identity types" in caught.value.detail

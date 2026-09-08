@@ -4809,6 +4809,106 @@ def validate_characterization_antennas(
     return antennas, positions
 
 
+def validate_characterization_instrument(
+    scientific: dict[str, Any], label: str
+) -> tuple[list[float], list[float], list[Any], list[list[float]]]:
+    """Validate outer instrument and original fingerprint, before site joins."""
+    obj = _input_projection_object
+    instrument = _require_keys(
+        obj(scientific["instrument"], label),
+        (
+            "schema_version",
+            "instrument_sha256",
+            "name",
+            "source",
+            "location",
+            "antennas",
+        ),
+        label + " instrument",
+    )
+    source = _require_keys(
+        obj(instrument["source"], label), ("telescope_name_source",), label + " source"
+    )
+    location = _require_keys(
+        obj(instrument["location"], label),
+        (
+            "longitude_deg",
+            "latitude_deg",
+            "height_m",
+            "itrs_xyz_m",
+            "source",
+            "location_source",
+        ),
+        label + " location",
+    )
+    for value, expected, field in (
+        (instrument["schema_version"], "radiosim.instrument.v1", "schema version"),
+        (instrument["name"], "SCI-004 M3 family array", "name"),
+        (source["telescope_name_source"], "explicit_config", "name source"),
+        (location["source"], "explicit_config", "location source"),
+        (location["location_source"], "explicit_config", "location provenance"),
+    ):
+        _require(type(value) is str, SCHEMA, label + ": " + field + " string required")
+        _require(
+            value == expected,
+            SCHEMA if field == "schema version" else DIGEST,
+            label + ": " + field + " differs",
+        )
+    _require(
+        type(instrument["instrument_sha256"]) is str,
+        SCHEMA,
+        label + ": original fingerprint string required",
+    )
+    fingerprint = _require_hex(
+        instrument["instrument_sha256"], 64, label + " original fingerprint"
+    )
+    coordinates = [
+        _characterization_instrument_float(location[key], label + " " + key)
+        for key in ("longitude_deg", "latitude_deg", "height_m")
+    ]
+    original_xyz = characterization_instrument_vector(
+        location["itrs_xyz_m"], label + " original XYZ"
+    )
+    _require(
+        -180.0 <= coordinates[0] < 180.0 and -90.0 <= coordinates[1] <= 90.0,
+        SCHEMA,
+        label + ": geodetic range",
+    )
+    antennas, positions = validate_characterization_antennas(instrument, label)
+    preimage = {
+        "schema_version": instrument["schema_version"],
+        "name": instrument["name"],
+        "location": {
+            **{
+                key: location[key]
+                for key in (
+                    "longitude_deg",
+                    "latitude_deg",
+                    "height_m",
+                    "itrs_xyz_m",
+                    "source",
+                )
+            },
+            "provenance": {"location_source": location["location_source"]},
+        },
+        "antennas": antennas,
+        "provenance": {"telescope_name_source": source["telescope_name_source"]},
+    }
+    original_digest = hashlib.sha256(
+        json.dumps(
+            preimage,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    _require(
+        original_digest == fingerprint, DIGEST, label + ": original fingerprint differs"
+    )
+    return coordinates, original_xyz, antennas, positions
+
+
 def validate_characterization_input_projection(
     value: Any,
     digest: Any,
