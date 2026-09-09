@@ -805,3 +805,52 @@ def test_collector_baseline_request_owns_no_prior_baseline(prior_present: bool) 
         assert parsed == request
         assert digest == independent_sha
         assert nodes is None
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (0, 0),
+        (5, 5),
+        (6, 6),
+        (-1, -1),
+        (73, 73),
+        (pytest.ExitCode.OK, 0),
+        (pytest.ExitCode.NO_TESTS_COLLECTED, 5),
+    ],
+)
+def test_collection_exit_code_preserves_source_owned_status(
+    value: object, expected: int
+) -> None:
+    result = _partition_tool().collection_exit_code(value)
+    assert type(result) is int
+    assert result == expected
+
+
+@pytest.mark.parametrize("value", [False, True, 0.0, 0.5, "0", None])
+def test_collection_exit_code_rejects_unrelated_types(value: object) -> None:
+    with pytest.raises(ValueError, match="exact int or pytest.ExitCode"):
+        _partition_tool().collection_exit_code(value)
+
+
+def test_collection_exit_code_does_not_call_foreign_int() -> None:
+    called: list[bool] = []
+
+    class Foreign:
+        def __int__(self) -> int:
+            called.append(True)
+            return 0
+
+    with pytest.raises(ValueError, match="exact int or pytest.ExitCode"):
+        _partition_tool().collection_exit_code(Foreign())
+    assert called == []
+
+
+def test_collection_exit_code_rejects_foreign_enum_owner() -> None:
+    from enum import IntEnum
+
+    class ForeignExitCode(IntEnum):
+        OK = 0
+
+    with pytest.raises(ValueError, match="exact int or pytest.ExitCode"):
+        _partition_tool().collection_exit_code(ForeignExitCode.OK)

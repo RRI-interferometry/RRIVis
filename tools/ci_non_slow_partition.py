@@ -532,3 +532,10 @@ def bind_collection_request(
     ]:
         raise ValueError("collection argv differs from derived role selection")
     return request, digest, expected
+
+
+def collection_exit_code(value: object) -> int:
+    """Normalize only actual pytest ExitCode or exact int; do not admit a result."""
+    if type(value) not in (int, pytest.ExitCode):
+        raise ValueError("collection status must be exact int or pytest.ExitCode")
+    return int(cast(int, value))
