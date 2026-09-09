@@ -541,8 +541,26 @@ received independent applied-result ACCEPT
 commit receipt
 `a5342894a412267848205594e39ab3fd017bad4a135f5c7bd801e3c09cf5676c`
 binds the exact live remote. This unit slice does not execute actual CI
-collection or establish collector lifecycle, partition or CI closure. L1 cleanup
-source policy has both independent
+collection or establish collector lifecycle, partition or CI closure.
+
+Collector status validation is committed and pushed as
+`c272f75961310c0f6878c1ce2121d0d9023c9bd6`. `collection_exit_code()`
+preserves exact `int` and pytest `ExitCode` values while rejecting booleans,
+foreign integer enums and coercion-bearing objects. The original scoped-Pyright
+stop on the untyped test sentinel is retained; its one-line annotation repair
+and the direct three-input baseline derivation received independent acceptance
+before execution. The derivation controls passed 24 tests on each of Python
+3.11 and 3.12. The repaired static sequence then passed with zero scoped
+diagnostics, followed by exactly 95 passing cases on each runtime with no
+failures, errors or skips and exact collection-observation/JUnit joins. Frozen
+evidence manifest
+`1a8125752d628fa27727ce6b305913990bae965afe273cd5d3ed5ff113f90521`
+received independent applied-result ACCEPT
+`0c52f2835d797bc7a87fbb757c9a7ad74e242e1bfb904bd0a7d474a648bec787`.
+This is local S56 status evidence: it does not execute actual CI collection,
+establish observer/session lifecycle, or close the CI partition.
+
+L1 cleanup source policy has both independent
 ACCEPTs and root authentication of 139 members (3,897,293 bytes). The unexecuted
 config-probe round1 was rejected for roster, resource-bound and failure-receipt
 gaps. Unexecuted round2 repairs the roster and failure receipt but is rejected
