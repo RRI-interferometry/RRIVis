@@ -525,7 +525,24 @@ infrastructure cases pass per runtime with zero scoped strict diagnostics. Its
 196-line additive patch preserves the initial two-diagnostic typing stop under
 `ci-collection-request-candidate/round1/`; final evidence is in `round2/`.
 It validates request schema and raw-byte identity, not checkout/argv authority,
-worker lifecycle or publication. L1 cleanup source policy has both independent
+worker lifecycle or publication. Request-selection authority binding is now
+committed and pushed as `1135f35007d625b17b4ef6611ff4165f54bafd12`.
+The implementation joins the separately authenticated raw request to root,
+commit, source-manifest, baseline lifecycle, exact role selection and expected
+node ownership; Git authentication remains caller-owned. The original two-C408
+Ruff stop is retained, and its two-constructor-only repair received independent
+source acceptance before execution. The repaired static sequence passed, followed
+by exactly 80 unique passing cases with no failures, errors or skips on each of
+Python 3.11 and 3.12; collection observations equal both JUnit inventories and
+all before/after source, index and mode boundaries. Frozen evidence manifest
+`508718a40bf0093b02bf7c914633c0037b9fab6c1a3752024d893e71e087fcbd`
+received independent applied-result ACCEPT
+`80be1e7b6e508aed78d66bb55b2d0441034f840cdc40577c292c31d950204a12`;
+commit receipt
+`a5342894a412267848205594e39ab3fd017bad4a135f5c7bd801e3c09cf5676c`
+binds the exact live remote. This unit slice does not execute actual CI
+collection or establish collector lifecycle, partition or CI closure. L1 cleanup
+source policy has both independent
 ACCEPTs and root authentication of 139 members (3,897,293 bytes). The unexecuted
 config-probe round1 was rejected for roster, resource-bound and failure-receipt
 gaps. Unexecuted round2 repairs the roster and failure receipt but is rejected
