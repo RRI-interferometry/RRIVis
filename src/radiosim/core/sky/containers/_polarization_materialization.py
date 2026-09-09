@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import struct
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -19,6 +19,9 @@ from .polarization_materialization import (
     PolarizationMaterializationEvidence,
     PolarizationOperation,
 )
+
+if TYPE_CHECKING:
+    from .model import SkyModel
 
 
 def _json(value: object) -> bytes:
@@ -177,3 +180,50 @@ def require_native_identity(
         )
     ):
         raise ValueError("native identity materialization mismatch")
+
+
+def complete_model_native_identity(
+    model: SkyModel,
+    *,
+    source_profile: Literal["radiosim_ne_iau_v1"],
+    tangent_frame: TangentPolarizationFrame | None,
+) -> SkyModel:
+    """Attach an explicit canonical identity after final model resolution.
+
+    This private integration entry point is opt-in. It does not infer a loader
+    profile or claim constructor conversions as part of the identity operation.
+    An existing attachment is validated and preserved, never reissued.
+
+    The caller must exclude mutation/rebinding through every payload,
+    frequency-axis and pixel-ID alias for this entire call: old validation,
+    model resolution/normalization, all scans/hashes and attachment publication.
+    model.replace() and read-only flags may retain shared backing storage;
+    neither establishes exclusive ownership or a coherent concurrent snapshot.
+    Detecting subsequent sequential staleness does not ensure this exclusion.
+    """
+    resolved = model.replace()
+    owner = resolved.healpix
+    if owner is None:
+        raise ValueError("native identity requires a HEALPix component")
+    existing = owner.polarization_materialization
+    if existing is not None:
+        require_native_identity(
+            owner,
+            brightness_conversion=resolved.brightness_conversion,
+            source_profile=source_profile,
+            tangent_frame=tangent_frame,
+            expected=existing,
+        )
+        return resolved
+    evidence = complete_native_identity(
+        owner,
+        brightness_conversion=resolved.brightness_conversion,
+        source_profile=source_profile,
+        tangent_frame=tangent_frame,
+    )
+    return resolved.replace(
+        healpix=owner.replace(
+            tangent_polarization_frame=tangent_frame,
+            polarization_materialization=evidence,
+        )
+    )

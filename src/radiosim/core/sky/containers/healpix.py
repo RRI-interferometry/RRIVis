@@ -9,7 +9,7 @@ re-runs every pydantic validator (use it instead of
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from pydantic import field_validator, model_validator
@@ -23,6 +23,9 @@ from ._shared import (
     _require_floating_array,
     validate_frequency_axis,
 )
+from .constants import BrightnessConversion
+from .point import TangentPolarizationFrame
+from .polarization_materialization import PolarizationMaterializationEvidence
 
 
 @dataclass(frozen=True, eq=False, config=_FROZEN_NDARRAY_CONFIG)
@@ -62,6 +65,14 @@ class HealpixData:
     arrays are rejected at construction via
     :func:`._shared._require_floating_array`, matching the core point-source
     column contract in :class:`~.point.PointSourceData`.
+
+    Attached evidence requires the caller to exclude mutation or rebinding
+    through every payload, frequency-axis and pixel-ID alias for the entire
+    construction, replacement or validating operation: old-record validation,
+    normalization, all scans/hashes and publication. Frozen fields, read-only
+    flags and ``model.replace()`` may share backing storage; they establish
+    neither exclusive ownership nor a coherent concurrent snapshot. Detection
+    of later sequential staleness is a separate guarantee.
     """
 
     maps: np.ndarray  # Stokes I, shape (n_freq, npix), in Kelvin
@@ -86,6 +97,74 @@ class HealpixData:
     q_brightness_conversion: str = "rayleigh-jeans"
     u_brightness_conversion: str = "rayleigh-jeans"
     v_brightness_conversion: str = "rayleigh-jeans"
+
+    #: Canonical frame joined to the attached evidence; no implicit declaration.
+    tangent_polarization_frame: TangentPolarizationFrame | None = None
+    #: Actual stored-value evidence, validated after constructor normalization.
+    polarization_materialization: PolarizationMaterializationEvidence | None = None
+
+    @field_validator("tangent_polarization_frame", mode="plain")
+    @classmethod
+    def _preserve_tangent_frame(cls, value: object) -> TangentPolarizationFrame | None:
+        if value is not None and type(value) is not TangentPolarizationFrame:
+            raise ValueError("native tangent frame requires the typed frame")
+        return value
+
+    @field_validator("polarization_materialization", mode="plain")
+    @classmethod
+    def _preserve_materialization(
+        cls, value: object
+    ) -> PolarizationMaterializationEvidence | None:
+        if value is not None and type(value) is not PolarizationMaterializationEvidence:
+            raise ValueError("native materialization requires typed evidence")
+        return value
+
+    def validate_polarization_materialization(
+        self, *, brightness_conversion: BrightnessConversion | None = None
+    ) -> None:
+        """Validate attached canonical identity against actual stored values.
+
+        The caller must exclude mutation/rebinding through every payload,
+        frequency-axis and pixel-ID alias for the full validation interval,
+        including all scans and hashes. The same obligation covers implicit
+        constructor/replacement validation through old-record checks,
+        normalization and publication. Read-only flags and model replacement
+        may share storage; no exclusive or coherent concurrent snapshot is
+        established. Later sequential stale checks do not supply this exclusion.
+
+        Parameters
+        ----------
+        brightness_conversion : BrightnessConversion, optional
+            Enclosing model context, when known; otherwise the retained context.
+
+        Raises
+        ------
+        ValueError
+            If evidence is stale, its context differs, or a frame lacks evidence.
+            Unbound owners without a frame remain unbound.
+        """
+        evidence = self.polarization_materialization
+        if evidence is None:
+            if self.tangent_polarization_frame is not None:
+                raise ValueError(
+                    "native tangent frame requires materialization evidence"
+                )
+            return
+        if type(cast(object, evidence)) is not PolarizationMaterializationEvidence:
+            raise ValueError("native materialization requires typed evidence")
+        from ._polarization_materialization import require_native_identity
+
+        require_native_identity(
+            self,
+            brightness_conversion=(
+                evidence.brightness_conversion
+                if brightness_conversion is None
+                else brightness_conversion
+            ),
+            source_profile="radiosim_ne_iau_v1",
+            tangent_frame=self.tangent_polarization_frame,
+            expected=evidence,
+        )
 
     @field_validator("nside", mode="before")
     @classmethod
@@ -284,6 +363,7 @@ class HealpixData:
             self.v_maps,
         ):
             _freeze(arr)
+        self.validate_polarization_materialization()
         return self
 
     @property
@@ -422,6 +502,7 @@ class HealpixData:
         balloon memory by orders of magnitude and should be the user's
         explicit choice.
         """
+        self.validate_polarization_materialization()
         if not self.is_sparse:
             return self
         raise ValueError(
@@ -454,6 +535,7 @@ class HealpixData:
         A dense input has no un-observed pixels, so ``fill`` is irrelevant and
         ``self`` is returned unchanged.
         """
+        self.validate_polarization_materialization()
         if not self.is_sparse:
             return self
 
@@ -483,6 +565,7 @@ class HealpixData:
         :meth:`to_dense` first for sparse inputs.  Returns ``self`` unchanged
         when already in the requested ordering.
         """
+        self.validate_polarization_materialization()
         target = str(target_ordering).lower()
         if target not in {"ring", "nest"}:
             raise ValueError(
@@ -530,6 +613,7 @@ class HealpixData:
         result drops to ``maps.shape == (n_freq, mask.sum())`` with
         matching ``hpx_inds``.
         """
+        self.validate_polarization_materialization()
         healpix_mask = self._validate_full_grid_mask(healpix_mask)
 
         if self.is_sparse:
@@ -562,6 +646,7 @@ class HealpixData:
         un-stored pixel and balloon memory).  Shape is preserved.
         """
         self.require_dense("zero_outside_mask")
+        self.validate_polarization_materialization()
         healpix_mask = self._validate_full_grid_mask(healpix_mask)
 
         if np.all(healpix_mask):
@@ -609,6 +694,8 @@ class HealpixData:
         "q_brightness_conversion",
         "u_brightness_conversion",
         "v_brightness_conversion",
+        "tangent_polarization_frame",
+        "polarization_materialization",
     )
 
     def replace(self, **changes: Any) -> HealpixData:
@@ -619,12 +706,26 @@ class HealpixData:
         coordinate-frame, and ``hpx_inds`` invariants.
 
         Unknown field names raise :class:`TypeError`.
+
+        With attached evidence, the caller excludes mutation/rebinding through
+        all payload/axis/ID aliases from old validation through reconstruction,
+        scans/hashes and publication. Read-only flags do not make shared storage
+        exclusive or provide a coherent concurrent snapshot.
         """
         unknown = set(changes) - set(self._REPLACE_FIELDS)
         if unknown:
             raise TypeError(
                 f"HealpixData.replace() received unsupported fields: {sorted(unknown)}"
             )
+        self.validate_polarization_materialization()
+        if (
+            self.polarization_materialization is not None
+            and changes.get(
+                "polarization_materialization", self.polarization_materialization
+            )
+            is not self.polarization_materialization
+        ):
+            raise ValueError("replace cannot drop or reissue native materialization")
         data = {name: getattr(self, name) for name in self._REPLACE_FIELDS}
         data.update(changes)
         return HealpixData(**data)
@@ -651,6 +752,8 @@ class HealpixData:
         "q_brightness_conversion",
         "u_brightness_conversion",
         "v_brightness_conversion",
+        "tangent_polarization_frame",
+        "polarization_materialization",
     )
 
     def _compare(

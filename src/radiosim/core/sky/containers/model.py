@@ -202,6 +202,10 @@ class SkyModel:
                 "SkyModel requires an explicit PrecisionConfig. "
                 "Pass precision=... to a loader or constructor."
             )
+        if self.healpix is not None:
+            self.healpix.validate_polarization_materialization(
+                brightness_conversion=self.brightness_conversion
+            )
         return self
 
     def check(self, *, run_check_acceptability: bool = True) -> None:
@@ -474,6 +478,11 @@ class SkyModel:
         consistency, monopole/footprint invariants on provenance) re-runs.
         Always use this instead of ``dataclasses.replace`` — direct calls
         bypass the validators.
+
+        For an attached native component, the caller must exclude mutation or
+        rebinding through all payload/axis/ID aliases throughout old validation,
+        normalization, all scans/hashes and publication. Replacement may retain
+        shared storage and does not establish an exclusive concurrent snapshot.
         """
         unknown = set(changes) - set(self._REPLACE_FIELDS)
         if unknown:
@@ -481,6 +490,21 @@ class SkyModel:
                 f"SkyModel.replace() received unsupported fields: {sorted(unknown)}"
             )
 
+        if (
+            self.healpix is not None
+            and self.healpix.polarization_materialization is not None
+        ):
+            self.healpix.validate_polarization_materialization(
+                brightness_conversion=self.brightness_conversion
+            )
+            replacement = changes.get("healpix", self.healpix)
+            if not isinstance(replacement, HealpixData) or (
+                replacement.polarization_materialization
+                is not self.healpix.polarization_materialization
+            ):
+                raise ValueError(
+                    "replace cannot drop or reissue native materialization"
+                )
         precision = changes.get("precision", self.precision)
         if precision is None:
             raise ValueError(

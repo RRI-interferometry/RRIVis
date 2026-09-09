@@ -1165,3 +1165,32 @@ Constructing a record or evidence object does not prove a conversion occurred;
 the actual-value consumer still validates it. This type extraction does not
 attach evidence to `HealpixData`, normalize a loader output or enable new
 m-mode inputs.
+
+
+### Native component materialization attachment groundwork
+
+`HealpixData` can carry `tangent_polarization_frame` and
+`polarization_materialization` as typed, jointly validated component fields.
+Their defaults remain null: existing raw loader models acquire no canonical
+convention claim. Frame-only attachment and mapping-to-evidence coercion are
+refused. A retained identity is recomputed against actual stored values after
+constructor normalization, and `SkyModel` joins its final conversion context.
+
+On attached owners, `replace()` verifies the old evidence before rebuilding and
+preserves that exact evidence object. It refuses dropping/reissuing evidence or
+changing bound values, frame, grid, channel metadata or storage precision.
+Actual unchanged replacements preserve the complete record and sidecars.
+Until separately implemented child operations exist, transformations that alter
+an attached payload refuse at this boundary. Unbound transformations retain their
+existing behavior. The explicit canonical-only completion helper remains private
+and binds resolved stored values; earlier constructor conversion history is not
+claimed. This groundwork does not normalize loader output, propagate records
+through every public operation or admit native public m-mode simulations.
+
+For every attached-owner construction, completion, validation or replacement,
+the caller must exclude mutation/rebinding through all payload, frequency-axis
+and pixel-ID aliases for the entire interval: old-record validation,
+normalization, all scans/hashes and publication. Frozen fields, read-only flags
+and `model.replace()` may share storage; they establish neither exclusive
+ownership nor a coherent concurrent snapshot. Later sequential stale-alias
+checks are separate and do not prove safety against concurrent writers.
