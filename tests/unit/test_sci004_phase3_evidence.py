@@ -8658,8 +8658,10 @@ def characterization_projection(
     )
     # Independently assemble the two known family antenna identities and native
     # feed angles. The carried runtime hash is synthetic, not a reduced preimage.
+    instrument_selection = _instrument_projection_fixture()
     for tag, content in (
-        *_instrument_projection_fixture().items(),
+        *instrument_selection.items(),
+        ("beam", _beam_projection_fixture(instrument_selection["instrument"])),
         (
             "receptor",
             {
@@ -10613,3 +10615,197 @@ def test_result_geometry_refuses_one_changed_coordinate_word(
     ):
         module._characterization_geometry(phase, result)
     assert phase == before
+
+
+def _beam_projection_preimages() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Independent finite ordinary-JSON preimages, not producer hash helpers."""
+    taper, frequency, diameter = 10.0, 50e6, 2.5
+    scale = 299792458.0 / frequency / diameter
+    model = {
+        "kind": "circular_aperture",
+        "taper": {"kind": "gaussian", "edge_taper_db": taper.hex().lower()},
+    }
+    definition = {
+        "schema_version": "tier3-beam-v1",
+        "kind": "analytic",
+        "definition": model,
+    }
+    handler = {
+        "schema_version": "tier3-beam-v1",
+        "kind": "analytic_handler",
+        "contract": "tier3-scalar-v1",
+        "model": copy.deepcopy(model),
+        "effective_dimensions": {"kind": "circular", "diameter_m": diameter.hex()},
+        "derived_edge_taper_db": None,
+        "n_radial": None,
+        "observation_frequencies_hz": [frequency.hex()],
+        "voltage_feature_scale_by_frequency": [[frequency.hex(), scale.hex()]],
+    }
+    return definition, handler
+
+
+def _beam_projection_hash(preimage: dict[str, Any]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            preimage, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _beam_projection_fixture(instrument: dict[str, Any]) -> dict[str, Any]:
+    """Complete finite scientific beam, preserving omitted fields and required nulls."""
+    _, handler_preimage = _beam_projection_preimages()
+    handler_sha = _beam_projection_hash(handler_preimage)
+    handler_id = "beam-0000-" + handler_sha[:12]
+    definition = {
+        "kind": "analytic",
+        "model": {
+            "kind": "circular_aperture",
+            "taper": {"kind": "gaussian", "edge_taper_db": 10.0},
+        },
+    }
+    identities = [{"number": index, "name": f"ANT{index}"} for index in range(2)]
+    return {
+        "resolved": {
+            "mode": "analytic",
+            "instrument_fingerprint": instrument["instrument_sha256"],
+            "assignments": [
+                {
+                    "antenna_id": copy.deepcopy(identity),
+                    "antenna_diameter_m": 2.5,
+                    "definition": copy.deepcopy(definition),
+                    "provenance": {
+                        "source": "analytic_mode",
+                        "input_index": None,
+                        "authored_reference_kind": None,
+                        "authored_reference_value": None,
+                        "canonical_antenna": copy.deepcopy(identity),
+                    },
+                }
+                for identity in identities
+            ],
+            "unique_definitions": [copy.deepcopy(definition)],
+        },
+        "handlers": [
+            {
+                "handler_id": handler_id,
+                "kind": "analytic",
+                "scientific_fingerprint": handler_sha,
+                "file": None,
+                "voltage_feature_scale_by_frequency": [
+                    [50e6, 299792458.0 / 50e6 / 2.5]
+                ],
+            }
+        ],
+        "assignment_handler_ids": [[identity, handler_id] for identity in identities],
+    }
+
+
+def _beam_projection_content(case: dict[str, Any]) -> dict[str, Any]:
+    row = next(item for item in case["common_segments"] if item["tag"] == "beam")
+    return json.loads(bytes.fromhex(row["payload_hex"]))
+
+
+@pytest.mark.parametrize("family", SECTION_11_FAMILIES)
+def test_characterization_beam_public_fixture(
+    characterization_projection: dict[str, Any], family: str, tmp_path: Path
+) -> None:
+    from radiosim.api.simulator import Simulator
+
+    simulator = Simulator.from_mapping(
+        _tool()._family_mapping(tmp_path, family), base_dir=tmp_path
+    )
+    _ = simulator.build_solve_request()
+    instrument = _instrument_projection_fixture()["instrument"]
+    expected = _beam_projection_fixture(instrument)
+    raw: Any = simulator.beam_state.to_snapshot()
+    definition_preimage, handler_preimage = _beam_projection_preimages()
+    definition_sha = _beam_projection_hash(definition_preimage)
+    handler_sha = _beam_projection_hash(handler_preimage)
+    assert (
+        raw["resolved"]["unique_definitions"][0]["definition_fingerprint"]
+        == definition_sha
+    )
+    assert raw["handlers"][0]["definition_fingerprint"] == definition_sha
+    assert raw["handlers"][0]["scientific_fingerprint"] == handler_sha
+    # Explicit finite projection leaves any unexpected retained field observable.
+    projected = copy.deepcopy(raw)
+    del projected["loaded_fingerprint"]
+    del projected["resolved"]["state_fingerprint"]
+    for assignment in projected["resolved"]["assignments"]:
+        del assignment["assignment_fingerprint"]
+        del assignment["definition"]["definition_fingerprint"]
+    for definition in projected["resolved"]["unique_definitions"]:
+        del definition["definition_fingerprint"]
+    for handler in projected["handlers"]:
+        del handler["definition_fingerprint"]
+    assert projected == expected
+    assert projected == _beam_projection_content(characterization_projection)
+    handler_id = expected["handlers"][0]["handler_id"]
+    assert [
+        simulator.beam_system.response_key(antenna.id)
+        for antenna in simulator.instrument.antennas
+    ] == [handler_id, handler_id]
+    parameters = {
+        "schema_version": "radiosim.mmode-parameter-identity.v1",
+        "identity_kind": "analytic",
+        "scalar_rows": [
+            {"name": name, "type": "literal", "value": value}
+            for name, value in (
+                ("definition_fingerprint", definition_sha),
+                ("handler_kind", "analytic"),
+                ("response_key", handler_id),
+                ("scientific_fingerprint", handler_sha),
+            )
+        ],
+        "array_rows": [],
+    }
+    phase = characterization_projection["value"]["phase_input_identity_manifest"]
+    assert phase["beam_rows"] == [
+        {
+            "beam_index": 0,
+            "assigned_antenna_indices": [0, 1],
+            "class_qualname": "BeamSystem",
+            "electric_field_basis": "native_feed",
+            "normalization": "unmodified_ideal_aperture_v1",
+            "parameter_identity_manifest": parameters,
+            "parameter_identity_sha256": _object_digest(
+                "radiosim.mmode-parameter-identity.v1", parameters
+            ),
+        }
+    ]
+
+
+@pytest.mark.parametrize("mutation", ["taper", "scale", "domain"])
+def test_characterization_beam_fixture_preimage_sensitivity(mutation: str) -> None:
+    definition, handler = _beam_projection_preimages()
+    preimage = definition if mutation == "taper" else handler
+    original = _beam_projection_hash(preimage)
+    if mutation == "taper":
+        preimage["definition"]["taper"]["edge_taper_db"] = math.nextafter(
+            10.0, math.inf
+        ).hex()
+    elif mutation == "scale":
+        word = preimage["voltage_feature_scale_by_frequency"][0][1]
+        preimage["voltage_feature_scale_by_frequency"][0][1] = math.nextafter(
+            float.fromhex(word), math.inf
+        ).hex()
+    else:
+        preimage["schema_version"] = "foreign-domain"
+    assert _beam_projection_hash(preimage) != original
+    # Fixture-oracle sensitivity is not a beam-validator refusal claim.
+
+
+def test_characterization_beam_fixture_key_order_and_independence() -> None:
+    definition, handler = _beam_projection_preimages()
+    for preimage in (definition, handler):
+        assert _beam_projection_hash(dict(reversed(tuple(preimage.items())))) == (
+            _beam_projection_hash(preimage)
+        )
+    instrument = _instrument_projection_fixture()["instrument"]
+    first = _beam_projection_fixture(instrument)
+    second = _beam_projection_fixture(instrument)
+    assert first == second
+    model = first["resolved"]["assignments"][0]["definition"]["model"]
+    model["taper"]["edge_taper_db"] = 11.0
+    assert first != second == _beam_projection_fixture(instrument)
