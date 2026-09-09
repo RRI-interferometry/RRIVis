@@ -10809,3 +10809,133 @@ def test_characterization_beam_fixture_key_order_and_independence() -> None:
     model = first["resolved"]["assignments"][0]["definition"]["model"]
     model["taper"]["edge_taper_db"] = 11.0
     assert first != second == _beam_projection_fixture(instrument)
+
+
+def test_characterization_beam_definition_original_hash() -> None:
+    module = _tool()
+    beam = _beam_projection_fixture(_instrument_projection_fixture()["instrument"])
+    definitions = [row["definition"] for row in beam["resolved"]["assignments"]]
+    definitions += beam["resolved"]["unique_definitions"]
+    expected = _beam_projection_hash(_beam_projection_preimages()[0])
+    for definition in definitions:
+        before = copy.deepcopy(definition)
+        assert module.validate_characterization_beam_definition(definition, "beam") == (
+            expected
+        )
+        reordered = dict(reversed(tuple(definition.items())))
+        reordered["model"] = dict(reversed(tuple(definition["model"].items())))
+        reordered["model"]["taper"] = dict(
+            reversed(tuple(definition["model"]["taper"].items()))
+        )
+        assert module.validate_characterization_beam_definition(reordered, "beam") == (
+            expected
+        )
+        assert definition == before
+
+
+@pytest.mark.parametrize("path", [(), ("model",), ("model", "taper")])
+@pytest.mark.parametrize("operation", ["missing-first", "missing-second", "extra"])
+def test_characterization_beam_definition_closed_objects(
+    path: tuple[str, ...], operation: str
+) -> None:
+    module = _tool()
+    definition = _beam_projection_fixture(
+        _instrument_projection_fixture()["instrument"]
+    )["resolved"]["assignments"][0]["definition"]
+    target = definition
+    for key in path:
+        target = target[key]
+    if operation == "extra":
+        target["unexpected"] = None
+    else:
+        del target[list(target)[int(operation == "missing-second")]]
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_beam_definition(definition, "beam")
+    assert str(caught.value).startswith(module.SCHEMA + ":")
+
+
+@pytest.mark.parametrize("path", [(), ("model",), ("model", "taper")])
+@pytest.mark.parametrize("value", [None, [], True, "object"])
+def test_characterization_beam_definition_native_objects(
+    path: tuple[str, ...], value: Any
+) -> None:
+    module = _tool()
+    definition = _beam_projection_fixture(
+        _instrument_projection_fixture()["instrument"]
+    )["resolved"]["assignments"][0]["definition"]
+    target = definition
+    for key in path[:-1]:
+        target = target[key]
+    if path:
+        target[path[-1]] = value
+    else:
+        definition = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_beam_definition(definition, "beam")
+    assert str(caught.value).startswith(module.SCHEMA + ":")
+
+
+@pytest.mark.parametrize("path", [(), ("model",), ("model", "taper")])
+@pytest.mark.parametrize("value", [None, True, 1, "other"])
+def test_characterization_beam_definition_kind_refusals(
+    path: tuple[str, ...], value: Any
+) -> None:
+    module = _tool()
+    definition = _beam_projection_fixture(
+        _instrument_projection_fixture()["instrument"]
+    )["resolved"]["assignments"][0]["definition"]
+    target = definition
+    for key in path:
+        target = target[key]
+    target["kind"] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_beam_definition(definition, "beam")
+    code = module.DIGEST if type(value) is str else module.SCHEMA
+    assert str(caught.value).startswith(code + ":")
+
+
+@pytest.mark.parametrize(
+    "value", [None, True, 10, "10.0", -0.0, 0.0, -1.0, float("nan"), float("inf")]
+)
+def test_characterization_beam_definition_taper_types(value: Any) -> None:
+    module = _tool()
+    definition = _beam_projection_fixture(
+        _instrument_projection_fixture()["instrument"]
+    )["resolved"]["assignments"][0]["definition"]
+    definition["model"]["taper"]["edge_taper_db"] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_beam_definition(definition, "beam")
+    assert str(caught.value).startswith(module.SCHEMA + ":")
+
+
+def test_characterization_beam_definition_float_subclass() -> None:
+    class DerivedFloat(float):
+        pass
+
+    module = _tool()
+    definition = _beam_projection_fixture(
+        _instrument_projection_fixture()["instrument"]
+    )["resolved"]["assignments"][0]["definition"]
+    definition["model"]["taper"]["edge_taper_db"] = DerivedFloat(10.0)
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_beam_definition(definition, "beam")
+    assert (
+        str(caught.value) == module.SCHEMA + ": beam edge taper: exact float required"
+    )
+
+
+@pytest.mark.parametrize("value", [float.fromhex("0x1.4000000000001p+3"), 20.0])
+def test_characterization_beam_definition_rehashed_taper(value: float) -> None:
+    module = _tool()
+    definition = _beam_projection_fixture(
+        _instrument_projection_fixture()["instrument"]
+    )["resolved"]["assignments"][0]["definition"]
+    original, _ = _beam_projection_preimages()
+    changed = copy.deepcopy(original)
+    changed["definition"]["taper"]["edge_taper_db"] = value.hex().lower()
+    definition["model"]["taper"]["edge_taper_db"] = value
+    assert _beam_projection_hash(changed) != _beam_projection_hash(original)
+    # No stale claimed digest is supplied: the semantic fixed-value check must fire.
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_beam_definition(definition, "beam")
+    assert str(caught.value) == module.DIGEST + ": beam: finite edge taper differs"

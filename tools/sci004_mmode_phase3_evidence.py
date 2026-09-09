@@ -4704,6 +4704,52 @@ def _validate_characterization_receptors(
         )
 
 
+def validate_characterization_beam_definition(value: Any, label: str) -> str:
+    """Check the finite analytic definition and reconstruct its original hash.
+
+    This unwired primitive does not authenticate handlers, assignments or phase
+    identities. The returned ordinary-JSON fingerprint needs those later joins.
+    """
+    definition = _require_keys(
+        _input_projection_object(value, label), ("kind", "model"), label
+    )
+    model = _require_keys(
+        _input_projection_object(definition["model"], label + " model"),
+        ("kind", "taper"),
+        label + " model",
+    )
+    taper = _require_keys(
+        _input_projection_object(model["taper"], label + " taper"),
+        ("kind", "edge_taper_db"),
+        label + " taper",
+    )
+    for actual, expected in (
+        (definition["kind"], "analytic"),
+        (model["kind"], "circular_aperture"),
+        (taper["kind"], "gaussian"),
+    ):
+        _require(type(actual) is str, SCHEMA, label + ": kind string required")
+        _require(actual == expected, DIGEST, label + ": finite beam kind differs")
+    edge = _characterization_instrument_float(
+        taper["edge_taper_db"], label + " edge taper"
+    )
+    _require(edge > 0.0, SCHEMA, label + ": positive edge taper required")
+    _require(f64be(edge) == f64be(10.0), DIGEST, label + ": finite edge taper differs")
+    preimage = {
+        "schema_version": "tier3-beam-v1",
+        "kind": definition["kind"],
+        "definition": {
+            "kind": model["kind"],
+            "taper": {"kind": taper["kind"], "edge_taper_db": edge.hex().lower()},
+        },
+    }
+    return hashlib.sha256(
+        json.dumps(
+            preimage, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _characterization_instrument_float(value: Any, label: str) -> float:
     """Require a normalized native binary64 instrument value without coercion."""
     _require(type(value) is float, SCHEMA, label + ": exact float required")
