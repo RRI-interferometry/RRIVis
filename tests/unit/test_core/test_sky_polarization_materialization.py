@@ -931,3 +931,74 @@ def test_linear_observer_mask_failure_preserves_cause_and_exit(
     assert observer.cleanup_errors == []
     assert sys.getprofile() is observer.previous_profile
     assert np.any is observer.original_any
+
+
+def test_linear_early_q_return_closes_without_u_exposure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    count = 131_075
+    q = np.zeros((1, count))
+    q[0, 0] = 1.0
+    owner = _linear_owner(q, np.zeros_like(q), count)
+    assert owner.q_maps is not None and owner.u_maps is not None
+    observer = _LinearObservation(
+        {
+            id(owner.q_maps): ("Q", count, 0),
+            id(owner.u_maps): ("U", count, -1),
+        }
+    )
+    observer.run(monkeypatch, lambda: _complete_linear(owner), owner)
+    assert observer.entries == observer.exits == 1
+    assert observer.exit_attempts == observer.closed_contexts == 1
+    assert len(observer.events) == 1
+    label, offset, size = observer.events[0]
+    assert label == "Q" and offset == 0 and 0 < size <= 65_536 < count
+    assert observer.pending_at_exit == [False]
+    assert observer.exit_exception_ids == [None] and observer.cleanup_errors == []
+
+
+@pytest.mark.parametrize("empty", [False, True])
+def test_linear_absent_or_empty_planes_enter_without_exposed_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+    empty: bool,
+) -> None:
+    q = np.zeros((1, 0)) if empty else None
+    u = np.zeros((1, 0)) if empty else None
+    owner = _linear_owner(q, u, 0 if empty else 1)
+    expectations: dict[int, tuple[str, int, int]] = {}
+    if empty:
+        assert owner.q_maps is not None and owner.u_maps is not None
+        assert owner.q_maps is not owner.u_maps
+        expectations = {
+            id(owner.q_maps): ("Q", 0, -1),
+            id(owner.u_maps): ("U", 0, -1),
+        }
+    else:
+        assert owner.q_maps is None and owner.u_maps is None
+    observer = _LinearObservation(expectations)
+    observer.run(monkeypatch, lambda: _complete_linear(owner), owner)
+    assert observer.entries == observer.exits == 1 and observer.events == []
+    contexts = 2 if empty else 0
+    assert observer.exit_attempts == observer.closed_contexts == contexts
+    assert observer.pending_at_exit == [False] * contexts
+    assert observer.exit_exception_ids == [None] * contexts
+    assert observer.cleanup_errors == []
+
+
+@pytest.mark.parametrize("component", ["u_maps", "v_maps"])
+def test_linear_nonfinite_is_rejected_before_actual_scanner_entry(
+    monkeypatch: pytest.MonkeyPatch,
+    component: str,
+) -> None:
+    owner = _linear_owner(np.zeros((1, 1)), np.zeros((1, 1)), 1)
+    bad = np.array([[np.nan]])
+    bad.flags.writeable = False
+    object.__setattr__(owner, component, bad)
+    observer = _LinearObservation({})
+    with pytest.raises(ValueError, match="nonfinite"):
+        observer.run(monkeypatch, lambda: _complete_linear(owner), owner)
+    assert observer.entries == observer.exits == 0
+    assert observer.events == [] and observer.current is None
+    assert observer.exit_attempts == observer.closed_contexts == 0
+    assert observer.pending_at_exit == observer.exit_exception_ids == []
+    assert observer.cleanup_errors == []
