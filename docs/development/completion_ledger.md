@@ -493,10 +493,46 @@ failed both with `InvalidResultError: invalid characterization result antennas`;
 Python 3.12 passed both. The second 3.11 failure received that antenna error before
 its expected identity refusal. Complete raw failures, settled configuration and
 source authentication are retained under
-`ci-serial-diagnostic-execution/{ec46f3f,c238b15}/round1/`. Per-row versus batched
-coordinate arithmetic is an investigation hypothesis, not a confirmed cause or
-repair. These diagnostics neither explain the missing original c023 tracebacks
-nor establish complete CI success; complete CI remains open.
+`ci-serial-diagnostic-execution/{ec46f3f,c238b15}/round1/`. These diagnostics do
+not reconstruct the missing original c023 tracebacks.
+
+Result geometry commit `c82b56a889f8420a6c21bcae3ea136a4fd19cdd0` now reconstructs
+antenna and baseline coordinates with the same complete float64 matrix operand
+shapes as the producer, retaining independent result-owner reconstruction and exact
+word checks. Its 60 selected cases pass on each runtime; scoped strict diagnostics
+remain exactly 280. Actual Linux diagnostic run
+[34200643186](https://github.com/RRI-interferometry/RadioSim/actions/runs/34200643186)
+passes both exact nodes on each runtime, with no skips/errors/failures. Root
+capture authentication binds 40 members and 148 unique source/config Git-blob
+joins per runtime. This is targeted success, without a claim about the exact
+Linux native-kernel cause or reconstruction of the original c023 failures.
+
+The subsequent complete E unit module at exact `c82b56a` passes 1514 cases with
+seven expected skips on each runtime. The seven E3 authorization skips remain
+unchanged. Root records `result-geometry-linux-auth.json` and
+`checkpoint8-full-e-auth.json` under `output/verification/root-continuation-20260908/`
+bind these separate results. Full E unit verification does not generate E3,
+admit scientific observations, complete M3 or establish broad CI closure.
+
+The ordered CI proof kernel `cf8bf8f70faf7969734f553ed642cf163d78ee82` passes 41
+infrastructure cases per runtime with zero scoped strict diagnostics, including
+the required zero-node-owner control. Main collection/CLI orchestration, worker
+barrier/restoration and workflow integration remain separate. Its records are in
+`ci-ordered-partition-candidate/round2/`; geometry evidence is in
+`ci-result-geometry-candidate/round1/`. The non-invoking request parser is now
+committed and pushed as `4c39bfcd4b741de9f5e08c3777df2ffb7ace5e1f`: 72
+infrastructure cases pass per runtime with zero scoped strict diagnostics. Its
+196-line additive patch preserves the initial two-diagnostic typing stop under
+`ci-collection-request-candidate/round1/`; final evidence is in `round2/`.
+It validates request schema and raw-byte identity, not checkout/argv authority,
+worker lifecycle or publication. L1 cleanup source policy has both independent
+ACCEPTs and root authentication of 139 members (3,897,293 bytes). The unexecuted
+config-probe round1 was rejected for roster, resource-bound and failure-receipt
+gaps. Unexecuted round2 repairs the roster and failure receipt but is rejected
+for incomplete proxy-based hook inventory, copies preceding bounds, and child
+setup outside cleanup protection. Both original reviews are retained in
+`ci-collector-config-probe/round2/`; source correction precedes runtime release.
+Actual post-main lifecycle observations and complete CI closure remain open.
 
 ## Subsequent bounded implementation and evidence checkpoints
 
@@ -557,18 +593,53 @@ including independent-oracle coverage, with zero scoped strict diagnostics. It
 certifies no earlier conversion history and changes no public owner or loader.
 Test-only `e58613b3a3b142f9ab96bfb85261f11285db8e04` extends the module to 18
 passing cases per runtime, covering corrupted records/sidecars, stale backing
-aliases and null/zero/empty domains. Exact-type and bounded Q/U iteration controls
-remain open. Scope and commit records are retained in
-`m4-native-identity-materialization-code/round1/` and
-`m4-native-identity-hostile-tests/round1/`.
+aliases and null/zero/empty domains. Test-only
+`c56003e3c4b8268cd39a67fe13c340769feecd34` extends the module to 21 passing cases
+per runtime with zero scoped strict diagnostics: exact profile/frame/receipt types
+and actual shared-owner preservation across success, validation and refusal.
+Subsequent B1 scanner controls are recorded below. Scope and records
+are retained in `m4-native-identity-materialization-code/round1/`,
+`m4-native-identity-hostile-tests/round1/` and `m4-native-identity-types/round1/`.
+Typed schema A is committed and pushed as
+`1de8e912d5357c2bb1ac00e0a199b491919797f3`, with both applied-candidate reviews
+accepted. Its 22 cases pass per runtime, with zero scoped strict diagnostics and
+four fresh import-order proofs. Public value constructors remain unvalidated;
+typed declarations and the exact conversion-context join do not attach owners,
+complete scanner controls or grant public scientific support. Evidence is retained
+in `m4-native-materialization-schema-A-candidate/round1/`. Native B1 scanner
+controls are committed and pushed as `ca7494a6c7c20a590fdad364646fb3f0fa22934b`,
+with both independent reviews accepted: 25 cases pass per runtime and scoped
+strict diagnostics remain zero. Contiguous/strided late-U exposure and the causal
+cleanup control establish finite chunk/mask observations, not C allocation or RSS
+bounds. B2 early-return, absent/empty and nonfinite-before-entry controls remain
+unapplied. All original static stops and final evidence remain under
+`m4-native-identity-linear-scan-candidate/round1/`.
+The owner-attachment round2 proposal has both prospective ACCEPTs but remains
+unapplied (`m4-native-owner-attachment-plan/round2/`). Root records
+`native-schema-A-commit.json`, `ci-request-commit.json` and
+`cleanup-policy-auth.json` under `output/verification/root-continuation-20260908/`
+bind the landed commits and separate L1 source-policy disposition.
 
 D35 reader construction remains source preparation. The original discovery and
 call-transport qualification stops remain in
 `d35-profile-reader-construction-preparation/`. The subsequent 96-file/runtime
 allowance is solely a finite source-discovery grant (2 MiB/file, 32 MiB/runtime),
 not construction execution or a proof of W=1280. The prepared four-slot amendment
-and allocation-source work have not produced a qualified aggregate lifetime bound;
-raw496 and complete pair caps remain unchanged. The 148-case construction roster
+and allocation-source work have not produced an accepted aggregate lifetime fit.
+The accepted predecessor source-only 1304-byte subset against W=1280 remains in
+`d35-profile-reader-construction-preparation/round3-prepersistent-counterbound-stop/`.
+The subsequent two-method source amendment and compile-only census have two
+independent ACCEPTs for an incomplete-owner STOP: under the operative retain-W
+fallback, the conditional subset is 1368 bytes against W=1280. An exact accepted
+post-P owner transfer remains unproved. This result is specific to the qualified
+CPython 3.11 first instance; it is neither a measured allocation/RSS peak, a
+Python 3.12 instance bound nor a complete upper proof. Its records are in
+`d35-profile-reader-charge-construction-preparation/round1-owner-stop/`.
+The subsequent combined layout/reserve amendment has only a source-preparation
+and compile-only census grant, recorded in `reader-layout-source-grant.json` under
+`output/verification/root-continuation-20260908/`. Its source/lifetime proof remains
+under validation; no construction fit or experiment is released. Raw496 and
+complete pair caps remain unchanged. The 148-case construction roster
 has not run, and no actual capture profile has been acquired by this reader.
 
 FITPACK execution is accepted only for four finite public-constructor observations
