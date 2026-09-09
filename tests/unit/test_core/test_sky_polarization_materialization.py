@@ -3,11 +3,15 @@
 import hashlib
 import json
 import struct
+import sys
+from collections.abc import Callable, Iterator
 from dataclasses import replace
-from typing import Literal, TypeVar, cast
+from types import FrameType, FunctionType, TracebackType
+from typing import Literal, Protocol, TypeVar, cast
 
 import numpy as np
 import pytest
+from numpy.typing import NDArray
 
 from radiosim.core.sky.containers._polarization_materialization import (
     complete_native_identity,
@@ -599,3 +603,331 @@ def test_public_materialization_evidence_joins_explicit_context() -> None:
         tangent_frame=frame,
         expected=receipt,
     )
+
+
+class _IteratorContext(Protocol):
+    def __next__(self) -> object: ...
+
+    def __enter__(self) -> object: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> object: ...
+
+
+class _IteratorDelegate(Protocol):
+    def __call__(self, *args: object, **kwargs: object) -> _IteratorContext: ...
+
+
+class _ReductionDelegate(Protocol):
+    def __call__(self, *args: object, **kwargs: object) -> object: ...
+
+
+class _LinearObservation:
+    """Observe exposed chunks and masks; no C allocation or backing-size claim."""
+
+    def __init__(self, expectations: dict[int, tuple[str, int, int]]) -> None:
+        scanner = complete_native_identity.__globals__["_has_linear"]
+        assert isinstance(scanner, FunctionType)
+        assert (
+            scanner.__code__.co_filename
+            == complete_native_identity.__code__.co_filename
+        )
+        self.code = scanner.__code__
+        self.expectations = expectations  # operand id -> label, size, nonzero index
+        self.original_iterator = cast(_IteratorDelegate, np.nditer)
+        self.original_any = cast(_ReductionDelegate, np.any)
+        self.previous_profile = sys.getprofile()
+        self.active = False
+        self.entries = 0
+        self.exits = 0
+        self.open_contexts = 0
+        self.closed_contexts = 0
+        self.exit_attempts = 0
+        self.exit_exception_ids: list[int | None] = []
+        self.pending_at_exit: list[bool] = []
+        self.cleanup_errors: list[str] = []
+        self.mask_failure: AssertionError | None = None
+        self.events: list[tuple[str, int, int]] = []
+        self.current: tuple[str, int, int, int] | None = None
+        self.mask_pending = False
+        self.astype_receivers: list[int] = []
+        self.receiver_ids: set[int] = set()
+
+    def profile(self, frame: FrameType, event: str, arg: object) -> None:
+        if frame.f_code is self.code:
+            if event == "call":
+                assert not self.active
+                self.active = True
+                self.entries += 1
+            elif event == "return":
+                self.active = False
+                self.exits += 1
+            elif event == "c_call" and getattr(arg, "__name__", None) == "astype":
+                receiver = getattr(arg, "__self__", None)
+                if isinstance(receiver, np.ndarray):
+                    assert id(cast(object, receiver)) in self.receiver_ids
+                    self.astype_receivers.append(id(cast(object, receiver)))
+        if self.previous_profile is not None:
+            _ = self.previous_profile(frame, event, arg)
+
+    def iterator(self, operand: NDArray[np.float64], **kwargs: object) -> object:
+        if not self.active:
+            return self.original_iterator(operand, **kwargs)
+        assert id(operand) in self.expectations
+        assert operand.dtype == np.dtype(np.float64)
+        assert kwargs == {
+            "flags": ["external_loop", "buffered", "zerosize_ok"],
+            "op_flags": [["readonly"]],
+            "order": "C",
+            "buffersize": 65_536,
+        }
+        self.receiver_ids.add(id(operand))
+        inner = self.original_iterator(operand, **kwargs)
+        label, count, nonzero = self.expectations[id(operand)]
+        observer = self
+
+        class ObservedIterator:
+            def __enter__(self) -> "ObservedIterator":
+                _ = inner.__enter__()
+                observer.open_contexts += 1
+                self.offset = 0
+                return self
+
+            def __iter__(self) -> Iterator[NDArray[np.float64]]:
+                return self
+
+            def __next__(self) -> NDArray[np.float64]:
+                assert not observer.mask_pending
+                block = cast(NDArray[np.float64], next(inner))
+                assert block.dtype == np.dtype(np.float64)
+                size = block.size
+                assert 0 < size <= 65_536 and self.offset + size <= count
+                observer.receiver_ids.add(id(block))
+                for index, value in enumerate(block):
+                    assert struct.pack("<d", float(value)) == struct.pack(
+                        "<d", 1.0 if self.offset + index == nonzero else 0.0
+                    )
+                observer.current = (label, self.offset, size, nonzero)
+                observer.mask_pending = True
+                observer.events.append((label, self.offset, size))
+                self.offset += size
+                return block
+
+            def __exit__(
+                self,
+                exc_type: type[BaseException] | None,
+                exc: BaseException | None,
+                traceback: TracebackType | None,
+            ) -> object:
+                observer.pending_at_exit.append(observer.mask_pending)
+                observer.exit_exception_ids.append(None if exc is None else id(exc))
+                observer.exit_attempts += 1
+                try:
+                    result = inner.__exit__(exc_type, exc, traceback)
+                    observer.closed_contexts += 1
+                    if exc is None and observer.pending_at_exit[-1]:
+                        observer.cleanup_errors.append("normal_exit_with_pending_mask")
+                    return result
+                except BaseException as cleanup_error:
+                    observer.cleanup_errors.append(type(cleanup_error).__name__)
+                    if exc is None:
+                        raise
+                    return False  # Keep the existing causal exception primary.
+                finally:
+                    observer.open_contexts -= 1
+                    observer.mask_pending = False
+                    observer.current = None
+
+        return ObservedIterator()
+
+    def any(self, values: NDArray[np.bool_], *args: object, **kwargs: object) -> object:
+        if self.active:
+            if self.mask_failure is not None:
+                raise self.mask_failure
+            assert self.current is not None and self.mask_pending
+            _, offset, size, nonzero = self.current
+            assert values.dtype == np.dtype(np.bool_)
+            assert values.shape == (size,) and values.nbytes == size <= 65_536
+            assert not args and not kwargs
+            for index, value in enumerate(values):
+                assert bool(value) == (offset + index == nonzero)
+            self.mask_pending = False
+            self.current = None
+        return self.original_any(values, *args, **kwargs)
+
+    def run(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        action: Callable[[], None],
+        owner: HealpixData,
+    ) -> None:
+        before = _linear_snapshot(owner)
+        primary: BaseException | None = None
+        try:
+            with monkeypatch.context() as patch:
+                patch.setattr(np, "nditer", self.iterator)
+                patch.setattr(np, "any", self.any)
+                sys.setprofile(self.profile)
+                action()
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            sys.setprofile(self.previous_profile)
+            checks = (
+                sys.getprofile() is self.previous_profile,
+                cast(object, np.nditer) is self.original_iterator
+                and np.any is self.original_any,
+                not self.active and self.open_contexts == 0,
+                self.entries == self.exits and not self.mask_pending,
+                self.astype_receivers == [],
+                before == _linear_snapshot(owner),
+            )
+            self.cleanup_errors.extend(
+                f"cleanup_check_{index}"
+                for index, valid in enumerate(checks)
+                if not valid
+            )
+            if primary is None:
+                assert not self.cleanup_errors
+
+
+def _linear_snapshot(owner: HealpixData) -> list[tuple[object, ...]]:
+    # Outside scanner profiling: these hashes are preservation checks, not scratch measurements.
+    arrays = {
+        "frequencies": owner.frequencies,
+        "hpx_inds": owner.hpx_inds,
+        "I": owner.maps,
+        "Q": owner.q_maps,
+        "U": owner.u_maps,
+        "V": owner.v_maps,
+    }
+    return [
+        (name, None)
+        if array is None
+        else (
+            name,
+            id(array),
+            array.dtype.str,
+            array.shape,
+            array.strides,
+            str(array.flags),
+            hashlib.sha256(array.tobytes()).hexdigest(),
+        )
+        for name, array in arrays.items()
+    ]
+
+
+def _linear_owner(
+    q: NDArray[np.float64] | None, u: NDArray[np.float64] | None, count: int
+) -> HealpixData:
+    return HealpixData(
+        nside=128,
+        frequencies=np.array([1.0]),
+        hpx_inds=np.arange(count),
+        maps=np.zeros((1, count)),
+        q_maps=q,
+        u_maps=u,
+    )
+
+
+def _complete_linear(owner: HealpixData) -> None:
+    _ = complete_native_identity(
+        owner,
+        brightness_conversion=BC.PLANCK,
+        source_profile="radiosim_ne_iau_v1",
+        tangent_frame=TangentPolarizationFrame.canonical("icrs"),
+    )
+
+
+@pytest.mark.parametrize("strided", [False, True])
+def test_linear_late_u_has_ordered_bounded_exposure(
+    monkeypatch: pytest.MonkeyPatch,
+    strided: bool,
+) -> None:
+    count = 131_075
+    q_backing = np.zeros((1, count * (2 if strided else 1)))
+    u_backing = np.zeros_like(q_backing)
+    q = q_backing[:, ::2] if strided else q_backing
+    u = u_backing[:, ::2] if strided else u_backing
+    u[0, -1] = 1.0
+    owner = _linear_owner(q, u, count)
+    assert owner.q_maps is not None and owner.u_maps is not None
+    assert np.shares_memory(q, owner.q_maps) and np.shares_memory(u, owner.u_maps)
+    assert owner.q_maps.strides == q.strides and owner.u_maps.strides == u.strides
+    assert owner.q_maps.flags.c_contiguous is (not strided)
+    observer = _LinearObservation(
+        {
+            id(owner.q_maps): ("Q", count, -1),
+            id(owner.u_maps): ("U", count, count - 1),
+        }
+    )
+    observer.run(monkeypatch, lambda: _complete_linear(owner), owner)
+    assert observer.entries == 1 and observer.closed_contexts == 2
+    assert observer.pending_at_exit == [False, False]
+    labels = [label for label, _, _ in observer.events]
+    assert labels == sorted(labels)
+    for label in ("Q", "U"):
+        assert sum(size for name, _, size in observer.events if name == label) == count
+
+
+def test_linear_observer_mask_failure_preserves_cause_and_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = _linear_owner(np.zeros((1, 1)), np.zeros((1, 1)), 1)
+    assert owner.q_maps is not None
+    marker = AssertionError("controlled observer mask boundary")
+    original = cast(_IteratorDelegate, np.nditer)
+    delegated: list[int] = []
+
+    def witnessed_iterator(*args: object, **kwargs: object) -> object:
+        inner = original(*args, **kwargs)
+
+        class WitnessedContext:
+            def __iter__(self) -> "WitnessedContext":
+                return self
+
+            def __next__(self) -> object:
+                return next(inner)
+
+            def __enter__(self) -> object:
+                return inner.__enter__()
+
+            def __exit__(self, *exc_args: object) -> object:
+                result = inner.__exit__(
+                    *cast(
+                        tuple[
+                            type[BaseException] | None,
+                            BaseException | None,
+                            TracebackType | None,
+                        ],
+                        exc_args,
+                    )
+                )
+                if exc_args[1] is marker:
+                    delegated.append(id(exc_args[1]))
+                return result
+
+        return WitnessedContext()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(np, "nditer", witnessed_iterator)
+        observer = _LinearObservation({id(owner.q_maps): ("Q", 1, -1)})
+        observer.mask_failure = marker
+        with pytest.raises(AssertionError) as caught:
+            observer.run(monkeypatch, lambda: _complete_linear(owner), owner)
+        assert np.nditer is witnessed_iterator
+    assert delegated == [id(marker)] and np.nditer is original
+    assert caught.value is marker
+    assert observer.exit_exception_ids == [id(marker)]
+    assert observer.pending_at_exit == [True]
+    assert observer.exit_attempts == observer.closed_contexts == 1
+    assert observer.open_contexts == 0 and observer.entries == observer.exits == 1
+    assert not observer.mask_pending and observer.current is None
+    assert observer.cleanup_errors == []
+    assert sys.getprofile() is observer.previous_profile
+    assert np.any is observer.original_any
