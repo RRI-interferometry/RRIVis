@@ -543,6 +543,15 @@ remain retained. Both final independent reviews accept the exact execution in
 `ci-collector-config-execution/round4/`. These are CONFIG-only observations, not
 Session/sessionfinish, collection, full collector readiness or CI closure.
 
+At root's reported CI observation on 9 September 2026, exact `25d5dc0` run
+[34367163259](https://github.com/RRI-interferometry/RadioSim/actions/runs/34367163259)
+was pending, `93beba7` run
+[34365254916](https://github.com/RRI-interferometry/RadioSim/actions/runs/34365254916)
+was in progress, and `987190e` run
+[34363918869](https://github.com/RRI-interferometry/RadioSim/actions/runs/34363918869)
+was cancelled. These are temporal status observations, not authenticated terminal
+scientific outcomes; no newer CI success is inferred.
+
 ## Subsequent bounded implementation and evidence checkpoints
 
 The D36 table builder has independent acceptance for the pure, unwired fixed
@@ -583,10 +592,23 @@ The independent C1 beam fixture is committed and pushed as
 with the same 367 scoped strict diagnostics. Four public-family beam snapshots
 join independent literal projections; the phase join uses the shared PointI
 manifest, not four independently materialized phase manifests. This is test-only
-preparation for the beam consumer; definition/handler/assignment validation and
-the remaining C1 owners still require implementation. Exact evidence and the
-original stopped sequence remain in `c1-beam-fixture-candidate/round2/` and
-`round1-stop/`.
+preparation for the beam consumer. Exact evidence and the original stopped
+sequence remain in `c1-beam-fixture-candidate/round2/` and `round1-stop/`.
+The finite definition-only validator is now committed and pushed as
+`93beba72d2ad9bc2919785374af5e6a457e729d1`: 61 selected cases pass per runtime,
+with the same 367 scoped strict diagnostics. Two deliberate predicate mutations
+produce the expected assertion failures with original functions restored. This
+176-addition definition helper remains unwired. Its exact executed evidence is
+in `c1-beam-definition-candidate/round1/`.
+The finite handler primitive is now committed as
+`732a853f980168e9912c76c1d749b40eee24b8d9`: all 99 selected case identities match
+across both passing runtime gates, with the same 367 scoped strict diagnostics.
+Its 234 additions include one type-only cast after the existing row guard;
+original 367-to-369 typing and packaging-collision stops remain preserved in
+`c1-beam-handler-candidate/`. Final evidence is in `round2-authored/`.
+The handler also remains unwired: assignment, instrument/phase joins and final
+beam composition are pending, as are the remaining C1 owners. These focused
+controls do not establish numerical beam qualification or admission.
 
 The private, unwired native payload codec is committed at
 `5ed697ffdfe86efd57c349f0384c6adddfe669a6`. Identity tests at
@@ -648,9 +670,22 @@ safety. Hostile owner tests are committed and pushed at
 `d1e281f8c8ed107783007747b7ce667d5c805b27`: 46 cases pass per runtime
 (14 new, two basic owner, 30 materialization), with zero new-file strict diagnostics.
 The preparation-only missing-conftest stop and final reviewed evidence remain in
-`m4-native-owner-hostile-candidate/{round1,round2}/`. Preparation, cache/export,
-fresh-construction integration, loader canonicalization and public native m-mode
-qualification remain separate.
+`m4-native-owner-hostile-candidate/{round1,round2}/`.
+Sky preparation preservation is now committed and pushed as
+`25d5dc07f1730bbb133175e217e5502a55551ee3`. `prepare_sky_model` revalidates
+attached evidence against the actual input context and preserves unchanged
+single-model returns, including existing hybrid point payloads. It refuses
+attached combinations or map-to-point conversion until child-materialization
+evidence exists; lossy/disjointness options do not authorize dropping identity.
+Raw unbound models keep their prior behavior and gain no inferred convention.
+The entire call retains the caller's alias-exclusion precondition. The selected
+four-module regression set plus four raw combine/conversion nodes passes 83
+cases per runtime. Scoped static evidence is explicitly reused from the passed
+113-to-113 comparison, with no fresh-static claim. Original strict/fixture and
+unguarded-spawn stops remain under `m4-native-prepare-consumer-candidate/`; final
+round3 preserves the guarded runner and exact source. Cache/export, other fresh
+construction and lower-level operations, loader canonicalization and public
+native m-mode qualification remain separate.
 The original strict stop and final evidence are in
 `m4-native-owner-candidate/{round1,round2}/`. Root records
 `native-schema-A-commit.json`, `ci-request-commit.json` and
@@ -682,11 +717,24 @@ and 1352 on py312 against W=1280, under the stated retained-binding, method-doma
 and retain-W conditions. Its admitted-capacity witness is not demonstrated to
 belong to the unchanged 148-case roster. These are neither measured peaks nor
 failed executions of that roster. The diagnostic patch is not an approved W
-repair; phase separation and complete positive/error ownership proof remain to be
-resolved before implementation or another census/runtime release. Exact records
-are in `d35-profile-reader-controller-flow-options/round1/`; predecessor stops
-remain unchanged. Raw496 and complete pair caps remain fixed. No construction
-case or actual capture-profile acquisition has run through this reader.
+repair. Exact records are in `d35-profile-reader-controller-flow-options/round1/`;
+predecessor stops remain unchanged.
+
+The later phase-separation option also has an accepted, qualified source-only
+STOP: post-D lower subsets are 1312 bytes on default and 1320 on py312 against
+W=1280, already excluding the optional lexical cell body. Unlike the preceding
+capacity-refusal witness, this is an existing case's positive acquisition setup
+before its raw-constructor fault is armed. No case was executed. The conclusion
+retains the current controller/helper-frame attribution and qualified source
+premises; it is neither a measured peak nor algorithm-independent impossibility.
+Root disposition binds manifest
+`e9b6980d4ad47a2537335e8cc8d742900c00b013d3838f106d7e917bd7b8e66e`
+in `d35-profile-reader-phase-separation-plan/round1/`. A coordinated nonrecursive
+lexical/detachment design with complete positive/error proof, or a separately
+reviewed traversal-owner contract, remains the next source decision. No
+implementation, compilation or runtime release follows from this STOP. Raw496,
+P/D formulas, pair caps and the 148-case roster remain unchanged; no actual
+capture profile has been acquired by this reader.
 
 FITPACK execution is accepted only for four finite public-constructor observations
 and four Python pre-native refusals across the two recorded environments. Maximum
