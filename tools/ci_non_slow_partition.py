@@ -480,3 +480,55 @@ def parse_collection_request(
     ):
         raise ValueError("request argv must be an array of strings")
     return request, digest
+
+
+def bind_collection_request(
+    raw: bytes,
+    *,
+    expected_sha256: str,
+    root: str,
+    commit: str,
+    source_manifest_sha256: str,
+    baseline: tuple[str, ...],
+    roster: tuple[str, ...],
+) -> tuple[dict[str, Any], str, tuple[str, ...] | None]:
+    """Join an independently authenticated authority; do not authenticate Git here."""
+    request, digest = parse_collection_request(raw, expected_sha256=expected_sha256)
+    for key, value in (
+        ("root", root),
+        ("commit", commit),
+        ("source_manifest_sha256", source_manifest_sha256),
+    ):
+        if request[key] != value:
+            raise ValueError(f"collection authority mismatch: {key}")
+    role = request["role"]
+    if role == "baseline":
+        if baseline:
+            raise ValueError("baseline request cannot consume a prior baseline")
+        _ = _partition_selections((), roster)  # Required files, including empty owners.
+        selection = ("tests",)
+        expected = None
+    else:
+        if not baseline:
+            raise ValueError("selected collection requires a nonempty proven baseline")
+        selection = _partition_selections(baseline, roster)[role][0]
+        owners = _node_owners(baseline, roster)
+        dedicated = tuple(p for paths in PARTITION_FILES.values() for p in paths)
+        members = (
+            tuple(p for p in roster if p not in dedicated)
+            if role == "general"
+            else PARTITION_FILES[role]
+        )
+        expected = tuple(
+            n for n, owner in zip(baseline, owners, strict=True) if owner in members
+        )
+    if request["argv"] != [
+        "-n",
+        "auto",
+        "--collect-only",
+        "-m",
+        "not slow",
+        *selection,
+    ]:
+        raise ValueError("collection argv differs from derived role selection")
+    return request, digest, expected

@@ -707,3 +707,101 @@ def test_request_accepts_exact_role_index_pairs(role: str, index: int) -> None:
         json.dumps(document).encode()
     )
     assert parsed == document
+
+
+def _request_authority_fixture() -> tuple[Any, dict[str, Any], dict[str, Any]]:
+    module = _partition_tool()
+    roster = tuple(path for paths in module.PARTITION_FILES.values() for path in paths)
+    baseline = tuple(path + "::test_owned" for path in roster)
+    expected = {
+        "root": "/independently-authenticated-root",
+        "commit": "a" * 40,
+        "source_manifest_sha256": "b" * 64,
+        "baseline": baseline,
+        "roster": roster,
+    }
+    request = {
+        "schema": "radiosim-ci-collection-request-v1",
+        "nonce": "c" * 32,
+        "index": 2,
+        "role": "history",
+        "root": expected["root"],
+        "commit": expected["commit"],
+        "source_manifest_sha256": expected["source_manifest_sha256"],
+        "argv": [
+            "-n",
+            "auto",
+            "--collect-only",
+            "-m",
+            "not slow",
+            *module.PARTITION_FILES["history"],
+        ],
+    }
+    return module, request, expected
+
+
+def test_collector_request_joins_landed_selection() -> None:
+    module, request, expected = _request_authority_fixture()
+    raw = json.dumps(request).encode()
+    parsed, digest, nodes = module.bind_collection_request(
+        raw, expected_sha256=hashlib.sha256(raw).hexdigest(), **expected
+    )
+    assert parsed == request and digest == hashlib.sha256(raw).hexdigest()
+    assert nodes == tuple(p + "::test_owned" for p in module.PARTITION_FILES["history"])
+
+
+@pytest.mark.parametrize("field", ["root", "commit", "source_manifest_sha256", "argv"])
+def test_collector_request_rehashed_foreign_authority_refused(field: str) -> None:
+    module, request, expected = _request_authority_fixture()
+    request[field] = {
+        "root": "/foreign",
+        "commit": "d" * 40,
+        "source_manifest_sha256": "e" * 64,
+        "argv": ["-n", "0", "--collect-only", "tests"],
+    }[field]
+    raw = json.dumps(
+        request
+    ).encode()  # Independent outer digest is valid: isolate the join.
+    with pytest.raises(ValueError, match="authority mismatch|derived role selection"):
+        module.bind_collection_request(
+            raw, expected_sha256=hashlib.sha256(raw).hexdigest(), **expected
+        )
+
+
+def test_collector_selected_request_requires_prior_baseline() -> None:
+    module, request, expected = _request_authority_fixture()
+    expected["baseline"] = ()
+    raw = json.dumps(request).encode()
+    with pytest.raises(ValueError, match="nonempty proven baseline"):
+        module.bind_collection_request(
+            raw, expected_sha256=hashlib.sha256(raw).hexdigest(), **expected
+        )
+
+
+@pytest.mark.parametrize("prior_present", [False, True])
+def test_collector_baseline_request_owns_no_prior_baseline(prior_present: bool) -> None:
+    module, request, expected = _request_authority_fixture()
+    request.update(
+        index=0,
+        role="baseline",
+        argv=["-n", "auto", "--collect-only", "-m", "not slow", "tests"],
+    )
+    raw = json.dumps(request).encode()
+    independent_sha = hashlib.sha256(raw).hexdigest()
+    if prior_present:
+        # Same valid request and roster; only the caller's prior baseline differs.
+        assert expected["baseline"]
+        with pytest.raises(
+            ValueError, match="^baseline request cannot consume a prior baseline$"
+        ):
+            module.bind_collection_request(
+                raw, expected_sha256=independent_sha, **expected
+            )
+    else:
+        expected["baseline"] = ()
+        parsed, digest, nodes = module.bind_collection_request(
+            raw, expected_sha256=independent_sha, **expected
+        )
+        assert parsed == request
+        assert digest == independent_sha
+        assert nodes is None
