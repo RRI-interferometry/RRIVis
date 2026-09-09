@@ -1194,3 +1194,19 @@ normalization, all scans/hashes and publication. Frozen fields, read-only flags
 and `model.replace()` may share storage; they establish neither exclusive
 ownership nor a coherent concurrent snapshot. Later sequential stale-alias
 checks are separate and do not prove safety against concurrent writers.
+
+
+### Native evidence at sky preparation
+
+`prepare_sky_model` revalidates attached native evidence against the actual input
+model and preserves it on unchanged single-model returns, including hybrid
+returns with an existing point payload. Until child-materialization operations
+exist, it refuses combining attached inputs or converting an attached map to
+points before that work. `allow_lossy` and disjointness options do not authorize
+dropping evidence. Existing grid checks remain enforced. Raw unbound models
+retain their preparation behavior and acquire no inferred convention claim.
+The caller must exclude writes/rebinding through all payload/axis/ID aliases
+for the entire preparation call; shared read-only arrays are not a snapshot.
+This wrapper guard does not cover independent lower-level operation calls or
+change native m-mode admission. Single-model passthrough still uses the actual
+model context; this change does not reinterpret existing option overrides.

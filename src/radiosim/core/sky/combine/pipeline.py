@@ -39,6 +39,14 @@ def prepare_sky_model(
     for a narrow escape that skips only double-count rules), combines the
     models, and materializes the result into the requested ``representation``.
 
+    Attached native evidence is validated against the actual model context.
+    Unchanged single-model returns preserve it; combining attached inputs or
+    converting an attached map requires child materialization evidence and is
+    refused until those operations exist. Raw unbound inputs remain unbound.
+    The caller must exclude mutation or rebinding through every payload,
+    frequency-axis and pixel-ID alias for the entire preparation call. Read-only
+    flags and shared storage do not establish an exclusive concurrent snapshot.
+
     Two equivalent calling styles:
 
     1. Build a :class:`PrepareSkyOptions` once (and serialise it for run
@@ -57,6 +65,18 @@ def prepare_sky_model(
 
     base = options if options is not None else PrepareSkyOptions()
     opts = base.merged(**overrides) if overrides else base
+
+    # Revalidate attached values before any fast return or preparation work.
+    # Callers must exclude writes through all payload/axis/ID aliases throughout.
+    has_native_attachment = False
+    for model in models:
+        if model.healpix is not None:
+            model.healpix.validate_polarization_materialization(
+                brightness_conversion=model.brightness_conversion
+            )
+            has_native_attachment |= (
+                model.healpix.polarization_materialization is not None
+            )
 
     representation = opts.representation
     nside = opts.nside
@@ -78,6 +98,14 @@ def prepare_sky_model(
     target = resolve_target_representation(models, representation)
 
     requested_freqs = _resolve_requested_healpix_frequencies(frequencies)
+
+    if has_native_attachment and len(models) > 1:
+        if target == SkyFormat.HEALPIX:
+            _validate_requested_healpix_grid(models, nside, requested_freqs)
+        raise ValueError(
+            "Combining attached native components requires child materialization "
+            "evidence; preparation cannot drop or reissue the input identity."
+        )
 
     # Single-model fast path: when no combine is needed and the caller didn't
     # request a specific representation, return the model unchanged.
@@ -129,6 +157,11 @@ def prepare_sky_model(
         raise ValueError(
             "Requested point-source sky representation for a HEALPix-only model. "
             "Set allow_lossy=True to opt in to lossy HEALPix-to-point conversion."
+        )
+    if has_native_attachment:
+        raise ValueError(
+            "Converting an attached native component requires child materialization "
+            "evidence; preparation cannot drop or reissue the input identity."
         )
     return materialize_point_sources_model(
         sky, frequency=frequency, lossy=True, clear_other=True, backend=backend
