@@ -531,8 +531,17 @@ config-probe round1 was rejected for roster, resource-bound and failure-receipt
 gaps. Unexecuted round2 repairs the roster and failure receipt but is rejected
 for incomplete proxy-based hook inventory, copies preceding bounds, and child
 setup outside cleanup protection. Both original reviews are retained in
-`ci-collector-config-probe/round2/`; source correction precedes runtime release.
-Actual post-main lifecycle observations and complete CI closure remain open.
+`ci-collector-config-probe/round2/`. The subsequent CONFIG round4 source has
+both independent ACCEPTs. Its 11 standalone controls pass on each supported
+runtime, with frozen source/executable and installed-source checks before and
+after (`ci-collector-config-controls/round1/`). Actual CONFIG round4 subsequently
+ran once: both children and pytest returned zero, each with one command/configure/
+unconfigure invocation and no observed Session, collection or runtest activity.
+Post-main registrations, full global hooks, options, ini and distributions equal
+pre-cleanup in both profiles; separately observed import-hook changes and warnings
+remain retained. Both final independent reviews accept the exact execution in
+`ci-collector-config-execution/round4/`. These are CONFIG-only observations, not
+Session/sessionfinish, collection, full collector readiness or CI closure.
 
 ## Subsequent bounded implementation and evidence checkpoints
 
@@ -568,6 +577,16 @@ Scoped strict diagnostics remain the same 367. Checkpoint 8 retains exact
 reference predicate composition; 15 literal test variants are explicitly qualified
 as predicate-equivalent coverage, not verbatim case replay. Its 469-case gates do
 not constitute a full E gate, completed C1, or observation admission.
+
+The independent C1 beam fixture is committed and pushed as
+`637cc4309197cb28b6bc66d0df435e0a82da9cef`: 15 selected cases pass per runtime,
+with the same 367 scoped strict diagnostics. Four public-family beam snapshots
+join independent literal projections; the phase join uses the shared PointI
+manifest, not four independently materialized phase manifests. This is test-only
+preparation for the beam consumer; definition/handler/assignment validation and
+the remaining C1 owners still require implementation. Exact evidence and the
+original stopped sequence remain in `c1-beam-fixture-candidate/round2/` and
+`round1-stop/`.
 
 The private, unwired native payload codec is committed at
 `5ed697ffdfe86efd57c349f0384c6adddfe669a6`. Identity tests at
@@ -611,11 +630,29 @@ controls are committed and pushed as `ca7494a6c7c20a590fdad364646fb3f0fa22934b`,
 with both independent reviews accepted: 25 cases pass per runtime and scoped
 strict diagnostics remain zero. Contiguous/strided late-U exposure and the causal
 cleanup control establish finite chunk/mask observations, not C allocation or RSS
-bounds. B2 early-return, absent/empty and nonfinite-before-entry controls remain
-unapplied. All original static stops and final evidence remain under
-`m4-native-identity-linear-scan-candidate/round1/`.
-The owner-attachment round2 proposal has both prospective ACCEPTs but remains
-unapplied (`m4-native-owner-attachment-plan/round2/`). Root records
+bounds. B2 early-return, absent/empty and nonfinite-before-entry controls are
+committed and pushed as `e30b9ff1c236967c6218f8815d3154adda785a08`: 30 cases
+pass per runtime with zero scoped strict diagnostics. B1's original static stops
+remain under `m4-native-identity-linear-scan-candidate/round1/`; B2 evidence is in
+`m4-native-identity-linear-scan-B2-candidate/round1/`.
+
+Native owner attachment is committed and pushed as
+`91e066eb79e58c3348d3bdee10802db9fe9ee95a`. Typed canonical evidence and frame
+now join normalized stored values and final SkyModel context; identical
+replacements preserve complete receipts, while reviewed drop/reissue and stale
+endpoint paths refuse. Verification passes 27 focused and 26 existing regression
+cases per runtime, plus four fresh import-order probes; scoped strict retains the
+same 97 diagnostics. Callers must exclude mutation/rebinding through all aliases
+throughout validation and publication; this does not establish concurrent snapshot
+safety. Hostile owner tests are committed and pushed at
+`d1e281f8c8ed107783007747b7ce667d5c805b27`: 46 cases pass per runtime
+(14 new, two basic owner, 30 materialization), with zero new-file strict diagnostics.
+The preparation-only missing-conftest stop and final reviewed evidence remain in
+`m4-native-owner-hostile-candidate/{round1,round2}/`. Preparation, cache/export,
+fresh-construction integration, loader canonicalization and public native m-mode
+qualification remain separate.
+The original strict stop and final evidence are in
+`m4-native-owner-candidate/{round1,round2}/`. Root records
 `native-schema-A-commit.json`, `ci-request-commit.json` and
 `cleanup-policy-auth.json` under `output/verification/root-continuation-20260908/`
 bind the landed commits and separate L1 source-policy disposition.
@@ -635,12 +672,21 @@ post-P owner transfer remains unproved. This result is specific to the qualified
 CPython 3.11 first instance; it is neither a measured allocation/RSS peak, a
 Python 3.12 instance bound nor a complete upper proof. Its records are in
 `d35-profile-reader-charge-construction-preparation/round1-owner-stop/`.
-The subsequent combined layout/reserve amendment has only a source-preparation
-and compile-only census grant, recorded in `reader-layout-source-grant.json` under
-`output/verification/root-continuation-20260908/`. Its source/lifetime proof remains
-under validation; no construction fit or experiment is released. Raw496 and
-complete pair caps remain unchanged. The 148-case construction roster
-has not run, and no actual capture profile has been acquired by this reader.
+Later layout and controller-flow work has not established construction fit.
+The predecessor layout compile-only census yielded a positive-path subtotal of
+1288 bytes on py312 against W=1280 (default's 1280 was not a fit proof), retained
+in `d35-profile-reader-layout-construction-preparation/round1-owner-stop/`.
+The controller-flow option has two independent ACCEPTs for a conditional
+source-design STOP: zero-stack error-overlap subsets are 1344 bytes on default
+and 1352 on py312 against W=1280, under the stated retained-binding, method-domain
+and retain-W conditions. Its admitted-capacity witness is not demonstrated to
+belong to the unchanged 148-case roster. These are neither measured peaks nor
+failed executions of that roster. The diagnostic patch is not an approved W
+repair; phase separation and complete positive/error ownership proof remain to be
+resolved before implementation or another census/runtime release. Exact records
+are in `d35-profile-reader-controller-flow-options/round1/`; predecessor stops
+remain unchanged. Raw496 and complete pair caps remain fixed. No construction
+case or actual capture-profile acquisition has run through this reader.
 
 FITPACK execution is accepted only for four finite public-constructor observations
 and four Python pre-native refusals across the two recorded environments. Maximum
