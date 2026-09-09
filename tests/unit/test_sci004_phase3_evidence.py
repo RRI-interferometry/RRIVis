@@ -10939,3 +10939,164 @@ def test_characterization_beam_definition_rehashed_taper(value: float) -> None:
     with pytest.raises(module.EvidenceError) as caught:
         module.validate_characterization_beam_definition(definition, "beam")
     assert str(caught.value) == module.DIGEST + ": beam: finite edge taper differs"
+
+
+def test_characterization_beam_handler_original_preimage() -> None:
+    module = _tool()
+    beam = _beam_projection_fixture(_instrument_projection_fixture()["instrument"])
+    handler = beam["handlers"][0]
+    before = copy.deepcopy(handler)
+    expected = _beam_projection_hash(_beam_projection_preimages()[1])
+    for definition in beam["resolved"]["unique_definitions"]:
+        assert (
+            module.validate_characterization_beam_handler(
+                handler, definition, 2.5, "handler"
+            )
+            == expected
+        )
+        assert (
+            module.validate_characterization_beam_handler(
+                dict(reversed(tuple(handler.items()))), definition, 2.5, "handler"
+            )
+            == expected
+        )
+    assert handler == before
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "handler_id",
+        "kind",
+        "scientific_fingerprint",
+        "file",
+        "voltage_feature_scale_by_frequency",
+    ],
+)
+@pytest.mark.parametrize("operation", ["missing", "extra"])
+def test_characterization_beam_handler_closed(key: str, operation: str) -> None:
+    module = _tool()
+    beam = _beam_projection_fixture(_instrument_projection_fixture()["instrument"])
+    handler = beam["handlers"][0]
+    if operation == "missing":
+        del handler[key]
+    else:
+        handler["extra_" + key] = copy.deepcopy(handler[key])
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_beam_handler(
+            handler, beam["resolved"]["unique_definitions"][0], 2.5, "handler"
+        )
+    assert str(caught.value).startswith(module.SCHEMA + ":")
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("root", None),
+        ("root", []),
+        ("handler_id", 1),
+        ("kind", True),
+        ("scientific_fingerprint", None),
+        ("file", "beam.fits"),
+        ("table", None),
+        ("table", []),
+        ("table", [[50e6, 1.0], [50e6, 1.0]]),
+        ("row", (50e6, 1.0)),
+        ("row", [50e6]),
+        ("frequency", 50000000),
+        ("frequency", -0.0),
+        ("frequency", float("inf")),
+        ("scale", True),
+        ("scale", 0.0),
+        ("scale", float("nan")),
+        ("diameter", 2),
+        ("diameter", -1.0),
+    ],
+)
+def test_characterization_beam_handler_native_types(field: str, value: Any) -> None:
+    module = _tool()
+    beam = _beam_projection_fixture(_instrument_projection_fixture()["instrument"])
+    handler = beam["handlers"][0]
+    diameter = 2.5
+    if field == "root":
+        handler = value
+    elif field == "diameter":
+        diameter = value
+    elif field == "table":
+        handler["voltage_feature_scale_by_frequency"] = value
+    elif field == "row":
+        handler["voltage_feature_scale_by_frequency"][0] = value
+    elif field in ("frequency", "scale"):
+        handler["voltage_feature_scale_by_frequency"][0][int(field == "scale")] = value
+    else:
+        handler[field] = value
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_beam_handler(
+            handler, beam["resolved"]["unique_definitions"][0], diameter, "handler"
+        )
+    assert str(caught.value).startswith(module.SCHEMA + ":")
+
+
+@pytest.mark.parametrize(
+    "mutation,detail",
+    [
+        ("frequency", "finite frequency differs"),
+        ("scale", "scale differs"),
+        ("diameter", "finite diameter differs"),
+        ("contract", "scientific fingerprint differs"),
+        ("domain", "scientific fingerprint differs"),
+        ("null-aperture", "scientific fingerprint differs"),
+        ("handler-id", "handler ID differs"),
+        ("definition", "finite edge taper differs"),
+    ],
+)
+def test_characterization_beam_handler_rehashed_refusals(
+    mutation: str, detail: str
+) -> None:
+    module = _tool()
+    beam = _beam_projection_fixture(_instrument_projection_fixture()["instrument"])
+    handler = beam["handlers"][0]
+    definition = beam["resolved"]["unique_definitions"][0]
+    _, preimage = _beam_projection_preimages()
+    original = _beam_projection_hash(preimage)
+    diameter = 2.5
+    if mutation == "frequency":
+        frequency = 60e6
+        scale = 299792458.0 / frequency / diameter
+        handler["voltage_feature_scale_by_frequency"] = [[frequency, scale]]
+        preimage["observation_frequencies_hz"] = [frequency.hex()]
+        preimage["voltage_feature_scale_by_frequency"] = [
+            [frequency.hex(), scale.hex()]
+        ]
+    elif mutation == "scale":
+        scale = float.fromhex("0x1.32fccb4aca315p+1")
+        assert scale != 299792458.0 / 50e6 / 2.5
+        handler["voltage_feature_scale_by_frequency"][0][1] = scale
+        preimage["voltage_feature_scale_by_frequency"][0][1] = scale.hex()
+    elif mutation == "diameter":
+        diameter = 3.0
+        scale = 299792458.0 / 50e6 / diameter
+        preimage["effective_dimensions"]["diameter_m"] = diameter.hex()
+        preimage["voltage_feature_scale_by_frequency"][0][1] = scale.hex()
+        handler["voltage_feature_scale_by_frequency"][0][1] = scale
+    elif mutation == "contract":
+        preimage["contract"] = "other"
+    elif mutation == "domain":
+        preimage["kind"] = "analytic"
+    elif mutation == "null-aperture":
+        preimage["aperture_physics"] = None
+    elif mutation == "definition":
+        definition["model"]["taper"]["edge_taper_db"] = 20.0
+        preimage["model"]["taper"]["edge_taper_db"] = (20.0).hex()
+    fingerprint = _beam_projection_hash(preimage)
+    assert (fingerprint == original) == (mutation == "handler-id")
+    handler["scientific_fingerprint"] = fingerprint
+    handler["handler_id"] = "beam-0000-" + fingerprint[:12]
+    if mutation == "handler-id":
+        handler["handler_id"] = "beam-0001-" + fingerprint[:12]
+    with pytest.raises(module.EvidenceError) as caught:
+        module.validate_characterization_beam_handler(
+            handler, definition, diameter, "handler"
+        )
+    assert str(caught.value).startswith(module.DIGEST + ":")
+    assert str(caught.value).endswith(": " + detail)

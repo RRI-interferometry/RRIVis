@@ -4750,6 +4750,79 @@ def validate_characterization_beam_definition(value: Any, label: str) -> str:
     ).hexdigest()
 
 
+def validate_characterization_beam_handler(
+    value: Any, definition: Any, diameter: Any, label: str
+) -> str:
+    """Join one finite analytic handler to its definition and diameter.
+
+    Assignment routing, instrument ownership and phase identities are deferred.
+    """
+    _ = validate_characterization_beam_definition(definition, label + " definition")
+    size = _characterization_instrument_float(diameter, label + " diameter")
+    _require(size > 0.0, SCHEMA, label + ": positive diameter required")
+    _require(f64be(size) == f64be(2.5), DIGEST, label + ": finite diameter differs")
+    handler = _require_keys(
+        _input_projection_object(value, label),
+        (
+            "handler_id",
+            "kind",
+            "scientific_fingerprint",
+            "file",
+            "voltage_feature_scale_by_frequency",
+        ),
+        label,
+    )
+    for key in ("handler_id", "kind", "scientific_fingerprint"):
+        _require(type(handler[key]) is str, SCHEMA, label + ": string required")
+    _require(handler["kind"] == "analytic", DIGEST, label + ": handler kind differs")
+    _require(handler["file"] is None, SCHEMA, label + ": null file required")
+    table = handler["voltage_feature_scale_by_frequency"]
+    _require(type(table) is list and len(table) == 1, SCHEMA, label + ": one scale row")
+    row = table[0]
+    _require(
+        type(row) is list and len(row) == 2, SCHEMA, label + ": frequency/scale row"
+    )
+    row = cast(list[Any], row)
+    frequency = _characterization_instrument_float(row[0], label + " frequency")
+    scale = _characterization_instrument_float(row[1], label + " scale")
+    _require(frequency > 0.0 and scale > 0.0, SCHEMA, label + ": positive scale row")
+    _require(
+        f64be(frequency) == f64be(50e6), DIGEST, label + ": finite frequency differs"
+    )
+    expected_scale = 299792458.0 / frequency / size
+    _require(f64be(scale) == f64be(expected_scale), DIGEST, label + ": scale differs")
+    preimage = {
+        "schema_version": "tier3-beam-v1",
+        "kind": "analytic_handler",
+        "contract": "tier3-scalar-v1",
+        "model": {
+            "kind": "circular_aperture",
+            "taper": {"kind": "gaussian", "edge_taper_db": (10.0).hex()},
+        },
+        "effective_dimensions": {"kind": "circular", "diameter_m": size.hex()},
+        "derived_edge_taper_db": None,
+        "n_radial": None,
+        "observation_frequencies_hz": [frequency.hex()],
+        "voltage_feature_scale_by_frequency": [[frequency.hex(), scale.hex()]],
+    }
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            preimage, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    ).hexdigest()
+    _require(
+        handler["scientific_fingerprint"] == fingerprint,
+        DIGEST,
+        label + ": scientific fingerprint differs",
+    )
+    _require(
+        handler["handler_id"] == "beam-0000-" + fingerprint[:12],
+        DIGEST,
+        label + ": handler ID differs",
+    )
+    return fingerprint
+
+
 def _characterization_instrument_float(value: Any, label: str) -> float:
     """Require a normalized native binary64 instrument value without coercion."""
     _require(type(value) is float, SCHEMA, label + ": exact float required")
